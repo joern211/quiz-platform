@@ -2,6 +2,65 @@
 
 Alle wesentlichen Änderungen werden hier dokumentiert.
 
+## [0.2.1] - 2026-09-16
+
+### 🔧 Gate 1 – Build-/TS-/ESM-Blocker behoben
+
+| ID | Problem | Fix |
+|---|---|---|
+| TECH-001 | Spielmodule nutzten falsche relative Importpfade → `ERR_MODULE_NOT_FOUND` beim Serverstart | Alle Game-Engines auf `../../persistence/prisma.js` und `../../observability/logger.js` korrigiert |
+| TECH-002 | Server `tsconfig` war `commonjs`, Paket aber `type: module` | Auf `module: NodeNext`, `moduleResolution: NodeNext` umgestellt |
+| TECH-003 | Config lieferte `PORT`, Code las `port` → unzählige Typfehler | Normalisierte Config mit `port`, `sessionSecret`, `publicAppUrl`, `logLevel` als saubere Schnittstelle |
+| TECH-004 | Vite (5173) und Server (5173) kollidierten im Dev-Proxy | Server auf Port **3001**; Vite-Proxy korrigiert; Docker Compose angepasst |
+| TECH-005 | Server suchte Web-Build unter `../../apps/web/dist`, Docker kopierte nach `/app/web` | `WEB_DIST_PATH`-Env-Variable; Dockerfile Non-Root-User |
+| TECH-006 | Docker: `prisma generate` fehlte im Multi-Stage-Build | Multi-Stage korrigiert: `pnpm install` → `prisma generate` → Build → Runtime-Stage |
+| TECH-007 | Lockfile nicht reproduzierbar (extrem neue Pakete blockierten) | `.npmrc` mit `engine-strict=true`; `--frozen-lockfile` in CI |
+| TECH-009 | Keine initiale Migration im Repo | Initiale Prisma-Migration erstellt |
+| QA-001 | Web-`tsconfig` keine JSX-/CSS-Modul-Konfiguration | `jsx: react-jsx`, `moduleResolution: bundler`, CSS-Module-Declaration |
+| QA-002 | Keine Tests; Root-`test`-Skript ungeeignet für CI | `vitest` mit `jsdom`; Test/Watch-Skripte getrennt |
+| QA-003 | E2E-Tests nur Sichtbarkeitsprüfungen | Playwright `webServer` konfiguriert; Multi-User-E2E-Scaffold |
+
+### 🔐 Gate 2 – Verträge und Sicherheit
+
+| ID | Problem | Fix |
+|---|---|---|
+| SEC-001 | Seed nutzte SHA-256, Login prüfte Argon2 → Login unmöglich | Seed auf Argon2id umgestellt; `INITIAL_ADMIN_PASSWORD=secret` |
+| SEC-004 | Keine Socket-Disconnection-Logik | `requireRoomRole` Middleware + Socket-Zuordnung + disconnect/Rejoin-Support angelegt |
+| SEC-009 | `Math.random()` für Raumcodes → vorhersagbar | `crypto.randomInt`-basiert mit Retry-Logik bei Kollision |
+| API-001 | HTTP-Response war `{"success":true,"data":...}`, Frontend las direkte Felder | Typisierter `ApiResponse<T>` Client in `apps/web/src/lib/api.ts` |
+| API-002 | Frontend sendete `gameSlug`, Server wollte `gameDefinitionId` | Server akzeptiert `gameSlug`, löst intern auf `gameDefinitionId` auf |
+| API-003 | Join-Seite sendete falsche Felder; Rejoin-Tokens inkonsistent | Server gibt `rejoinToken` + `participationId`; Client speichert beides |
+| API-004 | Kein `isPublic`-Merkmal → private Räume wurden öffentlich gelistet | `isPublic Boolean @default(true)` in Room-Model; nur öffentliche Räume im Listing |
+| API-006 | Widersprüchliche Slugs | Einheitliche kanonische Slugs in `GAME_MANIFEST`; Server löst nach Slug auf |
+
+### ✅ Verifiziert (Gate 1 Abnahme)
+
+```
+pnpm install --frozen-lockfile           ✅
+pnpm typecheck (server)                  ✅  0 errors
+pnpm typecheck (web)                     ✅  0 errors
+pnpm --filter @quiz/server build         ✅
+pnpm --filter @quiz/web build            ✅
+pnpm db:seed                             ✅  Argon2 hashes erstellt
+Server-Start (PORT=3001)                 ✅  startet fehlerfrei
+GET /api/v1/health                       ✅  200 {"status":"ok","version":"0.2.1"}
+POST /api/v1/auth/login                  ✅  200 (moderator@example.com/secret UND Moderator/secret)
+```
+
+### ⚠️ Bekannte offene Punkte (siehe `KNOWN_ISSUES.md`)
+
+- Game-Engines sind Gerüste (GAME-002, GAME-003)
+- Rollenprojektionen fehlen (GAME-003)
+- Viewer-/Zuschauer-Redirect-Schleife (FLOW-001)
+- Result-Routen unvollständig (FLOW-002)
+- Profile-/AV-Weg nicht vollständig (FLOW-004)
+- Cyberpunk-/Neon-/Bounce-Effekte müssen zurückgebaut werden (Gate 4)
+- Light Theme nicht vollständig durchgesetzt (UI-002)
+- Einige Socket-Events noch nicht vollständig typisiert (SOCK-001/003)
+- PWA nicht vollständig konfiguriert (PWA-001)
+
+---
+
 ## [0.2.0] - 2026-09-16
 
 ### UI/UX — Komplettes Redesign
