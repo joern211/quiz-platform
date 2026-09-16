@@ -67,14 +67,14 @@ This document tracks P0/P1/P2 issues identified during Gate 1 & Gate 2 review.
 **Issue**: The schema already has RoomGameState model, no fix needed.
 
 ### SEED-001: Seed game definitions use wrong field names
-**Status**: ⚠️ STILL NEEDS FIX  
-**Files**: `prisma/seed.ts`  
-**Issue**: Seed uses `estimatedMinutes` and `JSON.stringify(tags)` but schema expects `estimatedDurationMinutes` and `tags` as String array.
+**Status**: ✅ FIXED in subsequent commit
+**Files**: `prisma/seed.ts`
+**Issue**: Seed used `estimatedMinutes` and `JSON.stringify(tags)` but schema expects `estimatedDurationMinutes` and `tags` as String array.
 
 ### SEED-002: Seed uses wrong password env variable name
-**Status**: ⚠️ STILL NEEDS FIX  
-**Files**: `prisma/seed.ts`  
-**Issue**: Seed reads `process.env.ADMIN_PASSWORD` but .env.example defines `INITIAL_ADMIN_PASSWORD`
+**Status**: ✅ FIXED in initial commit (INITIAL_ADMIN_PASSWORD already in seed.ts)
+**Files**: `prisma/seed.ts`
+**Issue**: Seed reads `process.env.INITIAL_ADMIN_PASSWORD` — correct.
 
 ### TYPING-001: Timeline game manifest has 'AVANNING' typo
 **Status**: ✅ FIXED in this PR  

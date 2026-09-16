@@ -3,21 +3,31 @@
 // ============================================================
 
 import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { Card, Button, Input } from '@quiz/ui';
 import styles from './JoinPage.module.css';
 
 export function JoinPage() {
   const navigate = useNavigate();
+  const location = useLocation();
   const [code, setCode] = useState('');
   const [pin, setPin] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
+  // Pre-fill code from router state (e.g. from RoomsPage)
+  useState(() => {
+    const state = location.state as { code?: string } | null;
+    if (state?.code) {
+      // Format NNN-NNN
+      const c = state.code.replace(/\D/g, '');
+      if (c.length <= 3) setCode(c);
+      else setCode(`${c.slice(0, 3)}-${c.slice(3, 6)}`);
+    }
+  });
+
   const formatCode = (value: string) => {
-    // Remove non-digits
     const digits = value.replace(/\D/g, '');
-    // Format as NNN-NNN
     if (digits.length <= 3) return digits;
     return `${digits.slice(0, 3)}-${digits.slice(3, 6)}`;
   };
@@ -29,7 +39,7 @@ export function JoinPage() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    
+
     const cleanCode = code.replace(/-/g, '');
     if (cleanCode.length !== 6) {
       setError('Bitte gib einen gültigen 6-stelligen Code ein');
@@ -40,24 +50,26 @@ export function JoinPage() {
     setError('');
 
     try {
-      const res = await fetch(`/api/v1/rooms/${code}/join`, {
+      const res = await fetch(`/api/v1/rooms/${cleanCode}/join`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
         body: JSON.stringify({ pin: pin || undefined }),
       });
 
-      const data = await res.json();
+      const json = await res.json();
 
-      if (!res.ok) {
-        setError(data.error || 'Beitritt fehlgeschlagen');
+      if (!res.ok || !json.success) {
+        setError(json.error?.message || json.error || 'Beitritt fehlgeschlagen');
         setLoading(false);
         return;
       }
 
-      // Store token and navigate to lobby
-      localStorage.setItem('rejoinToken', data.rejoinToken);
-      navigate(`/raum/${code}/lobby`);
+      // Store both rejoinToken and participationId
+      localStorage.setItem('rejoinToken', json.data.rejoinToken || '');
+      localStorage.setItem('participationId', json.data.participationId || '');
+      localStorage.setItem('roomCode', cleanCode);
+      navigate(`/raum/${cleanCode}/lobby`);
     } catch (err) {
       setError('Verbindungsfehler');
       setLoading(false);
@@ -69,7 +81,7 @@ export function JoinPage() {
       <Card padding="lg" className={styles.card}>
         <h1 className={styles.title}>Raum beitreten</h1>
         <p className={styles.subtitle}>
-          Gib den 6-stelligen Raumcode ein, den du vom Moderator erhalten hast
+          Gib den 6-stelligen Raumcode ein, den du vom Moderator erhalten hast.
         </p>
 
         <form onSubmit={handleSubmit} className={styles.form}>
