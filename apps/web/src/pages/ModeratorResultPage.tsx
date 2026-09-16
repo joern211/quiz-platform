@@ -1,46 +1,96 @@
 // ============================================================
-// Moderator Result Page
+// Moderator Result Page - v0.3.0
 // ============================================================
 
-import { useParams } from 'react-router-dom';
-import { useEffect, useState } from 'react';
+import { useParams, useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Card, Button, Badge } from '@quiz/ui';
 import styles from './ModeratorResultPage.module.css';
 
 interface ScoreEntry {
+  rank: number;
   participationId: string;
   displayName: string;
+  role: string;
   score: number;
-  rank: number;
-  avatar?: string;
+}
+
+interface ResultsData {
+  roomCode: string;
+  roomName: string;
+  status: string;
+  runPhase: string;
+  game: { slug: string; name: string } | null;
+  scores: ScoreEntry[];
+  endedAt: string | null;
 }
 
 export function ModeratorResultPage() {
   const { code } = useParams<{ code: string }>();
-  const [scores, setScores] = useState<ScoreEntry[]>([]);
-  const [gameName, setGameName] = useState('');
+  const [results, setResults] = useState<ResultsData | null>(null);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
 
+  // First try sessionStorage for immediate display, then fetch from server
   useEffect(() => {
-    // Load from sessionStorage if reloaded mid-game
+    // Quick load from sessionStorage
     const saved = sessionStorage.getItem(`result_${code}`);
     if (saved) {
-      const data = JSON.parse(saved);
-      setScores(data.scores || []);
-      setGameName(data.gameName || '');
-      setLoading(false);
-    } else {
-      setLoading(false);
+      try {
+        const data = JSON.parse(saved);
+        setResults(data);
+      } catch {
+        // ignore parse errors
+      }
     }
   }, [code]);
 
-  if (loading) return <div className={styles.page}>Lädt…</div>;
+  // Fetch from server
+  useEffect(() => {
+    async function fetchResults() {
+      if (!code) return;
+
+      try {
+        const res = await fetch(`/api/v1/rooms/${code}/results`, {
+          credentials: 'include',
+        });
+        const json = await res.json();
+
+        if (json.success && json.data) {
+          setResults(json.data);
+        } else {
+          // If API fails but we have sessionStorage data, don't show error
+          if (!results) {
+            setError(json.error?.message || 'Ergebnisse konnten nicht geladen werden.');
+          }
+        }
+      } catch {
+        if (!results) {
+          setError('Verbindungsfehler');
+        }
+      } finally {
+        setLoading(false);
+      }
+    }
+
+    fetchResults();
+  }, [code]);
+
+  if (loading && !results) return <div className={styles.page}>Lädt…</div>;
+
+  const scores = results?.scores || [];
+  const gameName = results?.game?.name || 'Spiel';
 
   return (
     <div className={styles.page}>
       <h1 className={styles.title}>Ergebnis</h1>
       <p className={styles.subtitle}>{gameName} — Raum {code}</p>
+
+      {error && !results && (
+        <div className={styles.errorBanner} role="alert">
+          {error}
+        </div>
+      )}
 
       <Card padding="lg">
         <h2 className={styles.heading}>Rangliste</h2>
@@ -48,10 +98,18 @@ export function ModeratorResultPage() {
           <p>Keine Ergebnisse verfügbar.</p>
         ) : (
           <div className={styles.ranking}>
-            {scores.map((entry, i) => (
-              <div key={entry.participationId} className={`${styles.row} ${i === 0 ? styles.gold : i === 1 ? styles.silver : i === 2 ? styles.bronze : ''}`}>
-                <span className={styles.rank}>{i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : `${i + 1}.`}</span>
+            {scores.map((entry) => (
+              <div
+                key={entry.participationId}
+                className={`${styles.row} ${entry.rank === 1 ? styles.gold : entry.rank === 2 ? styles.silver : entry.rank === 3 ? styles.bronze : ''}`}
+              >
+                <span className={styles.rank}>
+                  {entry.rank === 1 ? '🥇' : entry.rank === 2 ? '🥈' : entry.rank === 3 ? '🥉' : `${entry.rank}.`}
+                </span>
                 <span className={styles.name}>{entry.displayName}</span>
+                {entry.role === 'MODERATOR' && (
+                  <Badge variant="accent" size="sm">Host</Badge>
+                )}
                 <Badge variant="accent">{entry.score} pts</Badge>
               </div>
             ))}
@@ -61,7 +119,7 @@ export function ModeratorResultPage() {
 
       <div className={styles.actions}>
         <Link to="/"><Button variant="ghost">Startseite</Button></Link>
-        <Link to="/moderator/raeume"><Button variant="secondary">Alle Räume</Button></Link>
+        <Link to="/kategorien"><Button variant="secondary">Neues Spiel erstellen</Button></Link>
       </div>
     </div>
   );

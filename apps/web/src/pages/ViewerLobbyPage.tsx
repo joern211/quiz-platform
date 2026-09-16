@@ -4,7 +4,7 @@
 
 import { useParams } from 'react-router-dom';
 import { useEffect, useState } from 'react';
-import { getSocket, connectSocket, disconnectSocket } from '../lib/socket.ts';
+import { getSocket, connectSocket, disconnectSocket } from '../lib/socket';
 import { Card, Badge } from '@quiz/ui';
 import styles from './ViewerLobbyPage.module.css';
 
@@ -22,7 +22,7 @@ export function ViewerLobbyPage() {
     socket.on('connect', () => setConnected(true));
     socket.on('disconnect', () => setConnected(false));
     
-    socket.emit('room:subscribe', { roomCode: code, role: 'viewer' });
+    socket.emit('room:subscribe', { roomCode: code, role: 'VIEWER' }, () => {});
     
     socket.on('room:snapshot', (data) => {
       setRoomInfo(data);

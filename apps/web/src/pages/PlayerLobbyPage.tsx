@@ -5,7 +5,7 @@
 import { useParams, useNavigate } from 'react-router-dom';
 import { useEffect, useState, useRef } from 'react';
 import { Socket } from 'socket.io-client';
-import { getSocket, connectSocket, disconnectSocket, setSessionData, getSessionData } from '../lib/socket.ts';
+import { getSocket, connectSocket, disconnectSocket, setSessionData, getSessionData } from '../lib/socket';
 import { Card, Button, Badge } from '@quiz/ui';
 import styles from './PlayerLobbyPage.module.css';
 

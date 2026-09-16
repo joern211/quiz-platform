@@ -197,6 +197,6 @@ export function disconnectSocket() {
 // ── Kick Player Helper ─────────────────────────────────────────
 // Used by ModeratorLobbyPage to emit room:kick events
 
-export function kickPlayer(roomCode: string, playerId: string) {
-  getSocket().emit('room:kick', { roomCode, playerId });
+export function kickPlayer(roomCode: string, playerId: string, callback?: (res: { success: boolean; error?: string }) => void) {
+  getSocket().emit('room:kick', { roomCode, playerId }, callback ?? (() => {}));
 }

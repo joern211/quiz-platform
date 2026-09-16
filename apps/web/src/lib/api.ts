@@ -122,6 +122,24 @@ export interface CreateRoomResponse {
   status: string;
 }
 
+export interface GameResult {
+  rank: number;
+  participationId: string;
+  displayName: string;
+  role: string;
+  score: number;
+}
+
+export interface RoomResultsResponse {
+  roomCode: string;
+  roomName: string;
+  status: string;
+  runPhase: string;
+  game: { slug: string; name: string } | null;
+  scores: GameResult[];
+  endedAt: string | null;
+}
+
 export const roomsApi = {
   listPublic: () =>
     apiFetch<RoomSummary[]>('/rooms/public'),
@@ -143,6 +161,9 @@ export const roomsApi = {
 
   close: (code: string) =>
     apiFetch<void>(`/rooms/${code}`, { method: 'DELETE' }),
+
+  getResults: (code: string) =>
+    apiFetch<RoomResultsResponse>(`/rooms/${code}/results`),
 };
 
 // Export helpers for use in pages
