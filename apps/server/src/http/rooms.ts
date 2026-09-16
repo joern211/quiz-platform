@@ -231,6 +231,22 @@ roomsRouter.post('/', async (req, res) => {
 // GET /api/v1/rooms/:code - Get room details
 roomsRouter.get('/:code', async (req, res) => {
   try {
+    // Check if user is authenticated
+    const sessionId = verifySession(req, config.sessionSecret);
+    let isAuthenticated = false;
+    let userId: string | null = null;
+
+    if (sessionId) {
+      const session = await prisma.session.findUnique({
+        where: { id: sessionId },
+        include: { user: true },
+      });
+      if (session && !session.revokedAt && session.expiresAt >= new Date()) {
+        isAuthenticated = true;
+        userId = session.userId;
+      }
+    }
+
     const room = await prisma.room.findUnique({
       where: { code: req.params.code },
       include: {
@@ -256,6 +272,21 @@ roomsRouter.get('/:code', async (req, res) => {
     });
 
     if (!room) {
+      return res.status(404).json({
+        success: false,
+        error: { code: 'NOT_FOUND', message: 'Raum nicht gefunden.' },
+      });
+    }
+
+    // Only show isPublic rooms to non-authenticated users
+    // Authenticated moderators can see their own rooms regardless of isPublic
+    if (!isAuthenticated && !room.isPublic) {
+      return res.status(404).json({
+        success: false,
+        error: { code: 'NOT_FOUND', message: 'Raum nicht gefunden.' },
+      });
+    }
+    if (isAuthenticated && !room.isPublic && room.hostUserId !== userId) {
       return res.status(404).json({
         success: false,
         error: { code: 'NOT_FOUND', message: 'Raum nicht gefunden.' },
@@ -297,9 +328,10 @@ roomsRouter.get('/:code', async (req, res) => {
 });
 
 // POST /api/v1/rooms/:code/join - Player join
+// TODO: Add rate limiting for join attempts to prevent brute-force PIN attacks
 roomsRouter.post('/:code/join', async (req, res) => {
   try {
-    const { displayName, pin } = req.body;
+    const { displayName, pin, rejoinToken } = req.body;
 
     if (!displayName) {
       return res.status(400).json({
@@ -326,9 +358,16 @@ roomsRouter.post('/:code/join', async (req, res) => {
       });
     }
 
-    // Check PIN
+    // Check PIN - compare hashes properly
     if (room.pinHash) {
-      const pinHash = crypto.createHash('sha256').update(pin || '').digest('hex');
+      // PIN is stored as SHA256 hash, compare hashes directly
+      if (!pin) {
+        return res.status(403).json({
+          success: false,
+          error: { code: 'INVALID_PIN', message: 'PIN erforderlich.' },
+        });
+      }
+      const pinHash = crypto.createHash('sha256').update(pin).digest('hex');
       if (pinHash !== room.pinHash) {
         return res.status(403).json({
           success: false,
@@ -349,10 +388,10 @@ roomsRouter.post('/:code/join', async (req, res) => {
       });
     }
 
-    // Create rejoin token
-    const rejoinToken = crypto.randomUUID();
+    // Generate new rejoin token for this join
+    const newRejoinToken = crypto.randomUUID();
 
-    // Create participation with rejoinTokenVersion
+    // Create participation with rejoinTokenVersion: 1 on first join
     const participation = await prisma.participation.create({
       data: {
         roomId: room.id,
@@ -361,7 +400,7 @@ roomsRouter.post('/:code/join', async (req, res) => {
         role: 'PLAYER',
         connected: true,
         ready: false,
-        rejoinToken,
+        rejoinToken: newRejoinToken,
         rejoinTokenVersion: 1,
       },
     });
@@ -371,10 +410,10 @@ roomsRouter.post('/:code/join', async (req, res) => {
     res.status(201).json({
       success: true,
       data: {
+        rejoinToken: newRejoinToken,
         participationId: participation.id,
-        rejoinToken,
-        roomId: room.id,
-        displayName,
+        role: 'PLAYER',
+        roomCode: room.code,
       },
     });
   } catch (error) {

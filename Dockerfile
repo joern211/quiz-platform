@@ -23,7 +23,9 @@ WORKDIR /app
 
 COPY . .
 
-RUN pnpm build --filter @quiz/server --filter @quiz/web
+RUN pnpm exec prisma generate --schema=./prisma/schema.prisma && \
+    pnpm --filter @quiz/server build && \
+    pnpm --filter @quiz/web build
 
 # ============================================================
 # Runner
@@ -56,6 +58,7 @@ EXPOSE 3001
 ENV PORT=3001
 ENV DATABASE_URL="file:/app/storage/database/quiz.db"
 ENV STORAGE_ROOT="/app/storage"
+ENV WEB_DIST_PATH="/app/web"
 
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
   CMD wget --no-verbose --tries=1 --spider http://localhost:${PORT}/api/v1/health || exit 1

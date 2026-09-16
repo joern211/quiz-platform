@@ -5,7 +5,7 @@
 import { useParams, useNavigate } from 'react-router-dom';
 import { useEffect, useState, useRef } from 'react';
 import { Socket } from 'socket.io-client';
-import { getSocket } from '../lib/socket.js';
+import { getSocket, connectSocket, disconnectSocket } from '../lib/socket.ts';
 import { Card, Button, Badge } from '@quiz/ui';
 import { Timer } from '@quiz/ui';
 import styles from './ModeratorGamePage.module.css';
@@ -25,10 +25,13 @@ export function ModeratorGamePage() {
   const [gameEnded, setGameEnded] = useState(false);
   const [revealed, setRevealed] = useState(false);
   const [scores, setScores] = useState<Record<string, number>>({});
+  const [timerPaused, setTimerPaused] = useState(false);
 
   useEffect(() => {
     socketRef.current = getSocket();
     const socket = socketRef.current;
+
+    connectSocket();
 
     socket.on('connect', () => setConnected(true));
     socket.on('disconnect', () => setConnected(false));
@@ -42,13 +45,14 @@ export function ModeratorGamePage() {
       }
     });
 
-    socket.on('geo:show', (data) => {
+    socket.on('geo:question', (data) => {
       setQuestion(data.question);
-      setEndsAt(data.endsAt);
+      setEndsAt(data.timerEndMs);
       setRevealed(false);
       setBuzzerWinner(null);
       setAnswerStats({});
-      setCurrentIndex(data.questionIndex);
+      setCurrentIndex(data.roundIndex);
+      if (data.totalRounds) setTotalQuestions(data.totalRounds);
     });
 
     socket.on('geo:answered', (data) => {
@@ -73,15 +77,17 @@ export function ModeratorGamePage() {
       }
     });
 
-    return () => { socket.disconnect(); };
+    return () => {
+      disconnectSocket();
+    };
   }, [code]);
 
-  const handleStartTimer = () => {
-    socketRef.current?.emit('geo:timer:start', { roomCode: code });
+  const handlePauseTimer = () => {
+    socketRef.current?.emit('game:pause', { roomCode: code });
   };
 
-  const handlePauseTimer = () => {
-    socketRef.current?.emit('geo:timer:pause', { roomCode: code });
+  const handleResumeTimer = () => {
+    socketRef.current?.emit('game:resume', { roomCode: code });
   };
 
   const handleReveal = () => {
@@ -89,15 +95,7 @@ export function ModeratorGamePage() {
   };
 
   const handleNextQuestion = () => {
-    socketRef.current?.emit('geo:show:next', { roomCode: code });
-  };
-
-  const handleJudge = (correct: boolean) => {
-    socketRef.current?.emit('geo:judge', { 
-      roomCode: code,
-      buzzerWinnerId: buzzerWinner?.playerId,
-      correct,
-    });
+    socketRef.current?.emit('geo:next', { roomCode: code });
   };
 
   const handleEndGame = () => {
@@ -110,6 +108,7 @@ export function ModeratorGamePage() {
     return player?.displayName || 'Unbekannt';
   };
 
+  const [timerPaused, setTimerPaused] = useState(false);
   if (!question) {
     return (
       <div className={styles.page}>
