@@ -1,0 +1,374 @@
+// Online Quiz Plattform - Prisma Schema
+// Database: SQLite for v1, PostgreSQL-ready
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// ------------------------------------------------------------
+// User / Auth
+// ------------------------------------------------------------
+
+model User {
+  id           String    @id @default(uuid())
+  displayName  String
+  passwordHash String
+  role         String    @default("MODERATOR") // ADMIN | MODERATOR
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+  disabledAt   DateTime?
+  
+  sessions     Session[]
+  rooms        Room[]    @relation("HostRooms")
+  auditLogs    AuditLog[]
+  scoreEvents  ScoreEvent[]
+  
+  @@map("users")
+}
+
+model Session {
+  id           String    @id @default(uuid())
+  userId       String
+  user         User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  expiresAt    DateTime
+  lastActiveAt DateTime  @default(now())
+  revokedAt    DateTime?
+  
+  createdAt    DateTime  @default(now())
+  
+  @@index([userId])
+  @@map("sessions")
+}
+
+// ------------------------------------------------------------
+// Game Catalog
+// ------------------------------------------------------------
+
+model GameDefinition {
+  id                String   @id @default(uuid())
+  slug              String   @unique
+  name              String
+  category          String
+  shortDescription  String?
+  description       String?
+  shortRules        String?
+  status            String   @default("PLANNED") // AVAILABLE | BETA | PLANNED | HIDDEN
+  minPlayers        Int      @default(2)
+  maxPlayers        Int      @default(10)
+  estimatedMinutes  Int      @default(15)
+  engineVersion     Int      @default(1)
+  setupSchemaVersion Int     @default(1)
+  hasBuzzer         Boolean  @default(false)
+  hasTeams          Boolean  @default(false)
+  hasCamera         Boolean  @default(false)
+  hasAudio          Boolean  @default(false)
+  hasTimer          Boolean  @default(true)
+  tags              String   @default("[]") // JSON array
+  
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+  
+  setupDrafts       SetupDraft[]
+  rooms             Room[]
+  
+  @@map("game_definitions")
+}
+
+// ------------------------------------------------------------
+// Content / Questions
+// ------------------------------------------------------------
+
+model QuestionPack {
+  id          String   @id @default(uuid())
+  gameSlug    String
+  title       String
+  description String?
+  status      String   @default("DRAFT") // DRAFT | PUBLISHED | ARCHIVED
+  createdBy   String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  
+  questions   GeoQuestion[]
+  
+  @@index([gameSlug])
+  @@map("question_packs")
+}
+
+model GeoQuestion {
+  id           String   @id @default(uuid())
+  packId       String
+  pack         QuestionPack @relation(fields: [packId], references: [id], onDelete: Cascade)
+  title        String?
+  prompt       String
+  category     String
+  mediaAssetId String?
+  mediaType    String?  // image | audio
+  options      String   // JSON array of {id, text}
+  correctOptionId String
+  explanation  String?
+  durationMs   Int      @default(20000)
+  points       Int      @default(100)
+  wrongPoints  Int      @default(0)
+  enabled      Boolean  @default(true)
+  sortOrder    Int      @default(0)
+  
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  
+  @@index([packId, enabled])
+  @@index([mediaAssetId])
+  @@map("geo_questions")
+}
+
+// ------------------------------------------------------------
+// Setup Drafts
+// ------------------------------------------------------------
+
+model SetupDraft {
+  id              String   @id @default(uuid())
+  gameDefinitionId String
+  gameDefinition  GameDefinition @relation(fields: [gameDefinitionId], references: [id])
+  ownerId         String?
+  configJson      String   // JSON
+  contentJson     String   // JSON
+  schemaVersion   Int      @default(1)
+  isValid         Boolean  @default(false)
+  validationErrors String? // JSON array of errors
+  
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  
+  @@index([gameDefinitionId])
+  @@map("setup_drafts")
+}
+
+// ------------------------------------------------------------
+// Rooms
+// ------------------------------------------------------------
+
+model Room {
+  id                 String   @id @default(uuid())
+  code               String   @unique
+  roomName           String
+  gameDefinitionId   String
+  gameDefinition     GameDefinition @relation(fields: [gameDefinitionId], references: [id])
+  hostUserId         String
+  host               User     @relation("HostRooms", fields: [hostUserId], references: [id])
+  
+  status             String   @default("CREATED") // CREATED | LOBBY | RUNNING | ENDED | ARCHIVED
+  runPhase           String   @default("DRAFT")
+  
+  pinHash            String?
+  maxPlayers         Int      @default(10)
+  cameraEnabled      Boolean  @default(false)
+  allowViewers       Boolean  @default(true)
+  viewerRequiresPin  Boolean  @default(true)
+  viewerLimit        Int      @default(50)
+  lobbyChatEnabled   Boolean  @default(true)
+  
+  setupSnapshotJson  String   @default("{}")
+  setupSchemaVersion Int      @default(1)
+  
+  revision           Int      @default(0)
+  
+  createdAt          DateTime @default(now())
+  startedAt          DateTime?
+  endedAt            DateTime?
+  archivedAt         DateTime?
+  eventSeriesId      String?
+  
+  participations     Participation[]
+  viewerSessions     ViewerSession[]
+  chatMessages       ChatMessage[]
+  scoreEvents        ScoreEvent[]
+  gameState          RoomGameState?
+  
+  @@index([code])
+  @@index([status])
+  @@index([hostUserId])
+  @@map("rooms")
+}
+
+// ------------------------------------------------------------
+// Participations
+// ------------------------------------------------------------
+
+model Participation {
+  id                   String   @id @default(uuid())
+  roomId               String
+  room                 Room     @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  
+  displayName          String
+  normalizedName       String
+  role                 String   // MODERATOR | PLAYER | VIEWER
+  
+  avatarMode           String   @default("none") // none | avatar | camera
+  avatarAssetId        String?
+  avatarGenerated      String?  // JSON {initials, color, icon}
+  
+  connected            Boolean  @default(false)
+  ready                Boolean  @default(false)
+  kickedAt             DateTime?
+  lastSeenAt           DateTime @default(now())
+  
+  score                Int      @default(0)
+  lives                Int?
+  
+  teamId               String?
+  
+  rejoinToken          String   @unique
+  rejoinTokenVersion   Int      @default(1)
+  
+  createdAt            DateTime @default(now())
+  
+  scoreEvents          ScoreEvent[]
+  chatMessages         ChatMessage[]
+
+  @@index([roomId])
+  @@index([rejoinToken])
+  @@map("participations")
+}
+
+model ViewerSession {
+  id          String   @id @default(uuid())
+  roomId      String
+  room        Room     @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  connected   Boolean  @default(false)
+  lastSeenAt  DateTime @default(now())
+  
+  createdAt   DateTime @default(now())
+  
+  @@index([roomId])
+  @@map("viewer_sessions")
+}
+
+// ------------------------------------------------------------
+// Game State
+// ------------------------------------------------------------
+
+model RoomGameState {
+  id            String   @id @default(uuid())
+  roomId        String   @unique
+  room          Room     @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  engineVersion Int      @default(1)
+  phase         String   @default("INTRO")
+  stateJson     String   @default("{}")
+  revision      Int      @default(0)
+  updatedAt     DateTime @updatedAt
+  
+  @@map("room_game_states")
+}
+
+// ------------------------------------------------------------
+// Chat
+// ------------------------------------------------------------
+
+model ChatMessage {
+  id         String   @id @default(uuid())
+  roomId     String
+  room       Room     @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  senderId   String?
+  sender     Participation? @relation(fields: [senderId], references: [id])
+  senderName String
+  content    String
+  createdAt  DateTime @default(now())
+  
+  @@index([roomId])
+  @@map("chat_messages")
+}
+
+// ------------------------------------------------------------
+// Score Events
+// ------------------------------------------------------------
+
+model ScoreEvent {
+  id             String   @id @default(uuid())
+  roomId         String
+  room           Room     @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  participationId String
+  participation  Participation @relation(fields: [participationId], references: [id])
+  roundIndex     Int      @default(0)
+  delta          Int
+  reason         String
+  source         String   @default("auto") // auto | manual
+  moderatorId    String?
+  moderator      User?    @relation(fields: [moderatorId], references: [id])
+  createdAt      DateTime @default(now())
+  
+  @@index([roomId])
+  @@index([participationId])
+  @@map("score_events")
+}
+
+// ------------------------------------------------------------
+// Media
+// ------------------------------------------------------------
+
+model MediaAsset {
+  id              String   @id @default(uuid())
+  type            String   // image | audio | video
+  mimeType        String
+  filename        String
+  originalName    String
+  fileSize        Int
+  width           Int?
+  height          Int?
+  duration        Int?     // for audio/video in ms
+  sha256          String   @unique
+  storagePath     String
+  uploadedBy      String?
+  visibility      String   @default("PRIVATE") // PRIVATE | PUBLIC | ROOM
+  roomId          String?
+  processed       Boolean  @default(false)
+  thumbnailPath   String?
+  
+  createdAt       DateTime @default(now())
+  
+  // Note: GeoQuestion holds the forward relation via mediaAssetId
+
+  @@index([sha256])
+  @@map("media_assets")
+}
+
+// ------------------------------------------------------------
+// Audit Log
+// ------------------------------------------------------------
+
+model AuditLog {
+  id         String   @id @default(uuid())
+  userId     String?
+  user       User?    @relation(fields: [userId], references: [id])
+  action     String
+  resource   String?
+  resourceId String?
+  metadata   String?  // JSON
+  ipAddress  String?
+  createdAt  DateTime @default(now())
+  
+  @@index([userId])
+  @@index([createdAt])
+  @@map("audit_logs")
+}
+
+// ------------------------------------------------------------
+// Event Series (Quizabend, Turnier)
+// ------------------------------------------------------------
+
+model EventSeries {
+  id          String   @id @default(uuid())
+  title       String
+  description String?
+  eventType   String   @default("QUIZ_NIGHT") // QUIZ_NIGHT | TOURNAMENT | LEAGUE
+  status      String   @default("PLANNING") // PLANNING | ACTIVE | ENDED
+  settings    String   @default("{}") // JSON
+  
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  
+  @@map("event_series")
+}

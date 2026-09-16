@@ -1,0 +1,134 @@
+/* ============================================================
+   Game Page Styles
+   ============================================================ */
+
+.page {
+  max-width: 1000px;
+  margin: 0 auto;
+  padding: var(--space-6) var(--space-4);
+}
+
+.header {
+  margin-bottom: var(--space-6);
+}
+
+.backLink {
+  display: inline-block;
+  margin-bottom: var(--space-3);
+  color: var(--accent);
+  text-decoration: none;
+  font-size: 0.875rem;
+}
+
+.backLink:hover {
+  text-decoration: underline;
+}
+
+.titleRow {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  margin-bottom: var(--space-3);
+}
+
+.title {
+  font-size: 2rem;
+  font-weight: 700;
+  color: var(--fg);
+}
+
+.tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  align-items: center;
+}
+
+.meta {
+  font-size: 0.875rem;
+  color: var(--muted);
+}
+
+.content {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-6);
+}
+
+.rulesCard h2 {
+  font-size: 1.25rem;
+  margin-bottom: var(--space-4);
+  color: var(--fg);
+}
+
+.rules {
+  font-family: var(--font-sans);
+  font-size: 0.875rem;
+  color: var(--muted);
+  white-space: pre-wrap;
+  line-height: 1.7;
+}
+
+.roles h2 {
+  font-size: 1.5rem;
+  margin-bottom: var(--space-4);
+  color: var(--fg);
+}
+
+.roleGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: var(--space-4);
+}
+
+.roleCard {
+  display: flex;
+  flex-direction: column;
+  text-align: center;
+}
+
+.roleIcon {
+  font-size: 3rem;
+  margin-bottom: var(--space-3);
+}
+
+.roleCard h3 {
+  font-size: 1.25rem;
+  margin-bottom: var(--space-2);
+  color: var(--fg);
+}
+
+.roleCard > p {
+  color: var(--muted);
+  font-size: 0.875rem;
+  margin-bottom: var(--space-3);
+  flex: 1;
+}
+
+.roleFeatures {
+  list-style: none;
+  padding: 0;
+  margin: 0 0 var(--space-4);
+  text-align: left;
+}
+
+.roleFeatures li {
+  padding: var(--space-1) 0;
+  color: var(--fg);
+  font-size: 0.875rem;
+}
+
+.notFound {
+  text-align: center;
+  padding: var(--space-8);
+}
+
+.notFound h1 {
+  font-size: 2rem;
+  margin-bottom: var(--space-3);
+}
+
+.notFound p {
+  color: var(--muted);
+  margin-bottom: var(--space-4);
+}

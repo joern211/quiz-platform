@@ -1,0 +1,101 @@
+/* ============================================================
+   Moderator Setup Page Styles
+   ============================================================ */
+
+.page {
+  max-width: 1000px;
+  margin: 0 auto;
+  padding: var(--space-6) var(--space-4);
+}
+
+.title {
+  font-size: 2rem;
+  font-weight: 700;
+  color: var(--fg);
+  margin-bottom: var(--space-2);
+}
+
+.subtitle {
+  color: var(--muted);
+  margin-bottom: var(--space-6);
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
+  gap: var(--space-4);
+  margin-bottom: var(--space-6);
+}
+
+.grid h2 {
+  font-size: 1.125rem;
+  margin-bottom: var(--space-4);
+  color: var(--fg);
+}
+
+.form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.inputGroup {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.label {
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: var(--fg);
+}
+
+.rangeWrapper {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.range {
+  flex: 1;
+  accent-color: var(--accent);
+}
+
+.rangeValue {
+  font-weight: 600;
+  color: var(--accent);
+  min-width: 4ch;
+  text-align: right;
+}
+
+.checkbox {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  cursor: pointer;
+}
+
+.checkbox input {
+  width: 20px;
+  height: 20px;
+  accent-color: var(--accent);
+}
+
+.hint {
+  font-size: 0.875rem;
+  color: var(--muted);
+  margin: 0;
+}
+
+.actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-3);
+}
+
+@media (max-width: 600px) {
+  .grid {
+    grid-template-columns: 1fr;
+  }
+}

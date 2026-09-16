@@ -1,0 +1,120 @@
+/* ============================================================
+   Button Styles
+   ============================================================ */
+
+.button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  font-family: var(--font-sans);
+  font-weight: 600;
+  border: none;
+  border-radius: var(--radius);
+  cursor: pointer;
+  transition: all 0.2s ease;
+  position: relative;
+  white-space: nowrap;
+}
+
+.button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Sizes */
+.sm {
+  padding: var(--space-2) var(--space-3);
+  font-size: 0.875rem;
+  min-height: 32px;
+}
+
+.md {
+  padding: var(--space-3) var(--space-4);
+  font-size: 1rem;
+  min-height: 44px;
+}
+
+.lg {
+  padding: var(--space-4) var(--space-6);
+  font-size: 1.125rem;
+  min-height: 52px;
+}
+
+/* Variants */
+.primary {
+  background: linear-gradient(135deg, var(--accent), var(--accent-strong));
+  color: var(--bg);
+  box-shadow: 0 4px 14px 0 rgba(29, 212, 212, 0.39);
+}
+
+.primary:hover:not(:disabled) {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 20px 0 rgba(29, 212, 212, 0.5);
+}
+
+.primary:active:not(:disabled) {
+  transform: translateY(0);
+}
+
+.secondary {
+  background: var(--surface-2);
+  color: var(--fg);
+  border: 1px solid var(--border);
+}
+
+.secondary:hover:not(:disabled) {
+  background: var(--surface);
+  border-color: var(--accent);
+}
+
+.danger {
+  background: var(--danger);
+  color: white;
+}
+
+.danger:hover:not(:disabled) {
+  background: #ff3d5a;
+  transform: translateY(-2px);
+}
+
+.ghost {
+  background: transparent;
+  color: var(--fg);
+}
+
+.ghost:hover:not(:disabled) {
+  background: var(--surface);
+}
+
+/* Full width */
+.fullWidth {
+  width: 100%;
+}
+
+/* Loading */
+.loading {
+  pointer-events: none;
+}
+
+.spinner {
+  position: absolute;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.spinner svg {
+  width: 20px;
+  height: 20px;
+  animation: spin 1s linear infinite;
+}
+
+.hiddenText {
+  visibility: hidden;
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}

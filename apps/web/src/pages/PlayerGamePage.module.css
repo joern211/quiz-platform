@@ -1,0 +1,146 @@
+/* ============================================================
+   Player Game Page Styles
+   ============================================================ */
+
+.page {
+  max-width: 800px;
+  margin: 0 auto;
+  padding: var(--space-6) var(--space-4);
+}
+
+.header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: var(--space-4);
+}
+
+.score {
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: var(--accent);
+}
+
+.waiting {
+  text-align: center;
+  padding: var(--space-8);
+}
+
+.waiting h1 {
+  margin-bottom: var(--space-4);
+}
+
+.questionCard {
+  text-align: center;
+  margin-bottom: var(--space-4);
+}
+
+.category {
+  color: var(--muted);
+  font-size: 0.875rem;
+  margin-bottom: var(--space-2);
+}
+
+.prompt {
+  font-size: 1.5rem;
+  font-weight: 600;
+  color: var(--fg);
+  margin-bottom: var(--space-4);
+}
+
+.timer {
+  margin-bottom: var(--space-4);
+  max-width: 400px;
+  margin-left: auto;
+  margin-right: auto;
+}
+
+.options {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  max-width: 600px;
+  margin: 0 auto;
+}
+
+.option {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-4);
+  background: var(--surface-2);
+  border: 2px solid var(--border);
+  border-radius: var(--radius);
+  cursor: pointer;
+  transition: all 0.2s ease;
+  text-align: left;
+}
+
+.option:not(:disabled):hover {
+  border-color: var(--accent);
+  background: var(--surface);
+}
+
+.option:disabled {
+  cursor: default;
+}
+
+.option.selected {
+  border-color: var(--accent);
+  background: rgba(29, 212, 212, 0.1);
+}
+
+.option.correct {
+  border-color: var(--ok);
+  background: rgba(29, 209, 161, 0.1);
+}
+
+.option.wrong {
+  border-color: var(--danger);
+  background: rgba(255, 93, 115, 0.1);
+}
+
+.optionLetter {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  background: var(--surface);
+  border-radius: 50%;
+  font-weight: 700;
+  color: var(--accent);
+  flex-shrink: 0;
+}
+
+.optionText {
+  flex: 1;
+  font-size: 1rem;
+  color: var(--fg);
+}
+
+.explanation {
+  margin-top: var(--space-4);
+  padding: var(--space-3);
+  background: var(--surface-2);
+  border-radius: calc(var(--radius) / 2);
+  font-size: 0.875rem;
+  color: var(--muted);
+}
+
+.jokerCard {
+  text-align: center;
+}
+
+.jokerCard h3 {
+  font-size: 0.875rem;
+  color: var(--muted);
+  margin-bottom: var(--space-3);
+}
+
+.jokers {
+  display: flex;
+  justify-content: center;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+}

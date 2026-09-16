@@ -1,0 +1,78 @@
+/* ============================================================
+   Rooms Page Styles
+   ============================================================ */
+
+.page {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: var(--space-6) var(--space-4);
+}
+
+.header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: var(--space-6);
+}
+
+.title {
+  font-size: 2rem;
+  font-weight: 700;
+  color: var(--fg);
+}
+
+.loading {
+  text-align: center;
+  padding: var(--space-8);
+  color: var(--muted);
+}
+
+.empty {
+  text-align: center;
+}
+
+.empty h2 {
+  margin-bottom: var(--space-2);
+}
+
+.empty p {
+  color: var(--muted);
+  margin-bottom: var(--space-4);
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: var(--space-4);
+}
+
+.roomCard {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.roomHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+}
+
+.roomHeader h3 {
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--fg);
+}
+
+.game {
+  color: var(--accent);
+  font-size: 0.875rem;
+}
+
+.roomMeta {
+  display: flex;
+  gap: var(--space-3);
+  font-size: 0.75rem;
+  color: var(--muted);
+  margin-bottom: var(--space-2);
+}

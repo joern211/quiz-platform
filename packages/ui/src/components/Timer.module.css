@@ -1,0 +1,86 @@
+/* ============================================================
+   Timer Styles
+   ============================================================ */
+
+.timer {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  width: 100%;
+}
+
+.progressWrapper {
+  flex: 1;
+  height: 8px;
+  background: var(--surface-2);
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.progress {
+  height: 100%;
+  background: var(--accent);
+  border-radius: 4px;
+  transition: width 0.05s linear;
+}
+
+.progress.urgent {
+  background: var(--warn);
+}
+
+.progress.critical {
+  background: var(--danger);
+  animation: pulse 0.5s infinite;
+}
+
+.seconds {
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: var(--fg);
+  min-width: 2ch;
+  text-align: center;
+}
+
+.seconds.urgentText {
+  color: var(--warn);
+}
+
+.expired .progress {
+  background: var(--danger);
+  width: 0;
+}
+
+.expired .seconds {
+  color: var(--danger);
+}
+
+/* Sizes */
+.sm .progressWrapper {
+  height: 4px;
+}
+
+.sm .seconds {
+  font-size: 0.875rem;
+}
+
+.md .progressWrapper {
+  height: 8px;
+}
+
+.md .seconds {
+  font-size: 1.25rem;
+}
+
+.lg .progressWrapper {
+  height: 12px;
+}
+
+.lg .seconds {
+  font-size: 2rem;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.6; }
+}

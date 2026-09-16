@@ -1,0 +1,129 @@
+/* ============================================================
+   Viewer Game Page Styles
+   ============================================================ */
+
+.page {
+  max-width: 800px;
+  margin: 0 auto;
+  padding: var(--space-6) var(--space-4);
+}
+
+.status {
+  margin-bottom: var(--space-4);
+  text-align: center;
+}
+
+.questionCard {
+  text-align: center;
+  margin-bottom: var(--space-4);
+}
+
+.category {
+  color: var(--muted);
+  font-size: 0.875rem;
+  margin-bottom: var(--space-2);
+}
+
+.prompt {
+  font-size: 1.5rem;
+  font-weight: 600;
+  color: var(--fg);
+  margin-bottom: var(--space-4);
+}
+
+.options {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-3);
+  max-width: 600px;
+  margin: 0 auto;
+}
+
+.option {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  background: var(--surface-2);
+  border: 2px solid var(--border);
+  border-radius: var(--radius);
+}
+
+.option.correct {
+  border-color: var(--ok);
+  background: rgba(29, 209, 161, 0.1);
+}
+
+.optionLetter {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  background: var(--surface);
+  border-radius: 50%;
+  font-weight: 700;
+  font-size: 0.875rem;
+  color: var(--accent);
+  flex-shrink: 0;
+}
+
+.optionText {
+  font-size: 0.875rem;
+  color: var(--fg);
+}
+
+.scoreCard {
+  text-align: center;
+}
+
+.scoreCard h2 {
+  font-size: 1rem;
+  color: var(--muted);
+  margin-bottom: var(--space-3);
+}
+
+.scoreList {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.scoreRow {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-3);
+  background: var(--surface-2);
+  border-radius: calc(var(--radius) / 2);
+}
+
+.rank {
+  font-weight: 700;
+  color: var(--accent);
+  width: 24px;
+}
+
+.name {
+  flex: 1;
+  text-align: left;
+}
+
+.score {
+  font-weight: 700;
+  color: var(--ok);
+}
+
+.waiting {
+  text-align: center;
+}
+
+.waiting h2 {
+  color: var(--muted);
+}
+
+@media (max-width: 600px) {
+  .options {
+    grid-template-columns: 1fr;
+  }
+}

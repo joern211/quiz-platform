@@ -1,0 +1,20 @@
+/* ============================================================
+   Footer Styles
+   ============================================================ */
+
+.footer {
+  margin-top: auto;
+  padding: var(--space-4);
+  background: var(--surface);
+  border-top: 1px solid var(--border);
+}
+
+.container {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  max-width: 1200px;
+  margin: 0 auto;
+  font-size: 0.875rem;
+  color: var(--muted);
+}

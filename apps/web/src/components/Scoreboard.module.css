@@ -1,0 +1,160 @@
+/* ============================================================
+   Scoreboard Styles
+   ============================================================ */
+
+.scoreboard {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  background: var(--surface);
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+}
+
+.scoreboard.compact {
+  padding: var(--space-2);
+}
+
+.player {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3);
+  background: var(--surface-2);
+  border-radius: calc(var(--radius) / 2);
+  transition: all 0.2s ease;
+}
+
+.player.current {
+  border: 2px solid var(--accent);
+  box-shadow: 0 0 10px rgba(29, 212, 212, 0.2);
+}
+
+.player.disconnected {
+  opacity: 0.5;
+}
+
+.rank {
+  font-weight: 700;
+  color: var(--muted);
+  font-size: 0.875rem;
+  min-width: 2ch;
+}
+
+.avatar {
+  width: 40px;
+  height: 40px;
+  flex-shrink: 0;
+}
+
+.avatarPlaceholder,
+.avatarGenerated {
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+  font-size: 1rem;
+}
+
+.avatarPlaceholder {
+  background: var(--muted);
+  color: var(--bg);
+}
+
+.avatarGenerated {
+  color: white;
+}
+
+.info {
+  flex: 1;
+  min-width: 0;
+}
+
+.name {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-weight: 600;
+  color: var(--fg);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.youBadge {
+  font-size: 0.75rem;
+  padding: 2px 6px;
+  background: var(--accent);
+  color: var(--bg);
+  border-radius: 4px;
+  font-weight: 600;
+}
+
+.jokers {
+  display: flex;
+  gap: var(--space-2);
+  margin-top: var(--space-1);
+}
+
+.jokers span {
+  font-size: 0.75rem;
+  padding: 2px 6px;
+  background: var(--surface);
+  border-radius: 4px;
+  color: var(--muted);
+}
+
+.jokers span.used {
+  text-decoration: line-through;
+  opacity: 0.5;
+}
+
+.stats {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: var(--space-1);
+}
+
+.score {
+  font-weight: 700;
+  font-size: 1.25rem;
+  color: var(--accent);
+  font-variant-numeric: tabular-nums;
+}
+
+.lives {
+  font-size: 0.75rem;
+  color: var(--danger);
+}
+
+.ko {
+  margin-left: var(--space-1);
+  font-weight: 700;
+}
+
+.readyBadge {
+  color: var(--ok);
+  font-weight: 700;
+}
+
+.disconnectedBadge {
+  color: var(--warn);
+}
+
+.compact .player {
+  padding: var(--space-2);
+}
+
+.compact .avatar {
+  width: 32px;
+  height: 32px;
+}
+
+.compact .score {
+  font-size: 1rem;
+}

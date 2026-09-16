@@ -1,0 +1,69 @@
+/* ============================================================
+   Modal Styles
+   ============================================================ */
+
+.overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.7);
+  backdrop-filter: blur(4px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  padding: 1rem;
+}
+
+.modal {
+  background: var(--surface);
+  border-radius: var(--radius);
+  max-height: 90vh;
+  overflow: auto;
+  animation: modalIn 0.2s ease-out;
+}
+
+.modal.sm { width: 100%; max-width: 400px; }
+.modal.md { width: 100%; max-width: 600px; }
+.modal.lg { width: 100%; max-width: 900px; }
+
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 1rem 1.5rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.header h2 {
+  margin: 0;
+  font-size: 1.25rem;
+}
+
+.close {
+  background: none;
+  border: none;
+  font-size: 1.5rem;
+  cursor: pointer;
+  color: var(--muted);
+  padding: 0;
+  line-height: 1;
+}
+
+.close:hover {
+  color: var(--fg);
+}
+
+.content {
+  padding: 1.5rem;
+}
+
+@keyframes modalIn {
+  from {
+    opacity: 0;
+    transform: scale(0.95);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}

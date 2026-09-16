@@ -1,0 +1,61 @@
+/* ============================================================
+   Logo Styles
+   ============================================================ */
+
+.logo {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-3);
+  text-decoration: none;
+  color: var(--fg);
+  transition: opacity 0.2s ease;
+}
+
+.logo:hover {
+  opacity: 0.8;
+}
+
+.icon {
+  color: var(--accent);
+  flex-shrink: 0;
+}
+
+.text {
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: var(--fg);
+}
+
+/* Sizes */
+.sm .icon {
+  width: 24px;
+  height: 24px;
+}
+
+.sm .text {
+  font-size: 0.875rem;
+}
+
+.md .icon {
+  width: 32px;
+  height: 32px;
+}
+
+.md .text {
+  font-size: 1rem;
+}
+
+.lg .icon {
+  width: 40px;
+  height: 40px;
+}
+
+.lg .text {
+  font-size: 1.25rem;
+}
+
+@media (max-width: 640px) {
+  .text {
+    display: none;
+  }
+}

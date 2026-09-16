@@ -1,0 +1,49 @@
+/* ============================================================
+   Category Page Styles
+   ============================================================ */
+
+.page {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: var(--space-6) var(--space-4);
+}
+
+.header {
+  margin-bottom: var(--space-6);
+}
+
+.backLink {
+  display: inline-block;
+  margin-bottom: var(--space-3);
+  color: var(--accent);
+  text-decoration: none;
+  font-size: 0.875rem;
+}
+
+.backLink:hover {
+  text-decoration: underline;
+}
+
+.title {
+  font-size: 2rem;
+  font-weight: 700;
+  color: var(--fg);
+  margin-bottom: var(--space-2);
+}
+
+.subtitle {
+  color: var(--muted);
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  gap: var(--space-4);
+}
+
+.loading,
+.empty {
+  text-align: center;
+  padding: var(--space-8);
+  color: var(--muted);
+}

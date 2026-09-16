@@ -1,0 +1,125 @@
+/* ============================================================
+   Player Lobby Page Styles
+   ============================================================ */
+
+.page {
+  max-width: 800px;
+  margin: 0 auto;
+  padding: var(--space-6) var(--space-4);
+}
+
+.header {
+  text-align: center;
+  margin-bottom: var(--space-6);
+}
+
+.title {
+  font-size: 2rem;
+  font-weight: 700;
+  color: var(--fg);
+  margin-bottom: var(--space-2);
+}
+
+.code {
+  color: var(--muted);
+  font-family: monospace;
+  font-size: 1.25rem;
+  margin-bottom: var(--space-2);
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-4);
+  margin-bottom: var(--space-4);
+}
+
+.grid h2 {
+  font-size: 1.125rem;
+  margin-bottom: var(--space-3);
+}
+
+.playerList {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  max-height: 300px;
+  overflow-y: auto;
+}
+
+.playerRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--space-2) var(--space-3);
+  background: var(--surface-2);
+  border-radius: calc(var(--radius) / 2);
+}
+
+.playerRow.ready {
+  border: 2px solid var(--ok);
+}
+
+.playerName {
+  font-weight: 500;
+}
+
+.chatArea {
+  display: flex;
+  flex-direction: column;
+  height: 250px;
+}
+
+.chatMessages {
+  flex: 1;
+  overflow-y: auto;
+  padding: var(--space-2);
+  background: var(--surface-2);
+  border-radius: calc(var(--radius) / 2);
+  margin-bottom: var(--space-2);
+}
+
+.chatEmpty {
+  color: var(--muted);
+  text-align: center;
+  padding: var(--space-4);
+}
+
+.chatMessage {
+  padding: var(--space-1) 0;
+  font-size: 0.875rem;
+}
+
+.chatMessage strong {
+  color: var(--accent);
+}
+
+.chatForm {
+  display: flex;
+  gap: var(--space-2);
+}
+
+.chatInput {
+  flex: 1;
+  padding: var(--space-2) var(--space-3);
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: calc(var(--radius) / 2);
+  color: var(--fg);
+  font-size: 0.875rem;
+}
+
+.chatInput:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.actions {
+  text-align: center;
+}
+
+@media (max-width: 700px) {
+  .grid {
+    grid-template-columns: 1fr;
+  }
+}

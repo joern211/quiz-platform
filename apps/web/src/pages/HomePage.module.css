@@ -1,0 +1,115 @@
+/* ============================================================
+   Home Page Styles
+   ============================================================ */
+
+.page {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: var(--space-6) var(--space-4);
+}
+
+.hero {
+  text-align: center;
+  padding: var(--space-8) 0;
+}
+
+.title {
+  font-size: clamp(2.5rem, 8vw, 4rem);
+  font-weight: 800;
+  color: var(--fg);
+  margin-bottom: var(--space-4);
+  background: linear-gradient(135deg, var(--accent), var(--accent-strong));
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+.subtitle {
+  font-size: 1.25rem;
+  color: var(--muted);
+  margin-bottom: var(--space-6);
+  max-width: 600px;
+  margin-left: auto;
+  margin-right: auto;
+}
+
+.actions {
+  display: flex;
+  gap: var(--space-4);
+  justify-content: center;
+  flex-wrap: wrap;
+}
+
+.features {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+  gap: var(--space-4);
+  margin: var(--space-8) 0;
+}
+
+.featureCard {
+  text-align: center;
+}
+
+.featureIcon {
+  font-size: 3rem;
+  margin-bottom: var(--space-3);
+}
+
+.featureCard h3 {
+  font-size: 1.25rem;
+  margin-bottom: var(--space-2);
+  color: var(--fg);
+}
+
+.featureCard p {
+  color: var(--muted);
+  font-size: 0.875rem;
+}
+
+.howItWorks {
+  text-align: center;
+  padding: var(--space-8) 0;
+}
+
+.howItWorks h2 {
+  font-size: 2rem;
+  margin-bottom: var(--space-6);
+  color: var(--fg);
+}
+
+.steps {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: var(--space-6);
+}
+
+.step {
+  position: relative;
+  padding: var(--space-4);
+}
+
+.stepNumber {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 48px;
+  height: 48px;
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: var(--bg);
+  background: linear-gradient(135deg, var(--accent), var(--accent-strong));
+  border-radius: 50%;
+  margin-bottom: var(--space-3);
+}
+
+.step h3 {
+  font-size: 1.125rem;
+  margin-bottom: var(--space-2);
+  color: var(--fg);
+}
+
+.step p {
+  color: var(--muted);
+  font-size: 0.875rem;
+}

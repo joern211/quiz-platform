@@ -1,0 +1,48 @@
+# Dependencies
+node_modules/
+.pnpm-store/
+
+# Build output
+dist/
+build/
+.next/
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# Database
+*.db
+*.db-journal
+
+# Storage (keep dir structure, ignore contents)
+storage/database/*
+storage/uploads/*
+storage/backups/*
+!storage/database/.gitkeep
+!storage/uploads/.gitkeep
+!storage/backups/.gitkeep
+
+# Logs
+*.log
+npm-debug.log*
+pnpm-debug.log*
+
+# Coverage
+coverage/
+.nyc_output/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store
+
+# Prisma
+prisma/migrations/
+
+# Misc
+*.tgz
+.turbo/

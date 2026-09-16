@@ -1,0 +1,359 @@
+// ============================================================
+// Online Quiz Plattform - Rooms Router
+// ============================================================
+
+import { Router } from 'express';
+import { v4 as uuid } from 'uuid';
+import crypto from 'crypto';
+import { prisma } from '../persistence/prisma.js';
+import { verifySession } from '../auth/session.js';
+import { logger } from '../observability/logger.js';
+import { config } from '../config/index.js';
+
+export const roomsRouter = Router();
+
+// Generate unique room code
+function generateRoomCode(): string {
+  const digits = Array.from({ length: 6 }, () => Math.floor(Math.random() * 10));
+  return `${digits.slice(0, 3).join('')}-${digits.slice(3).join('')}`;
+}
+
+// GET /api/v1/rooms/public - List public rooms
+roomsRouter.get('/public', async (_req, res) => {
+  try {
+    const rooms = await prisma.room.findMany({
+      where: {
+        status: { in: ['LOBBY', 'RUNNING'] },
+      },
+      select: {
+        id: true,
+        code: true,
+        roomName: true,
+        status: true,
+        runPhase: true,
+        maxPlayers: true,
+        allowViewers: true,
+        cameraEnabled: true,
+        gameDefinition: {
+          select: {
+            slug: true,
+            name: true,
+            category: true,
+          },
+        },
+        _count: {
+          select: {
+            participations: {
+              where: { role: 'PLAYER' },
+            },
+            viewerSessions: true,
+          },
+        },
+        createdAt: true,
+      },
+      orderBy: { createdAt: 'desc' },
+      take: 50,
+    });
+
+    res.json({
+      success: true,
+      data: rooms.map(r => ({
+        id: r.id,
+        code: r.code,
+        roomName: r.roomName,
+        status: r.status,
+        runPhase: r.runPhase,
+        maxPlayers: r.maxPlayers,
+        allowViewers: r.allowViewers,
+        cameraEnabled: r.cameraEnabled,
+        game: r.gameDefinition,
+        playerCount: r._count.participations,
+        viewerCount: r._count.viewerSessions,
+        createdAt: r.createdAt,
+      })),
+    });
+  } catch (error) {
+    logger.error('Failed to list rooms', { error });
+    res.status(500).json({
+      success: false,
+      error: { code: 'INTERNAL_ERROR', message: 'Räume konnten nicht geladen werden.' },
+    });
+  }
+});
+
+// POST /api/v1/rooms - Create room (Moderator only)
+roomsRouter.post('/', async (req, res) => {
+  try {
+    const sessionId = verifySession(req, config.sessionSecret);
+    if (!sessionId) {
+      return res.status(401).json({
+        success: false,
+        error: { code: 'NOT_AUTHENTICATED', message: 'Anmeldung erforderlich.' },
+      });
+    }
+
+    const session = await prisma.session.findUnique({
+      where: { id: sessionId },
+      include: { user: true },
+    });
+
+    if (!session || session.revokedAt || session.expiresAt < new Date()) {
+      return res.status(401).json({
+        success: false,
+        error: { code: 'SESSION_EXPIRED', message: 'Sitzung abgelaufen.' },
+      });
+    }
+
+    const {
+      gameDefinitionId,
+      roomName,
+      pin,
+      maxPlayers = 10,
+      cameraEnabled = false,
+      allowViewers = true,
+      viewerRequiresPin = true,
+      viewerLimit = 50,
+      lobbyChatEnabled = true,
+      setupSnapshotJson = {},
+    } = req.body;
+
+    // Validate required fields
+    if (!gameDefinitionId || !roomName) {
+      return res.status(400).json({
+        success: false,
+        error: { code: 'VALIDATION', message: 'Spiel und Raumname erforderlich.' },
+      });
+    }
+
+    // Generate unique code
+    let code: string;
+    let attempts = 0;
+    do {
+      code = generateRoomCode();
+      const existing = await prisma.room.findUnique({ where: { code } });
+      if (!existing) break;
+      attempts++;
+    } while (attempts < 10);
+
+    if (attempts >= 10) {
+      return res.status(500).json({
+        success: false,
+        error: { code: 'CODE_COLLISION', message: 'Raumcode konnte nicht generiert werden.' },
+      });
+    }
+
+    // Hash PIN if provided
+    let pinHash: string | null = null;
+    if (pin) {
+      pinHash = crypto.createHash('sha256').update(pin).digest('hex');
+    }
+
+    // Create room
+    const room = await prisma.room.create({
+      data: {
+        code,
+        roomName,
+        gameDefinitionId,
+        hostUserId: session.userId,
+        pinHash,
+        maxPlayers,
+        cameraEnabled,
+        allowViewers,
+        viewerRequiresPin,
+        viewerLimit,
+        lobbyChatEnabled,
+        setupSnapshotJson: JSON.stringify(setupSnapshotJson),
+        status: 'LOBBY',
+        runPhase: 'OPEN',
+      },
+    });
+
+    // Create host participation
+    await prisma.participation.create({
+      data: {
+        roomId: room.id,
+        displayName: session.user.displayName,
+        normalizedName: session.user.displayName.toLowerCase().trim(),
+        role: 'MODERATOR',
+        connected: true,
+        ready: true,
+      },
+    });
+
+    logger.info('Room created', { roomId: room.id, code, hostId: session.userId });
+
+    res.status(201).json({
+      success: true,
+      data: {
+        id: room.id,
+        code: room.code,
+        roomName: room.roomName,
+        status: room.status,
+        runPhase: room.runPhase,
+      },
+    });
+  } catch (error) {
+    logger.error('Failed to create room', { error });
+    res.status(500).json({
+      success: false,
+      error: { code: 'INTERNAL_ERROR', message: 'Raum konnte nicht erstellt werden.' },
+    });
+  }
+});
+
+// GET /api/v1/rooms/:code - Get room details
+roomsRouter.get('/:code', async (req, res) => {
+  try {
+    const room = await prisma.room.findUnique({
+      where: { code: req.params.code },
+      include: {
+        gameDefinition: true,
+        participations: {
+          where: { role: { not: 'VIEWER' } },
+          select: {
+            id: true,
+            displayName: true,
+            role: true,
+            connected: true,
+            ready: true,
+            avatarMode: true,
+            avatarGenerated: true,
+            score: true,
+            lives: true,
+          },
+        },
+        _count: {
+          select: { viewerSessions: true },
+        },
+      },
+    });
+
+    if (!room) {
+      return res.status(404).json({
+        success: false,
+        error: { code: 'NOT_FOUND', message: 'Raum nicht gefunden.' },
+      });
+    }
+
+    res.json({
+      success: true,
+      data: {
+        id: room.id,
+        code: room.code,
+        roomName: room.roomName,
+        status: room.status,
+        runPhase: room.runPhase,
+        maxPlayers: room.maxPlayers,
+        cameraEnabled: room.cameraEnabled,
+        allowViewers: room.allowViewers,
+        game: room.gameDefinition,
+        players: room.participations.map(p => ({
+          id: p.id,
+          displayName: p.displayName,
+          role: p.role,
+          connected: p.connected,
+          ready: p.ready,
+          score: p.score,
+          lives: p.lives,
+        })),
+        viewerCount: room._count.viewerSessions,
+        createdAt: room.createdAt,
+      },
+    });
+  } catch (error) {
+    logger.error('Failed to get room', { error });
+    res.status(500).json({
+      success: false,
+      error: { code: 'INTERNAL_ERROR', message: 'Raum konnte nicht geladen werden.' },
+    });
+  }
+});
+
+// POST /api/v1/rooms/:code/join - Player join
+roomsRouter.post('/:code/join', async (req, res) => {
+  try {
+    const { displayName, pin } = req.body;
+
+    if (!displayName) {
+      return res.status(400).json({
+        success: false,
+        error: { code: 'VALIDATION', message: 'Name erforderlich.' },
+      });
+    }
+
+    const room = await prisma.room.findUnique({
+      where: { code: req.params.code },
+    });
+
+    if (!room) {
+      return res.status(404).json({
+        success: false,
+        error: { code: 'NOT_FOUND', message: 'Raum nicht gefunden.' },
+      });
+    }
+
+    if (room.status !== 'LOBBY') {
+      return res.status(400).json({
+        success: false,
+        error: { code: 'ROOM_NOT_JOINABLE', message: 'Raum ist nicht mehr beitretbar.' },
+      });
+    }
+
+    // Check PIN
+    if (room.pinHash) {
+      const pinHash = crypto.createHash('sha256').update(pin || '').digest('hex');
+      if (pinHash !== room.pinHash) {
+        return res.status(403).json({
+          success: false,
+          error: { code: 'INVALID_PIN', message: 'Falscher PIN.' },
+        });
+      }
+    }
+
+    // Check player limit
+    const playerCount = await prisma.participation.count({
+      where: { roomId: room.id, role: 'PLAYER' },
+    });
+
+    if (playerCount >= room.maxPlayers) {
+      return res.status(400).json({
+        success: false,
+        error: { code: 'ROOM_FULL', message: 'Raum ist voll.' },
+      });
+    }
+
+    // Create rejoin token
+    const rejoinToken = uuid();
+
+    // Create participation
+    const participation = await prisma.participation.create({
+      data: {
+        roomId: room.id,
+        displayName,
+        normalizedName: displayName.toLowerCase().trim(),
+        role: 'PLAYER',
+        connected: true,
+        ready: false,
+        rejoinToken,
+      },
+    });
+
+    logger.info('Player joined', { roomId: room.id, participationId: participation.id });
+
+    res.status(201).json({
+      success: true,
+      data: {
+        participationId: participation.id,
+        rejoinToken,
+        roomId: room.id,
+        displayName,
+      },
+    });
+  } catch (error) {
+    logger.error('Failed to join room', { error });
+    res.status(500).json({
+      success: false,
+      error: { code: 'INTERNAL_ERROR', message: 'Beitritt fehlgeschlagen.' },
+    });
+  }
+});
