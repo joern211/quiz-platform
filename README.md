@@ -1,10 +1,14 @@
 # Online Quiz Plattform
 
-**Eine moderne Spieleplattform für Freundesgruppen** ⚠️ **Prototyp – nicht produktionsbereit**
+⚠️ **Prototyp – noch nicht produktionsreif**
 
-![Version](https://img.shields.io/badge/version-0.2.1-blue)
+![Version](https://img.shields.io/badge/version-0.3.0-blue)
 ![License](https://img.shields.io/badge/license-MIT-green)
 ![Node](https://img.shields.io/badge/node-20+-green)
+
+**Repository:** [https://github.com/joern211/quiz-platform](https://github.com/joern211/quiz-platform)
+
+---
 
 ## 🎯 Überblick
 
@@ -13,92 +17,188 @@ Die Online Quiz Plattform ist eine **moderne React/TypeScript PWA** mit Node.js/
 ### Kernfeatures
 
 - 📱 **PWA** - Auf Handy & Desktop installierbar
-- 🎮 **Mehrspieler-Spiele** - Geo-Quiz, Jeopardy, und weitere (Entwicklung)
+- 🎮 **Mehrspieler-Spiele** - Aktuell: Geo-Quiz (spielbar)
 - 👥 **Multiplayer** - Bis 10 Spieler, 50 Zuschauer
 - 🎯 **Moderator-System** - Eigene Räume erstellen und verwalten
 - 🌙 **Dark/Light Theme** - Cyan Dark & Lila Light
-- 💾 **Persistenz** - SQLite Datenbank, automatische Backups
-- 🐳 **Docker** - Sofort einsatzbereit
+- 💾 **Persistenz** - SQLite Datenbank
+- 🐳 **Docker** - Container-Deployment möglich
 
-## 🚀 Schnellstart
+---
 
-### Option 1: Docker (Empfohlen)
+## 🎮 Spiele
+
+⚠️ **Status:**
+
+| Spiel | Beschreibung | Status |
+|-------|--------------|--------|
+| **Geo-Quiz** | Multiple Choice mit Joker (50/50, Spy, Risk) | 🔶 BETA – spielbar |
+| **Jeopardy** | 2 Boards, Abstauber | 🔶 PLANNED |
+| **Wer ist das?** | Fusionbilder erkennen | 🔶 PLANNED |
+| **Timeline** | Elemente einordnen | 🔶 PLANNED |
+| **Wer lügt am besten?** | Lügen & Abstimmung | 🔶 PLANNED |
+| **Erkenne den Song** | Musik-Buzzer | 🔶 PLANNED |
+
+Nur Geo-Quiz ist derzeit end-to-end spielbar. Andere Spiele sind Engine-Scaffolds.
+
+---
+
+## 🚀 Setup
+
+### Voraussetzungen
+
+- Node.js 20+
+- pnpm 9+
+- (Docker für Container-Deployment)
+
+### 1. Klonen
 
 ```bash
-# Klonen
-git clone https://github.com/your-username/online-quiz-plattform.git
-cd online-quiz-plattform
+git clone https://github.com/joern211/quiz-platform.git
+cd quiz-platform
+```
 
-# Starten
-docker-compose up -d
+### 2. Abhängigkeiten installieren
+
+```bash
+pnpm install --frozen-lockfile
+```
+
+### 3. Prisma Client generieren
+
+```bash
+pnpm db:generate
+```
+
+### 4. Datenbank migrieren
+
+```bash
+pnpm db:migrate:deploy
+```
+
+### 5. Datenbank seeden (optional)
+
+```bash
+pnpm db:seed
+```
+
+> Dies erstellt Demo-Accounts (siehe unten).
+
+### 6. Web-App bauen (für Produktion/Server)
+
+```bash
+pnpm build
+```
+
+### 7. Server starten
+
+```bash
+pnpm --filter @quiz/server run
+```
+
+### 8. Web Dev Server starten (für Entwicklung)
+
+```bash
+pnpm --filter @quiz/web dev
+```
+
+- Server läuft auf: `http://localhost:3001`
+- Web Dev Server läuft auf: `http://localhost:5173` (proxied → 3001)
+
+---
+
+## 🐳 Docker
+
+### Mit Docker Compose
+
+```bash
+# .env erstellen mit SESSION_SECRET
+cp .env.example .env
+# SESSION_SECRET setzen (min. 32 Zeichen)
+
+# Container starten
+docker-compose up --build
 
 # Öffnen
 open http://localhost:3001
 ```
 
-### Option 2: Lokale Entwicklung
+### Hinweise zu Docker
 
-```bash
-# Abhängigkeiten installieren
-pnpm install
+- **Initial Admin Passwort:** `secret` (DEV ONLY – in Produktion ändern!)
+- **Dockerfile** verwendet Multi-Stage-Build mit `prisma generate`
+- **SESSION_SECRET** muss in `.env` gesetzt werden vor dem Start
+- Die Datenbank liegt in einem Volume (`quiz-data`)
 
-# Datenbank migrieren und seeden
-pnpm db:migrate && pnpm db:seed
+⚠️ **Dies ist ein Entwicklungs-Container. Für Produktion müssen weitere Sicherheitsmaßnahmen ergriffen werden (HTTPS, etc.).**
 
-# Starten
-pnpm dev
+---
+
+## 👤 Demo-Account
+
+### Moderator
+
 ```
+E-Mail:    moderator@example.com
+Passwort:  secret
+```
+
+⚠️ **Nur für lokale Entwicklung/Tests. Niemals in Produktion verwenden!**
+
+### So nutzt man den Demo-Account
+
+1. Starte Server und Web (oder Docker)
+2. Öffne `http://localhost:3001`
+3. Klicke "Moderator Login" oder navigiere zu `/admin`
+4. Login mit den obigen Zugangsdaten
+5. Erstelle einen Geo-Quiz-Raum und starte ein Spiel
+
+---
 
 ## 📁 Projektstruktur
 
 ```
-online-quiz-plattform/
+quiz-platform/
 ├── apps/
-│   ├── web/              # React PWA
-│   └── server/           # Node.js Backend
+│   ├── web/              # React PWA (Vite)
+│   └── server/           # Node.js Backend (Express + Socket.IO)
 ├── packages/
 │   ├── shared/           # Gemeinsame Typen & Schemas
 │   ├── ui/               # Design System
-│   └── game-sdk/         # Spiel-Engine Vertrag
+│   ├── game-sdk/         # Spiel-Engine Interface
+│   └── test-utils/       # Test-Helfer
 ├── prisma/
-│   └── schema.prisma     # Datenbankschema
+│   ├── schema.prisma     # Datenbankschema
+│   ├── seed.ts           # Demo-Daten
+│   └── migrations/       # Versionierte Migrationen
 ├── scripts/
 │   ├── backup.sh         # Backup-Skript
 │   └── restore.sh        # Restore-Skript
-└── storage/              # Daten & Uploads
+└── storage/
+    └── database/         # SQLite-Datenbank
 ```
 
-## 🎮 Spiele
-
-⚠️ **Status**: Geo-Quiz ist funktional. Andere Spiele sind in Entwicklung.
-
-| Spiel | Beschreibung | Status |
-|-------|--------------|--------|
-| **Geo-Quiz** | Multiple Choice mit Joker | 🔶 In Entwicklung |
-| **Jeopardy** | 2 Boards, Abstauber | 🔶 In Entwicklung |
-| **Wer ist das?** | Fusionbilder erkennen | 🔶 In Entwicklung |
-| **Timeline** | Elemente einordnen | 🔶 Geplant |
-| **Wer lügt am besten?** | Lügen & Abstimmung | 🔶 Geplant |
-| **Erkenne den Song** | Musik-Buzzer | 🔶 Geplant |
-
-Mehr Spiele folgen in späteren Versionen.
+---
 
 ## 🔧 Konfiguration
 
-Kopiere `.env.example` nach `.env` und passe an:
+### Umgebungsvariablen
+
+Kopiere `.env.example` nach `.env`:
 
 ```bash
 cp .env.example .env
 ```
-
-### Wichtige Variablen
 
 | Variable | Standard | Beschreibung |
 |----------|----------|--------------|
 | `PORT` | `3001` | Server Port |
 | `DATABASE_URL` | `file:./storage/database/quiz.db` | SQLite Pfad |
 | `SESSION_SECRET` | - | Session Geheimnis (min. 32 Zeichen!) |
-| `INITIAL_ADMIN_PASSWORD` | `admin123` | Initiales Admin Passwort |
+| `INITIAL_ADMIN_PASSWORD` | `secret` | Initiales Admin Passwort (DEV!) |
+| `PUBLIC_APP_URL` | `http://localhost:3001` | Öffentliche URL |
+
+---
 
 ## 🧪 Tests
 
@@ -112,16 +212,17 @@ pnpm --filter @quiz/server test
 # Web Tests
 pnpm --filter @quiz/web test
 
-# E2E Tests
+# E2E Tests (Playwright)
 pnpm test:e2e
 ```
+
+---
 
 ## 📦 Deployment
 
 ### Railway
 
 ```bash
-# Mit Railway CLI
 railway login
 railway init
 railway up
@@ -137,15 +238,17 @@ pnpm build
 docker-compose up -d
 ```
 
-### ngrok (Temporär)
+### ngrok (Temporär für Tests)
 
 ```bash
 # Server starten
-pnpm start
+pnpm --filter @quiz/server run
 
 # In neuem Terminal
 ngrok http 3001
 ```
+
+---
 
 ## 🔐 Sicherheit
 
@@ -154,13 +257,16 @@ ngrok http 3001
 - ✅ Serverseitige Spielautorität
 - ✅ Rate-Limiting
 - ✅ Input-Validierung (Zod)
-- ✅ CSRF-Schutz
 
-⚠️ **Hinweis**: Dies ist ein Prototyp. Für Produktion müssen weitere Sicherheitsmaßnahmen implementiert werden.
+⚠️ **Hinweis**: Dies ist ein Prototyp. Für Produktion müssen weitere Maßnahmen implementiert werden (HTTPS, CSRF-Protection, etc.).
+
+---
 
 ## 📝 Lizenz
 
-MIT License - frei für eigene Projekte.
+MIT License
+
+---
 
 ## 🙏 Danke
 

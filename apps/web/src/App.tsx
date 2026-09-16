@@ -59,11 +59,11 @@ export default function App() {
           <Route path="/kategorie/:categorySlug" element={<CategoryPage />} />
           <Route path="/spiel/:gameSlug"         element={<GamePage />} />
           <Route path="/beitreten"               element={<JoinPage />} />
-          <Route path="/raeume"                  element={<RoomsPage />} />
 
           {/* ── Moderator ── */}
           <Route path="/moderator/anmelden"                              element={<ModeratorLoginPage />} />
           <Route path="/moderator/vorbereitung/:gameSlug"                element={<ModeratorSetupPage />} />
+          <Route path="/moderator/raeume"                                element={<RoomsPage />} />
           <Route path="/moderator/raum/:code/lobby"                      element={<ModeratorLobbyPage />} />
           <Route path="/moderator/raum/:code/spiel"                      element={<ModeratorGamePage />} />
           <Route path="/moderator/raum/:code/ergebnis"                   element={<ModeratorResultPage />} />

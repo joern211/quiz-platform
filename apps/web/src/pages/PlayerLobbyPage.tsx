@@ -4,7 +4,8 @@
 
 import { useParams, useNavigate } from 'react-router-dom';
 import { useEffect, useState, useRef } from 'react';
-import { io, Socket } from 'socket.io-client';
+import { Socket } from 'socket.io-client';
+import { getSocket, connectSocket, disconnectSocket } from '../lib/socket.ts';
 import { Card, Button, Badge } from '@quiz/ui';
 import styles from './PlayerLobbyPage.module.css';
 
@@ -20,11 +21,10 @@ export function PlayerLobbyPage() {
   const rejoinToken = localStorage.getItem('rejoinToken');
 
   useEffect(() => {
-    const socket = io(window.location.origin, {
-      withCredentials: true,
-      auth: { rejoinToken },
-    });
-    socketRef.current = socket;
+    socketRef.current = getSocket();
+    const socket = socketRef.current;
+
+    connectSocket();
 
     socket.on('connect', () => {
       setConnected(true);
@@ -64,17 +64,20 @@ export function PlayerLobbyPage() {
     });
 
     return () => {
-      socket.disconnect();
+      disconnectSocket();
     };
   }, [code, navigate, rejoinToken]);
 
   const handleToggleReady = () => {
+    const newReady = !ready;
     socketRef.current?.emit('player:ready:set', {
       roomCode: code,
-      ready: !ready,
-      rejoinToken,
+      ready: newReady,
+    }, (response: any) => {
+      if (response.success) {
+        setReady(newReady);
+      }
     });
-    setReady(!ready);
   };
 
   const handleSendChat = (e: React.FormEvent) => {
@@ -83,8 +86,7 @@ export function PlayerLobbyPage() {
     
     socketRef.current?.emit('lobby:chat:send', {
       roomCode: code,
-      content: chatInput.trim(),
-      rejoinToken,
+      text: chatInput.trim(),
     });
     setChatInput('');
   };
@@ -104,19 +106,28 @@ export function PlayerLobbyPage() {
           <h2>Spieler ({players.length})</h2>
           
           <div className={styles.playerList}>
-            {players.map((player) => (
-              <div 
-                key={player.id} 
-                className={`${styles.playerRow} ${player.ready ? styles.ready : ''}`}
-              >
-                <span className={styles.playerName}>{player.displayName}</span>
-                {player.ready ? (
-                  <Badge variant="success">Bereit ✓</Badge>
-                ) : (
-                  <Badge variant="muted">Wartet...</Badge>
-                )}
-              </div>
-            ))}
+            {players.length === 0 ? (
+              <p className={styles.empty}>Warte auf Spieler...</p>
+            ) : (
+              players.map((player) => (
+                <div 
+                  key={player.id} 
+                  className={`${styles.playerRow} ${player.ready && player.connected ? styles.ready : ''}`}
+                >
+                  <span className={styles.playerName}>
+                    {player.displayName}
+                    {!player.connected && (
+                      <Badge variant="muted" size="sm">Getrennt</Badge>
+                    )}
+                  </span>
+                  {player.ready && player.connected ? (
+                    <Badge variant="success">Bereit ✓</Badge>
+                  ) : (
+                    <Badge variant="muted">Wartet...</Badge>
+                  )}
+                </div>
+              ))
+            )}
           </div>
         </Card>
 

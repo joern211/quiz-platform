@@ -1,26 +1,45 @@
 // ============================================================
-// Socket Authorization Helpers
+// Socket Authorization Helpers (sockets layer)
 // ============================================================
+// Uses the socketIdentityMap from http/middleware/auth.ts
+// This module provides convenience wrappers for socket handlers
 
 import { Socket } from 'socket.io';
+import { getSocketIdentity, requireRoomRole as checkRole } from '../http/middleware/auth.js';
 import { logger } from '../observability/logger.js';
 
-// Role hierarchy: MODERATOR > PLAYER > VIEWER
-const ROLE_LEVELS: Record<string, number> = {
-  MODERATOR: 3,
-  PLAYER: 2,
-  VIEWER: 1,
-};
+// Re-export for convenience in socket handlers
+export { getSocketIdentity } from '../http/middleware/auth.js';
+export { requireRoomRole as checkRole } from '../http/middleware/auth.js';
 
 /**
- * Check if socket has required role level or higher
+ * Get socket identity from socket.data (alternative to socketIdentityMap)
+ * Returns identity data stored during room subscription
+ */
+export function getSocketDataIdentity(socket: Socket): {
+  participationId?: string;
+  roomId?: string;
+  role?: string;
+  displayName?: string;
+} {
+  return {
+    participationId: socket.data.participationId,
+    roomId: socket.data.roomId,
+    role: socket.data.role,
+    displayName: socket.data.displayName,
+  };
+}
+
+/**
+ * Require room role with callback pattern for socket handlers
+ * Checks socket.data.role >= requiredRole (using role hierarchy)
  */
 export function requireRoomRole(
   socket: Socket,
   requiredRole: string,
   callback?: (result: { success: boolean; error?: string }) => void
 ): boolean {
-  const identity = getSocketIdentity(socket);
+  const identity = getSocketDataIdentity(socket);
   
   if (!identity || !identity.role) {
     const error = 'NOT_AUTHENTICATED';
@@ -28,6 +47,13 @@ export function requireRoomRole(
     callback?.({ success: false, error });
     return false;
   }
+
+  // Role hierarchy: MODERATOR > PLAYER > VIEWER
+  const ROLE_LEVELS: Record<string, number> = {
+    MODERATOR: 3,
+    PLAYER: 2,
+    VIEWER: 1,
+  };
 
   const socketRoleLevel = ROLE_LEVELS[identity.role] || 0;
   const requiredLevel = ROLE_LEVELS[requiredRole] || 0;
@@ -53,7 +79,7 @@ export function requireParticipation(
   socket: Socket,
   callback?: (result: { success: boolean; error?: string }) => void
 ): boolean {
-  const identity = getSocketIdentity(socket);
+  const identity = getSocketDataIdentity(socket);
 
   if (!identity || !identity.participationId) {
     const error = 'NO_PARTICIPATION';
@@ -66,23 +92,6 @@ export function requireParticipation(
 }
 
 /**
- * Get socket identity from socket.data
- */
-export function getSocketIdentity(socket: Socket): {
-  participationId?: string;
-  roomId?: string;
-  role?: string;
-  displayName?: string;
-} {
-  return {
-    participationId: socket.data.participationId,
-    roomId: socket.data.roomId,
-    role: socket.data.role,
-    displayName: socket.data.displayName,
-  };
-}
-
-/**
  * Authorize a room action: check role AND room match
  */
 export async function authorizeRoomAction(
@@ -90,7 +99,7 @@ export async function authorizeRoomAction(
   roomCode: string,
   requiredRole: string
 ): Promise<{ authorized: boolean; error?: string; roomId?: string }> {
-  const identity = getSocketIdentity(socket);
+  const identity = getSocketDataIdentity(socket);
 
   if (!identity || !identity.participationId) {
     return { authorized: false, error: 'NOT_AUTHENTICATED' };
@@ -101,7 +110,7 @@ export async function authorizeRoomAction(
   }
 
   // Verify socket is in the correct room
-  const isInRoom = socket.rooms.has(`room:${roomCode}`) || socket.rooms.has(roomCode);
+  const isInRoom = socket.rooms.has(roomCode);
   if (!isInRoom) {
     logger.warn('authorizeRoomAction: socket not in room', {
       socketId: socket.id,
@@ -111,7 +120,13 @@ export async function authorizeRoomAction(
     return { authorized: false, error: 'WRONG_ROOM' };
   }
 
-  // Check role hierarchy
+  // Role hierarchy
+  const ROLE_LEVELS: Record<string, number> = {
+    MODERATOR: 3,
+    PLAYER: 2,
+    VIEWER: 1,
+  };
+
   const socketRoleLevel = ROLE_LEVELS[identity.role || ''] || 0;
   const requiredLevel = ROLE_LEVELS[requiredRole] || 0;
 

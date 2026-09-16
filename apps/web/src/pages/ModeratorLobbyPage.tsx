@@ -4,7 +4,8 @@
 
 import { useParams, useNavigate } from 'react-router-dom';
 import { useEffect, useState, useRef } from 'react';
-import { io, Socket } from 'socket.io-client';
+import { Socket } from 'socket.io-client';
+import { getSocket, connectSocket, disconnectSocket } from '../lib/socket.ts';
 import { Card, Button, Badge } from '@quiz/ui';
 import { Scoreboard } from '../components/Scoreboard';
 import styles from './ModeratorLobbyPage.module.css';
@@ -20,15 +21,13 @@ export function ModeratorLobbyPage() {
   const [roomInfo, setRoomInfo] = useState<any>(null);
 
   useEffect(() => {
-    // Connect to socket
-    const socket = io(window.location.origin, {
-      withCredentials: true,
-    });
-    socketRef.current = socket;
+    socketRef.current = getSocket();
+    const socket = socketRef.current;
+
+    connectSocket();
 
     socket.on('connect', () => {
       setConnected(true);
-      // Subscribe to room
       socket.emit('room:subscribe', { roomCode: code });
     });
 
@@ -58,14 +57,15 @@ export function ModeratorLobbyPage() {
     });
 
     return () => {
-      socket.disconnect();
+      disconnectSocket();
     };
   }, [code]);
 
   const updateCanStart = (playerList: any[]) => {
     const connectedPlayers = playerList.filter(p => p.connected);
-    const allReady = connectedPlayers.every(p => p.ready);
-    setCanStart(connectedPlayers.length >= 2 && allReady);
+    const readyPlayers = connectedPlayers.filter(p => p.ready);
+    const allReady = connectedPlayers.length >= 2 && readyPlayers.length === connectedPlayers.length;
+    setCanStart(allReady);
   };
 
   const handleStart = () => {
@@ -92,6 +92,9 @@ export function ModeratorLobbyPage() {
     socketRef.current?.emit('lobby:chat:lock', { roomCode: code, locked: !chatEnabled });
     setChatEnabled(!chatEnabled);
   };
+
+  const connectedCount = players.filter(p => p.connected).length;
+  const readyCount = players.filter(p => p.ready && p.connected).length;
 
   return (
     <div className={styles.page}>
@@ -172,8 +175,7 @@ export function ModeratorLobbyPage() {
 
         <div className={styles.startSection}>
           <p className={styles.hint}>
-            {players.filter(p => p.connected).length} Spieler verbunden,{' '}
-            {players.filter(p => p.ready).length} bereit
+            {connectedCount} Spieler verbunden, {readyCount} bereit
           </p>
           <div className={styles.startButtons}>
             <Button onClick={handleStart} disabled={!canStart}>

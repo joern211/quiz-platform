@@ -2,35 +2,45 @@
 
 Alle wesentlichen Änderungen werden hier dokumentiert.
 
-## [0.3.0] - 2026-09-16
+## [0.3.0] - 2026-09-16 (IN ARBEIT)
 
 ### Status: PROTOTYP – noch nicht produktionsreif
 
 > Nur Geo-Quiz hat einen vollständigen End-to-End-Ablauf (Stand: 2026-09-16).
 > Andere Spiele sind `PLANNED` oder `BETA`.
+> Branch: `gate-1-2-fixes` mit uncommitted P0-Fixes.
 
-### Neue Features
+---
 
-- **P0-01** JoinPage: Namensfeld hinzugefügt; `{displayName}` statt nur `{pin}`; Room-Code mit Auto-Format `NNN-NNN`
-- **P0-02** ModeratorSetupPage: sendet `setupSnapshotJson` statt `setup`; Server speichert korrekt
-- **P0-03** Geo-Engine: `startRound()` wird nach `initialize()` automatisch aufgerufen → erste Runde startet
-- **P0-04** Socket-Events vereinheitlicht: Client/Server verwenden dieselben Event-Namen
-- **P0-05** `requireRoomRole()` jetzt an allen Moderator-Endpoints angebunden
-- **P0-06** `room:subscribe`: Zuschauer-Login, PIN, `allowViewers`, Limit geprüft
-- **P0-07** Cross-Room-Schutz: alle Aktionen prüfen `socket.data.roomId`
-- **P0-08** Disconnect: `connected=false` wird in DB und an alle Clients broadcastet
-- **P0-09** Socket-Verbindung: `connectSocket()` wird beim Mount aufgerufen
-- **P0-10** Seed: `estimatedMinutes`, `JSON.stringify(tags)`, Argon2
-- **P0-11** Initiale Migration erstellt und eingecheckt
-- **P0-12** Docker: pnpm-Filter korrigiert, `WEB_DIST_PATH=/app/web`, `INITIAL_ADMIN_PASSWORD`
-- **P0-13** Tests: `@testing-library/jest-dom`, Vitest CI-Modus, E2E ausgeschlossen
-- **P0-14** Ergebnis-Seiten: API/Resync statt nur `sessionStorage`
-- **P0-15** Zuschauer: korrekte Routen `/zuschauen/:code/lobby|spiel|ergebnis`
-- **P0-16** Serverseitiger Timer: `timerStartMs`/`timerEndMs` in DB; `setTimeout` schließt Eingaben
-- **P0-17** Reveal: idempotent mit Transaktion; Moderator-autorisiert; keine Doppelpunktzahl
-- **P0-18** Mindestspielerzahl: `GameDefinition.minPlayers` wird bei Start geprüft
+### ✅ Abgeschlossen (committed)
 
-### Infrastructure
+| ID | Beschreibung |
+|----|--------------|
+| P0-01 | JoinPage: Namensfeld; `{displayName}` statt nur `{pin}`; Room-Code mit Auto-Format `NNN-NNN` |
+| P0-02 | ModeratorSetupPage: sendet `setupSnapshotJson` statt `setup` |
+| P0-10 | Seed: `estimatedMinutes`, `JSON.stringify(tags)`, Argon2 |
+| P0-11 | Initiale Migration erstellt und eingecheckt |
+| P0-13 | Tests: `@testing-library/jest-dom`, Vitest CI-Modus |
+
+### 🔄 In Bearbeitung (uncommitted fixes in working tree)
+
+| ID | Beschreibung | Dateien |
+|----|--------------|---------|
+| P0-03 | `startRound()` wird nach `initialize()` automatisch aufgerufen | geo/index.ts |
+| P0-04 | Socket-Events vereinheitlicht | game.ts, geo/index.ts |
+| P0-05 | `requireRoomRole()` an Moderator-Endpoints angebunden | game.ts, auth.js |
+| P0-06 | `room:subscribe`: Zuschauer-Login, PIN, `allowViewers`, Limit geprüft | room.ts |
+| P0-07 | Cross-Room-Schutz: alle Aktionen prüfen `socket.data.roomId` | game.ts, room.ts |
+| P0-08 | Disconnect: `connected=false` in DB und broadcastet | room.ts |
+| P0-09 | Socket-Verbindung: `connectSocket()` beim Mount aufgerufen | socket.ts |
+| P0-12 | Docker: `WEB_DIST_PATH=/app/web`, `INITIAL_ADMIN_PASSWORD` | Dockerfile, docker-compose.yml |
+| P0-14 | Ergebnis-Seiten: API/Resync statt nur `sessionStorage` | ModeratorGamePage.tsx, PlayerGamePage.tsx |
+| P0-15 | Zuschauer: korrekte Routen `/zuschauen/:code/lobby\|spiel\|ergebnis` | App.tsx |
+| P0-16 | Serverseitiger Timer: `setTimeout` schließt Eingaben | geo/index.ts |
+| P0-17 | Reveal: idempotent mit Transaktion; Moderator-autorisiert | geo/index.ts |
+| P0-18 | Mindestspielerzahl: `minPlayers` wird bei Start geprüft | game.ts |
+
+### 🔧 Infrastructure
 
 - Initiale Prisma-Migration eingecheckt (`prisma/migrations/`)
 - `@testing-library/jest-dom` hinzugefügt
@@ -40,11 +50,22 @@ Alle wesentlichen Änderungen werden hier dokumentiert.
 - `packages/game-sdk`: Game-Engine-Typen implementiert
 - Einheitliche Versionsnummer: `0.3.0`
 
-### Socket-Sicherheit
+### 🔐 Socket-Sicherheit
 
 - `socket.data` speichert Identität: `{participationId, roomId, role, displayName}`
 - Jeder mutierende Event zentral autorisiert
 - Rejoin-Token nur für Participation in diesem Raum gültig
+
+### 🎮 Spielstände
+
+| Spiel | Status | Anmerkung |
+|-------|--------|-----------|
+| **Geo-Quiz** | 🔶 BETA | Engine vollständig; Socket-Integration + P0-Fixes in Bearbeitung |
+| **Jeopardy** | 🔶 PLANNED | Engine-Scaffold vorhanden |
+| **Wer ist das?** | 🔶 PLANNED | Engine-Scaffold vorhanden |
+| **Timeline** | 🔶 PLANNED | Engine-Scaffold vorhanden |
+| **Wer lügt am besten?** | 🔶 PLANNED | Engine-Scaffold mit In-Memory-State |
+| **Erkenne den Song** | 🔶 PLANNED | Engine-Scaffold vorhanden |
 
 ---
 
@@ -52,12 +73,14 @@ Alle wesentlichen Änderungen werden hier dokumentiert.
 
 ### Gate 1+2 Fixes
 
-- TECH-001/002/003/004: Build, TS, ESM, Ports repariert
-- SEC-001: Argon2 statt SHA-256 im Seed
-- SEC-009: `crypto.randomInt()` für Raumcodes
-- API-001: Zentraler `ApiResponse<T>` Client
-- SOCK-003: Registry korrigiert
-- FLOW-001/002/005/006: Navigation, Ergebnis-Routen, Mobile Nav
+| ID | Problem | Fix |
+|----|---------|-----|
+| TECH-001/002/003/004 | Build, TS, ESM, Ports | Repariert |
+| SEC-001 | Argon2 statt SHA-256 im Seed | ✅ |
+| SEC-009 | `crypto.randomInt()` für Raumcodes | ✅ |
+| API-001 | Zentraler `ApiResponse<T>` Client | ✅ |
+| SOCK-003 | Registry korrigiert | ✅ |
+| FLOW-001/002/005/006 | Navigation, Ergebnis-Routen, Mobile Nav | ✅ |
 
 ---
 
