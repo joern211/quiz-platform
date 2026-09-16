@@ -1,11 +1,11 @@
 // ============================================================
-// Player Lobby Page
+// Player Lobby Page - v0.3.0
 // ============================================================
 
 import { useParams, useNavigate } from 'react-router-dom';
 import { useEffect, useState, useRef } from 'react';
 import { Socket } from 'socket.io-client';
-import { getSocket, connectSocket, disconnectSocket } from '../lib/socket.ts';
+import { getSocket, connectSocket, disconnectSocket, setSessionData, getSessionData } from '../lib/socket.ts';
 import { Card, Button, Badge } from '@quiz/ui';
 import styles from './PlayerLobbyPage.module.css';
 
@@ -18,7 +18,16 @@ export function PlayerLobbyPage() {
   const [ready, setReady] = useState(false);
   const [chatMessages, setChatMessages] = useState<any[]>([]);
   const [chatInput, setChatInput] = useState('');
-  const rejoinToken = localStorage.getItem('rejoinToken');
+  const [kicked, setKicked] = useState(false);
+
+  const session = getSessionData();
+  const rejoinToken = session.rejoinToken;
+
+  useEffect(() => {
+    if (code) {
+      setSessionData({ roomCode: code, role: 'PLAYER' });
+    }
+  }, [code]);
 
   useEffect(() => {
     socketRef.current = getSocket();
@@ -28,11 +37,18 @@ export function PlayerLobbyPage() {
 
     socket.on('connect', () => {
       setConnected(true);
-      socket.emit('room:subscribe', { roomCode: code, rejoinToken });
+      socket.emit('room:subscribe', { roomCode: code, rejoinToken: rejoinToken || undefined });
     });
 
     socket.on('room:snapshot', (data) => {
       setPlayers(data.players || []);
+
+      // Restore ready state from stored session
+      const selfId = session.participationId;
+      const selfPlayer = data.players?.find((p: any) => p.id === selfId);
+      if (selfPlayer) setReady(selfPlayer.ready);
+
+      // If game already running, go to game
       if (data.status === 'RUNNING') {
         navigate(`/raum/${code}/spiel`);
       }
@@ -42,11 +58,16 @@ export function PlayerLobbyPage() {
       setPlayers(data.players || []);
     });
 
+    socket.on('room:kicked', (data) => {
+      setKicked(true);
+      setTimeout(() => {
+        setSessionData({});
+        navigate('/');
+      }, 3000);
+    });
+
     socket.on('player:ready:set', (data) => {
-      if (data.playerId === rejoinToken) {
-        setReady(data.ready);
-      }
-      setPlayers(prev => prev.map(p => 
+      setPlayers(prev => prev.map(p =>
         p.id === data.playerId ? { ...p, ready: data.ready } : p
       ));
     });
@@ -55,27 +76,35 @@ export function PlayerLobbyPage() {
       setChatMessages(prev => [...prev, msg]);
     });
 
-    socket.on('game:start', () => {
-      navigate(`/raum/${code}/spiel`);
+    socket.on('game:start', (data) => {
+      if (data.status === 'RUNNING') {
+        navigate(`/raum/${code}/spiel`);
+      }
     });
 
     socket.on('session:replaced', () => {
       alert('Du wurdest von einem neuen Gerät ersetzt');
     });
 
+    socket.on('disconnect', () => {
+      setConnected(false);
+    });
+
     return () => {
       disconnectSocket();
     };
-  }, [code, navigate, rejoinToken]);
+  }, [code, navigate, rejoinToken, session.participationId]);
 
   const handleToggleReady = () => {
     const newReady = !ready;
+    setReady(newReady); // Optimistic update
     socketRef.current?.emit('player:ready:set', {
       roomCode: code,
       ready: newReady,
+      rejoinToken: rejoinToken || undefined,
     }, (response: any) => {
-      if (response.success) {
-        setReady(newReady);
+      if (!response.success) {
+        setReady(!newReady); // Revert on failure
       }
     });
   };
@@ -83,13 +112,24 @@ export function PlayerLobbyPage() {
   const handleSendChat = (e: React.FormEvent) => {
     e.preventDefault();
     if (!chatInput.trim()) return;
-    
+
     socketRef.current?.emit('lobby:chat:send', {
       roomCode: code,
-      text: chatInput.trim(),
+      content: chatInput.trim(),
     });
     setChatInput('');
   };
+
+  if (kicked) {
+    return (
+      <div className={styles.page}>
+        <Card padding="lg" className={styles.kickedCard}>
+          <h1>Du wurdest entfernt</h1>
+          <p>Du wirst in Kürze zur Startseite weitergeleitet...</p>
+        </Card>
+      </div>
+    );
+  }
 
   return (
     <div className={styles.page}>
@@ -104,18 +144,19 @@ export function PlayerLobbyPage() {
       <div className={styles.grid}>
         <Card padding="lg">
           <h2>Spieler ({players.length})</h2>
-          
+
           <div className={styles.playerList}>
             {players.length === 0 ? (
               <p className={styles.empty}>Warte auf Spieler...</p>
             ) : (
               players.map((player) => (
-                <div 
-                  key={player.id} 
+                <div
+                  key={player.id}
                   className={`${styles.playerRow} ${player.ready && player.connected ? styles.ready : ''}`}
                 >
                   <span className={styles.playerName}>
                     {player.displayName}
+                    {player.id === session.participationId && ' (Du)'}
                     {!player.connected && (
                       <Badge variant="muted" size="sm">Getrennt</Badge>
                     )}
@@ -133,20 +174,20 @@ export function PlayerLobbyPage() {
 
         <Card padding="lg">
           <h2>Chat</h2>
-          
+
           <div className={styles.chatArea}>
             <div className={styles.chatMessages}>
               {chatMessages.length === 0 ? (
                 <p className={styles.chatEmpty}>Noch keine Nachrichten</p>
               ) : (
                 chatMessages.map((msg, i) => (
-                  <div key={i} className={styles.chatMessage}>
+                  <div key={msg.id || i} className={styles.chatMessage}>
                     <strong>{msg.senderName}:</strong> {msg.content}
                   </div>
                 ))
               )}
             </div>
-            
+
             <form onSubmit={handleSendChat} className={styles.chatForm}>
               <input
                 type="text"
@@ -163,7 +204,7 @@ export function PlayerLobbyPage() {
       </div>
 
       <div className={styles.actions}>
-        <Button onClick={handleToggleReady} size="lg">
+        <Button onClick={handleToggleReady} size="lg" variant={ready ? 'secondary' : 'primary'}>
           {ready ? 'Nicht mehr bereit' : 'Ich bin bereit!'}
         </Button>
       </div>

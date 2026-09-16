@@ -7,8 +7,6 @@
   top: 0;
   z-index: 100;
   background: var(--surface);
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
   border-bottom: 1px solid var(--border);
 }
 
@@ -36,6 +34,29 @@
   font-weight: 700;
   font-size: 1rem;
   color: var(--fg);
+}
+
+/* Active room back link */
+.backLink {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--accent);
+  text-decoration: none;
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius);
+  border: 1px solid rgba(29, 212, 212, 0.3);
+  background: rgba(29, 212, 212, 0.08);
+  transition: all 0.15s ease;
+  white-space: nowrap;
+}
+
+.backLink:hover {
+  background: rgba(29, 212, 212, 0.15);
+  border-color: var(--accent);
+}
+
+@media (max-width: 640px) {
+  .backLink { display: none; }
 }
 
 @media (max-width: 480px) {

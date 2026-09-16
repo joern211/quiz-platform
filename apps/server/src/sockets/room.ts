@@ -5,6 +5,7 @@
 import { Server, Socket } from 'socket.io';
 import { prisma } from '../persistence/prisma.js';
 import { logger } from '../observability/logger.js';
+import { socketIdentityMap } from '../http/middleware/auth.js';
 
 export async function handleRoomSubscription(
   io: Server,
@@ -126,6 +127,14 @@ export async function handleRoomSubscription(
   // Store identity in socket.data (P0-08/P0-09 fix)
   socket.data = identity;
 
+  // Also update socketIdentityMap for http/middleware/auth.ts compatibility
+  socketIdentityMap.set(socket.id, {
+    socketId: socket.id,
+    participationId: identity.participationId,
+    role: identity.role as any,
+    roomId: identity.roomId,
+  });
+
   // ONLY AFTER identity validated: socket.join(roomCode) (P0-07 fix)
   await socket.join(roomCode);
 
@@ -190,6 +199,92 @@ export async function handleRoomSubscription(
     role: identity.role,
     participationId: identity.participationId,
   });
+}
+
+export async function handleKickPlayer(
+  io: Server,
+  socket: Socket,
+  data: { roomCode: string; playerId: string },
+  callback?: (result: any) => void
+) {
+  try {
+    // Require MODERATOR role
+    const identity = (socket as any).data;
+    if (!identity || identity.role !== 'MODERATOR') {
+      callback?.({ success: false, error: 'UNAUTHORIZED' });
+      return;
+    }
+
+    const room = await prisma.room.findUnique({
+      where: { code: data.roomCode },
+    });
+
+    if (!room) {
+      callback?.({ success: false, error: 'ROOM_NOT_FOUND' });
+      return;
+    }
+
+    // Verify moderator belongs to this room
+    if (identity.roomId !== room.id) {
+      callback?.({ success: false, error: 'WRONG_ROOM' });
+      return;
+    }
+
+    // Find the participation to kick
+    const participation = await prisma.participation.findFirst({
+      where: { id: data.playerId, roomId: room.id, role: { not: 'MODERATOR' } },
+    });
+
+    if (!participation) {
+      callback?.({ success: false, error: 'PLAYER_NOT_FOUND' });
+      return;
+    }
+
+    // Mark as kicked
+    await prisma.participation.update({
+      where: { id: data.playerId },
+      data: { kickedAt: new Date(), connected: false },
+    });
+
+    // Invalidate rejoin token (bump version so old token is useless)
+    await prisma.participation.update({
+      where: { id: data.playerId },
+      data: { rejoinTokenVersion: { increment: 1 } },
+    });
+
+    // Notify the kicked player
+    io.to(room.code).emit('room:kicked', {
+      participationId: data.playerId,
+      reason: 'Du wurdest vom Moderator entfernt',
+    });
+
+    // Broadcast updated room state
+    const updatedRoom = await prisma.room.findUnique({
+      where: { code: data.roomCode },
+      include: { participations: { where: { role: { not: 'VIEWER' } } } },
+    });
+
+    if (updatedRoom) {
+      io.to(data.roomCode).emit('room:updated', {
+        roomCode: data.roomCode,
+        revision: room.revision + 1,
+        players: updatedRoom.participations.map(p => ({
+          id: p.id,
+          displayName: p.displayName,
+          role: p.role,
+          connected: p.connected,
+          ready: p.ready,
+          score: p.score,
+        })),
+      });
+    }
+
+    logger.info('Player kicked', { roomCode: data.roomCode, playerId: data.playerId });
+    callback?.({ success: true });
+  } catch (error) {
+    logger.error('Kick player error', { error });
+    callback?.({ success: false, error: 'INTERNAL_ERROR' });
+  }
 }
 
 export const handleRoomEvents = {

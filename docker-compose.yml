@@ -14,9 +14,9 @@ services:
       - PORT=3001
       - DATABASE_URL=file:/app/storage/database/quiz.db
       - STORAGE_ROOT=/app/storage
-      - SESSION_SECRET=${SESSION_SECRET:-change-me-in-production-please-use-at-least-32-chars}
+      - SESSION_SECRET=${SESSION_SECRET:-quiz-platform-prod-secret-32chars-min}
       - PUBLIC_APP_URL=http://localhost:3001
-      - INITIAL_ADMIN_PASSWORD=${INITIAL_ADMIN_PASSWORD:-admin123}
+      - ADMIN_PASSWORD=${ADMIN_PASSWORD:-change-me-in-production}
       - WEB_DIST_PATH=/app/web
     volumes:
       - quiz-data:/app/storage

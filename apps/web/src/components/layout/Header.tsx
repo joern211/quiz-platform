@@ -1,17 +1,40 @@
 // ============================================================
-// Header Component – v0.2.1 (Accessible mobile nav)
+// Header Component – v0.3.0 (Active room back link)
 // ============================================================
 
 import { useState, useEffect, useRef } from 'react';
 import { Link } from 'react-router-dom';
 import { Logo, useTheme } from '@quiz/ui';
+import { getActiveRoomCode } from '../../lib/socket';
 import styles from './Header.module.css';
 
 export function Header() {
   const { theme, toggleTheme } = useTheme();
   const [menuOpen, setMenuOpen] = useState(false);
+  const [activeRoomCode, setActiveRoomCode] = useState<string | null>(null);
   const menuRef = useRef<HTMLDivElement>(null);
   const toggleRef = useRef<HTMLButtonElement>(null);
+
+  // Track active room
+  useEffect(() => {
+    function checkActiveRoom() {
+      setActiveRoomCode(getActiveRoomCode());
+    }
+
+    checkActiveRoom();
+
+    // Re-check on storage events (sessionStorage changes)
+    const handler = () => checkActiveRoom();
+    window.addEventListener('storage', handler);
+
+    // Poll for sessionStorage changes within the same tab
+    const interval = setInterval(checkActiveRoom, 1000);
+
+    return () => {
+      window.removeEventListener('storage', handler);
+      clearInterval(interval);
+    };
+  }, []);
 
   // Close on Escape
   useEffect(() => {
@@ -44,6 +67,17 @@ export function Header() {
     }
   }, [menuOpen]);
 
+  // Determine back URL based on role
+  function getBackUrl() {
+    const code = activeRoomCode;
+    if (!code) return '/';
+    const role = sessionStorage.getItem('qp_role');
+    if (role === 'MODERATOR') {
+      return `/moderator/raum/${code}/lobby`;
+    }
+    return `/raum/${code}/lobby`;
+  }
+
   return (
     <header className={styles.header}>
       <div className={styles.container}>
@@ -52,6 +86,13 @@ export function Header() {
           <Logo />
           <span className={styles.logoText}>Online Quiz Plattform</span>
         </Link>
+
+        {/* Active room back link */}
+        {activeRoomCode && (
+          <Link to={getBackUrl()} className={styles.backLink}>
+            ← Zurück zum Raum
+          </Link>
+        )}
 
         {/* Desktop Nav */}
         <nav className={styles.nav} aria-label="Hauptnavigation">
@@ -113,6 +154,11 @@ export function Header() {
           aria-label="Navigation"
         >
           <nav className={styles.mobileNav}>
+            {activeRoomCode && (
+              <Link to={getBackUrl()} className={styles.mobileLink} onClick={() => setMenuOpen(false)}>
+                ← Zurück zum Raum
+              </Link>
+            )}
             <Link to="/kategorien" className={styles.mobileLink} onClick={() => setMenuOpen(false)}>Spiele</Link>
             <Link to="/raeume" className={styles.mobileLink} onClick={() => setMenuOpen(false)}>Räume</Link>
             <Link to="/moderator/anmelden" className={styles.mobileLink} onClick={() => setMenuOpen(false)}>Moderieren</Link>

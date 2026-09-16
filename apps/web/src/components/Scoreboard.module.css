@@ -1,5 +1,5 @@
 /* ============================================================
-   Scoreboard Styles – v0.2.0
+   Scoreboard Styles – v0.3.0 (Clean ranking, no bouncy effects)
    ============================================================ */
 
 .scoreboard {
@@ -16,18 +16,17 @@
   background: var(--surface);
   border-radius: var(--radius);
   border: 1px solid var(--border);
-  transition: transform 0.2s cubic-bezier(0.34, 1.56, 0.64, 1),
-              border-color 0.2s, background 0.2s;
+  /* Clean hover: subtle lift */
+  transition: border-color 0.15s, background 0.15s;
 }
 
 .player:hover {
-  transform: translateX(4px);
-  border-color: var(--accent);
+  border-color: var(--border-hover);
 }
 
 .player.current {
-  background: rgba(29,212,212,0.08);
-  border-color: rgba(29,212,212,0.4);
+  background: var(--surface-2);
+  border-color: var(--accent);
 }
 
 .player.disconnected { opacity: 0.5; }
@@ -39,12 +38,12 @@
   min-width: 2.5rem;
   text-align: center;
   color: var(--muted);
-  transition: color 0.3s;
 }
 
-.rank1 { color: #ffd700; text-shadow: 0 0 16px rgba(255,215,0,0.6); }
-.rank2 { color: #c0c0c0; text-shadow: 0 0 12px rgba(192,192,192,0.5); }
-.rank3 { color: #cd7f32; text-shadow: 0 0 12px rgba(205,127,50,0.5); }
+/* Clean medal colors — no text-shadow glow */
+.rank1 { color: #ffd700; }
+.rank2 { color: #a8a8a8; }
+.rank3 { color: #c47f3a; }
 
 .avatar, .avatarPlaceholder, .avatarGenerated {
   width: 44px;
@@ -59,7 +58,7 @@
 }
 
 .avatar {
-  background: linear-gradient(135deg, var(--accent), var(--accent-strong));
+  background: var(--accent);
   color: var(--bg);
   text-transform: uppercase;
 }
@@ -127,10 +126,18 @@
   font-weight: 900;
   color: var(--accent);
   font-variant-numeric: tabular-nums;
-  transition: transform 0.2s cubic-bezier(0.34, 1.56, 0.64, 1);
+  /* Clean transition — no bounce */
+  transition: color 0.2s ease;
 }
 
-.score.pop { animation: score-pop 0.4s cubic-bezier(0.34,1.56,0.64,1); }
+/* Clean score flash on change */
+.score.flash { animation: score-flash 0.5s ease; }
+
+@keyframes score-flash {
+  0%   { color: var(--accent); }
+  30%  { color: var(--ok); }
+  100% { color: var(--accent); }
+}
 
 .lives {
   font-size: 0.75rem;
@@ -152,9 +159,3 @@
 .compact .player { padding: var(--space-2); }
 .compact .avatar, .compact .avatarPlaceholder, .compact .avatarGenerated { width: 32px; height: 32px; }
 .compact .score { font-size: 1rem; }
-
-@keyframes score-pop {
-  0%   { transform: scale(1); }
-  40%  { transform: scale(1.35); color: var(--ok); }
-  100% { transform: scale(1); }
-}

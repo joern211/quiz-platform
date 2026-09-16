@@ -7,9 +7,9 @@ import { verifySession } from '../auth/session.js';
 import { config } from '../config/index.js';
 import { prisma } from '../persistence/prisma.js';
 import { logger } from '../observability/logger.js';
-import { handleRoomSubscription, handleRoomEvents } from './room.js';
+import { handleRoomSubscription, handleRoomEvents, handleKickPlayer } from './room.js';
 import { handlePlayerEvents } from './player.js';
-import { handleLobbyEvents, handleDisconnect as runDisconnect } from './lobby.js';
+import { handleLobbyEvents, handleDisconnect } from './lobby.js';
 import { handleGameEvents } from './game.js';
 
 // Room channel helper - returns a Socket.IO room identifier for a specific room
@@ -59,6 +59,11 @@ export function setupSocketHandlers(io: Server) {
     // Room events
     socket.on('room:resync', (data, callback) => {
       handleRoomEvents.resync(io, socket, data, callback);
+    });
+
+    // Kick player (moderator only)
+    socket.on('room:kick', (data, callback) => {
+      handleKickPlayer(io, socket, data, callback);
     });
 
     // Player events
@@ -129,7 +134,7 @@ export function setupSocketHandlers(io: Server) {
     // Disconnect
     socket.on('disconnect', async (reason) => {
       logger.info('Socket disconnected', { socketId: socket.id, reason });
-      await runDisconnect(io, socket);
+      await handleDisconnect(io, socket);
     });
   });
 }

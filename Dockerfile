@@ -24,6 +24,7 @@ WORKDIR /app
 COPY . .
 
 RUN pnpm exec prisma generate --schema=./prisma/schema.prisma && \
+    pnpm exec prisma migrate deploy --schema=./prisma/schema.prisma && \
     pnpm --filter @quiz/server build && \
     pnpm --filter @quiz/web build
 

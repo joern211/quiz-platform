@@ -421,3 +421,123 @@ roomsRouter.post('/:code/join', async (req, res) => {
     });
   }
 });
+
+// DELETE /api/v1/rooms/:code - Close room (moderator only)
+roomsRouter.delete('/:code', async (req, res) => {
+  try {
+    const sessionId = verifySession(req, config.sessionSecret);
+    if (!sessionId) {
+      return res.status(401).json({
+        success: false,
+        error: { code: 'NOT_AUTHENTICATED', message: 'Anmeldung erforderlich.' },
+      });
+    }
+
+    const session = await prisma.session.findUnique({
+      where: { id: sessionId },
+      include: { user: true },
+    });
+
+    if (!session || session.revokedAt || session.expiresAt < new Date()) {
+      return res.status(401).json({
+        success: false,
+        error: { code: 'SESSION_EXPIRED', message: 'Sitzung abgelaufen.' },
+      });
+    }
+
+    const room = await prisma.room.findUnique({
+      where: { code: req.params.code },
+    });
+
+    if (!room) {
+      return res.status(404).json({
+        success: false,
+        error: { code: 'NOT_FOUND', message: 'Raum nicht gefunden.' },
+      });
+    }
+
+    // Only host can close their room
+    if (room.hostUserId !== session.userId) {
+      return res.status(403).json({
+        success: false,
+        error: { code: 'UNAUTHORIZED', message: 'Nur der Raum-Ersteller kann den Raum schließen.' },
+      });
+    }
+
+    await prisma.room.update({
+      where: { code: req.params.code },
+      data: { status: 'ARCHIVED', archivedAt: new Date() },
+    });
+
+    logger.info('Room closed', { roomId: room.id, code: room.code });
+    res.json({ success: true });
+  } catch (error) {
+    logger.error('Failed to close room', { error });
+    res.status(500).json({
+      success: false,
+      error: { code: 'INTERNAL_ERROR', message: 'Raum konnte nicht geschlossen werden.' },
+    });
+  }
+});
+
+// GET /api/v1/rooms/:code/results - Get game results
+roomsRouter.get('/:code/results', async (req, res) => {
+  try {
+    const room = await prisma.room.findUnique({
+      where: { code: req.params.code },
+      include: {
+        gameDefinition: { select: { slug: true, name: true } },
+        participations: {
+          where: { role: { not: 'VIEWER' } },
+          orderBy: { score: 'desc' },
+          select: { id: true, displayName: true, role: true, score: true },
+        },
+        gameState: {
+          select: { phase: true, stateJson: true },
+        },
+      },
+    });
+
+    if (!room) {
+      return res.status(404).json({
+        success: false,
+        error: { code: 'NOT_FOUND', message: 'Raum nicht gefunden.' },
+      });
+    }
+
+    // Return results for ENDED rooms or RUNNING rooms with RESULTS phase
+    if (room.status !== 'ENDED' && room.status !== 'RUNNING' && room.status !== 'LOBBY') {
+      return res.status(404).json({
+        success: false,
+        error: { code: 'RESULTS_NOT_AVAILABLE', message: 'Ergebnisse noch nicht verfügbar.' },
+      });
+    }
+
+    const rankedPlayers = room.participations.map((p, i) => ({
+      rank: i + 1,
+      participationId: p.id,
+      displayName: p.displayName,
+      role: p.role,
+      score: p.score,
+    }));
+
+    res.json({
+      success: true,
+      data: {
+        roomCode: room.code,
+        roomName: room.roomName,
+        status: room.status,
+        runPhase: room.runPhase,
+        game: room.gameDefinition,
+        scores: rankedPlayers,
+        endedAt: room.endedAt,
+      },
+    });
+  } catch (error) {
+    logger.error('Failed to get results', { error });
+    res.status(500).json({
+      success: false,
+      error: { code: 'INTERNAL_ERROR', message: 'Ergebnisse konnten nicht geladen werden.' },
+    });
+  }
+});

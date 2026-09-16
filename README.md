@@ -1,6 +1,6 @@
 # Online Quiz Plattform
 
-⚠️ **Prototyp – noch nicht produktionsreif**
+⚠️ **Prototyp v0.3.0 – nur Geo-Quiz ist vollständig spielbar**
 
 ![Version](https://img.shields.io/badge/version-0.3.0-blue)
 ![License](https://img.shields.io/badge/license-MIT-green)
@@ -32,14 +32,14 @@ Die Online Quiz Plattform ist eine **moderne React/TypeScript PWA** mit Node.js/
 
 | Spiel | Beschreibung | Status |
 |-------|--------------|--------|
-| **Geo-Quiz** | Multiple Choice mit Joker (50/50, Spy, Risk) | 🔶 BETA – spielbar |
-| **Jeopardy** | 2 Boards, Abstauber | 🔶 PLANNED |
-| **Wer ist das?** | Fusionbilder erkennen | 🔶 PLANNED |
-| **Timeline** | Elemente einordnen | 🔶 PLANNED |
-| **Wer lügt am besten?** | Lügen & Abstimmung | 🔶 PLANNED |
-| **Erkenne den Song** | Musik-Buzzer | 🔶 PLANNED |
+| **Geo-Quiz** | Multiple Choice mit Joker (50/50, Spy, Risk) | ✅ VOLLSTÄNDIG SPIELBAR |
+| **Jeopardy** | 2 Boards, Abstauber | 🔶 IN ARBEIT |
+| **Wer ist das?** | Fusionbilder erkennen | 🔶 GEPLANT |
+| **Timeline** | Elemente einordnen | 🔶 GEPLANT |
+| **Wer lügt am besten?** | Lügen & Abstimmung | 🔶 GEPLANT |
+| **Erkenne den Song** | Musik-Buzzer | 🔶 GEPLANT |
 
-Nur Geo-Quiz ist derzeit end-to-end spielbar. Andere Spiele sind Engine-Scaffolds.
+Nur Geo-Quiz ist derzeit end-to-end spielbar. Andere Spiele sind Konzept-Scaffolds.
 
 ---
 
@@ -76,7 +76,7 @@ pnpm db:generate
 pnpm db:migrate:deploy
 ```
 
-### 5. Datenbank seeden (optional)
+### 5. Datenbank seeden (optional, für Demo-Accounts)
 
 ```bash
 pnpm db:seed
@@ -93,13 +93,13 @@ pnpm build
 ### 7. Server starten
 
 ```bash
-pnpm --filter @quiz/server run
+pnpm start
 ```
 
-### 8. Web Dev Server starten (für Entwicklung)
+### 8. Web Dev Server starten (optional, für Hot-Reload-Entwicklung)
 
 ```bash
-pnpm --filter @quiz/web dev
+pnpm dev
 ```
 
 - Server läuft auf: `http://localhost:3001`
@@ -112,29 +112,34 @@ pnpm --filter @quiz/web dev
 ### Mit Docker Compose
 
 ```bash
-# .env erstellen mit SESSION_SECRET
+# .env erstellen mit sicheren Secrets
 cp .env.example .env
-# SESSION_SECRET setzen (min. 32 Zeichen)
 
-# Container starten
-docker-compose up --build
+# SESSION_SECRET setzen (min. 32 Zeichen, zufällig)
+# ADMIN_PASSWORD setzen (sicheres Passwort für Admin-Zugang)
+
+# Container bauen und starten
+docker-compose up --build -d
+
+# Logs anzeigen
+docker-compose logs -f
 
 # Öffnen
 open http://localhost:3001
 ```
 
-### Hinweise zu Docker
+### Docker Setup-Hinweise
 
-- **Initial Admin Passwort:** `secret` (DEV ONLY – in Produktion ändern!)
-- **Dockerfile** verwendet Multi-Stage-Build mit `prisma generate`
-- **SESSION_SECRET** muss in `.env` gesetzt werden vor dem Start
-- Die Datenbank liegt in einem Volume (`quiz-data`)
+1. **SESSION_SECRET** muss in `.env` gesetzt werden (min. 32 Zeichen!)
+2. **ADMIN_PASSWORD** muss in `.env` gesetzt werden
+3. Die Datenbank liegt in einem Volume (`quiz-data`)
+4. Nach dem ersten Start: `docker-compose exec app pnpm db:seed` für Demo-Accounts
 
-⚠️ **Dies ist ein Entwicklungs-Container. Für Produktion müssen weitere Sicherheitsmaßnahmen ergriffen werden (HTTPS, etc.).**
+⚠️ **Dies ist ein Entwicklungs-Container. Für Produktion müssen weitere Sicherheitsmaßnahmen ergriffen werden (HTTPS, Firewall, etc.).**
 
 ---
 
-## 👤 Demo-Account
+## 👤 Demo-Accounts
 
 ### Moderator
 
@@ -147,11 +152,22 @@ Passwort:  secret
 
 ### So nutzt man den Demo-Account
 
-1. Starte Server und Web (oder Docker)
+1. Starte Server (oder Docker)
 2. Öffne `http://localhost:3001`
 3. Klicke "Moderator Login" oder navigiere zu `/admin`
 4. Login mit den obigen Zugangsdaten
 5. Erstelle einen Geo-Quiz-Raum und starte ein Spiel
+
+---
+
+## ⚠️ Bekannte Einschränkungen
+
+- **Nur Geo-Quiz spielbar**: Alle anderen Spiele sind Konzept-Scaffolds
+- **SQLite Datenbank**: Nicht geeignet für horizontale Skalierung
+- **Kein HTTPS**: Für Produktion muss ein Reverse Proxy mit TLS konfiguriert werden
+- **Demo-Passwörter**: secret / admin123 nur für lokale Entwicklung
+- **Docker-Volume**: Bei Verwendung von Docker Compose liegen Daten im Volume `quiz-data`
+- **Keine E-Mail-Verifikation**: Passwort-Reset ohne echte E-Mail-Infrastruktur
 
 ---
 
@@ -195,8 +211,43 @@ cp .env.example .env
 | `PORT` | `3001` | Server Port |
 | `DATABASE_URL` | `file:./storage/database/quiz.db` | SQLite Pfad |
 | `SESSION_SECRET` | - | Session Geheimnis (min. 32 Zeichen!) |
-| `INITIAL_ADMIN_PASSWORD` | `secret` | Initiales Admin Passwort (DEV!) |
+| `ADMIN_USERNAME` | `admin` | Admin Benutzername |
+| `ADMIN_PASSWORD` | - | Admin Passwort (DEV!) |
 | `PUBLIC_APP_URL` | `http://localhost:3001` | Öffentliche URL |
+
+---
+
+## 💾 Backup & Restore
+
+### Backup erstellen
+
+```bash
+# Automatisches Backup (erstellt timestamp-basiertes Backup)
+pnpm backup
+
+# Mit benutzerdefiniertem Pfad
+BACKUP_DIR=./storage/backups pnpm backup
+```
+
+### Restore durchführen
+
+```bash
+# Interaktiver Restore (zeigt verfügbare Backups)
+pnpm restore
+
+# Mit benutzerdefiniertem Pfad
+BACKUP_DIR=./storage/backups pnpm restore
+```
+
+### Docker Backup
+
+```bash
+# Backup im Container erstellen
+docker-compose exec app bash -c "pnpm backup"
+
+# Backups auf Host kopieren
+docker cp quiz-platform-app-1:/app/storage/backups ./host-backups/
+```
 
 ---
 
@@ -234,7 +285,10 @@ railway up
 # Bauen
 pnpm build
 
-# Starten
+# Starten (Production)
+pnpm start
+
+# Oder mit Docker
 docker-compose up -d
 ```
 
@@ -242,7 +296,7 @@ docker-compose up -d
 
 ```bash
 # Server starten
-pnpm --filter @quiz/server run
+pnpm start
 
 # In neuem Terminal
 ngrok http 3001
