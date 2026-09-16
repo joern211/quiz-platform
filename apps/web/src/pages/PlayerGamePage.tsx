@@ -5,7 +5,7 @@
 import { useParams, useNavigate } from 'react-router-dom';
 import { useEffect, useState, useRef } from 'react';
 import { Socket } from 'socket.io-client';
-import { getSocket } from '../lib/socket.js';
+import { getSocket, connectSocket, disconnectSocket } from '../lib/socket.ts';
 import { Card, Button, Badge } from '@quiz/ui';
 import { Timer } from '@quiz/ui';
 import { BuzzerButton } from '@quiz/ui';
@@ -36,6 +36,8 @@ export function PlayerGamePage() {
     socketRef.current = getSocket();
     const socket = socketRef.current;
 
+    connectSocket();
+
     socket.on('connect', () => setConnected(true));
     socket.on('disconnect', () => setConnected(false));
 
@@ -45,9 +47,9 @@ export function PlayerGamePage() {
       }
     });
 
-    socket.on('geo:show', (data) => {
+    socket.on('geo:question', (data) => {
       setQuestion(data.question);
-      setEndsAt(data.endsAt);
+      setEndsAt(data.timerEndMs);
       setSelectedOption(null);
       setLocked(false);
       setRevealed(false);
@@ -90,7 +92,7 @@ export function PlayerGamePage() {
     // Subscribe to room
     socket.emit('room:subscribe', { roomCode: code, rejoinToken });
 
-    return () => { socket.disconnect(); };
+    return () => { disconnectSocket(); };
   }, [code, navigate, rejoinToken]);
 
   const handleSelectOption = (optionId: string) => {
@@ -102,7 +104,6 @@ export function PlayerGamePage() {
     socketRef.current?.emit('geo:answer', {
       roomCode: code,
       optionId,
-      rejoinToken,
     });
   };
 
@@ -111,7 +112,6 @@ export function PlayerGamePage() {
     
     socketRef.current?.emit('geo:joker:5050', {
       roomCode: code,
-      rejoinToken,
     });
   };
 
@@ -120,7 +120,6 @@ export function PlayerGamePage() {
     
     socketRef.current?.emit('geo:joker:spy', {
       roomCode: code,
-      rejoinToken,
     });
   };
 
@@ -129,7 +128,6 @@ export function PlayerGamePage() {
     
     socketRef.current?.emit('geo:joker:risk', {
       roomCode: code,
-      rejoinToken,
     });
   };
 

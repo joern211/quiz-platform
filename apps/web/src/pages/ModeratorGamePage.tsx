@@ -110,7 +110,6 @@ export function ModeratorGamePage() {
     return player?.displayName || 'Unbekannt';
   };
 
-  const [timerPaused, setTimerPaused] = useState(false);
   if (!question) {
     return (
       <div className={styles.page}>

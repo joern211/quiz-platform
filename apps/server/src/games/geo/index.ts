@@ -5,6 +5,7 @@
 import { Server, Socket } from 'socket.io';
 import { prisma } from '../../persistence/prisma.js';
 import { logger } from '../../observability/logger.js';
+import { requireRoomRole } from '../../http/middleware/auth.js';
 
 interface GeoPlayerState {
   answered: boolean;
@@ -37,6 +38,9 @@ interface GeoGameState {
   roundStates: Record<number, GeoRoundState>;
   scores: Record<string, number>;
 }
+
+// Store active timer handles per roomCode (for cancellation)
+const activeTimers = new Map<string, NodeJS.Timeout>();
 
 export const handleGeoGame = {
   // ============================================================
@@ -132,6 +136,10 @@ export const handleGeoGame = {
       phase: initialPhase,
     });
 
+    // P0-03: Automatically start the first round after initialization
+    // Pass room object so startRound can use it directly
+    await this.startRound(io, room);
+
     logger.info('Geo game initialized', { roomId: room.id, questionCount: questions.length });
   },
 
@@ -139,15 +147,18 @@ export const handleGeoGame = {
   // Start Round (show question)
   // ============================================================
 
-  async startRound(io: Server, roomCode: string) {
-    const room = await prisma.room.findUnique({
+  async startRound(io: Server, room: any) {
+    // Accept either room object or roomCode string for backwards compat
+    const roomCode = typeof room === 'string' ? room : room.code;
+
+    const roomRecord = await prisma.room.findUnique({
       where: { code: roomCode },
     });
 
-    if (!room) return;
+    if (!roomRecord) return;
 
     const gameStateData = await prisma.roomGameState.findUnique({
-      where: { roomId: room.id },
+      where: { roomId: roomRecord.id },
     });
 
     if (!gameStateData) return;
@@ -164,6 +175,11 @@ export const handleGeoGame = {
     // Parse options
     const options = JSON.parse(question.options);
 
+    // P0-16: Calculate server-side timer
+    const timerMs = question.durationMs || 20000;
+    const timerStartMs = Date.now();
+    const timerEndMs = timerStartMs + timerMs;
+
     // Initialize round state
     state.roundStates[state.currentRoundIndex] = {
       questionIndex: state.currentRoundIndex,
@@ -176,8 +192,8 @@ export const handleGeoGame = {
         options: options.map((o: any) => ({ id: o.id, text: o.text })),
       },
       revealed: false,
-      timerStartMs: null,
-      timerEndMs: null,
+      timerStartMs,
+      timerEndMs,
       buzzWinnerId: null,
       buzzOpen: false,
       playerStates: {},
@@ -186,12 +202,9 @@ export const handleGeoGame = {
 
     state.phase = 'INPUT_OPEN';
 
-    // Calculate timer
-    const timerMs = question.durationMs || 20000;
-
-    // Update and emit
+    // Update database
     await prisma.roomGameState.update({
-      where: { roomId: room.id },
+      where: { roomId: roomRecord.id },
       data: {
         stateJson: JSON.stringify(state),
         phase: 'INPUT_OPEN',
@@ -204,8 +217,8 @@ export const handleGeoGame = {
       data: { runPhase: 'ROUND_ACTIVE', revision: { increment: 1 } },
     });
 
-    // Emit question to players (without correct answer)
-    io.to(roomCode).emit('geo:show', {
+    // P0-04: Emit 'geo:question' (not 'geo:show')
+    io.to(roomCode).emit('geo:question', {
       roundIndex: state.currentRoundIndex,
       question: {
         id: question.id,
@@ -216,14 +229,67 @@ export const handleGeoGame = {
         options: options.map((o: any) => ({ id: o.id, text: o.text })),
       },
       timerMs,
-      endsAt: Date.now() + timerMs,
+      timerEndMs,
       totalQuestions: state.questions.length,
     });
 
-    // Emit to moderator (with solution)
-    // TODO: Send moderator-specific event with solution
+    // P0-16: Set server-side timeout to auto-close answers
+    const existingTimer = activeTimers.get(roomCode);
+    if (existingTimer) {
+      clearTimeout(existingTimer);
+    }
 
-    logger.info('Geo round started', { roomCode, round: state.currentRoundIndex });
+    const timer = setTimeout(async () => {
+      activeTimers.delete(roomCode);
+      await this.handleTimerExpired(io, roomRecord);
+    }, timerMs);
+
+    activeTimers.set(roomCode, timer);
+
+    logger.info('Geo round started', { roomCode, round: state.currentRoundIndex, timerEndMs });
+  },
+
+  // ============================================================
+  // Timer Expired Handler (P0-16)
+  // ============================================================
+
+  async handleTimerExpired(io: Server, room: any) {
+    try {
+      const gameStateData = await prisma.roomGameState.findUnique({
+        where: { roomId: room.id },
+      });
+
+      if (!gameStateData) return;
+
+      const state: GeoGameState = JSON.parse(gameStateData.stateJson);
+      const roundState = state.roundStates[state.currentRoundIndex];
+
+      // Skip if already revealed
+      if (roundState?.revealed) return;
+
+      // Close input phase
+      state.phase = 'INPUT_LOCKED';
+
+      await prisma.roomGameState.update({
+        where: { roomId: room.id },
+        data: {
+          stateJson: JSON.stringify(state),
+          phase: 'INPUT_LOCKED',
+          revision: { increment: 1 },
+        },
+      });
+
+      io.to(room.code).emit('geo:timer-expired', {
+        roundIndex: state.currentRoundIndex,
+      });
+
+      // Auto-reveal after timer
+      await this.handleReveal(io, null as any, { roomCode: room.code });
+
+      logger.info('Geo timer expired', { roomCode: room.code, round: state.currentRoundIndex });
+    } catch (error) {
+      logger.error('Geo timer expiry error', { error });
+    }
   },
 
   // ============================================================
@@ -237,6 +303,7 @@ export const handleGeoGame = {
     callback?: (result: any) => void
   ) {
     try {
+      // P0-04: Validate rejoinToken belongs to THIS room
       if (!data.rejoinToken) {
         callback?.({ success: false, error: 'TOKEN_REQUIRED' });
         return;
@@ -252,6 +319,12 @@ export const handleGeoGame = {
         return;
       }
 
+      // P0-04: Ensure participation belongs to the requested room
+      if (participation.room.code !== data.roomCode) {
+        callback?.({ success: false, error: 'WRONG_ROOM' });
+        return;
+      }
+
       const room = participation.room;
       const gameStateData = await prisma.roomGameState.findUnique({
         where: { roomId: room.id },
@@ -263,13 +336,21 @@ export const handleGeoGame = {
       }
 
       const state: GeoGameState = JSON.parse(gameStateData.stateJson);
+      const roundState = state.roundStates[state.currentRoundIndex];
 
+      // P0-04: Validate round is active (not revealed, timer not expired)
       if (state.phase !== 'INPUT_OPEN') {
         callback?.({ success: false, error: 'INPUT_CLOSED' });
         return;
       }
 
-      const roundState = state.roundStates[state.currentRoundIndex];
+      // P0-16: Check timer hasn't expired
+      if (roundState.timerEndMs && Date.now() > roundState.timerEndMs) {
+        callback?.({ success: false, error: 'TIME_EXPIRED' });
+        return;
+      }
+
+      // P0-04: Check player hasn't already answered
       const playerState = roundState.playerStates[participation.id] || {
         answered: false,
         selectedOptionId: null,
@@ -283,8 +364,16 @@ export const handleGeoGame = {
         return;
       }
 
-      // Check if risk joker active
-      const isRisk = playerState.jokers.usedRisk;
+      // P0-04: Validate optionId is valid for current question
+      const currentQuestion = state.questions[state.currentRoundIndex];
+      const options = JSON.parse(currentQuestion.options);
+      const validOptionIds = options.map((o: any) => o.id);
+      if (!validOptionIds.includes(data.optionId)) {
+        callback?.({ success: false, error: 'INVALID_OPTION' });
+        return;
+      }
+
+      // Check if risk joker active (usedRisk = playerState.jokers.usedRisk)
 
       // Update player state
       playerState.answered = true;
@@ -292,7 +381,7 @@ export const handleGeoGame = {
 
       roundState.playerStates[participation.id] = playerState;
 
-      // Broadcast player answered (no answer content)
+      // P0-04: Broadcast using correct event name
       io.to(room.code).emit('geo:answered', {
         playerId: participation.id,
         questionIndex: state.currentRoundIndex,
@@ -339,6 +428,11 @@ export const handleGeoGame = {
         return;
       }
 
+      if (participation.room.code !== data.roomCode) {
+        callback?.({ success: false, error: 'WRONG_ROOM' });
+        return;
+      }
+
       const room = participation.room;
       const gameStateData = await prisma.roomGameState.findUnique({
         where: { roomId: room.id },
@@ -380,8 +474,17 @@ export const handleGeoGame = {
       const shuffled = wrongOptions.sort(() => Math.random() - 0.5);
       const eliminated = shuffled.slice(0, 2).map((o: any) => o.id);
 
-      // Send only to this player (private)
+      // P0-05: Keep original option IDs; mark eliminated with hidden:true
+      const optionsWithHidden = options.map((o: any) => ({
+        id: o.id,
+        text: o.text,
+        hidden: eliminated.includes(o.id),
+      }));
+
+      // Send full options list with hidden flags to this player only (private)
       socket.emit('geo:joker:5050:result', {
+        roundIndex: state.currentRoundIndex,
+        options: optionsWithHidden,
         eliminated,
       });
 
@@ -423,6 +526,11 @@ export const handleGeoGame = {
 
       if (!participation) {
         callback?.({ success: false, error: 'PARTICIPATION_NOT_FOUND' });
+        return;
+      }
+
+      if (participation.room.code !== data.roomCode) {
+        callback?.({ success: false, error: 'WRONG_ROOM' });
         return;
       }
 
@@ -488,6 +596,7 @@ export const handleGeoGame = {
 
       // Send only to this player
       socket.emit('geo:joker:spy:result', {
+        roundIndex: state.currentRoundIndex,
         distribution,
       });
 
@@ -532,6 +641,11 @@ export const handleGeoGame = {
         return;
       }
 
+      if (participation.room.code !== data.roomCode) {
+        callback?.({ success: false, error: 'WRONG_ROOM' });
+        return;
+      }
+
       const room = participation.room;
       const gameStateData = await prisma.roomGameState.findUnique({
         where: { roomId: room.id },
@@ -566,6 +680,7 @@ export const handleGeoGame = {
 
       // Confirm to player
       socket.emit('geo:joker:risk:result', {
+        roundIndex: state.currentRoundIndex,
         active: true,
       });
 
@@ -585,7 +700,7 @@ export const handleGeoGame = {
   },
 
   // ============================================================
-  // Handle Reveal (Moderator)
+  // Handle Reveal (Moderator) - P0-17 Idempotency + Authorization
   // ============================================================
 
   async handleReveal(
@@ -595,6 +710,23 @@ export const handleGeoGame = {
     callback?: (result: any) => void
   ) {
     try {
+      // P0-17: Authorization check
+      if (socket) {
+        const roomRecord = await prisma.room.findUnique({
+          where: { code: data.roomCode },
+        });
+        if (!roomRecord) {
+          callback?.({ success: false, error: 'ROOM_NOT_FOUND' });
+          return;
+        }
+
+        const authorized = await requireRoomRole(socket, roomRecord.id, 'MODERATOR');
+        if (!authorized) {
+          callback?.({ success: false, error: 'UNAUTHORIZED' });
+          return;
+        }
+      }
+
       const room = await prisma.room.findUnique({
         where: { code: data.roomCode },
       });
@@ -617,90 +749,110 @@ export const handleGeoGame = {
       const question = state.questions[state.currentRoundIndex];
       const roundState = state.roundStates[state.currentRoundIndex];
 
+      // P0-17: Idempotency check - return ALREADY_REVEALED if already revealed
+      if (roundState.revealed) {
+        callback?.({ success: false, error: 'ALREADY_REVEALED' });
+        return;
+      }
+
       // Parse options and find correct
       const options = JSON.parse(question.options);
       const correctOption = options.find((o: any) => o.id === question.correctOptionId);
 
-      // Calculate scores for each player
-      const scoreEvents: Array<{ participationId: string; delta: number; reason: string }> = [];
+      // P0-17: Use Prisma transaction to atomically:
+      // 1. Mark round as revealed
+      // 2. Calculate and update scores
+      // 3. Create ScoreEvents
+      await prisma.$transaction(async (tx) => {
+        // Calculate scores for each player
+        const scoreEvents: Array<{ participationId: string; delta: number; reason: string }> = [];
 
-      for (const [pid, playerState] of Object.entries(roundState.playerStates)) {
-        const ps = playerState as GeoPlayerState;
-        if (!ps.answered) continue;
+        for (const [pid, playerState] of Object.entries(roundState.playerStates)) {
+          const ps = playerState as GeoPlayerState;
+          if (!ps.answered) continue;
 
-        const isCorrect = ps.selectedOptionId === question.correctOptionId;
-        let points = 0;
+          const isCorrect = ps.selectedOptionId === question.correctOptionId;
+          let points = 0;
 
-        if (isCorrect) {
-          // Points with potential risk multiplier
-          let questionPoints = question.points || 100;
-          if (ps.jokers.usedRisk) {
-            questionPoints *= 2;
+          if (isCorrect) {
+            // Points with potential risk multiplier
+            let questionPoints = question.points || 100;
+            if (ps.jokers.usedRisk) {
+              questionPoints *= 2;
+            }
+            points = questionPoints;
+            state.scores[pid] = (state.scores[pid] || 0) + points;
+          } else {
+            // Wrong answer
+            let wrongPoints = question.wrongPoints || 0;
+            if (ps.jokers.usedRisk) {
+              wrongPoints *= 2;
+            }
+            points = wrongPoints;
+            state.scores[pid] = (state.scores[pid] || 0) + points;
           }
-          points = questionPoints;
-          state.scores[pid] = (state.scores[pid] || 0) + points;
-        } else {
-          // Wrong answer
-          let wrongPoints = question.wrongPoints || 0;
-          if (ps.jokers.usedRisk) {
-            wrongPoints *= 2;
-          }
-          points = wrongPoints;
-          state.scores[pid] = (state.scores[pid] || 0) + points;
+
+          scoreEvents.push({
+            participationId: pid,
+            delta: points,
+            reason: isCorrect ? 'CORRECT_ANSWER' : 'WRONG_ANSWER',
+          });
+
+          // Update participation score
+          await tx.participation.update({
+            where: { id: pid },
+            data: { score: state.scores[pid] },
+          });
+
+          // Create score event
+          await tx.scoreEvent.create({
+            data: {
+              roomId: room.id,
+              participationId: pid,
+              roundIndex: state.currentRoundIndex,
+              delta: points,
+              reason: isCorrect ? 'Richtige Antwort' : 'Falsche Antwort',
+              source: 'auto',
+            },
+          });
         }
 
-        scoreEvents.push({
-          participationId: pid,
-          delta: points,
-          reason: isCorrect ? 'CORRECT_ANSWER' : 'WRONG_ANSWER',
-        });
+        // Mark round as revealed
+        roundState.revealed = true;
+        state.phase = 'REVEAL';
 
-        // Update participation score
-        await prisma.participation.update({
-          where: { id: pid },
-          data: { score: state.scores[pid] },
-        });
-
-        // Create score event
-        await prisma.scoreEvent.create({
+        // Update game state
+        await tx.roomGameState.update({
+          where: { roomId: room.id },
           data: {
-            roomId: room.id,
-            participationId: pid,
-            roundIndex: state.currentRoundIndex,
-            delta: points,
-            reason: isCorrect ? 'Richtige Antwort' : 'Falsche Antwort',
-            source: 'auto',
+            stateJson: JSON.stringify(state),
+            phase: 'REVEAL',
+            revision: { increment: 1 },
           },
         });
+
+        await tx.room.update({
+          where: { code: data.roomCode },
+          data: { runPhase: 'REVEAL', revision: { increment: 1 } },
+        });
+      });
+
+      // Cancel active timer if any
+      const existingTimer = activeTimers.get(data.roomCode);
+      if (existingTimer) {
+        clearTimeout(existingTimer);
+        activeTimers.delete(data.roomCode);
       }
 
-      roundState.revealed = true;
-      state.phase = 'REVEAL';
-
-      await prisma.roomGameState.update({
-        where: { roomId: room.id },
-        data: {
-          stateJson: JSON.stringify(state),
-          phase: 'REVEAL',
-          revision: { increment: 1 },
-        },
-      });
-
-      await prisma.room.update({
-        where: { code: data.roomCode },
-        data: { runPhase: 'REVEAL', revision: { increment: 1 } },
-      });
-
-      // Emit reveal to all
+      // P0-04: Emit 'geo:reveal' with correctOptionId and scores
       io.to(data.roomCode).emit('geo:reveal', {
         roundIndex: state.currentRoundIndex,
         correctOptionId: question.correctOptionId,
-        correctOptionText: correctOption.text,
+        correctOptionText: correctOption?.text,
         explanation: question.explanation,
-        scores: scoreEvents.map(e => ({
-          participationId: e.participationId,
-          delta: e.delta,
-          totalScore: state.scores[e.participationId],
+        scores: Object.entries(state.scores).map(([participationId, totalScore]) => ({
+          participationId,
+          totalScore,
         })),
       });
 
@@ -728,6 +880,13 @@ export const handleGeoGame = {
 
       if (!room) {
         callback?.({ success: false, error: 'ROOM_NOT_FOUND' });
+        return;
+      }
+
+      // P0-17: Authorization check
+      const authorized = await requireRoomRole(socket, room.id, 'MODERATOR');
+      if (!authorized) {
+        callback?.({ success: false, error: 'UNAUTHORIZED' });
         return;
       }
 
@@ -760,13 +919,14 @@ export const handleGeoGame = {
         },
       });
 
+      // P0-04: Emit 'geo:next' (after reveal, to trigger next round)
       io.to(data.roomCode).emit('geo:next', {
         nextRoundIndex: state.currentRoundIndex,
         totalQuestions: state.questions.length,
       });
 
       // Start the round automatically
-      await this.startRound(io, data.roomCode);
+      await this.startRound(io, room);
 
       callback?.({ success: true });
     } catch (error) {
@@ -780,6 +940,13 @@ export const handleGeoGame = {
   // ============================================================
 
   async handleGameEnd(io: Server, room: any, state: GeoGameState) {
+    // Cancel any active timer
+    const existingTimer = activeTimers.get(room.code);
+    if (existingTimer) {
+      clearTimeout(existingTimer);
+      activeTimers.delete(room.code);
+    }
+
     await prisma.room.update({
       where: { id: room.id },
       data: {
@@ -794,9 +961,18 @@ export const handleGeoGame = {
       data: { phase: 'GAME_END' },
     });
 
-    // Get final scores
-    const finalScores = Object.entries(state.scores)
-      .map(([pid, score]) => ({ participationId: pid, score }))
+    // Get final scores with participation details
+    const participations = await prisma.participation.findMany({
+      where: { roomId: room.id },
+      select: { id: true, displayName: true, score: true },
+    });
+
+    const finalScores = participations
+      .map(p => ({ 
+        participationId: p.id, 
+        displayName: p.displayName,
+        score: p.score,
+      }))
       .sort((a, b) => b.score - a.score);
 
     io.to(room.code).emit('game:end', {
