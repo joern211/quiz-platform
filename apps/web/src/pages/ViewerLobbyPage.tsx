@@ -22,7 +22,7 @@ export function ViewerLobbyPage() {
     socket.on('connect', () => setConnected(true));
     socket.on('disconnect', () => setConnected(false));
     
-    socket.emit('room:subscribe', { roomCode: code, role: 'VIEWER' }, () => {});
+    socket.emit('room:subscribe', { roomCode: code ?? '', role: 'VIEWER' }, () => {});
     
     socket.on('room:snapshot', (data) => {
       setRoomInfo(data);

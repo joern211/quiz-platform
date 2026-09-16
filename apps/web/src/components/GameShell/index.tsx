@@ -15,8 +15,6 @@ export interface GameShellProps {
   phase?: string;
   /** Server-provided timer end timestamp */
   endsAt?: number;
-  /** Timer total duration in seconds */
-  totalSeconds?: number;
   /** Connection status */
   connected?: boolean;
   /** Ready players count */
@@ -34,7 +32,6 @@ export function GameShell({
   roomCode,
   phase,
   endsAt,
-  totalSeconds = 30,
   connected = true,
   readyCount,
   totalPlayers,
@@ -51,10 +48,7 @@ export function GameShell({
         </div>
         <div className={styles.topRight}>
           {endsAt && (
-            <Timer
-              endsAt={endsAt}
-              totalSeconds={totalSeconds}
-            />
+            <Timer endsAt={endsAt} />
           )}
         </div>
       </header>

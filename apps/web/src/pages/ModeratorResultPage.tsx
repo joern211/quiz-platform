@@ -2,7 +2,8 @@
 // Moderator Result Page - v0.3.0
 // ============================================================
 
-import { useParams, useEffect, useState } from 'react';
+import { useParams, useNavigate } from 'react-router-dom';
+import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Card, Button, Badge } from '@quiz/ui';
 import styles from './ModeratorResultPage.module.css';
