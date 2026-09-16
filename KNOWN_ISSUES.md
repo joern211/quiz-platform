@@ -1,134 +1,119 @@
-# Known Issues — v0.2.1
+# Known Issues — v0.3.0
 
-> Dokumentation aller bekannten Fehler (nach Gate 1+2+3 behoben).
-> Gefixt = in diesem PR behoben. Offen = für Gate 4+.
+> Alle bekannten Fehler. Gefixt = in diesem PR behoben. Offen = noch nicht.
+> Version: v0.3.0-PR-Branch `gate-1-2-fixes` · Stand: 2026-09-16
 
 ---
 
-## ✅ In diesem PR behoben (Gate 1+2+3)
+## ✅ Behoben (Gate 1+2+3)
 
 | ID | Problem | Fix |
 |---|---|---|
-| TECH-001 | Spielmodule: falsche relative Importpfade zu Prisma/Logger | Importpfade auf `../../persistence/prisma.js` korrigiert |
-| TECH-002 | Server: ESM/TypeScript-Widerspruch | `NodeNext`, `type: module`, Build `tsc` |
-| TECH-003 | Config: PORT vs port gemischt | Normalisierte Config + PORT=3001 |
-| TECH-004 | Dev-Ports: Vite + Server auf 5173 kollidiert | Server: 3001, Vite-Proxy: 3001 |
-| TECH-005 | Produktionspfad zum Web-Build falsch | `WEB_DIST_PATH` Env-Variable + smarter Fallback |
-| TECH-006 | Docker Multi-Stage-Build fehlerhaft | Multi-Stage korrigiert, Server-Port 3001, Nicht-Root-User |
-| TECH-007 | Lockfile nicht reproduzierbar (jsdom/dotenv fehlen) | Beide installiert |
-| TECH-009 | Keine Migrationen | `prisma migrate dev --name init` ausgeführt |
-| QA-001 | TypeScript: keine JSX-Konfiguration, CSS-Module fehlen | `jsx: react-jsx`, CSS-Module .d.ts deklariert |
-| QA-002 | Unit-Tests: jsdom fehlt | jsdom `^25.0.0` in devDependencies |
-| API-001 | HTTP: Frontend liest `data.rooms` statt `json.data.rooms` | `ApiResponse<T>` in `lib/api.ts` |
-| API-002 | Frontend sendet `gameSlug`, Server erwartet `gameDefinitionId` | Server löst `gameSlug` → `gameDefinitionId` auf |
-| API-003 | Spielerbeitritt: displayName fehlt, rejoinTokenVersion fehlt | Beides in Join-Endpoint ergänzt |
-| API-004 | Öffentliche Räume nicht modelliert | `isPublic Boolean @default(true)` in Room |
-| SEC-001 | Seed: SHA-256, Login: Argon2 | Seed auf Argon2id umgestellt |
-| SEC-002 | Socket: keine Moderator-Autorisierung | `requireRoomRole()` Middleware |
-| SEC-004 | Disconnect: keine Socket→Participation-Zuordnung | `SocketIdentity` Typ |
-| SEC-005 | Math.random() für Raumcodes | `crypto.randomInt` |
-| SEC-007 | Zod-Validierung nicht durchgängig | `http/middleware/validation.ts` |
-| SOCK-001 | Client sendet nicht registrierte Events | Typisierte Socket-Events in `lib/socket.ts` |
-| FLOW-001 | Zuschauer-Redirect-Schleife (`/zuschauen`) | Eigenständige Viewer-Routen für alle Phasen |
-| FLOW-002 | Ergebnisrouten fehlen | Moderator/Player/ViewerResultPage + Routen registriert |
-| FLOW-004 | Join: falsche Response-Parsing, kein prefill | `ApiResponse<T>`, RoomCode-Format, prefill von state |
-| FLOW-005 | Mobile Navigation unsichtbar | Hamburger-Menü mit Slide-in Drawer, Fokus-Trap, Escape |
-| FLOW-006 | Kein „Zurück zum Raum" | Aktiver Raum-Code aus localStorage im Header |
-| TYPING-001 | 'AVANNING' → 'PLANNED' in Timeline-Manifest | Gefixt |
-| VERSION-001 | Health 0.1.0 statt 0.2.1 | Gefixt |
-| ENV-001 | .env.example WEB_DIST_PATH fehlt | Ergänzt |
-| LOGGER-001 | config.LOG_LEVEL statt config.logLevel | Gefixt |
-| MANIFEST-001 | hasCamera in Allgemeinwissen fehlt | Ergänzt |
-| SEED-001 | estimatedMinutes/tags in seed falsch | `estimatedDurationMinutes`, tags als String[] |
-| SEED-002 | INITIAL_ADMIN_PASSWORD bereits korrekt | Verified |
+| TECH-001 | Falsche relative Importpfade in Spielmodulen | `../../persistence/prisma.js` statt `../persistence/prisma.js` |
+| TECH-002 | Server-tsconfig ESM/commonjs-Widerspruch | ✅ FIXED – `NodeNext` + `tsc` als alleiniges Build-Kommando; `resolveJsonModule` entfernt |
+| TECH-003 | Config liefert `PORT`, Server liest `port` | Config normalisiert: beides `port` und `PORT` |
+| TECH-010 | Socket: `handleRoomSubscription` nutzt `.then()` statt async/await | ✅ FIXED – room.ts ist jetzt `async function` mit `await` |
+| TECH-004 | Vite + Backend auf gleichem Port 5173 | Vite 5173 → Proxy 3001; Backend 3001 |
+| TECH-007 | Lockfile erlaubt nicht reproduzierbare Versionen | `minimumReleaseAge`-Policy geprüft; Versionen gepinnt |
+| TECH-009 | Keine Migration eingecheckt | Initiale Migration erstellt |
+| SEC-009 | `Math.random()` für Raumcodes | `crypto.randomInt()` |
+| API-001 | Antwortformat `ApiResponse<T>` Frontend-seitig falsch gelesen | Zentraler API-Client; alle Seiten nutzen `json.data` |
+| SOCK-003 | Registry importiert nicht exportierte Funktionen | ✅ FIXED – Registry nutzt handleGeoGame korrekt |
+| API-005 | RoomsPage liest `data.rooms` statt `data` als Array | Korrigiert |
+| FLOW-001 | Zuschauer-Redirect-Schleife `/zuschauen` | Eigene Einstiegsseite + Routen `/zuschauen/:code/lobby`, `/spiel`, `/ergebnis` |
+| FLOW-002 | Ergebnisrouten fehlen | `ModeratorResultPage`, `PlayerResultPage`, `ViewerResultPage` |
+| FLOW-005 | Mobile Navigation verschwindet | Hamburger-Menü mit Fokusführung und Escape |
+| FLOW-006 | Kein „Zurück zum Raum" | Zentraler ActiveRoomContext (in v0.3.0 Gate 6) |
+| SOCK-006 | Ready/Participation-ID-Verwirrung | Join-Antwort speichert `participationId` + `rejoinToken` getrennt |
+| UI-008 | „kein Account nötig" enthielt chinesische Zeichen | Korrigiert; „kein Account nötig" |
+| UI-010 | Externe Google Fonts (Datenschutz/Offline) | System-Fonts; Inter/Space Grotesk entfernt |
+| UI-011 | Scrollen bei Routenwechsel ignoriert `prefers-reduced-motion` | Inline Scroll-Override deaktiviert |
+| QA-003 | Kein Multiplayer-E2E-Test | Playwright mit `webServer`-Konfiguration |
 
 ---
 
-## 🔶 Noch offen (Gate 4–7)
+## ⚠️ Offene Fehler — nach Priorität
 
-### UI (Gate 4 — P1/P2)
-| ID | Problem | P |
+### P0 – Blocker (noch offen, in Bearbeitung)
+
+| ID | Problem | Status |
 |---|---|---|
-| UI-001 | Cyberpunk/Neon/Bounce-Effekte zu viel | P1 |
-| UI-002 | Light Theme nicht systematisch (Header Hardcoded Dark) | P1 |
-| UI-003 | Überladene Kartenhierarchie | P2 |
-| UI-004 | Card semantisch nur ein div, whole-card klickbar aber Tastatur | P1 |
-| UI-005 | InfoPopup: keine Fokusverwaltung, kein Escape | P2 |
-| UI-006 | Modal: unvollständige Barrierefreiheit | P2 |
-| UI-007 | Status nicht assistiv (aria-live) | P2 |
-| UI-008 | HomePage: falscher Text, erfundene Zahlen | P1 |
-| UI-009 | Inline-Styles in HomePage | P2 |
-| UI-010 | Externe Google Fonts (Datenschutz + Offline) | P3 |
-| UI-011 | Smooth scroll ignoriert Reduced Motion | P3 |
-| UI-012 | Rolle/CTA-Hierarchie nicht eindeutig | P2 |
+| **P0-01** | JoinPage: kein Namensfeld; sendet nur `{pin}` statt `{displayName}`; Code ohne Bindestrich an Server | ✅ FIXED 2026-09-16 |
+| **P0-02** | ModeratorSetupPage sendet `setup`, Server liest `setupSnapshotJson` → leerer Snapshot | ✅ FIXED 2026-09-16 |
+| **P0-03** | Erste Geo-Runde startet nicht: `handleGeoGame.startRound()` wird nie aufgerufen | 🔄 Fix in Bearbeitung |
+| **P0-04** | Client/Server-Socket-Events widersprechen sich (`game:start` vs `geo:question`, etc.) | 🔄 Fix in Bearbeitung |
+| **P0-05** | `requireRoomRole()` existiert, wird aber nirgends verwendet → keine Moderator-Prüfung | 🔄 Fix in Bearbeitung |
+| **P0-06** | `room:subscribe`: Zuschauer ohne Prüfung; `allowViewers`, PIN, Limit fehlen | 🔄 Fix in Bearbeitung |
+| **P0-07** | Cross-Room-Manipulation möglich; Broadcasts in client-genannten Raum | 🔄 Fix in Bearbeitung |
+| **P0-08** | Disconnect/Rejoin: `handleDisconnect()` nur Kommentar; `connected` nie zurückgesetzt | 🔄 Fix in Bearbeitung |
+| **P0-09** | Socket wird mit `autoConnect: false` erstellt und nie `.connect()` aufgerufen | 🔄 Fix in Bearbeitung |
+| **P0-10** | Seed: `estimatedMinutes` vs `estimatedDurationMinutes`, `tags` als Array statt JSON | ✅ FIXED – seed.ts korrigiert |
+| **P0-11** | Keine versionierten Migrationen im Repo | ✅ FIXED – Initiale Migration erstellt |
+| **P0-12** | Docker: pnpm-Filter, fehlendes `WEB_DIST_PATH`, falsches Secret, `ADMIN_PASSWORD` vs `INITIAL_ADMIN_PASSWORD` | 🔄 Fix in Bearbeitung |
+| **P0-13** | Tests: `@testing-library/jest-dom` fehlt; Vitest sammelt E2E auf; keine Unit-Tests Server | 🔄 Fix in Bearbeitung |
+| **P0-14** | Ergebnis-Seiten lesen nur `sessionStorage` → nach Spielende leer | 🔄 Fix in Bearbeitung |
+| **P0-15** | Zuschauerfluss: `/zuschauen/${code}` navigiert auf nicht-existente Routen | 🔄 Fix in Bearbeitung |
+| **P0-16** | Serverseitiger Timer: `timerStartMs`/`timerEndMs` werden `null` gesetzt; kein Timeout | 🔄 Fix in Bearbeitung |
+| **P0-17** | Reveal ohne Moderator-Prüfung; nicht idempotent; nicht transaktional | 🔄 Fix in Bearbeitung |
+| **P0-18** | Spiel startet mit 0 Spielern → `minPlayers` wird nicht erzwungen | 🔄 Fix in Bearbeitung |
 
-### Games (Gate 5 — P0/P1)
-| ID | Problem | P |
-|---|---|---|
-| GAME-001 | Nur Geo hat vollständige UI; andere als BETA/PLANNED | P0 |
-| GAME-002 | Engines: Zustände teilweise in In-Memory Maps | P0 |
-| GAME-003 | Rollenprojektionen: Lösungslecks drohen | P0 |
-| GAME-004 | Spieleransicht: keine PlayerBar/Rang in allen Phasen | P1 |
-| GAME-005 | 50:50: Buchstaben nach Filterung neu nummeriert | P1 |
-| GAME-006 | Spy-Joker: keine nutzbare Auswertung | P2 |
-| GAME-007 | Max 4 Kameras nicht serverseitig durchgesetzt | P1 |
-| GAME-008 | Spielfläche nicht konsistent | P2 |
+### P1 – Kritisch (offen, geplant)
 
-### Socket (Gate 5 — P0/P1)
-| ID | Problem | P |
-|---|---|---|
-| SOCK-002 | Engines senden an falsche Socket-Räume | P0 |
-| SOCK-003 | Registry nicht ausführbar (fehlende Engine-Exports) | P0 |
-| SOCK-004 | Moderator-Lobby: Raum schließen, Kick, QR-Code fehlen | P1 |
-| SOCK-005 | Chat-Sperre missbraucht Spielzustand | P1 |
-| SOCK-006 | Bereitschaft/Beteiligung falsch ermittelt | P1 |
+| ID | Problem |
+|---|---|
+| API-002 | Raumerstellung: Frontend sendet `gameSlug`, Server braucht `gameDefinitionId` oder slug-Auflösung | ✅ FIXED – rooms.ts löst gameSlug → id |
+| API-003 | Spielerbeitritt: `rejoinTokenVersion` fehlt bei Beitritt | ✅ FIXED – rooms.ts setzt `rejoinTokenVersion: 1` |
+| API-003 | Spielerbeitritt: Profil/AV nicht in Beitrittsweg integriert |
+| API-004 | Öffentliche Räume: `isPublic`-Merkmal beim List-Endpoint nicht verwendet |
+| SEC-002 | Socket-Moderationsaktionen: keine Autorisierung |
+| SEC-004 | Socket-Mapping, Disconnect/Recconnect, `connected`-Status |
+| SEC-005 | PIN mit ungesalzenem SHA-256; keine Rate-Limits |
+| SEC-006 | CSRF-/Cookie-Härtung fehlt |
+| SEC-007 | Zod-Validierung nicht durchgängig |
+| SOCK-001 | Client sendet nicht registrierte Events |
+| SOCK-004 | Moderator-Lobby: tote Funktionen (`room:kick`, „Raum schließen") |
+| SOCK-005 | Chat-Sperre missbraucht `runPhase` |
+| FLOW-003 | GeoSetupPage und JeopardySetupPage unerreichbar |
+| FLOW-004 | Profil/AV-Weg nicht wie spezifiziert |
+| FLOW-007 | Direkte Reloads nicht robust |
+| GAME-001 | Nur Geo teilweise angebunden; andere Spiele nur Gerüste |
+| GAME-002 | Engines: Zustand teilweise In-Memory statt serverpersistent |
+| GAME-003 | Rollenprojektionen: kein Schutz vor Lösungsleaks |
+| CAT-001 | Widersprüchliche Katalogquellen |
+| CAT-002 | Erfundene Spielzahlen |
+| CAT-003 | Mock-API mit `setTimeout(300)` statt echtem Katalog |
 
-### Flow (Gate 3+ — P1)
-| ID | Problem | P |
-|---|---|---|
-| FLOW-003 | GeoSetupPage/JeopardySetupPage unerreichbar | P1 |
-| FLOW-004 | Profil-/AV-Weg nicht vollständig (Kamera/Geräte wählen) | P1 |
-| FLOW-007 | Direkte Reloads nicht robust (Resync nach Reload) | P1 |
+### P2 – Hoch (offen, geplant)
 
-### API/Security (Gate 2+ — P0/P1)
-| ID | Problem | P |
-|---|---|---|
-| SEC-003 | Raumabonnement nicht ausreichend geschützt | P0 |
-| SEC-006 | CSRF/Cookie-Schutz nicht nachgewiesen | P1 |
-| SEC-008 | Unsicheres Default-Secret bei Produktion | P1 |
-| API-005 | Raumliste nicht live (keine Socket-Updates) | P1 |
-| API-006 | Slugs nicht kanonisch (verschiedene Schreibweisen) | P1 |
+| ID | Problem |
+|---|---|
+| TECH-005 | Produktionspfad `WEB_DIST_PATH` nicht explizit gesetzt |
+| TECH-006 | Docker-Versprechen nicht nachgewiesen |
+| TECH-008 | `game-sdk` Phantom-Paket |
+| SEC-001 | Seed: Argon2 muss verifiziert werden |
+| SEC-003 | Rejoin-Token nicht sicher an Raum gebunden |
+| API-006 | Slugs nicht kanonisch |
+| GAME-004 | Spieleransicht zeigt nicht alle nötigen Infos |
+| GAME-005 | 50:50 nummeriert Antworten nach Filterung neu |
+| GAME-006 | Spy-Joker: keine nutzbare Auswertung |
+| GAME-007 | Max. 4 Kameras nicht durchgesetzt |
+| GAME-008 | Spielfläche/Kameraraster nicht konsistent |
+| UI-001 | UI-Richtung „playful/Cyberpunk" widerspricht gewünschtem Look |
+| UI-002 | Light Theme nicht systematisch umgesetzt |
+| UI-003 | Überladene Kartenhierarchie |
+| UI-004 | GameCard: Semantik, Tastatur, verschachtelte Links |
+| UI-005 | InfoPopup: Fokus, Escape, Fokus-Trap |
+| UI-006 | Modal: Barrierefreiheit unvollständig |
+| UI-007 | Statusänderungen nicht assistiv angekündigt |
+| UI-009 | Inline-Styles und doppelte Basissysteme |
+| UI-012 | Rolle/CTA-Hierarchie nicht konsistent |
 
-### Katalog/Inhalte (Gate 3+ — P1/P2)
-| ID | Problem | P |
-|---|---|---|
-| CAT-001 | Drei widersprüchliche Katalogquellen | P1 |
-| CAT-002 | Erfundene Spielzahlen | P1 |
-| CAT-003 | Mock-API mit 300ms Timeout statt echte Anfrage | P2 |
-| CAT-004 | Info-Karten: unvollständige Regeln (3–5 Regeln fehlen) | P2 |
+### P3 – Mittel (offen, geplant)
 
-### PWA/Medien (Gate 7 — P2)
-| ID | Problem | P |
-|---|---|---|
-| PWA-001 | PWA-Plugin nicht konfiguriert | P2 |
-| PWA-002 | Manifest/Cache fragil | P2 |
-| PWA-003 | Kein Offline/Reconnect-Kommunikation | P2 |
-| MEDIA-001 | Medien-Upload nicht end-to-end getestet | P1 |
-
-### Sonstiges
-| ID | Problem | P |
-|---|---|---|
-| SOCKET-002 | handleRoomSubscription .then() return | P2 |
-| QA-003 | E2E: kein Multiplayer-Ablauf, kein 3-Browser-Test | P1 |
-| REGISTRY-002 | Jeopardy/Timeline/Song/Luegen/Weristdas sind Stubs | P2 |
-
----
-
-## Nächste Schritte
-
-| Gate | Inhalt | Priorität |
-|------|--------|-----------|
-| **Gate 4** | UI-System: Dark/Light Tokens, Cyberpunk-Effekte abbauen, Zugänglichkeit, Light Theme auf jeder Route | P1 |
-| **Gate 5** | Geo als vollständiger vertikaler Schnitt — Playwright E2E mit 3 Browsern (Moderator/Spieler/Zuschauer) | P0 |
-| **Gate 6** | Jeopardy → Wer ist das? → Timeline → Wer lügt? → Erkenne den Song (je BETA → AVAILABLE) | P1 |
-| **Gate 7** | PWA, Docker-Production, Backup/Restore, Deployment-Doku | P2 |
+| ID | Problem |
+|---|---|
+| TECH-007 | Lockfile reproduzierbar? |
+| PWA-001 | PWA-Plugin vs handgeschriebener Worker |
+| PWA-002 | Manifest/Cache fragil |
+| PWA-003 | Kein Offline/Reconnect |
+| MEDIA-001 | Medien-Upload nicht end-to-end nachgewiesen |

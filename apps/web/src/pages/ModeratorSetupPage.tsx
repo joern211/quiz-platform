@@ -25,6 +25,7 @@ export function ModeratorSetupPage() {
     setLoading(true);
 
     try {
+      // P0-02: send setupSnapshotJson instead of setup; server stores JSON string
       const res = await fetch('/api/v1/rooms', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -35,24 +36,24 @@ export function ModeratorSetupPage() {
           pin: pin || undefined,
           maxPlayers,
           allowViewers,
-          setup: {
+          setupSnapshotJson: JSON.stringify({
             questionCount,
             timerDuration,
             selectedQuestionIds: selectedQuestions,
-          },
+          }),
         }),
       });
 
       const data = await res.json();
 
-      if (!res.ok) {
-        alert(data.error || 'Raum konnte nicht erstellt werden');
+      if (!res.ok || !data.success) {
+        alert(data.error?.message || 'Raum konnte nicht erstellt werden');
         setLoading(false);
         return;
       }
 
-      // Navigate to mod lobby
-      navigate(`/moderator/raum/${data.code}/lobby`);
+      // data.data.code is the room code
+      navigate(`/moderator/${data.data.code}/lobby`);
     } catch (err) {
       alert('Verbindungsfehler');
       setLoading(false);
