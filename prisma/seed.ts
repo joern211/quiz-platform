@@ -34,8 +34,9 @@ async function main() {
     update: {},
     create: {
       id: 'mod-1',
+      email: 'moderator@example.com',
       displayName: 'Moderator',
-      passwordHash: await hashPassword(process.env.ADMIN_PASSWORD || 'admin123'),
+      passwordHash: await hashPassword(process.env.INITIAL_ADMIN_PASSWORD || 'secret'),
       role: 'MODERATOR',
     },
   });
@@ -47,7 +48,7 @@ async function main() {
     create: {
       id: 'admin-1',
       displayName: 'Admin',
-      passwordHash: await hashPassword(process.env.ADMIN_PASSWORD || 'admin123'),
+      passwordHash: await hashPassword(process.env.INITIAL_ADMIN_PASSWORD || 'admin123'),
       role: 'ADMIN',
     },
   });
