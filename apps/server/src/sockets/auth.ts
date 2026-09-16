@@ -11,6 +11,7 @@ import { logger } from '../observability/logger.js';
 // Re-export for convenience in socket handlers
 export { getSocketIdentity } from '../http/middleware/auth.js';
 export { requireRoomRole as checkRole } from '../http/middleware/auth.js';
+export { socketIdentityMap } from '../http/middleware/auth.js';
 
 /**
  * Get socket identity from socket.data (alternative to socketIdentityMap)

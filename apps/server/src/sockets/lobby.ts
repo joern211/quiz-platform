@@ -5,7 +5,7 @@
 import { Server, Socket } from 'socket.io';
 import { prisma } from '../persistence/prisma.js';
 import { logger } from '../observability/logger.js';
-import { getSocketIdentity, socketIdentityMap } from '../http/middleware/auth.js';
+import { getSocketDataIdentity, socketIdentityMap } from './auth.js';
 import { roomChannel } from './index.js';
 
 export const handleLobbyEvents = {
@@ -16,7 +16,11 @@ export const handleLobbyEvents = {
     callback?: (result: any) => void
   ) {
     try {
-      const identity = getSocketIdentity(socket);
+      const identity = getSocketDataIdentity(socket);
+      if (!identity) {
+        callback?.({ success: false, error: 'NOT_IN_ROOM' });
+        return;
+      }
 
       // P0-09: Check socket is connected to a room
       if (!identity.roomId) {
@@ -46,8 +50,14 @@ export const handleLobbyEvents = {
         return;
       }
 
-      const senderId = identity.role !== 'VIEWER' ? identity.participationId : null;
-      const senderName = identity.displayName || 'Unbekannt';
+      const senderId = identity.participationId || null;
+      let senderName = 'Unbekannt';
+      if (identity.participationId && !identity.participationId.startsWith('viewer:')) {
+        const participation = await prisma.participation.findUnique({
+          where: { id: identity.participationId },
+        });
+        if (participation) senderName = participation.displayName;
+      }
 
       // Save message
       const message = await prisma.chatMessage.create({
@@ -82,7 +92,11 @@ export const handleLobbyEvents = {
     callback?: (result: any) => void
   ) {
     try {
-      const identity = getSocketIdentity(socket);
+      const identity = getSocketDataIdentity(socket);
+      if (!identity) {
+        callback?.({ success: false, error: 'NOT_AUTHENTICATED' });
+        return;
+      }
 
       // P0-05: Only moderator can lock chat
       if (!identity.role || identity.role !== 'MODERATOR') {
@@ -128,7 +142,7 @@ export const handleLobbyEvents = {
 
 export async function handleDisconnect(io: Server, socket: Socket) {
   try {
-    const identity = getSocketIdentity(socket);
+    const identity = getSocketDataIdentity(socket);
 
     if (!identity || !identity.participationId || !identity.roomId) {
       // No participation data, nothing to do
@@ -168,7 +182,6 @@ export async function handleDisconnect(io: Server, socket: Socket) {
       if (identity.role !== 'VIEWER') {
         io.to(channel).emit('player:leave', {
           playerId: identity.participationId,
-          displayName: identity.displayName,
         });
       }
 
