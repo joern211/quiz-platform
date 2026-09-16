@@ -34,10 +34,13 @@ authRouter.post('/login', loginLimiter, async (req, res) => {
       });
     }
 
-    // Find user
+    // Find user by email or displayName
     const user = await prisma.user.findFirst({
       where: {
-        displayName: username,
+        OR: [
+          { email: username },
+          { displayName: username },
+        ],
         disabledAt: null,
       },
     });

@@ -2,6 +2,7 @@
 // Prisma Seed Script
 // ============================================================
 
+import 'dotenv/config';
 import { PrismaClient } from '@prisma/client';
 import argon2 from 'argon2';
 
