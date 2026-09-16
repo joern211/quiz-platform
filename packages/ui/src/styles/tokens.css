@@ -79,7 +79,12 @@
   --glow-accent: 0 0 15px rgba(29, 212, 212, 0.4);
   --glow-ok: 0 0 15px rgba(29, 209, 161, 0.4);
   --glow-danger: 0 0 15px rgba(255, 93, 115, 0.4);
-  
+
+  /* Accent glow (for CSS animations) */
+  --accent-glow: rgba(29, 212, 212, 0.6);
+  --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --font-display: 'Space Grotesk', 'Inter', sans-serif;
+
   /* Text */
   color-scheme: dark;
 }

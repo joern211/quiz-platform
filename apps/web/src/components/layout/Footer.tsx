@@ -1,5 +1,5 @@
 // ============================================================
-// Footer Component
+// Footer Component – v0.2.0
 // ============================================================
 
 import styles from './Footer.module.css';
@@ -11,9 +11,7 @@ export function Footer() {
         <p className={styles.text}>
           Online Quiz Plattform — Mit Freunden spielen
         </p>
-        <p className={styles.version}>
-          v0.1.0
-        </p>
+        <p className={styles.version}>v0.2.0</p>
       </div>
     </footer>
   );

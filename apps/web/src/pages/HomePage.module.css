@@ -1,115 +1,242 @@
 /* ============================================================
-   Home Page Styles
+   Home Page Styles – v0.2.0 (Gamified + playful)
    ============================================================ */
 
 .page {
   max-width: 1200px;
   margin: 0 auto;
-  padding: var(--space-6) var(--space-4);
+  padding: var(--space-8) var(--space-4);
+  overflow: hidden;
 }
 
+/* ── Hero ── */
 .hero {
   text-align: center;
-  padding: var(--space-8) 0;
+  padding: var(--space-8) 0 var(--space-10);
+  position: relative;
 }
 
-.title {
-  font-size: clamp(2.5rem, 8vw, 4rem);
-  font-weight: 800;
-  color: var(--fg);
+/* Background decoration */
+.hero::before {
+  content: '';
+  position: absolute;
+  top: -40%;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 600px;
+  height: 600px;
+  background: radial-gradient(circle, rgba(29,212,212,0.08) 0%, transparent 70%);
+  pointer-events: none;
+}
+
+.eyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: 0.8rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: var(--accent);
   margin-bottom: var(--space-4);
-  background: linear-gradient(135deg, var(--accent), var(--accent-strong));
+  padding: 6px 16px;
+  background: rgba(29, 212, 212, 0.1);
+  border: 1px solid rgba(29, 212, 212, 0.2);
+  border-radius: 999px;
+}
+
+.eyebrowDot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--accent);
+  animation: pulse-dot 2s ease-in-out infinite;
+}
+
+@keyframes pulse-dot {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50%       { opacity: 0.5; transform: scale(1.4); }
+}
+
+.heroTitle {
+  font-family: var(--font-display);
+  font-size: clamp(2.5rem, 8vw, 4.5rem);
+  font-weight: 900;
+  line-height: 1.05;
+  letter-spacing: -0.04em;
+  margin-bottom: var(--space-4);
+  color: var(--fg);
+}
+
+.heroTitleAccent {
+  display: block;
+  background: linear-gradient(135deg, var(--accent) 0%, #00d2ff 50%, var(--accent-strong) 100%);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;
 }
 
-.subtitle {
-  font-size: 1.25rem;
+.heroSubtitle {
+  font-size: clamp(1rem, 3vw, 1.25rem);
   color: var(--muted);
-  margin-bottom: var(--space-6);
-  max-width: 600px;
-  margin-left: auto;
-  margin-right: auto;
+  max-width: 520px;
+  margin: 0 auto var(--space-6);
+  line-height: 1.6;
 }
 
-.actions {
+/* ── CTA Buttons ── */
+.heroCta {
   display: flex;
-  gap: var(--space-4);
-  justify-content: center;
   flex-wrap: wrap;
-}
-
-.features {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
-  gap: var(--space-4);
-  margin: var(--space-8) 0;
-}
-
-.featureCard {
-  text-align: center;
-}
-
-.featureIcon {
-  font-size: 3rem;
-  margin-bottom: var(--space-3);
-}
-
-.featureCard h3 {
-  font-size: 1.25rem;
-  margin-bottom: var(--space-2);
-  color: var(--fg);
-}
-
-.featureCard p {
-  color: var(--muted);
-  font-size: 0.875rem;
-}
-
-.howItWorks {
-  text-align: center;
-  padding: var(--space-8) 0;
-}
-
-.howItWorks h2 {
-  font-size: 2rem;
+  gap: var(--space-3);
+  justify-content: center;
   margin-bottom: var(--space-6);
-  color: var(--fg);
 }
 
-.steps {
+.heroOr {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+.heroOr::before,
+.heroOr::after {
+  content: '';
+  height: 1px;
+  width: 40px;
+  background: var(--border);
+}
+
+/* ── Quick Stats ── */
+.heroStats {
+  display: flex;
+  justify-content: center;
+  gap: var(--space-8);
+  margin-top: var(--space-4);
+}
+
+.stat {
+  text-align: center;
+}
+
+.statValue {
+  font-family: var(--font-display);
+  font-size: 2rem;
+  font-weight: 900;
+  color: var(--accent);
+  line-height: 1;
+  letter-spacing: -0.03em;
+}
+
+.statLabel {
+  font-size: 0.75rem;
+  color: var(--muted);
+  margin-top: 4px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+/* ── Section ── */
+.section {
+  margin-top: var(--space-10);
+}
+
+.sectionHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: var(--space-6);
+  gap: var(--space-4);
+}
+
+.sectionTitle {
+  font-family: var(--font-display);
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: var(--fg);
+  letter-spacing: -0.03em;
+}
+
+.sectionLink {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--accent);
+  text-decoration: none;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  transition: gap 0.2s;
+}
+
+.sectionLink:hover { gap: 8px; }
+
+/* ── Category Grid ── */
+.categoryGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: var(--space-3);
+}
+
+/* ── Game Grid ── */
+.gameGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: var(--space-4);
+}
+
+/* ── How It Works ── */
+.howItWorks {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-  gap: var(--space-6);
+  gap: var(--space-4);
+  margin-top: var(--space-8);
 }
 
 .step {
-  position: relative;
-  padding: var(--space-4);
+  text-align: center;
+  padding: var(--space-5);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  transition: transform 0.2s cubic-bezier(0.34,1.56,0.64,1),
+              border-color 0.2s,
+              box-shadow 0.2s;
+}
+
+.step:hover {
+  transform: translateY(-3px);
+  border-color: rgba(29,212,212,0.3);
+  box-shadow: 0 8px 24px rgba(0,0,0,0.3);
 }
 
 .stepNumber {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
   width: 48px;
   height: 48px;
-  font-size: 1.5rem;
-  font-weight: 700;
-  color: var(--bg);
-  background: linear-gradient(135deg, var(--accent), var(--accent-strong));
   border-radius: 50%;
-  margin-bottom: var(--space-3);
+  background: linear-gradient(135deg, var(--accent), var(--accent-strong));
+  color: var(--bg);
+  font-family: var(--font-display);
+  font-size: 1.3rem;
+  font-weight: 900;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0 auto var(--space-3);
+  box-shadow: 0 4px 16px rgba(29,212,212,0.3);
 }
 
-.step h3 {
-  font-size: 1.125rem;
+.stepTitle {
+  font-family: var(--font-display);
+  font-size: 1rem;
+  font-weight: 700;
   margin-bottom: var(--space-2);
   color: var(--fg);
 }
 
-.step p {
+.stepDesc {
+  font-size: 0.8rem;
   color: var(--muted);
-  font-size: 0.875rem;
+  line-height: 1.5;
 }

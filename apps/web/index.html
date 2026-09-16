@@ -3,12 +3,26 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta name="theme-color" content="#1dd4d4">
-  <meta name="description" content="Online Quiz Plattform - Spiele mit Freunden">
-  <link rel="manifest" href="/manifest.json">
-  <link rel="icon" href="/logo.svg" type="image/svg+xml">
-  <link rel="apple-touch-icon" href="/icon-192.png">
-  <title>Online Quiz Plattform</title>
+  <meta name="theme-color" content="#0a0a0f">
+  <meta name="description" content="Online Quiz Plattform — Spiele mit Freunden in Echtzeit">
+
+  <title>QuizPlattform — Spiele mit Freunden</title>
+
+  <!-- SVG Favicon -->
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 40 40'><circle cx='20' cy='20' r='18' fill='%230a0a0f' stroke='%231dd4d4' stroke-width='2'/><text x='20' y='26' text-anchor='middle' font-size='16' font-weight='bold' fill='%231dd4d4'>Q</text></svg>">
+
+  <!-- Google Fonts: Inter + Space Grotesk (v0.2.0) -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
+
+  <!-- Prevent FOUC for dark theme -->
+  <script>
+    // Apply theme class before render to avoid flash
+    const stored = localStorage.getItem('quiz-theme');
+    const theme = stored === 'light' ? 'light' : 'dark';
+    document.documentElement.setAttribute('data-theme', theme);
+  </script>
 </head>
 <body>
   <div id="root"></div>

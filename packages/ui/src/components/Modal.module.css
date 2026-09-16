@@ -1,69 +1,84 @@
 /* ============================================================
-   Modal Styles
+   Modal Styles – v0.2.0
    ============================================================ */
 
 .overlay {
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.7);
-  backdrop-filter: blur(4px);
+  background: rgba(0, 0, 0, 0.75);
+  backdrop-filter: blur(8px) saturate(150%);
+  -webkit-backdrop-filter: blur(8px) saturate(150%);
   display: flex;
   align-items: center;
   justify-content: center;
-  z-index: 1000;
-  padding: 1rem;
+  z-index: 500;
+  padding: var(--space-4);
 }
 
 .modal {
   background: var(--surface);
-  border-radius: var(--radius);
+  border-radius: var(--radius-lg);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.6);
   max-height: 90vh;
   overflow: auto;
-  animation: modalIn 0.2s ease-out;
+  animation: modal-in 0.35s cubic-bezier(0.22, 1, 0.36, 1) both;
 }
 
 .modal.sm { width: 100%; max-width: 400px; }
 .modal.md { width: 100%; max-width: 600px; }
 .modal.lg { width: 100%; max-width: 900px; }
 
+@keyframes modal-in {
+  from {
+    opacity: 0;
+    transform: scale(0.92) translateY(16px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
 .header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 1rem 1.5rem;
+  padding: var(--space-4) var(--space-5);
   border-bottom: 1px solid var(--border);
 }
 
 .header h2 {
+  font-family: var(--font-display);
+  font-size: 1.1rem;
+  font-weight: 700;
   margin: 0;
-  font-size: 1.25rem;
+  letter-spacing: -0.02em;
 }
 
 .close {
-  background: none;
-  border: none;
-  font-size: 1.5rem;
-  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border: 1px solid var(--border);
+  border-radius: 50%;
+  background: var(--surface-2);
   color: var(--muted);
+  font-size: 1.2rem;
+  cursor: pointer;
+  transition: all 0.2s;
   padding: 0;
   line-height: 1;
 }
 
 .close:hover {
-  color: var(--fg);
+  border-color: var(--danger);
+  color: var(--danger);
+  transform: rotate(90deg);
 }
 
 .content {
-  padding: 1.5rem;
-}
-
-@keyframes modalIn {
-  from {
-    opacity: 0;
-    transform: scale(0.95);
-  }
-  to {
-    opacity: 1;
-    transform: scale(1);
-  }
+  padding: var(--space-5);
 }

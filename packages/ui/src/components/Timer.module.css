@@ -1,86 +1,92 @@
 /* ============================================================
-   Timer Styles
+   Timer Styles – v0.2.0 (Big countdown ring)
    ============================================================ */
 
 .timer {
-  position: relative;
   display: flex;
+  flex-direction: column;
   align-items: center;
-  gap: var(--space-3);
-  width: 100%;
+  justify-content: center;
+  gap: var(--space-4);
+  position: relative;
 }
 
-.progressWrapper {
-  flex: 1;
-  height: 8px;
-  background: var(--surface-2);
-  border-radius: 4px;
-  overflow: hidden;
+.display {
+  font-family: 'Space Grotesk', sans-serif;
+  font-size: clamp(3rem, 12vw, 6rem);
+  font-weight: 900;
+  letter-spacing: -0.04em;
+  line-height: 1;
+  color: var(--fg);
+  transition: color 0.3s, text-shadow 0.3s;
 }
 
-.progress {
-  height: 100%;
-  background: var(--accent);
-  border-radius: 4px;
-  transition: width 0.05s linear;
+.normal  { color: var(--fg); }
+.warning {
+  color: var(--warn);
+  text-shadow: 0 0 20px rgba(254,202,87,0.5);
+  animation: pulse-text 0.8s ease-in-out infinite;
+}
+.critical {
+  color: var(--danger);
+  text-shadow: 0 0 20px rgba(255,93,115,0.6);
+  animation: pulse-text 0.4s ease-in-out infinite, shake 0.4s ease-in-out infinite;
 }
 
-.progress.urgent {
-  background: var(--warn);
+/* Ring SVG behind the number */
+.ring {
+  position: absolute;
+  inset: 0;
+  transform: rotate(-90deg);
+  pointer-events: none;
+  z-index: 0;
 }
 
-.progress.critical {
-  background: var(--danger);
-  animation: pulse 0.5s infinite;
+.ringTrack {
+  fill: none;
+  stroke: var(--surface-2);
+  stroke-width: 8;
 }
+
+.ringProgress {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 8;
+  stroke-linecap: round;
+  transition: stroke-dashoffset 0.95s linear, stroke 0.3s;
+  filter: drop-shadow(0 0 8px var(--accent));
+}
+
+.warning  .ringProgress { stroke: var(--warn);  filter: drop-shadow(0 0 8px var(--warn)); }
+.critical .ringProgress { stroke: var(--danger); filter: drop-shadow(0 0 8px var(--danger)); }
 
 .seconds {
+  position: relative;
+  z-index: 1;
   font-weight: 700;
   font-variant-numeric: tabular-nums;
-  color: var(--fg);
   min-width: 2ch;
   text-align: center;
 }
 
-.seconds.urgentText {
-  color: var(--warn);
+.label {
+  text-align: center;
+  font-size: 0.8rem;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  font-weight: 500;
 }
 
-.expired .progress {
-  background: var(--danger);
-  width: 0;
+@keyframes pulse-text {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50%       { opacity: 0.7; transform: scale(1.05); }
 }
 
-.expired .seconds {
-  color: var(--danger);
-}
-
-/* Sizes */
-.sm .progressWrapper {
-  height: 4px;
-}
-
-.sm .seconds {
-  font-size: 0.875rem;
-}
-
-.md .progressWrapper {
-  height: 8px;
-}
-
-.md .seconds {
-  font-size: 1.25rem;
-}
-
-.lg .progressWrapper {
-  height: 12px;
-}
-
-.lg .seconds {
-  font-size: 2rem;
-}
-
-@keyframes pulse {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.6; }
+@keyframes shake {
+  0%, 100% { transform: translateX(0); }
+  20%       { transform: translateX(-4px); }
+  40%       { transform: translateX(4px); }
+  60%       { transform: translateX(-3px); }
+  80%       { transform: translateX(3px); }
 }

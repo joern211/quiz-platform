@@ -2,7 +2,7 @@
 
 **Eine moderne Spieleplattform für Freundesgruppen**
 
-![Version](https://img.shields.io/badge/version-0.1.0-blue)
+![Version](https://img.shields.io/badge/version-0.2.0-blue)
 ![License](https://img.shields.io/badge/license-MIT-green)
 ![Node](https://img.shields.io/badge/node-20+-green)
 

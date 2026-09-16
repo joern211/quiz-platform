@@ -1,5 +1,5 @@
 /* ============================================================
-   Input Styles
+   Input Styles – v0.2.0
    ============================================================ */
 
 .wrapper {
@@ -9,8 +9,8 @@
 }
 
 .label {
-  font-size: 0.875rem;
-  font-weight: 500;
+  font-size: 0.85rem;
+  font-weight: 600;
   color: var(--fg);
 }
 
@@ -20,6 +20,7 @@
   align-items: center;
 }
 
+/* Floating-label style input */
 .input {
   width: 100%;
   padding: var(--space-3) var(--space-4);
@@ -27,10 +28,10 @@
   font-size: 1rem;
   color: var(--fg);
   background: var(--surface-2);
-  border: 1px solid var(--border);
+  border: 1.5px solid var(--border);
   border-radius: var(--radius);
-  transition: all 0.2s ease;
-  min-height: 44px;
+  transition: border-color 0.2s, box-shadow 0.2s;
+  min-height: 48px;
 }
 
 .input::placeholder {
@@ -38,22 +39,18 @@
 }
 
 .input:hover {
-  border-color: var(--muted);
+  border-color: rgba(255, 255, 255, 0.2);
 }
 
 .input:focus {
   outline: none;
   border-color: var(--accent);
-  box-shadow: 0 0 0 3px rgba(29, 212, 212, 0.1);
+  box-shadow: 0 0 0 3px rgba(29, 212, 212, 0.15),
+              0 0 16px rgba(29, 212, 212, 0.1);
 }
 
-.hasLeftIcon {
-  padding-left: calc(var(--space-4) + 24px);
-}
-
-.hasRightIcon {
-  padding-right: calc(var(--space-4) + 24px);
-}
+.hasLeftIcon  { padding-left: calc(var(--space-4) + 28px); }
+.hasRightIcon { padding-right: calc(var(--space-4) + 28px); }
 
 .hasError .input,
 .textarea.hasError {
@@ -62,7 +59,7 @@
 
 .hasError .input:focus,
 .textarea.hasError:focus {
-  box-shadow: 0 0 0 3px rgba(255, 93, 115, 0.1);
+  box-shadow: 0 0 0 3px rgba(255, 93, 115, 0.15);
 }
 
 .leftIcon,
@@ -73,24 +70,28 @@
   justify-content: center;
   color: var(--muted);
   pointer-events: none;
+  transition: color 0.2s;
 }
 
-.leftIcon {
-  left: var(--space-3);
-}
+.leftIcon  { left: var(--space-3); }
+.rightIcon { right: var(--space-3); }
 
-.rightIcon {
-  right: var(--space-3);
+.input:focus ~ .leftIcon,
+.input:focus ~ .rightIcon {
+  color: var(--accent);
 }
 
 .error {
-  font-size: 0.875rem;
+  font-size: 0.8rem;
   color: var(--danger);
   margin: 0;
+  display: flex;
+  align-items: center;
+  gap: 4px;
 }
 
 .hint {
-  font-size: 0.875rem;
+  font-size: 0.8rem;
   color: var(--muted);
   margin: 0;
 }
@@ -103,23 +104,17 @@
   font-size: 1rem;
   color: var(--fg);
   background: var(--surface-2);
-  border: 1px solid var(--border);
+  border: 1.5px solid var(--border);
   border-radius: var(--radius);
-  transition: all 0.2s ease;
+  transition: border-color 0.2s, box-shadow 0.2s;
   min-height: 100px;
   resize: vertical;
 }
 
-.textarea::placeholder {
-  color: var(--muted);
-}
-
-.textarea:hover {
-  border-color: var(--muted);
-}
-
+.textarea::placeholder { color: var(--muted); }
+.textarea:hover  { border-color: rgba(255, 255, 255, 0.2); }
 .textarea:focus {
   outline: none;
   border-color: var(--accent);
-  box-shadow: 0 0 0 3px rgba(29, 212, 212, 0.1);
+  box-shadow: 0 0 0 3px rgba(29, 212, 212, 0.15);
 }
