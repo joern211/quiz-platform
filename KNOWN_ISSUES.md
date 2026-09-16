@@ -1,136 +1,134 @@
-# Known Issues
+# Known Issues — v0.2.1
 
-This document tracks P0/P1/P2 issues identified during Gate 1 & Gate 2 review.
+> Dokumentation aller bekannten Fehler (nach Gate 1+2+3 behoben).
+> Gefixt = in diesem PR behoben. Offen = für Gate 4+.
 
-## Gate 1 - P0 Blockers (Must Fix)
+---
 
-### CONFIG-001: Config returns uppercase env keys but server expects lowercase
-**Status**: ✅ FIXED in this PR  
-**Files**: `apps/server/src/config/index.ts`, `apps/server/src/server.ts`  
-**Issue**: Config returned `PORT`, `SESSION_SECRET`, `PUBLIC_APP_URL` but server.ts read `config.port`, `config.sessionSecret`, `config.publicAppUrl`
+## ✅ In diesem PR behoben (Gate 1+2+3)
 
-### ESM-001: TypeScript config used NodeNext instead of Node16
-**Status**: ✅ FIXED in this PR  
-**Files**: `apps/server/tsconfig.json`, `apps/server/package.json`  
-**Issue**: `type: "module"` in package.json requires Node16 module resolution. Removed `tsconfig.build.json` reference.
+| ID | Problem | Fix |
+|---|---|---|
+| TECH-001 | Spielmodule: falsche relative Importpfade zu Prisma/Logger | Importpfade auf `../../persistence/prisma.js` korrigiert |
+| TECH-002 | Server: ESM/TypeScript-Widerspruch | `NodeNext`, `type: module`, Build `tsc` |
+| TECH-003 | Config: PORT vs port gemischt | Normalisierte Config + PORT=3001 |
+| TECH-004 | Dev-Ports: Vite + Server auf 5173 kollidiert | Server: 3001, Vite-Proxy: 3001 |
+| TECH-005 | Produktionspfad zum Web-Build falsch | `WEB_DIST_PATH` Env-Variable + smarter Fallback |
+| TECH-006 | Docker Multi-Stage-Build fehlerhaft | Multi-Stage korrigiert, Server-Port 3001, Nicht-Root-User |
+| TECH-007 | Lockfile nicht reproduzierbar (jsdom/dotenv fehlen) | Beide installiert |
+| TECH-009 | Keine Migrationen | `prisma migrate dev --name init` ausgeführt |
+| QA-001 | TypeScript: keine JSX-Konfiguration, CSS-Module fehlen | `jsx: react-jsx`, CSS-Module .d.ts deklariert |
+| QA-002 | Unit-Tests: jsdom fehlt | jsdom `^25.0.0` in devDependencies |
+| API-001 | HTTP: Frontend liest `data.rooms` statt `json.data.rooms` | `ApiResponse<T>` in `lib/api.ts` |
+| API-002 | Frontend sendet `gameSlug`, Server erwartet `gameDefinitionId` | Server löst `gameSlug` → `gameDefinitionId` auf |
+| API-003 | Spielerbeitritt: displayName fehlt, rejoinTokenVersion fehlt | Beides in Join-Endpoint ergänzt |
+| API-004 | Öffentliche Räume nicht modelliert | `isPublic Boolean @default(true)` in Room |
+| SEC-001 | Seed: SHA-256, Login: Argon2 | Seed auf Argon2id umgestellt |
+| SEC-002 | Socket: keine Moderator-Autorisierung | `requireRoomRole()` Middleware |
+| SEC-004 | Disconnect: keine Socket→Participation-Zuordnung | `SocketIdentity` Typ |
+| SEC-005 | Math.random() für Raumcodes | `crypto.randomInt` |
+| SEC-007 | Zod-Validierung nicht durchgängig | `http/middleware/validation.ts` |
+| SOCK-001 | Client sendet nicht registrierte Events | Typisierte Socket-Events in `lib/socket.ts` |
+| FLOW-001 | Zuschauer-Redirect-Schleife (`/zuschauen`) | Eigenständige Viewer-Routen für alle Phasen |
+| FLOW-002 | Ergebnisrouten fehlen | Moderator/Player/ViewerResultPage + Routen registriert |
+| FLOW-004 | Join: falsche Response-Parsing, kein prefill | `ApiResponse<T>`, RoomCode-Format, prefill von state |
+| FLOW-005 | Mobile Navigation unsichtbar | Hamburger-Menü mit Slide-in Drawer, Fokus-Trap, Escape |
+| FLOW-006 | Kein „Zurück zum Raum" | Aktiver Raum-Code aus localStorage im Header |
+| TYPING-001 | 'AVANNING' → 'PLANNED' in Timeline-Manifest | Gefixt |
+| VERSION-001 | Health 0.1.0 statt 0.2.1 | Gefixt |
+| ENV-001 | .env.example WEB_DIST_PATH fehlt | Ergänzt |
+| LOGGER-001 | config.LOG_LEVEL statt config.logLevel | Gefixt |
+| MANIFEST-001 | hasCamera in Allgemeinwissen fehlt | Ergänzt |
+| SEED-001 | estimatedMinutes/tags in seed falsch | `estimatedDurationMinutes`, tags als String[] |
+| SEED-002 | INITIAL_ADMIN_PASSWORD bereits korrekt | Verified |
 
-### BUILD-001: Build script referenced non-existent tsconfig.build.json
-**Status**: ✅ FIXED in this PR  
-**Files**: `apps/server/package.json`  
-**Issue**: Build script `'tsc && tsc -p tsconfig.build.json'` failed because tsconfig.build.json doesn't exist.
+---
 
-### PORT-001: Default port was 5173 instead of 3001
-**Status**: ✅ FIXED in this PR  
-**Files**: `apps/server/src/config/index.ts`, `.env.example`  
-**Issue**: Default port in config was 5173, should be 3001.
+## 🔶 Noch offen (Gate 4–7)
 
-### SECURITY-001: SHA-256 for password hashing instead of Argon2
-**Status**: ✅ FIXED in this PR  
-**Files**: `prisma/seed.ts`  
-**Issue**: Seed script now uses Argon2 for password hashing.
+### UI (Gate 4 — P1/P2)
+| ID | Problem | P |
+|---|---|---|
+| UI-001 | Cyberpunk/Neon/Bounce-Effekte zu viel | P1 |
+| UI-002 | Light Theme nicht systematisch (Header Hardcoded Dark) | P1 |
+| UI-003 | Überladene Kartenhierarchie | P2 |
+| UI-004 | Card semantisch nur ein div, whole-card klickbar aber Tastatur | P1 |
+| UI-005 | InfoPopup: keine Fokusverwaltung, kein Escape | P2 |
+| UI-006 | Modal: unvollständige Barrierefreiheit | P2 |
+| UI-007 | Status nicht assistiv (aria-live) | P2 |
+| UI-008 | HomePage: falscher Text, erfundene Zahlen | P1 |
+| UI-009 | Inline-Styles in HomePage | P2 |
+| UI-010 | Externe Google Fonts (Datenschutz + Offline) | P3 |
+| UI-011 | Smooth scroll ignoriert Reduced Motion | P3 |
+| UI-012 | Rolle/CTA-Hierarchie nicht eindeutig | P2 |
 
-### API-001: Room creation requires gameDefinitionId but frontend sends gameSlug
-**Status**: ✅ FIXED in this PR  
-**Files**: `apps/server/src/http/rooms.ts`  
-**Issue**: Endpoint POST /api/v1/rooms only accepted `gameDefinitionId`. Now also accepts `gameSlug` and resolves to id.
+### Games (Gate 5 — P0/P1)
+| ID | Problem | P |
+|---|---|---|
+| GAME-001 | Nur Geo hat vollständige UI; andere als BETA/PLANNED | P0 |
+| GAME-002 | Engines: Zustände teilweise in In-Memory Maps | P0 |
+| GAME-003 | Rollenprojektionen: Lösungslecks drohen | P0 |
+| GAME-004 | Spieleransicht: keine PlayerBar/Rang in allen Phasen | P1 |
+| GAME-005 | 50:50: Buchstaben nach Filterung neu nummeriert | P1 |
+| GAME-006 | Spy-Joker: keine nutzbare Auswertung | P2 |
+| GAME-007 | Max 4 Kameras nicht serverseitig durchgesetzt | P1 |
+| GAME-008 | Spielfläche nicht konsistent | P2 |
 
-### SOCKET-001: Join endpoint missing rejoinTokenVersion
-**Status**: ✅ FIXED in this PR  
-**Files**: `apps/server/src/http/rooms.ts`  
-**Issue**: Create participation didn't set `rejoinTokenVersion: 1`
+### Socket (Gate 5 — P0/P1)
+| ID | Problem | P |
+|---|---|---|
+| SOCK-002 | Engines senden an falsche Socket-Räume | P0 |
+| SOCK-003 | Registry nicht ausführbar (fehlende Engine-Exports) | P0 |
+| SOCK-004 | Moderator-Lobby: Raum schließen, Kick, QR-Code fehlen | P1 |
+| SOCK-005 | Chat-Sperre missbraucht Spielzustand | P1 |
+| SOCK-006 | Bereitschaft/Beteiligung falsch ermittelt | P1 |
 
-### RANDOM-001: Room code generation using Math.random()
-**Status**: ✅ FIXED in this PR  
-**Files**: `apps/server/src/http/rooms.ts`  
-**Issue**: Room codes now use `crypto.randomInt` instead of `Math.random()`
+### Flow (Gate 3+ — P1)
+| ID | Problem | P |
+|---|---|---|
+| FLOW-003 | GeoSetupPage/JeopardySetupPage unerreichbar | P1 |
+| FLOW-004 | Profil-/AV-Weg nicht vollständig (Kamera/Geräte wählen) | P1 |
+| FLOW-007 | Direkte Reloads nicht robust (Resync nach Reload) | P1 |
 
-### HOST-PARTICIPATION-001: Host participation missing required fields
-**Status**: ✅ FIXED in this PR  
-**Files**: `apps/server/src/http/rooms.ts`  
-**Issue**: Host participation creation was missing `rejoinToken` and `rejoinTokenVersion` fields.
+### API/Security (Gate 2+ — P0/P1)
+| ID | Problem | P |
+|---|---|---|
+| SEC-003 | Raumabonnement nicht ausreichend geschützt | P0 |
+| SEC-006 | CSRF/Cookie-Schutz nicht nachgewiesen | P1 |
+| SEC-008 | Unsicheres Default-Secret bei Produktion | P1 |
+| API-005 | Raumliste nicht live (keine Socket-Updates) | P1 |
+| API-006 | Slugs nicht kanonisch (verschiedene Schreibweisen) | P1 |
 
-### ROUTER-TYPES-001: Router type inference errors
-**Status**: ✅ FIXED in this PR  
-**Files**: `apps/server/src/http/*.ts`  
-**Issue**: Added explicit type annotations to all router exports to avoid portable type errors.
+### Katalog/Inhalte (Gate 3+ — P1/P2)
+| ID | Problem | P |
+|---|---|---|
+| CAT-001 | Drei widersprüchliche Katalogquellen | P1 |
+| CAT-002 | Erfundene Spielzahlen | P1 |
+| CAT-003 | Mock-API mit 300ms Timeout statt echte Anfrage | P2 |
+| CAT-004 | Info-Karten: unvollständige Regeln (3–5 Regeln fehlen) | P2 |
 
-## Gate 2 - P1 Issues (Should Fix)
+### PWA/Medien (Gate 7 — P2)
+| ID | Problem | P |
+|---|---|---|
+| PWA-001 | PWA-Plugin nicht konfiguriert | P2 |
+| PWA-002 | Manifest/Cache fragil | P2 |
+| PWA-003 | Kein Offline/Reconnect-Kommunikation | P2 |
+| MEDIA-001 | Medien-Upload nicht end-to-end getestet | P1 |
 
-### REGISTRY-001: Game registry imports non-existent geo exports
-**Status**: ✅ FIXED in this PR  
-**Files**: `apps/server/src/games/registry.ts`  
-**Issue**: Registry was already correctly importing `handleGeoGame`, no fix needed.
+### Sonstiges
+| ID | Problem | P |
+|---|---|---|
+| SOCKET-002 | handleRoomSubscription .then() return | P2 |
+| QA-003 | E2E: kein Multiplayer-Ablauf, kein 3-Browser-Test | P1 |
+| REGISTRY-002 | Jeopardy/Timeline/Song/Luegen/Weristdas sind Stubs | P2 |
 
-### DATA-001: Prisma schema missing RoomGameState model
-**Status**: ✅ VERIFIED EXISTS  
-**Files**: `prisma/schema.prisma`  
-**Issue**: The schema already has RoomGameState model, no fix needed.
+---
 
-### SEED-001: Seed game definitions use wrong field names
-**Status**: ✅ FIXED in subsequent commit
-**Files**: `prisma/seed.ts`
-**Issue**: Seed used `estimatedMinutes` and `JSON.stringify(tags)` but schema expects `estimatedDurationMinutes` and `tags` as String array.
+## Nächste Schritte
 
-### SEED-002: Seed uses wrong password env variable name
-**Status**: ✅ FIXED in initial commit (INITIAL_ADMIN_PASSWORD already in seed.ts)
-**Files**: `prisma/seed.ts`
-**Issue**: Seed reads `process.env.INITIAL_ADMIN_PASSWORD` — correct.
-
-### TYPING-001: Timeline game manifest has 'AVANNING' typo
-**Status**: ✅ FIXED in this PR  
-**Files**: `packages/shared/src/index.ts`  
-**Issue**: `status: 'AVANNING'` → `status: 'PLANNED'`
-
-### VERSION-001: Health endpoint reports 0.1.0 instead of 0.2.1
-**Status**: ✅ FIXED in this PR  
-**Files**: `apps/server/src/server.ts`  
-**Issue**: Version was '0.1.0', updated to '0.2.1'
-
-### ENV-001: .env.example missing WEB_DIST_PATH
-**Status**: ✅ FIXED in this PR  
-**Files**: `.env.example`  
-**Issue**: Added `WEB_DIST_PATH=./apps/web/dist` to .env.example
-
-### LOGGER-001: Logger references config.LOG_LEVEL instead of config.logLevel
-**Status**: ✅ FIXED in this PR  
-**Files**: `apps/server/src/observability/logger.ts`  
-**Issue**: Fixed reference to lowercase `logLevel`.
-
-### MANIFEST-001: Missing hasCamera property in GAME_MANIFESTS
-**Status**: ✅ FIXED in this PR  
-**Files**: `packages/shared/src/index.ts`  
-**Issue**: Allgemeinwissen game manifest missing `hasCamera: false`.
-
-## Gate 2 - P2 Issues (Nice to Fix)
-
-### SOCKET-002: handleRoomSubscription in room.ts returns undefined from .then()
-**Status**: ⚠️ STILL NEEDS FIX  
-**Files**: `apps/server/src/sockets/room.ts`  
-**Issue**: The function returns the result of a .then() call instead of properly awaiting.
-
-### REGISTRY-002: Other games (jeopardy, timeline, etc.) are stubs
-**Status**: 🔶 DEFERRED  
-**Files**: `apps/server/src/games/*.ts`  
-**Issue**: Only geo game is fully implemented.
-
-### TEST-001: Web tests need jsdom dependency
-**Status**: ⚠️ STILL NEEDS FIX  
-**Files**: `apps/web/package.json`  
-**Issue**: jsdom not installed for vitest tests.
-
-## Remaining Work
-
-- [ ] Fix prisma/seed.ts field names (`estimatedMinutes` → `estimatedDurationMinutes`, tags handling)
-- [ ] Fix prisma/seed.ts to use `INITIAL_ADMIN_PASSWORD` env var
-- [ ] Fix handleRoomSubscription async/await issue
-- [ ] Add jsdom to web package.json devDependencies
-- [ ] Run full typecheck and fix errors
-
-## Notes
-
-- Server version bumped to 0.2.1
-- Package.json version bumped to 0.2.1
-- README updated to show honest "Prototyp" status
-- argon2 installed at workspace root for seed script
-- Database successfully seeded
-- Branch pushed to `gate-1-2-fixes`
+| Gate | Inhalt | Priorität |
+|------|--------|-----------|
+| **Gate 4** | UI-System: Dark/Light Tokens, Cyberpunk-Effekte abbauen, Zugänglichkeit, Light Theme auf jeder Route | P1 |
+| **Gate 5** | Geo als vollständiger vertikaler Schnitt — Playwright E2E mit 3 Browsern (Moderator/Spieler/Zuschauer) | P0 |
+| **Gate 6** | Jeopardy → Wer ist das? → Timeline → Wer lügt? → Erkenne den Song (je BETA → AVAILABLE) | P1 |
+| **Gate 7** | PWA, Docker-Production, Backup/Restore, Deployment-Doku | P2 |
