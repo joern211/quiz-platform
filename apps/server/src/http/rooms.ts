@@ -212,11 +212,8 @@ roomsRouter.post('/', async (req, res) => {
     res.status(201).json({
       success: true,
       data: {
-        id: room.id,
         code: room.code,
-        roomName: room.roomName,
-        status: room.status,
-        runPhase: room.runPhase,
+        roomId: room.id,
       },
     });
   } catch (error) {

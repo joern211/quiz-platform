@@ -84,10 +84,12 @@ export function ModeratorGamePage() {
 
   const handlePauseTimer = () => {
     socketRef.current?.emit('game:pause', { roomCode: code });
+    setTimerPaused(true);
   };
 
   const handleResumeTimer = () => {
     socketRef.current?.emit('game:resume', { roomCode: code });
+    setTimerPaused(false);
   };
 
   const handleReveal = () => {
@@ -154,16 +156,6 @@ export function ModeratorGamePage() {
           <p>{question.options.find((o: any) => o.id === question.correctOptionId)?.text}</p>
           {question.explanation && <p className={styles.explanation}>{question.explanation}</p>}
         </div>
-
-        {buzzerWinner && !revealed && (
-          <div className={styles.judgeSection}>
-            <p>{getPlayerName(buzzerWinner.playerId)} hat gebuzzert</p>
-            <div className={styles.judgeButtons}>
-              <Button onClick={() => handleJudge(true)}>✓ Richtig</Button>
-              <Button variant="danger" onClick={() => handleJudge(false)}>✗ Falsch</Button>
-            </div>
-          </div>
-        )}
       </Card>
 
       <Card padding="lg" className={styles.controls}>
@@ -181,7 +173,9 @@ export function ModeratorGamePage() {
       <div className={styles.actions}>
         {!revealed ? (
           <>
-            <Button variant="secondary" onClick={handlePauseTimer}>⏸ Pause</Button>
+            <Button variant="secondary" onClick={timerPaused ? handleResumeTimer : handlePauseTimer}>
+              {timerPaused ? '▶ Weiter' : '⏸ Pause'}
+            </Button>
             <Button onClick={handleReveal}>✓ Auflösen</Button>
           </>
         ) : (

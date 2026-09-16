@@ -31,7 +31,30 @@ async function apiFetch<T>(
     headers: { 'Content-Type': 'application/json', ...options.headers },
     ...options,
   });
-  return res.json();
+
+  // Handle non-JSON error responses
+  const contentType = res.headers.get('content-type');
+  if (!res.ok) {
+    if (contentType?.includes('application/json')) {
+      const errorData = await res.json();
+      return {
+        success: false,
+        error: errorData.error || { code: 'HTTP_ERROR', message: res.statusText },
+      };
+    }
+    return {
+      success: false,
+      error: { code: 'HTTP_ERROR', message: `HTTP ${res.status}: ${res.statusText}` },
+    };
+  }
+
+  // Handle JSON responses
+  if (contentType?.includes('application/json')) {
+    return res.json();
+  }
+
+  // Empty success for non-JSON responses (e.g., 204 No Content)
+  return { success: true };
 }
 
 // ── Auth ──────────────────────────────────────────────────────
