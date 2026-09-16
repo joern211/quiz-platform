@@ -5,7 +5,7 @@
 import { Server, Socket } from 'socket.io';
 import { prisma } from '../persistence/prisma.js';
 import { logger } from '../observability/logger.js';
-import { getSocketIdentity } from './auth.js';
+import { getSocketIdentity, socketIdentityMap } from '../http/middleware/auth.js';
 import { roomChannel } from './index.js';
 
 export const handleLobbyEvents = {
@@ -130,7 +130,7 @@ export async function handleDisconnect(io: Server, socket: Socket) {
   try {
     const identity = getSocketIdentity(socket);
 
-    if (!identity.participationId || !identity.roomId) {
+    if (!identity || !identity.participationId || !identity.roomId) {
       // No participation data, nothing to do
       return;
     }

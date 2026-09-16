@@ -6,7 +6,7 @@ import { Server, Socket } from 'socket.io';
 import { prisma } from '../persistence/prisma.js';
 import { logger } from '../observability/logger.js';
 import { handleGeoGame } from '../games/geo/index.js';
-import { requireRoomRole, getSocketIdentity } from './auth.js';
+import { requireRoomRole, getSocketDataIdentity } from './auth.js';
 import { roomChannel } from './index.js';
 
 export const handleGameEvents = {
@@ -26,7 +26,7 @@ export const handleGameEvents = {
     }
 
     try {
-      const identity = getSocketIdentity(socket);
+      const identity = getSocketDataIdentity(socket);
       const room = await prisma.room.findUnique({
         where: { code: data.roomCode },
         include: { gameDefinition: true },
@@ -129,7 +129,7 @@ export const handleGameEvents = {
     }
 
     try {
-      const identity = getSocketIdentity(socket);
+      const identity = getSocketDataIdentity(socket);
       const room = await prisma.room.findUnique({
         where: { code: data.roomCode },
       });
@@ -329,7 +329,7 @@ export const handleGameEvents = {
     callback?: (result: any) => void
   ) {
     try {
-      const identity = getSocketIdentity(socket);
+      const identity = getSocketDataIdentity(socket);
 
       // P0-09: Check socket is connected to a room
       const room = await prisma.room.findUnique({
