@@ -11,7 +11,7 @@ import { createSessionCookie, verifySession, deleteSessionCookie } from '../auth
 import { logger } from '../observability/logger.js';
 import { config } from '../config/index.js';
 
-export const authRouter = Router();
+export const authRouter: ReturnType<typeof Router> = Router();
 
 // Rate limit login attempts
 const loginLimiter = rateLimit({

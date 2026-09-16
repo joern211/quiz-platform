@@ -8,20 +8,20 @@ services:
       context: .
       dockerfile: Dockerfile
     ports:
-      - "5173:5173"
+      - "3001:3001"
     environment:
       - NODE_ENV=production
-      - PORT=5173
+      - PORT=3001
       - DATABASE_URL=file:/app/storage/database/quiz.db
       - STORAGE_ROOT=/app/storage
       - SESSION_SECRET=${SESSION_SECRET:-change-me-in-production}
-      - PUBLIC_APP_URL=http://localhost:5173
+      - PUBLIC_APP_URL=http://localhost:3001
       - ADMIN_PASSWORD=${ADMIN_PASSWORD:-admin123}
     volumes:
       - quiz-data:/app/storage
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:5173/api/v1/health"]
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3001/api/v1/health"]
       interval: 30s
       timeout: 10s
       retries: 3

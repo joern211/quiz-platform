@@ -1,8 +1,8 @@
 # Online Quiz Plattform
 
-**Eine moderne Spieleplattform für Freundesgruppen**
+**Eine moderne Spieleplattform für Freundesgruppen** ⚠️ **Prototyp – nicht produktionsbereit**
 
-![Version](https://img.shields.io/badge/version-0.2.0-blue)
+![Version](https://img.shields.io/badge/version-0.2.1-blue)
 ![License](https://img.shields.io/badge/license-MIT-green)
 ![Node](https://img.shields.io/badge/node-20+-green)
 
@@ -13,7 +13,7 @@ Die Online Quiz Plattform ist eine **moderne React/TypeScript PWA** mit Node.js/
 ### Kernfeatures
 
 - 📱 **PWA** - Auf Handy & Desktop installierbar
-- 🎮 **6 Kernspiele** - Geo-Quiz, Jeopardy, Wer ist das?, Timeline, Wer lügt am besten?, Erkenne den Song
+- 🎮 **Mehrspieler-Spiele** - Geo-Quiz, Jeopardy, und weitere (Entwicklung)
 - 👥 **Multiplayer** - Bis 10 Spieler, 50 Zuschauer
 - 🎯 **Moderator-System** - Eigene Räume erstellen und verwalten
 - 🌙 **Dark/Light Theme** - Cyan Dark & Lila Light
@@ -33,7 +33,7 @@ cd online-quiz-plattform
 docker-compose up -d
 
 # Öffnen
-open http://localhost:5173
+open http://localhost:3001
 ```
 
 ### Option 2: Lokale Entwicklung
@@ -42,8 +42,8 @@ open http://localhost:5173
 # Abhängigkeiten installieren
 pnpm install
 
-# Datenbank migrieren
-pnpm db:migrate
+# Datenbank migrieren und seeden
+pnpm db:migrate && pnpm db:seed
 
 # Starten
 pnpm dev
@@ -70,14 +70,16 @@ online-quiz-plattform/
 
 ## 🎮 Spiele
 
+⚠️ **Status**: Geo-Quiz ist funktional. Andere Spiele sind in Entwicklung.
+
 | Spiel | Beschreibung | Status |
 |-------|--------------|--------|
-| **Geo-Quiz** | Multiple Choice mit Joker | ✅ Komplett |
-| **Jeopardy** | 2 Boards, Abstauber | ✅ Komplett |
-| **Wer ist das?** | Fusionbilder erkennen | ✅ Komplett |
-| **Timeline** | Elemente einordnen | ✅ Komplett |
-| **Wer lügt am besten?** | Lügen & Abstimmung | ✅ Komplett |
-| **Erkenne den Song** | Musik-Buzzer | ✅ Komplett |
+| **Geo-Quiz** | Multiple Choice mit Joker | 🔶 In Entwicklung |
+| **Jeopardy** | 2 Boards, Abstauber | 🔶 In Entwicklung |
+| **Wer ist das?** | Fusionbilder erkennen | 🔶 In Entwicklung |
+| **Timeline** | Elemente einordnen | 🔶 Geplant |
+| **Wer lügt am besten?** | Lügen & Abstimmung | 🔶 Geplant |
+| **Erkenne den Song** | Musik-Buzzer | 🔶 Geplant |
 
 Mehr Spiele folgen in späteren Versionen.
 
@@ -93,22 +95,25 @@ cp .env.example .env
 
 | Variable | Standard | Beschreibung |
 |----------|----------|--------------|
-| `PORT` | `5173` | Server Port |
+| `PORT` | `3001` | Server Port |
 | `DATABASE_URL` | `file:./storage/database/quiz.db` | SQLite Pfad |
-| `SESSION_SECRET` | - | Session Geheimnis (Pflicht!) |
-| `ADMIN_PASSWORD` | `admin123` | Initiales Admin Passwort |
+| `SESSION_SECRET` | - | Session Geheimnis (min. 32 Zeichen!) |
+| `INITIAL_ADMIN_PASSWORD` | `admin123` | Initiales Admin Passwort |
 
 ## 🧪 Tests
 
 ```bash
-# Alle Tests
-pnpm test
+# TypeScript Check
+pnpm typecheck
+
+# Server Tests
+pnpm --filter @quiz/server test
+
+# Web Tests
+pnpm --filter @quiz/web test
 
 # E2E Tests
 pnpm test:e2e
-
-# TypeScript Check
-pnpm typecheck
 ```
 
 ## 📦 Deployment
@@ -139,7 +144,7 @@ docker-compose up -d
 pnpm start
 
 # In neuem Terminal
-ngrok http 5173
+ngrok http 3001
 ```
 
 ## 🔐 Sicherheit
@@ -150,6 +155,8 @@ ngrok http 5173
 - ✅ Rate-Limiting
 - ✅ Input-Validierung (Zod)
 - ✅ CSRF-Schutz
+
+⚠️ **Hinweis**: Dies ist ein Prototyp. Für Produktion müssen weitere Sicherheitsmaßnahmen implementiert werden.
 
 ## 📝 Lizenz
 

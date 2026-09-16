@@ -39,8 +39,10 @@ app.use(cors({ origin: config.allowedOrigins, credentials: true }));
 app.use(express.json({ limit: '10mb' }));
 app.use(cookieParser(config.sessionSecret));
 
-// Static files (production build)
-const webDistPath = path.join(__dirname, '../../apps/web/dist');
+// Static files (production build) – use WEB_DIST_PATH env or compute from __dirname
+const webDistPath = process.env.WEB_DIST_PATH
+  ? path.resolve(process.env.WEB_DIST_PATH)
+  : path.join(__dirname, '../../apps/web/dist');
 app.use(express.static(webDistPath));
 
 // API Routes
@@ -54,7 +56,7 @@ app.use('/api/v1/media', mediaRouter);
 app.get('/api/v1/health', (_req, res) => {
   res.json({
     status: 'ok',
-    version: '0.1.0',
+    version: '0.2.1',
     timestamp: new Date().toISOString(),
   });
 });
@@ -89,7 +91,7 @@ app.use((err: Error, _req: express.Request, res: express.Response, _next: expres
 // Start server
 const PORT = config.port;
 
-async function start() {
+export async function start() {
   try {
     // Test database connection
     await prisma.$connect();
@@ -99,7 +101,7 @@ async function start() {
       logger.info(`Server running on port ${PORT}`);
       logger.info(`App URL: ${config.publicAppUrl}`);
     });
-  } catch (error) {
+  } catch (error: unknown) {
     logger.error('Failed to start server', { error });
     process.exit(1);
   }

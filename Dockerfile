@@ -51,9 +51,9 @@ COPY --from=builder --chown=quiz:nodejs /app/package.json ./package.json
 
 USER quiz
 
-EXPOSE 5173
+EXPOSE 3001
 
-ENV PORT=5173
+ENV PORT=3001
 ENV DATABASE_URL="file:/app/storage/database/quiz.db"
 ENV STORAGE_ROOT="/app/storage"
 

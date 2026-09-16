@@ -3,19 +3,19 @@
 // ============================================================
 
 import { Router } from 'express';
-import { v4 as uuid } from 'uuid';
 import crypto from 'crypto';
 import { prisma } from '../persistence/prisma.js';
 import { verifySession } from '../auth/session.js';
 import { logger } from '../observability/logger.js';
 import { config } from '../config/index.js';
 
-export const roomsRouter = Router();
+export const roomsRouter : ReturnType<typeof Router> = Router();
 
-// Generate unique room code
+// Generate unique room code using crypto
 function generateRoomCode(): string {
-  const digits = Array.from({ length: 6 }, () => Math.floor(Math.random() * 10));
-  return `${digits.slice(0, 3).join('')}-${digits.slice(3).join('')}`;
+  const d1 = crypto.randomInt(0, 1000);
+  const d2 = crypto.randomInt(0, 1000);
+  return `${String(d1).padStart(3, '0')}-${String(d2).padStart(3, '0')}`;
 }
 
 // GET /api/v1/rooms/public - List public rooms
@@ -23,6 +23,7 @@ roomsRouter.get('/public', async (_req, res) => {
   try {
     const rooms = await prisma.room.findMany({
       where: {
+        isPublic: true,
         status: { in: ['LOBBY', 'RUNNING'] },
       },
       select: {
@@ -105,9 +106,11 @@ roomsRouter.post('/', async (req, res) => {
     }
 
     const {
+      gameSlug,
       gameDefinitionId,
       roomName,
       pin,
+      isPublic = true,
       maxPlayers = 10,
       cameraEnabled = false,
       allowViewers = true,
@@ -118,10 +121,32 @@ roomsRouter.post('/', async (req, res) => {
     } = req.body;
 
     // Validate required fields
-    if (!gameDefinitionId || !roomName) {
+    if (!roomName) {
       return res.status(400).json({
         success: false,
-        error: { code: 'VALIDATION', message: 'Spiel und Raumname erforderlich.' },
+        error: { code: 'VALIDATION', message: 'Raumname erforderlich.' },
+      });
+    }
+
+    // Resolve game definition: prefer slug, fallback to id
+    let resolvedGameDefId = gameDefinitionId;
+    if (!resolvedGameDefId && gameSlug) {
+      const gameDef = await prisma.gameDefinition.findUnique({
+        where: { slug: gameSlug },
+      });
+      if (!gameDef) {
+        return res.status(400).json({
+          success: false,
+          error: { code: 'GAME_NOT_FOUND', message: 'Spiel nicht gefunden.' },
+        });
+      }
+      resolvedGameDefId = gameDef.id;
+    }
+
+    if (!resolvedGameDefId) {
+      return res.status(400).json({
+        success: false,
+        error: { code: 'VALIDATION', message: 'Spiel (slug oder id) erforderlich.' },
       });
     }
 
@@ -153,7 +178,7 @@ roomsRouter.post('/', async (req, res) => {
       data: {
         code,
         roomName,
-        gameDefinitionId,
+        gameDefinitionId: resolvedGameDefId,
         hostUserId: session.userId,
         pinHash,
         maxPlayers,
@@ -177,6 +202,8 @@ roomsRouter.post('/', async (req, res) => {
         role: 'MODERATOR',
         connected: true,
         ready: true,
+        rejoinToken: crypto.randomUUID(),
+        rejoinTokenVersion: 1,
       },
     });
 
@@ -323,9 +350,9 @@ roomsRouter.post('/:code/join', async (req, res) => {
     }
 
     // Create rejoin token
-    const rejoinToken = uuid();
+    const rejoinToken = crypto.randomUUID();
 
-    // Create participation
+    // Create participation with rejoinTokenVersion
     const participation = await prisma.participation.create({
       data: {
         roomId: room.id,
@@ -335,6 +362,7 @@ roomsRouter.post('/:code/join', async (req, res) => {
         connected: true,
         ready: false,
         rejoinToken,
+        rejoinTokenVersion: 1,
       },
     });
 

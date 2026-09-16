@@ -35,7 +35,7 @@ export function ResultPage() {
       }
     });
 
-    return () => socket.disconnect();
+    return () => { socket.disconnect(); };
   }, [code]);
 
   return (

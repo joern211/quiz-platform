@@ -3,8 +3,8 @@
 // ============================================================
 
 import { Server, Socket } from 'socket.io';
-import { prisma } from '../persistence/prisma.js';
-import { logger } from '../observability/logger.js';
+import { prisma } from '../../persistence/prisma.js';
+import { logger } from '../../observability/logger.js';
 
 interface WerIstDasState {
   rounds: Array<{
@@ -32,7 +32,7 @@ export function initWerIstDasHandlers(io: Server, socket: Socket) {
     const room = await prisma.room.findUnique({ where: { code: roomCode } });
     if (!room || room.status !== 'RUNNING') return;
 
-    const setup = room.setupSnapshot as any;
+    const setup = room.setupSnapshotJson as any;
     const rounds = setup?.rounds || [];
 
     const state: WerIstDasState = {

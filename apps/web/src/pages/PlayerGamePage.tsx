@@ -4,7 +4,8 @@
 
 import { useParams, useNavigate } from 'react-router-dom';
 import { useEffect, useState, useRef } from 'react';
-import { io, Socket } from 'socket.io-client';
+import { Socket } from 'socket.io-client';
+import { getSocket } from '../lib/socket.js';
 import { Card, Button, Badge } from '@quiz/ui';
 import { Timer } from '@quiz/ui';
 import { BuzzerButton } from '@quiz/ui';
@@ -32,11 +33,8 @@ export function PlayerGamePage() {
   const rejoinToken = localStorage.getItem('rejoinToken');
 
   useEffect(() => {
-    const socket = io(window.location.origin, {
-      withCredentials: true,
-      auth: { rejoinToken },
-    });
-    socketRef.current = socket;
+    socketRef.current = getSocket();
+    const socket = socketRef.current;
 
     socket.on('connect', () => setConnected(true));
     socket.on('disconnect', () => setConnected(false));
@@ -92,7 +90,7 @@ export function PlayerGamePage() {
     // Subscribe to room
     socket.emit('room:subscribe', { roomCode: code, rejoinToken });
 
-    return () => socket.disconnect();
+    return () => { socket.disconnect(); };
   }, [code, navigate, rejoinToken]);
 
   const handleSelectOption = (optionId: string) => {

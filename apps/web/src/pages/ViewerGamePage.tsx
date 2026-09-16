@@ -44,7 +44,7 @@ export function ViewerGamePage() {
       setScores(data.scores || {});
     });
 
-    return () => socket.disconnect();
+    return () => { socket.disconnect(); };
   }, [code]);
 
   return (

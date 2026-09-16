@@ -34,7 +34,7 @@ export function ViewerLobbyPage() {
       setPlayers(data.players || []);
     });
 
-    return () => socket.disconnect();
+    return () => { socket.disconnect(); };
   }, [code]);
 
   return (

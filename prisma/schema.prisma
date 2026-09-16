@@ -164,6 +164,7 @@ model Room {
   runPhase           String   @default("DRAFT")
   
   pinHash            String?
+  isPublic           Boolean  @default(true)
   maxPlayers         Int      @default(10)
   cameraEnabled      Boolean  @default(false)
   allowViewers       Boolean  @default(true)

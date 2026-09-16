@@ -3,8 +3,8 @@
 // ============================================================
 
 import { Server, Socket } from 'socket.io';
-import { prisma } from '../persistence/prisma.js';
-import { logger } from '../observability/logger.js';
+import { prisma } from '../../persistence/prisma.js';
+import { logger } from '../../observability/logger.js';
 
 interface GeoPlayerState {
   answered: boolean;

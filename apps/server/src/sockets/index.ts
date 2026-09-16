@@ -7,10 +7,10 @@ import { verifySession } from '../auth/session.js';
 import { config } from '../config/index.js';
 import { prisma } from '../persistence/prisma.js';
 import { logger } from '../observability/logger.js';
-import { handleRoomSubscription, handleRoomEvents } from './room';
-import { handlePlayerEvents } from './player';
-import { handleLobbyEvents } from './lobby';
-import { handleGameEvents } from './game';
+import { handleRoomSubscription, handleRoomEvents } from './room.js';
+import { handlePlayerEvents } from './player.js';
+import { handleLobbyEvents } from './lobby.js';
+import { handleGameEvents } from './game.js';
 
 export function setupSocketHandlers(io: Server) {
   // Authentication middleware

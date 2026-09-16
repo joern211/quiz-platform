@@ -3,12 +3,12 @@
 // ============================================================
 
 import { PrismaClient } from '@prisma/client';
-import { createHash } from 'crypto';
+import argon2 from 'argon2';
 
 const prisma = new PrismaClient();
 
-function hashPassword(password: string): string {
-  return createHash('sha256').update(password).digest('hex');
+async function hashPassword(password: string): Promise<string> {
+  return await argon2.hash(password, { type: argon2.argon2id });
 }
 
 async function main() {
@@ -34,7 +34,7 @@ async function main() {
     create: {
       id: 'mod-1',
       displayName: 'Moderator',
-      passwordHash: hashPassword(process.env.ADMIN_PASSWORD || 'admin123'),
+      passwordHash: await hashPassword(process.env.ADMIN_PASSWORD || 'admin123'),
       role: 'MODERATOR',
     },
   });
@@ -46,7 +46,7 @@ async function main() {
     create: {
       id: 'admin-1',
       displayName: 'Admin',
-      passwordHash: hashPassword(process.env.ADMIN_PASSWORD || 'admin123'),
+      passwordHash: await hashPassword(process.env.ADMIN_PASSWORD || 'admin123'),
       role: 'ADMIN',
     },
   });

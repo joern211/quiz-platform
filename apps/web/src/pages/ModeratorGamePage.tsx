@@ -4,7 +4,8 @@
 
 import { useParams, useNavigate } from 'react-router-dom';
 import { useEffect, useState, useRef } from 'react';
-import { io, Socket } from 'socket.io-client';
+import { Socket } from 'socket.io-client';
+import { getSocket } from '../lib/socket.js';
 import { Card, Button, Badge } from '@quiz/ui';
 import { Timer } from '@quiz/ui';
 import styles from './ModeratorGamePage.module.css';
@@ -26,8 +27,8 @@ export function ModeratorGamePage() {
   const [scores, setScores] = useState<Record<string, number>>({});
 
   useEffect(() => {
-    const socket = io(window.location.origin, { withCredentials: true });
-    socketRef.current = socket;
+    socketRef.current = getSocket();
+    const socket = socketRef.current;
 
     socket.on('connect', () => setConnected(true));
     socket.on('disconnect', () => setConnected(false));
@@ -72,7 +73,7 @@ export function ModeratorGamePage() {
       }
     });
 
-    return () => socket.disconnect();
+    return () => { socket.disconnect(); };
   }, [code]);
 
   const handleStartTimer = () => {
