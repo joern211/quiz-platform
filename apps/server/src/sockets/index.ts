@@ -7,10 +7,17 @@ import { verifySession } from '../auth/session.js';
 import { config } from '../config/index.js';
 import { prisma } from '../persistence/prisma.js';
 import { logger } from '../observability/logger.js';
-import { handleRoomSubscription, handleRoomEvents } from './room';
-import { handlePlayerEvents } from './player';
-import { handleLobbyEvents } from './lobby';
-import { handleGameEvents } from './game';
+import { handleRoomSubscription, handleRoomEvents, handleKickPlayer } from './room.js';
+import { handlePlayerEvents } from './player.js';
+import { handleLobbyEvents, handleDisconnect } from './lobby.js';
+import { handleGameEvents } from './game.js';
+
+// Room channel helper - returns a Socket.IO room identifier for a specific room
+export function roomChannel(roomId: string): string {
+  // Socket.IO uses room names to emit to specific rooms
+  // The roomId is the room UUID (not the public code)
+  return `room:${roomId}`;
+}
 
 export function setupSocketHandlers(io: Server) {
   // Authentication middleware
@@ -36,6 +43,9 @@ export function setupSocketHandlers(io: Server) {
   io.on('connection', (socket: Socket) => {
     logger.info('Socket connected', { socketId: socket.id });
 
+    // P0-08/P0-09: Initialize socket.data to track identity
+    socket.data = {};
+
     // Room subscription
     socket.on('room:subscribe', async (data, callback) => {
       try {
@@ -49,6 +59,11 @@ export function setupSocketHandlers(io: Server) {
     // Room events
     socket.on('room:resync', (data, callback) => {
       handleRoomEvents.resync(io, socket, data, callback);
+    });
+
+    // Kick player (moderator only)
+    socket.on('room:kick', (data, callback) => {
+      handleKickPlayer(io, socket, data, callback);
     });
 
     // Player events
@@ -124,23 +139,3 @@ export function setupSocketHandlers(io: Server) {
   });
 }
 
-async function handleDisconnect(io: Server, socket: Socket) {
-  try {
-    const rooms = socket.rooms;
-    for (const roomId of rooms) {
-      if (roomId === socket.id) continue;
-      
-      // Update participation connected status
-      const participation = await prisma.participation.findFirst({
-        where: { roomId, connected: true, lastSeenAt: { gt: new Date(Date.now() - 60000) } },
-      });
-      
-      if (participation) {
-        // We need to find by socket or session - simplified for now
-        // In production, track socket-to-participation mapping
-      }
-    }
-  } catch (error) {
-    logger.error('Disconnect handler error', { error });
-  }
-}

@@ -111,7 +111,7 @@ export function GeoSetupPage() {
       setQuestions(demoQuestions);
       const cats = [...new Set(demoQuestions.map(q => q.category))];
       setCategories(cats);
-    } catch (err) {
+    } catch {
       console.error('Failed to load questions');
     } finally {
       setLoading(false);
@@ -167,7 +167,7 @@ export function GeoSetupPage() {
       } else {
         alert(data.error || 'Fehler beim Erstellen');
       }
-    } catch (err) {
+    } catch {
       alert('Verbindungsfehler');
     } finally {
       setSaving(false);

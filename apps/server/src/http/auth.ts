@@ -4,14 +4,13 @@
 
 import { Router } from 'express';
 import argon2 from 'argon2';
-import { v4 as uuid } from 'uuid';
 import rateLimit from 'express-rate-limit';
 import { prisma } from '../persistence/prisma.js';
 import { createSessionCookie, verifySession, deleteSessionCookie } from '../auth/session.js';
 import { logger } from '../observability/logger.js';
 import { config } from '../config/index.js';
 
-export const authRouter = Router();
+export const authRouter: ReturnType<typeof Router> = Router();
 
 // Rate limit login attempts
 const loginLimiter = rateLimit({
@@ -34,10 +33,13 @@ authRouter.post('/login', loginLimiter, async (req, res) => {
       });
     }
 
-    // Find user
+    // Find user by email or displayName
     const user = await prisma.user.findFirst({
       where: {
-        displayName: username,
+        OR: [
+          { email: username },
+          { displayName: username },
+        ],
         disabledAt: null,
       },
     });

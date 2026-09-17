@@ -3,8 +3,8 @@
 // ============================================================
 
 import { Server, Socket } from 'socket.io';
-import { prisma } from '../persistence/prisma.js';
-import { logger } from '../observability/logger.js';
+import { prisma } from '../../persistence/prisma.js';
+import { logger } from '../../observability/logger.js';
 
 interface TimelineState {
   items: Array<{ id: string; value: number; displayText: string; imageUrl?: string }>;
@@ -25,7 +25,7 @@ export function initTimelineHandlers(io: Server, socket: Socket) {
     const room = await prisma.room.findUnique({ where: { code: roomCode } });
     if (!room || room.status !== 'RUNNING') return;
 
-    const setup = room.setupSnapshot as any;
+    const setup = room.setupSnapshotJson as any;
     const items = setup?.items || [];
 
     const state: TimelineState = {
@@ -156,6 +156,6 @@ export function initTimelineHandlers(io: Server, socket: Socket) {
   };
 }
 
-export function initTimelineState(roomCode: string) {
+export function initTimelineState(_roomCode: string) {
   // Timeline state is initialized when game starts
 }

@@ -12,9 +12,9 @@ import styles from './ViewerGamePage.module.css';
 export function ViewerGamePage() {
   const { code } = useParams<{ code: string }>();
   const [connected, setConnected] = useState(false);
-  const [phase, setPhase] = useState<string>('WAITING');
+  const [, setPhase] = useState<string>('WAITING');
   const [question, setQuestion] = useState<any>(null);
-  const [endsAt, setEndsAt] = useState(0);
+  const [timerEndMs, setTimerEndMs] = useState(0);
   const [players, setPlayers] = useState<any[]>([]);
   const [scores, setScores] = useState<Record<string, number>>({});
   const [revealed, setRevealed] = useState(false);
@@ -25,16 +25,17 @@ export function ViewerGamePage() {
     socket.on('connect', () => setConnected(true));
     socket.on('disconnect', () => setConnected(false));
     
-    socket.emit('room:subscribe', { roomCode: code, role: 'viewer' });
+    socket.emit('room:subscribe', { roomCode: code, role: 'VIEWER' });
     
     socket.on('room:snapshot', (data) => {
       setPlayers(data.players || []);
       setScores(data.scores || {});
     });
 
-    socket.on('geo:show', (data) => {
+    // P0-11: Listen for geo:question (not geo:show)
+    socket.on('geo:question', (data) => {
       setQuestion(data.question);
-      setEndsAt(data.endsAt);
+      setTimerEndMs(data.timerEndMs ?? 0);
       setRevealed(false);
       setPhase('INPUT_OPEN');
     });
@@ -44,7 +45,7 @@ export function ViewerGamePage() {
       setScores(data.scores || {});
     });
 
-    return () => socket.disconnect();
+    return () => { socket.disconnect(); };
   }, [code]);
 
   return (
@@ -59,7 +60,7 @@ export function ViewerGamePage() {
             <p className={styles.category}>{question.category}</p>
             <h2 className={styles.prompt}>{question.prompt}</h2>
             
-            {!revealed && <Timer endsAt={endsAt} size="lg" />}
+            {!revealed && <Timer endsAt={timerEndMs} size="lg" />}
             
             <div className={styles.options}>
               {question.options.map((opt: any, i: number) => {

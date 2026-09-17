@@ -4,9 +4,8 @@
 
 import { useParams } from 'react-router-dom';
 import { useEffect, useState } from 'react';
-import { Link } from 'react-router-dom';
 import { io } from 'socket.io-client';
-import { Card, Button, Badge } from '@quiz/ui';
+import { Card, Button } from '@quiz/ui';
 import styles from './ResultPage.module.css';
 
 export function ResultPage() {
@@ -35,7 +34,7 @@ export function ResultPage() {
       }
     });
 
-    return () => socket.disconnect();
+    return () => { socket.disconnect(); };
   }, [code]);
 
   return (
