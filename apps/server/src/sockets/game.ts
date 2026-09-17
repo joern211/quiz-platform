@@ -31,8 +31,14 @@ export const handleGameEvents = {
         return;
       }
 
-      // P0-17: Use socket.data.roomId for authorization
-      const authorized = await requireRoomRole(socket, room.id, 'MODERATOR');
+      // P0-17: Use socket identity for authorization
+      const identity = getSocketDataIdentity(socket);
+      if (!identity || !identity.roomId) {
+        callback?.({ success: false, error: 'NOT_IN_ROOM' });
+        return;
+      }
+
+      const authorized = requireRoomRole(socket, 'MODERATOR');
       if (!authorized) {
         callback?.({ success: false, error: 'UNAUTHORIZED' });
         return;
@@ -127,6 +133,7 @@ export const handleGameEvents = {
     try {
       const room = await prisma.room.findUnique({
         where: { code: data.roomCode },
+        include: { gameDefinition: true },
       });
 
       if (!room) {
@@ -134,8 +141,14 @@ export const handleGameEvents = {
         return;
       }
 
-      // P0-17: Use socket.data.roomId for authorization
-      const authorized = await requireRoomRole(socket, room.id, 'MODERATOR');
+      // P0-17: Use socket identity for authorization
+      const identity = getSocketDataIdentity(socket);
+      if (!identity || !identity.roomId) {
+        callback?.({ success: false, error: 'NOT_IN_ROOM' });
+        return;
+      }
+
+      const authorized = requireRoomRole(socket, 'MODERATOR');
       if (!authorized) {
         callback?.({ success: false, error: 'UNAUTHORIZED' });
         return;
@@ -175,6 +188,7 @@ export const handleGameEvents = {
     try {
       const room = await prisma.room.findUnique({
         where: { code: data.roomCode },
+        include: { gameDefinition: true },
       });
 
       if (!room) {
@@ -182,8 +196,14 @@ export const handleGameEvents = {
         return;
       }
 
-      // P0-17: Use socket.data.roomId for authorization
-      const authorized = await requireRoomRole(socket, room.id, 'MODERATOR');
+      // P0-17: Use socket identity for authorization
+      const identity = getSocketDataIdentity(socket);
+      if (!identity || !identity.roomId) {
+        callback?.({ success: false, error: 'NOT_IN_ROOM' });
+        return;
+      }
+
+      const authorized = requireRoomRole(socket, 'MODERATOR');
       if (!authorized) {
         callback?.({ success: false, error: 'UNAUTHORIZED' });
         return;
@@ -230,8 +250,14 @@ export const handleGameEvents = {
         return;
       }
 
-      // P0-17: Use socket.data.roomId for authorization
-      const authorized = await requireRoomRole(socket, room.id, 'MODERATOR');
+      // P0-17: Use socket identity for authorization
+      const identity = getSocketDataIdentity(socket);
+      if (!identity || !identity.roomId) {
+        callback?.({ success: false, error: 'NOT_IN_ROOM' });
+        return;
+      }
+
+      const authorized = requireRoomRole(socket, 'MODERATOR');
       if (!authorized) {
         callback?.({ success: false, error: 'UNAUTHORIZED' });
         return;
@@ -277,15 +303,14 @@ export const handleGameEvents = {
     callback?: (result: any) => void
   ) {
     // P0-10: No rejoinToken required - uses socket.identity
-    // Get roomId from socket.data
-    const roomId = socket.data.roomId;
-    if (!roomId) {
-      callback?.({ success: false, error: 'ROOM_NOT_FOUND' });
+    const identity = getSocketDataIdentity(socket);
+    if (!identity || !identity.roomId) {
+      callback?.({ success: false, error: 'NOT_IN_ROOM' });
       return;
     }
 
     const room = await prisma.room.findUnique({
-      where: { id: roomId },
+      where: { id: identity.roomId },
     });
 
     if (!room) {
@@ -336,15 +361,15 @@ export const handleGameEvents = {
     data: { roomCode: string },
     callback?: (result: any) => void
   ) {
-    // P0-17: Use socket.data.roomId for authorization
-    const roomId = socket.data.roomId;
-    if (!roomId) {
-      callback?.({ success: false, error: 'ROOM_NOT_FOUND' });
+    // P0-17: Use socket identity for authorization
+    const identity = getSocketDataIdentity(socket);
+    if (!identity || !identity.roomId) {
+      callback?.({ success: false, error: 'NOT_IN_ROOM' });
       return;
     }
 
     const room = await prisma.room.findUnique({
-      where: { id: roomId },
+      where: { id: identity.roomId },
     });
 
     if (!room) {
@@ -352,7 +377,7 @@ export const handleGameEvents = {
       return;
     }
 
-    const authorized = await requireRoomRole(socket, room.id, 'MODERATOR');
+    const authorized = requireRoomRole(socket, 'MODERATOR');
     if (!authorized) {
       callback?.({ success: false, error: 'UNAUTHORIZED' });
       return;
@@ -367,15 +392,15 @@ export const handleGameEvents = {
     data: { roomCode: string },
     callback?: (result: any) => void
   ) {
-    // P0-17: Use socket.data.roomId for authorization
-    const roomId = socket.data.roomId;
-    if (!roomId) {
-      callback?.({ success: false, error: 'ROOM_NOT_FOUND' });
+    // P0-17: Use socket identity for authorization
+    const identity = getSocketDataIdentity(socket);
+    if (!identity || !identity.roomId) {
+      callback?.({ success: false, error: 'NOT_IN_ROOM' });
       return;
     }
 
     const room = await prisma.room.findUnique({
-      where: { id: roomId },
+      where: { id: identity.roomId },
     });
 
     if (!room) {
@@ -383,7 +408,7 @@ export const handleGameEvents = {
       return;
     }
 
-    const authorized = await requireRoomRole(socket, room.id, 'MODERATOR');
+    const authorized = requireRoomRole(socket, 'MODERATOR');
     if (!authorized) {
       callback?.({ success: false, error: 'UNAUTHORIZED' });
       return;
