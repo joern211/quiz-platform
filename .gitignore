@@ -40,8 +40,8 @@ coverage/
 *.swo
 .DS_Store
 
-# Prisma
-prisma/migrations/
+# Prisma (commented out — migrations must be committed to git)
+# prisma/migrations/
 
 # Misc
 *.tgz
