@@ -1,9 +1,5 @@
 // Unit tests for config loader
-/// <reference types="vitest/globals" />
 import { describe, it, expect } from 'vitest';
-
-// We need to test the loadConfig logic without running it (it exits on failure).
-// Re-implement the relevant parts inline for unit testing.
 import { z } from 'zod';
 
 const envSchema = z.object({
@@ -24,30 +20,13 @@ function testLoadConfig(raw: Record<string, string | undefined>) {
     throw new Error(result.error.flatten().fieldErrors ? JSON.stringify(result.error.flatten()) : 'parse error');
   }
   const data = result.data;
-  // Production guard
   if (data.NODE_ENV === 'production' && data.SESSION_SECRET.startsWith('CHANGE_ME')) {
     throw new Error('FATAL: SESSION_SECRET must be changed in production!');
   }
-  return {
-    port: data.PORT,
-    nodeEnv: data.NODE_ENV,
-    sessionSecret: data.SESSION_SECRET,
-  };
+  return { port: data.PORT, nodeEnv: data.NODE_ENV, sessionSecret: data.SESSION_SECRET };
 }
 
 describe('loadConfig', () => {
-  const origEnv = process.env;
-
-  beforeEach(() => {
-    // @ts-ignore vitest globals
-    process.env = { ...origEnv };
-  });
-
-  afterEach(() => {
-    // @ts-ignore vitest globals
-    process.env = origEnv;
-  });
-
   it('normalizes env vars correctly with defaults', () => {
     const cfg = testLoadConfig({});
     expect(cfg.port).toBe(3001);
@@ -71,16 +50,11 @@ describe('loadConfig', () => {
   });
 
   it('production mode fails with placeholder secret', () => {
-    expect(() =>
-      testLoadConfig({ NODE_ENV: 'production' })
-    ).toThrow('FATAL: SESSION_SECRET must be changed in production!');
+    expect(() => testLoadConfig({ NODE_ENV: 'production' })).toThrow('FATAL: SESSION_SECRET must be changed in production!');
   });
 
   it('production mode succeeds with real secret', () => {
-    const cfg = testLoadConfig({
-      NODE_ENV: 'production',
-      SESSION_SECRET: 'a_very_real_secret_key_that_is_at_least_32_chars_long',
-    });
+    const cfg = testLoadConfig({ NODE_ENV: 'production', SESSION_SECRET: 'a_very_real_secret_key_that_is_at_least_32_chars_long' });
     expect(cfg.nodeEnv).toBe('production');
   });
 

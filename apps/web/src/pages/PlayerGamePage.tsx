@@ -79,8 +79,8 @@ export function PlayerGamePage() {
       setRevealed(true);
       setResult(data);
       
-      // Update score from result - use socket identity if available
-      const myPartId = socket.data?.participationId || session.participationId;
+      // Update score from result
+      const myPartId = (socket as any).data?.participationId || session.participationId;
       const myResult = data.scores?.find((s: any) => s.participationId === myPartId);
       if (myResult) {
         setScore(myResult.totalScore);
