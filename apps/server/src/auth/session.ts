@@ -4,6 +4,7 @@
 
 import { createHmac, timingSafeEqual } from 'crypto';
 import type { Request, Response } from 'express';
+import { config } from '../config/index.js';
 
 const COOKIE_NAME = 'quiz_session';
 
@@ -12,7 +13,11 @@ export function createSessionCookie(sessionId: string, secret: string): string {
   const value = `${sessionId}.${signature}`;
   const maxAge = 7 * 24 * 60 * 60; // 7 days in seconds
   
-  return `${COOKIE_NAME}=${value}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${maxAge}`;
+  const isProduction = config.nodeEnv === 'production';
+  const sameSite = isProduction ? 'Strict' : 'Lax';
+  const secure = isProduction ? '; Secure' : '';
+  
+  return `${COOKIE_NAME}=${value}; Path=/; HttpOnly; SameSite=${sameSite}; Max-Age=${maxAge}${secure}`;
 }
 
 export function verifySession(req: Request, secret: string): string | null {
@@ -49,5 +54,5 @@ export function verifySession(req: Request, secret: string): string | null {
 }
 
 export function deleteSessionCookie(res: Response): void {
-  res.setHeader('Set-Cookie', `${COOKIE_NAME}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0`);
+  res.setHeader('Set-Cookie', `${COOKIE_NAME}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0; Expires=Thu, 01 Jan 1970 00:00:00 GMT`);
 }
