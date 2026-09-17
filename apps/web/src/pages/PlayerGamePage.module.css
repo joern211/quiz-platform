@@ -119,6 +119,14 @@
   color: var(--fg);
 }
 
+/* P2-3/GAME-005: 50:50 eliminates options but keeps letters (no renumbering) */
+.option.eliminated {
+  opacity: 0.35;
+  text-decoration: line-through;
+  cursor: not-allowed;
+  pointer-events: none;
+}
+
 .explanation {
   margin-top: var(--space-4);
   padding: var(--space-3);

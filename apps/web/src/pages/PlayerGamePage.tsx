@@ -27,6 +27,7 @@ export function PlayerGamePage() {
     usedSpy: false,
     usedRisk: false,
   });
+  const [spyDistribution, setSpyDistribution] = useState<Record<string, number>>({});
   const [eliminatedOptions, setEliminatedOptions] = useState<string[]>([]);
   const [revealed, setRevealed] = useState(false);
   const [result, setResult] = useState<any>(null);
@@ -67,12 +68,23 @@ export function PlayerGamePage() {
       setJokers(prev => ({ ...prev, used5050: true }));
     });
 
+    // P1: Listen for all joker result events (server emits these specifically)
+    socket.on('geo:joker:applied', (data: { type: string }) => {
+      // geo:joker:5050 result
+      if (data.type === 'FIFTY_FIFTY') setJokers(prev => ({ ...prev, used5050: true }));
+    });
+
+    socket.on('geo:joker:5050:result', () => {
+      setJokers(prev => ({ ...prev, used5050: true }));
+    });
+
     socket.on('geo:joker:risk:result', () => {
       setJokers(prev => ({ ...prev, usedRisk: true }));
     });
 
-    socket.on('geo:joker:spy:result', () => {
+    socket.on('geo:joker:spy:result', (data) => {
       setJokers(prev => ({ ...prev, usedSpy: true }));
+      setSpyDistribution(data.distribution || null);
     });
 
     socket.on('geo:reveal', (data) => {
@@ -178,27 +190,27 @@ export function PlayerGamePage() {
         </div>
 
         <div className={styles.options}>
-          {question.options
-            .filter((opt: any) => !eliminatedOptions.includes(opt.id))
-            .map((option: any, index: number) => {
-              const isSelected = selectedOption === option.id;
-              const isCorrect = revealed && option.id === result?.correctOptionId;
-              const isWrong = revealed && isSelected && !isCorrect;
-              
-              return (
-                <button
-                  key={option.id}
-                  className={`${styles.option} ${isSelected ? styles.selected : ''} ${isCorrect ? styles.correct : ''} ${isWrong ? styles.wrong : ''}`}
-                  onClick={() => handleSelectOption(option.id)}
-                  disabled={locked || revealed}
-                >
-                  <span className={styles.optionLetter}>
-                    {['A', 'B', 'C', 'D'][index]}
-                  </span>
-                  <span className={styles.optionText}>{option.text}</span>
-                </button>
-              );
-            })}
+          {question.options.map((option: any, index: number) => {
+            const isEliminated = eliminatedOptions.includes(option.id);
+            const isSelected = selectedOption === option.id;
+            const isCorrect = revealed && option.id === result?.correctOptionId;
+            const isWrong = revealed && isSelected && !isCorrect;
+            const originalIndex = ['A', 'B', 'C', 'D'].indexOf(option.label);
+            const letter = originalIndex >= 0 ? ['A', 'B', 'C', 'D'][originalIndex] : String(index + 1);
+
+            return (
+              <button
+                key={option.id}
+                className={`${styles.option} ${isEliminated ? styles.eliminated : ''} ${isSelected ? styles.selected : ''} ${isCorrect ? styles.correct : ''} ${isWrong ? styles.wrong : ''}`}
+                onClick={() => !isEliminated && handleSelectOption(option.id)}
+                disabled={locked || revealed || isEliminated}
+                aria-label={`Option ${letter}: ${option.text}${isEliminated ? ' (ausgeschlossen)' : ''}`}
+              >
+                <span className={styles.optionLetter}>{letter}</span>
+                <span className={styles.optionText}>{option.text}</span>
+              </button>
+            );
+          })}
         </div>
 
         {revealed && result?.explanation && (
