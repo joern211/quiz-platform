@@ -44,7 +44,8 @@ export function ModeratorLobbyPage() {
 
     socket.on('room:snapshot', (data) => {
       setPlayers(data.players || []);
-      setChatEnabled(data.runPhase !== 'LOCKED');
+      // P1-1 (SOCK-005): read lobbyChatEnabled (not runPhase) to show chat state
+      setChatEnabled(data.lobbyChatEnabled !== false);
 
       // If game already running, redirect to game page
       if (data.status === 'RUNNING') {

@@ -184,6 +184,7 @@ export async function handleRoomSubscription(
     roomName: room.roomName,
     status: room.status,
     runPhase: room.runPhase,
+    lobbyChatEnabled: room.lobbyChatEnabled,  // P1-1 (SOCK-005): expose chat state in snapshot
     game: {
       slug: room.gameDefinition.slug,
       name: room.gameDefinition.name,

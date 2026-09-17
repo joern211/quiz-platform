@@ -121,7 +121,8 @@ export const handleLobbyEvents = {
 
       await prisma.room.update({
         where: { code: data.roomCode },
-        data: { runPhase: data.locked ? 'LOCKED' : 'OPEN' },
+        // P1-1 (SOCK-005): use lobbyChatEnabled field (not runPhase) to control chat
+        data: { lobbyChatEnabled: !data.locked },
       });
 
       io.to(roomChannel(identity.roomId)).emit('lobby:chat:lock', {
