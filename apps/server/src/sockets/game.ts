@@ -6,7 +6,7 @@ import { Server, Socket } from 'socket.io';
 import { prisma } from '../persistence/prisma.js';
 import { logger } from '../observability/logger.js';
 import { handleGeoGame } from '../games/geo/index.js';
-import { requireRoomRole } from './auth.js';
+import { requireRoomRole, getSocketDataIdentity } from './auth.js';
 import { roomChannel } from './index.js';
 
 export const handleGameEvents = {
@@ -342,13 +342,21 @@ export const handleGameEvents = {
         return;
       }
 
-      if (!data.rejoinToken && !identity.participationId) {
+      const identity = getSocketDataIdentity(socket);
+      const participationId = identity?.participationId || data.rejoinToken;
+      
+      if (!participationId) {
         callback?.({ success: false, error: 'TOKEN_REQUIRED' });
         return;
       }
 
-      const participation = await prisma.participation.findUnique({
-        where: { rejoinToken: data.rejoinToken || identity.participationId },
+      const participation = await prisma.participation.findFirst({
+        where: {
+          OR: [
+            { id: participationId },
+            { rejoinToken: participationId },
+          ],
+        },
       });
 
       if (!participation) {
