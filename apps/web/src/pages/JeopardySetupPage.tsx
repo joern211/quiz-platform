@@ -2,9 +2,9 @@
 // Geo Jeopardy Setup Page
 // ============================================================
 
-import { useState, useEffect, useRef } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
-import { Card, Button, Input, Badge } from '@quiz/ui';
+import { useState, useRef } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { Card, Button, Input } from '@quiz/ui';
 import styles from './JeopardySetupPage.module.css';
 
 interface Category {
@@ -24,7 +24,7 @@ export function JeopardySetupPage() {
   const [board1, setBoard1] = useState<Board>({ categories: Array(6).fill(null).map((_, i) => ({
     id: `cat1-${i}`,
     title: '',
-    clues: [100, 200, 300, 400, 500].map((v, j) => ({
+    clues: [100, 200, 300, 400, 500].map((v) => ({
       id: `cat1-${i}-${v}`,
       value: v,
       question: '',
@@ -36,7 +36,7 @@ export function JeopardySetupPage() {
   const [board2, setBoard2] = useState<Board>({ categories: Array(6).fill(null).map((_, i) => ({
     id: `cat2-${i}`,
     title: '',
-    clues: [200, 400, 600, 800, 1000].map((v, j) => ({
+    clues: [200, 400, 600, 800, 1000].map((v) => ({
       id: `cat2-${i}-${v}`,
       value: v,
       question: '',
@@ -92,7 +92,7 @@ export function JeopardySetupPage() {
           });
           setBoard1(newBoard1);
         }
-      } catch (err) {
+      } catch {
         alert('Ungültiges Dateiformat');
       }
     };
@@ -135,7 +135,7 @@ export function JeopardySetupPage() {
       if (res.ok) {
         navigate(`/moderator/raum/${data.code}/lobby`);
       }
-    } catch (err) {
+    } catch {
       alert('Fehler beim Erstellen');
     } finally {
       setSaving(false);

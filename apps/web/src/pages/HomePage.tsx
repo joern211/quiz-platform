@@ -52,7 +52,7 @@ export function HomePage() {
       <section className={styles.hero}>
         <div className={styles.eyebrow}>
           <span className={styles.eyebrowDot} />
-          Multiplayer Quiz Platform
+          Multiplayer Quiz Plattform
         </div>
 
         <h1 className={styles.heroTitle}>
@@ -78,11 +78,11 @@ export function HomePage() {
         <div className={styles.heroStats}>
           <div className={styles.stat}>
             <div className={styles.statValue}>6</div>
-            <div className={styles.statLabel}>Spiele</div>
+            <div className={styles.statLabel}>Spielarten</div>
           </div>
           <div className={styles.stat}>
-            <div className={styles.statValue}>11</div>
-            <div className={styles.statLabel}>Kategorien</div>
+            <div className={styles.statValue}>2+</div>
+            <div className={styles.statLabel}>Spieler</div>
           </div>
           <div className={styles.stat}>
             <div className={styles.statValue}>∞</div>
@@ -99,9 +99,9 @@ export function HomePage() {
         <div className={styles.howItWorks}>
           {[
             { n: 1, title: 'Raum erstellen', desc: 'Wähle ein Spiel, konfiguriere es und bekomme einen Code.' },
-            { n: 2, title: 'Freunde einladen', desc: 'Teile den 6-stelligen Code —无需 Account.' },
+            { n: 2, title: 'Freunde einladen', desc: 'Teile den Code — kein Account nötig.' },
             { n: 3, title: 'Spielen', desc: 'Buzzer, Fragen, Punkte — alles in Echtzeit.' },
-            { n: 4, title: 'Gewinner feiern', desc: 'Live-Ergebnis und Leaderboard nach jeder Runde.' },
+            { n: 4, title: 'Gewinner feiern', desc: 'Live-Ergebnis und Rangliste nach jeder Runde.' },
           ].map(step => (
             <div key={step.n} className={styles.step}>
               <div className={styles.stepNumber}>{step.n}</div>
@@ -163,6 +163,21 @@ export function HomePage() {
           </div>
           <Link to="/beitreten">
             <Button size="lg">Raum beitreten →</Button>
+          </Link>
+        </Card>
+      </section>
+
+      {/* ── Zuschauer CTA ── */}
+      <section className={styles.section}>
+        <Card padding="lg" style={{ textAlign: 'center', border: '1px solid var(--border)' }}>
+          <div style={{ fontFamily: 'var(--font-display)', fontSize: '1.2rem', fontWeight: 700, marginBottom: 'var(--space-2)' }}>
+            Kein Account nötig — einfach zuschauen
+          </div>
+          <div style={{ color: 'var(--muted)', marginBottom: 'var(--space-4)', fontSize: '0.9rem' }}>
+            Hast du keinen Account, aber möchtest du ein laufendes Spiel verfolgen? Kein Problem.
+          </div>
+          <Link to="/zuschauen">
+            <Button variant="secondary">Zuschauen →</Button>
           </Link>
         </Card>
       </section>

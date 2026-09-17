@@ -12,7 +12,7 @@ import { verifySession } from '../auth/session.js';
 import { logger } from '../observability/logger.js';
 import { config } from '../config/index.js';
 
-export const mediaRouter = Router();
+export const mediaRouter : ReturnType<typeof Router> = Router();
 
 // Configure multer
 const storage = multer.diskStorage({

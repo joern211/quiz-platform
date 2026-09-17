@@ -1,0 +1,85 @@
+/* ============================================================
+   Result Page Styles
+   ============================================================ */
+
+.page {
+  max-width: 600px;
+  margin: 0 auto;
+  padding: var(--space-6) var(--space-4);
+  text-align: center;
+}
+
+.title {
+  font-size: 2rem;
+  font-weight: 700;
+  color: var(--fg);
+  margin-bottom: var(--space-2);
+}
+
+.game {
+  color: var(--accent);
+  margin-bottom: var(--space-6);
+}
+
+.resultsCard {
+  margin-bottom: var(--space-6);
+}
+
+.resultsCard h2 {
+  font-size: 1rem;
+  color: var(--muted);
+  margin-bottom: var(--space-4);
+}
+
+.ranking {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.playerRow {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  background: var(--surface-2);
+  border-radius: calc(var(--radius) / 2);
+}
+
+.playerRow.first {
+  background: linear-gradient(135deg, rgba(255, 215, 0, 0.2), rgba(255, 165, 0, 0.1));
+  border: 2px solid gold;
+}
+
+.playerRow.second {
+  background: linear-gradient(135deg, rgba(192, 192, 192, 0.2), rgba(169, 169, 169, 0.1));
+  border: 2px solid silver;
+}
+
+.playerRow.third {
+  background: linear-gradient(135deg, rgba(205, 127, 50, 0.2), rgba(184, 115, 51, 0.1));
+  border: 2px solid #cd7f32;
+}
+
+.rank {
+  font-size: 1.25rem;
+  width: 40px;
+}
+
+.name {
+  flex: 1;
+  text-align: left;
+  font-weight: 500;
+}
+
+.score {
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: var(--accent);
+}
+
+.actions {
+  display: flex;
+  justify-content: center;
+  gap: var(--space-3);
+}

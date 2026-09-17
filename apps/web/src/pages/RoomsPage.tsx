@@ -28,9 +28,11 @@ export function RoomsPage() {
   const fetchRooms = async () => {
     try {
       const res = await fetch('/api/v1/rooms/public');
-      const data = await res.json();
-      setRooms(data.rooms || []);
-    } catch (err) {
+      const json = await res.json();
+      if (json.success && json.data) {
+        setRooms(json.data.rooms || []);
+      }
+    } catch {
       console.error('Failed to fetch rooms');
     } finally {
       setLoading(false);

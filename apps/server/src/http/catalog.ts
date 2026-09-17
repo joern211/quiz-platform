@@ -6,7 +6,7 @@
 import { Router } from 'express';
 import { CATALOG_CATEGORIES, GAME_MANIFESTS } from '@quiz/shared';
 
-export const catalogRouter = Router();
+export const catalogRouter : ReturnType<typeof Router> = Router();
 
 // GET /api/v1/catalog/categories
 catalogRouter.get('/categories', (_req, res) => {

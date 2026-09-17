@@ -39,8 +39,10 @@ app.use(cors({ origin: config.allowedOrigins, credentials: true }));
 app.use(express.json({ limit: '10mb' }));
 app.use(cookieParser(config.sessionSecret));
 
-// Static files (production build)
-const webDistPath = path.join(__dirname, '../../apps/web/dist');
+// Static files (production build) – use WEB_DIST_PATH env or compute from __dirname
+const webDistPath = process.env.WEB_DIST_PATH
+  ? path.resolve(process.env.WEB_DIST_PATH)
+  : path.join(__dirname, '../../apps/web/dist');
 app.use(express.static(webDistPath));
 
 // API Routes
@@ -50,14 +52,33 @@ app.use('/api/v1/rooms', roomsRouter);
 app.use('/api/v1/setups', setupRouter);
 app.use('/api/v1/media', mediaRouter);
 
-// Health check
-app.get('/api/v1/health', (_req, res) => {
-  res.json({
-    status: 'ok',
-    version: '0.1.0',
-    timestamp: new Date().toISOString(),
-  });
-});
+// Health check - /api/v1/ready (primary for k8s) and /api/v1/health (alias)
+const healthHandler = async (_req: express.Request, res: express.Response) => {
+  try {
+    // DB connectivity check: run a simple query
+    await prisma.$queryRaw`SELECT 1`;
+    res.json({
+      status: 'ok',
+      version: '0.2.1',
+      timestamp: new Date().toISOString(),
+      checks: {
+        db: 'ok',
+      },
+    });
+  } catch (error) {
+    logger.error('Health check failed', { error });
+    res.status(503).json({
+      status: 'error',
+      version: '0.2.1',
+      timestamp: new Date().toISOString(),
+      checks: {
+        db: 'error',
+      },
+    });
+  }
+};
+app.get('/api/v1/ready', healthHandler);
+app.get('/api/v1/health', healthHandler);
 
 // Legacy redirects (Kapitel 25)
 app.get('/api/mod/login', (_req, res) => {
@@ -89,7 +110,7 @@ app.use((err: Error, _req: express.Request, res: express.Response, _next: expres
 // Start server
 const PORT = config.port;
 
-async function start() {
+export async function start() {
   try {
     // Test database connection
     await prisma.$connect();
@@ -99,7 +120,7 @@ async function start() {
       logger.info(`Server running on port ${PORT}`);
       logger.info(`App URL: ${config.publicAppUrl}`);
     });
-  } catch (error) {
+  } catch (error: unknown) {
     logger.error('Failed to start server', { error });
     process.exit(1);
   }
