@@ -1,4 +1,5 @@
 // Unit tests for config loader
+/// <reference types="vitest/globals" />
 import { describe, it, expect } from 'vitest';
 
 // We need to test the loadConfig logic without running it (it exits on failure).
@@ -38,10 +39,12 @@ describe('loadConfig', () => {
   const origEnv = process.env;
 
   beforeEach(() => {
+    // @ts-ignore vitest globals
     process.env = { ...origEnv };
   });
 
   afterEach(() => {
+    // @ts-ignore vitest globals
     process.env = origEnv;
   });
 

@@ -1024,6 +1024,166 @@ export const handleGeoGame = {
   },
 
   // ============================================================
+  // Handle Pause (P0-20: Only visual, store remaining time)
+  // ============================================================
+
+  async handlePause(
+    io: Server,
+    socket: Socket,
+    data: { roomCode: string },
+    callback?: (result: any) => void
+  ) {
+    try {
+      const room = await prisma.room.findUnique({
+        where: { code: data.roomCode },
+      });
+
+      if (!room) {
+        callback?.({ success: false, error: 'ROOM_NOT_FOUND' });
+        return;
+      }
+
+      const authorized = await requireRoomRole(socket, room.id, 'MODERATOR');
+      if (!authorized) {
+        callback?.({ success: false, error: 'UNAUTHORIZED' });
+        return;
+      }
+
+      const gameStateData = await prisma.roomGameState.findUnique({
+        where: { roomId: room.id },
+      });
+
+      if (!gameStateData) {
+        callback?.({ success: false, error: 'GAME_NOT_FOUND' });
+        return;
+      }
+
+      const state: GeoGameState = JSON.parse(gameStateData.stateJson);
+      const roundState = state.roundStates[state.currentRoundIndex];
+
+      if (!roundState || !roundState.timerEndMs) {
+        callback?.({ success: false, error: 'NO_ACTIVE_TIMER' });
+        return;
+      }
+
+      // P0-20: Calculate remaining time and store it
+      const pauseRemainingMs = roundState.timerEndMs - Date.now();
+      roundState.pauseRemainingMs = pauseRemainingMs;
+
+      // Cancel the active timer
+      const existingTimer = activeTimers.get(room.id);
+      if (existingTimer) {
+        clearTimeout(existingTimer);
+        activeTimers.delete(room.id);
+      }
+
+      // Update DB
+      await prisma.roomGameState.update({
+        where: { roomId: room.id },
+        data: {
+          stateJson: JSON.stringify(state),
+          revision: { increment: 1 },
+        },
+      });
+
+      // Emit pause event
+      io.to(roomChannel(room.id)).emit('geo:paused', {
+        roundIndex: state.currentRoundIndex,
+        remainingMs: pauseRemainingMs,
+      });
+
+      callback?.({ success: true, remainingMs: pauseRemainingMs });
+    } catch (error) {
+      logger.error('Geo pause error', { error });
+      callback?.({ success: false, error: 'INTERNAL_ERROR' });
+    }
+  },
+
+  // ============================================================
+  // Handle Resume (P0-20: Use stored remaining time to set new timer)
+  // ============================================================
+
+  async handleResume(
+    io: Server,
+    socket: Socket,
+    data: { roomCode: string },
+    callback?: (result: any) => void
+  ) {
+    try {
+      const room = await prisma.room.findUnique({
+        where: { code: data.roomCode },
+      });
+
+      if (!room) {
+        callback?.({ success: false, error: 'ROOM_NOT_FOUND' });
+        return;
+      }
+
+      const authorized = await requireRoomRole(socket, room.id, 'MODERATOR');
+      if (!authorized) {
+        callback?.({ success: false, error: 'UNAUTHORIZED' });
+        return;
+      }
+
+      const gameStateData = await prisma.roomGameState.findUnique({
+        where: { roomId: room.id },
+      });
+
+      if (!gameStateData) {
+        callback?.({ success: false, error: 'GAME_NOT_FOUND' });
+        return;
+      }
+
+      const state: GeoGameState = JSON.parse(gameStateData.stateJson);
+      const roundState = state.roundStates[state.currentRoundIndex];
+
+      if (!roundState || roundState.pauseRemainingMs === null) {
+        callback?.({ success: false, error: 'NOT_PAUSED' });
+        return;
+      }
+
+      // P0-20: Use stored remaining time to set new timerEndMs
+      const newTimerEndMs = Date.now() + roundState.pauseRemainingMs;
+      roundState.timerEndMs = newTimerEndMs;
+      roundState.pauseRemainingMs = null;
+
+      // Update DB
+      await prisma.roomGameState.update({
+        where: { roomId: room.id },
+        data: {
+          stateJson: JSON.stringify(state),
+          revision: { increment: 1 },
+        },
+      });
+
+      // Emit resume event with new timerEndMs
+      io.to(roomChannel(room.id)).emit('geo:resumed', {
+        roundIndex: state.currentRoundIndex,
+        timerEndMs: newTimerEndMs,
+      });
+
+      // P0-20: Set new timer for remaining time (use stored pauseRemainingMs before clearing)
+      const remainingTime = roundState.pauseRemainingMs;
+      const existingTimer = activeTimers.get(room.id);
+      if (existingTimer) {
+        clearTimeout(existingTimer);
+      }
+
+      const timer = setTimeout(async () => {
+        activeTimers.delete(room.id);
+        await this.handleTimerExpired(io, room);
+      }, remainingTime);
+
+      activeTimers.set(room.id, timer);
+
+      callback?.({ success: true, timerEndMs: newTimerEndMs });
+    } catch (error) {
+      logger.error('Geo resume error', { error });
+      callback?.({ success: false, error: 'INTERNAL_ERROR' });
+    }
+  },
+
+  // ============================================================
   // End Game
   // ============================================================
 
