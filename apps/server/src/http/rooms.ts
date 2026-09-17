@@ -4,6 +4,7 @@
 
 import { Router } from 'express';
 import crypto from 'crypto';
+import argon2 from 'argon2';
 import { prisma } from '../persistence/prisma.js';
 import { verifySession } from '../auth/session.js';
 import { logger } from '../observability/logger.js';
@@ -175,10 +176,10 @@ roomsRouter.post('/', async (req, res) => {
       });
     }
 
-    // Hash PIN if provided
+    // Hash PIN if provided (P1: use argon2 instead of plain SHA-256)
     let pinHash: string | null = null;
     if (pin) {
-      pinHash = crypto.createHash('sha256').update(pin).digest('hex');
+      pinHash = await argon2.hash(pin, { type: argon2.argon2id });
     }
 
     // Create room. Setup is serialized exactly ONCE (P0-05): the input may be an
@@ -372,17 +373,16 @@ roomsRouter.post('/:code/join', async (req, res) => {
       });
     }
 
-    // Check PIN - compare hashes properly
+    // Check PIN - compare hashes with argon2 (P1: SEC-005)
     if (room.pinHash) {
-      // PIN is stored as SHA256 hash, compare hashes directly
       if (!pin) {
         return res.status(403).json({
           success: false,
           error: { code: 'INVALID_PIN', message: 'PIN erforderlich.' },
         });
       }
-      const pinHash = crypto.createHash('sha256').update(pin).digest('hex');
-      if (pinHash !== room.pinHash) {
+      const valid = await argon2.verify(room.pinHash, pin);
+      if (!valid) {
         return res.status(403).json({
           success: false,
           error: { code: 'INVALID_PIN', message: 'Falscher PIN.' },

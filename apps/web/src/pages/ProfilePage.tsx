@@ -14,8 +14,17 @@ export function ProfilePage() {
   const redirectTo = locationState?.redirectTo;
   const roomCode = locationState?.code;
 
-  // Display name
+  // Display name (load from sessionStorage if available)
   const [displayName, setDisplayName] = useState(() => {
+    // First check sessionStorage (current session)
+    const sessionProfile = sessionStorage.getItem('playerProfile');
+    if (sessionProfile) {
+      try {
+        const profile = JSON.parse(sessionProfile);
+        return profile.displayName || '';
+      } catch { /* ignore */ }
+    }
+    // Fallback to localStorage (legacy)
     return localStorage.getItem('displayName') || '';
   });
   const [nameError, setNameError] = useState('');
@@ -131,16 +140,16 @@ export function ProfilePage() {
       return;
     }
 
-    // Save profile to localStorage
+    // Save profile to sessionStorage (P1-1: persisted in session not localStorage)
     const profile = {
       displayName: displayName.trim(),
       cameraDeviceId: selectedCamera || undefined,
       microphoneDeviceId: selectedMicrophone || undefined,
     };
-    localStorage.setItem('playerProfile', JSON.stringify(profile));
-    localStorage.setItem('displayName', displayName.trim());
+    sessionStorage.setItem('playerProfile', JSON.stringify(profile));
+    sessionStorage.setItem('displayName', displayName.trim());
 
-    // Navigate
+    // P1-1/FLOW-004: Navigate to PlayerLobbyPage after AV setup
     if (roomCode) {
       navigate(`/raum/${roomCode}/lobby`);
     } else if (redirectTo === 'join') {

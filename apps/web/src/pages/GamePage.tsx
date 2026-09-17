@@ -28,7 +28,7 @@ Joker helfen dir:
     hasTeams: true,
     hasCamera: false,
     hasAudio: false,
-    status: 'AVAILABLE',
+    status: 'BETA',
     categories: ['Hauptstädte', 'Flaggen', 'Allgemein', 'Sprachen', 'Flüsse & Berge'],
   },
   jeopardy: {
@@ -50,7 +50,7 @@ Ablauf:
     hasTeams: true,
     hasCamera: false,
     hasAudio: false,
-    status: 'AVAILABLE',
+    status: 'BETA',
   },
   'wer-ist-das': {
     slug: 'wer-ist-das',
@@ -70,7 +70,7 @@ Ablauf:
     hasTeams: false,
     hasCamera: false,
     hasAudio: false,
-    status: 'AVAILABLE',
+    status: 'BETA',
   },
   timeline: {
     slug: 'timeline',
@@ -91,7 +91,7 @@ Ablauf:
     hasTeams: true,
     hasCamera: false,
     hasAudio: false,
-    status: 'AVAILABLE',
+    status: 'BETA',
   },
   luegen: {
     slug: 'luegen',
@@ -112,7 +112,7 @@ Ablauf:
     hasTeams: false,
     hasCamera: false,
     hasAudio: false,
-    status: 'AVAILABLE',
+    status: 'BETA',
   },
   song: {
     slug: 'song',
@@ -132,7 +132,7 @@ Ablauf:
     hasTeams: false,
     hasCamera: false,
     hasAudio: true,
-    status: 'AVAILABLE',
+    status: 'BETA',
   },
 };
 

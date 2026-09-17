@@ -334,6 +334,29 @@ export const handleGameEvents = {
     data: { roomCode: string; rejoinToken?: string },
     callback?: (result: any) => void
   ) {
+    // P1-2: Require PLAYER or MODERATOR role
+    const identity = getSocketDataIdentity(socket);
+    if (!identity || !identity.roomId) {
+      callback?.({ success: false, error: 'NOT_IN_ROOM' });
+      return;
+    }
+
+    const room = await prisma.room.findUnique({ where: { code: data.roomCode } });
+    if (!room) {
+      callback?.({ success: false, error: 'ROOM_NOT_FOUND' });
+      return;
+    }
+
+    if (identity.roomId !== room.id) {
+      callback?.({ success: false, error: 'WRONG_ROOM' });
+      return;
+    }
+
+    if (identity.role !== 'PLAYER' && identity.role !== 'MODERATOR') {
+      callback?.({ success: false, error: 'UNAUTHORIZED' });
+      return;
+    }
+
     return handleGeoGame.handleJoker5050(io, socket, data, callback);
   },
 
@@ -343,6 +366,29 @@ export const handleGameEvents = {
     data: { roomCode: string; rejoinToken?: string },
     callback?: (result: any) => void
   ) {
+    // P1-2: Require PLAYER or MODERATOR role
+    const identity = getSocketDataIdentity(socket);
+    if (!identity || !identity.roomId) {
+      callback?.({ success: false, error: 'NOT_IN_ROOM' });
+      return;
+    }
+
+    const room = await prisma.room.findUnique({ where: { code: data.roomCode } });
+    if (!room) {
+      callback?.({ success: false, error: 'ROOM_NOT_FOUND' });
+      return;
+    }
+
+    if (identity.roomId !== room.id) {
+      callback?.({ success: false, error: 'WRONG_ROOM' });
+      return;
+    }
+
+    if (identity.role !== 'PLAYER' && identity.role !== 'MODERATOR') {
+      callback?.({ success: false, error: 'UNAUTHORIZED' });
+      return;
+    }
+
     return handleGeoGame.handleJokerSpy(io, socket, data, callback);
   },
 
@@ -352,6 +398,29 @@ export const handleGameEvents = {
     data: { roomCode: string; rejoinToken?: string },
     callback?: (result: any) => void
   ) {
+    // P1-2: Require PLAYER or MODERATOR role
+    const identity = getSocketDataIdentity(socket);
+    if (!identity || !identity.roomId) {
+      callback?.({ success: false, error: 'NOT_IN_ROOM' });
+      return;
+    }
+
+    const room = await prisma.room.findUnique({ where: { code: data.roomCode } });
+    if (!room) {
+      callback?.({ success: false, error: 'ROOM_NOT_FOUND' });
+      return;
+    }
+
+    if (identity.roomId !== room.id) {
+      callback?.({ success: false, error: 'WRONG_ROOM' });
+      return;
+    }
+
+    if (identity.role !== 'PLAYER' && identity.role !== 'MODERATOR') {
+      callback?.({ success: false, error: 'UNAUTHORIZED' });
+      return;
+    }
+
     return handleGeoGame.handleJokerRisk(io, socket, data, callback);
   },
 

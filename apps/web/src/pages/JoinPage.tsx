@@ -83,13 +83,18 @@ export function JoinPage() {
         role: role ?? null,
       });
 
-      // Navigate based on role - use route format from App.tsx
+      // Navigate to ProfilePage for AV setup before entering lobby (P1-1/FLOW-004)
+      // Moderator goes to their lobby directly
+      // Player goes to ProfilePage first, then to PlayerLobbyPage
       const target =
         role === 'MODERATOR'
           ? `/moderator/raum/${codeToSend}/lobby`
-          : `/raum/${codeToSend}/lobby`;
+          : `/spieler/profil`;
 
-      navigate(target);
+      // Store roomCode in sessionStorage so ProfilePage can redirect to lobby
+      setSession({ roomCode: codeToSend });
+
+      navigate(target, { state: { fromJoin: true, roomCode: codeToSend } });
     } catch {
       setError('Verbindungsfehler');
       setLoading(false);

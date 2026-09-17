@@ -12,7 +12,17 @@ export function createSessionCookie(sessionId: string, secret: string): string {
   const value = `${sessionId}.${signature}`;
   const maxAge = 7 * 24 * 60 * 60; // 7 days in seconds
   
-  return `${COOKIE_NAME}=${value}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${maxAge}`;
+  const NODE_ENV = process.env.NODE_ENV ?? 'development';
+  const isProd = NODE_ENV === 'production';
+
+  return [
+    `${COOKIE_NAME}=${value}`,
+    'Path=/',
+    'HttpOnly',
+    `SameSite=${isProd ? 'Strict' : 'Lax'}`,
+    `Secure=${isProd ? 'true' : 'false'}`,
+    `Max-Age=${maxAge}`,
+  ].join('; ');
 }
 
 export function verifySession(req: Request, secret: string): string | null {
@@ -49,5 +59,13 @@ export function verifySession(req: Request, secret: string): string | null {
 }
 
 export function deleteSessionCookie(res: Response): void {
-  res.setHeader('Set-Cookie', `${COOKIE_NAME}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0`);
+  const isProd = (process.env.NODE_ENV ?? 'development') === 'production';
+  res.setHeader('Set-Cookie', [
+    `${COOKIE_NAME}=`,
+    'Path=/',
+    'HttpOnly',
+    `SameSite=${isProd ? 'Strict' : 'Lax'}`,
+    `Secure=${isProd ? 'true' : 'false'}`,
+    'Max-Age=0',
+  ].join('; '));
 }
