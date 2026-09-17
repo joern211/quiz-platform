@@ -78,13 +78,22 @@ export function PlayerGamePage() {
     socket.on('geo:reveal', (data) => {
       setRevealed(true);
       setResult(data);
-      
+
       // Update score from result
       const myPartId = (socket as any).data?.participationId || session.participationId;
       const myResult = data.scores?.find((s: any) => s.participationId === myPartId);
       if (myResult) {
         setScore(myResult.totalScore);
       }
+    });
+
+    // P0-20: Handle pause/resume - lock inputs while paused
+    socket.on('game:pause', () => {
+      setLocked(true);
+    });
+
+    socket.on('game:resume', () => {
+      setLocked(false);
     });
 
     socket.on('buzz:won', (_data) => {
