@@ -22,6 +22,12 @@ jobs:
         with:
           node-version-file: .nvmrc
           cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
 
       - name: Enable Corepack
         run: corepack enable
