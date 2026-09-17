@@ -3,34 +3,46 @@
 // Central registration for all game modules
 // ============================================================
 
-// All game modules export a single handle object per convention.
-// Each game handler must implement the contract expected by game.ts.
-// ============================================================
+import { initGeoHandlers, initGeoState } from './geo/index';
+import { initJeopardyHandlers, initJeopardyState } from './jeopardy/index';
+import { initWerIstDasHandlers, initWerIstDasState } from './weristdas/index';
+import { initTimelineHandlers, initTimelineState } from './timeline/index';
+import { initLuegenHandlers, initLuegenState } from './luegen/index';
+import { initSongHandlers, initSongState } from './song/index';
 
-import { handleGeoGame } from './geo/index.js';
-// Placeholders until each game exports its handle object
-// TODO GATE-5: wire up each game's handle object
-const handleJeopardy = { name: 'jeopardy', initialize: async () => {} };
-const handleWerIstDas = { name: 'weristdas', initialize: async () => {} };
-const handleTimeline = { name: 'timeline', initialize: async () => {} };
-const handleLuegen = { name: 'luegen', initialize: async () => {} };
-const handleSong = { name: 'song', initialize: async () => {} };
-
-export interface GameHandle {
-  name: string;
-  initialize: (io: any, room: any) => Promise<void>;
+export interface GameHandlers {
+  initState: (roomCode: string) => void;
+  initSocket: (io: any, socket: any) => () => void;
 }
 
-export const gameRegistry: Record<string, GameHandle> = {
-  geo: handleGeoGame as unknown as GameHandle,
-  jeopardy: handleJeopardy,
-  weristdas: handleWerIstDas,
-  timeline: handleTimeline,
-  luegen: handleLuegen,
-  song: handleSong,
+export const gameRegistry: Record<string, GameHandlers> = {
+  geo: {
+    initState: initGeoState,
+    initSocket: initGeoHandlers,
+  },
+  jeopardy: {
+    initState: initJeopardyState,
+    initSocket: initJeopardyHandlers,
+  },
+  weristdas: {
+    initState: initWerIstDasState,
+    initSocket: initWerIstDasHandlers,
+  },
+  timeline: {
+    initState: initTimelineState,
+    initSocket: initTimelineHandlers,
+  },
+  luegen: {
+    initState: initLuegenState,
+    initSocket: initLuegenHandlers,
+  },
+  song: {
+    initState: initSongState,
+    initSocket: initSongHandlers,
+  },
 };
 
-export function getGameHandler(slug: string): GameHandle | null {
+export function getGameHandler(slug: string): GameHandlers | null {
   return gameRegistry[slug] || null;
 }
 

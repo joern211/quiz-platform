@@ -1,42 +1,92 @@
 /* ============================================================
-   Timer Styles – v0.3.0 (Clean countdown, no pulse/shake)
+   Timer Styles – v0.2.0 (Big countdown ring)
    ============================================================ */
 
 .timer {
-  display: flex; flex-direction: column; align-items: center;
-  justify-content: center; gap: var(--space-4); position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-4);
+  position: relative;
 }
 
 .display {
   font-family: 'Space Grotesk', sans-serif;
   font-size: clamp(3rem, 12vw, 6rem);
-  font-weight: 900; letter-spacing: -0.04em; line-height: 1;
-  color: var(--fg); transition: color 0.3s;
+  font-weight: 900;
+  letter-spacing: -0.04em;
+  line-height: 1;
+  color: var(--fg);
+  transition: color 0.3s, text-shadow 0.3s;
 }
 
 .normal  { color: var(--fg); }
-.warning { color: var(--warn); }
-.critical { color: var(--danger); }
-
-.ring {
-  position: absolute; inset: 0; transform: rotate(-90deg);
-  pointer-events: none; z-index: 0;
+.warning {
+  color: var(--warn);
+  text-shadow: 0 0 20px rgba(254,202,87,0.5);
+  animation: pulse-text 0.8s ease-in-out infinite;
 }
-.ringTrack { fill: none; stroke: var(--surface-2); stroke-width: 8; }
+.critical {
+  color: var(--danger);
+  text-shadow: 0 0 20px rgba(255,93,115,0.6);
+  animation: pulse-text 0.4s ease-in-out infinite, shake 0.4s ease-in-out infinite;
+}
+
+/* Ring SVG behind the number */
+.ring {
+  position: absolute;
+  inset: 0;
+  transform: rotate(-90deg);
+  pointer-events: none;
+  z-index: 0;
+}
+
+.ringTrack {
+  fill: none;
+  stroke: var(--surface-2);
+  stroke-width: 8;
+}
 
 .ringProgress {
-  fill: none; stroke: var(--accent); stroke-width: 8; stroke-linecap: round;
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 8;
+  stroke-linecap: round;
   transition: stroke-dashoffset 0.95s linear, stroke 0.3s;
+  filter: drop-shadow(0 0 8px var(--accent));
 }
-.warning  .ringProgress { stroke: var(--warn); }
-.critical .ringProgress { stroke: var(--danger); }
+
+.warning  .ringProgress { stroke: var(--warn);  filter: drop-shadow(0 0 8px var(--warn)); }
+.critical .ringProgress { stroke: var(--danger); filter: drop-shadow(0 0 8px var(--danger)); }
 
 .seconds {
-  position: relative; z-index: 1; font-weight: 700;
-  font-variant-numeric: tabular-nums; min-width: 2ch; text-align: center;
+  position: relative;
+  z-index: 1;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  min-width: 2ch;
+  text-align: center;
 }
 
 .label {
-  text-align: center; font-size: 0.8rem; color: var(--muted);
-  text-transform: uppercase; letter-spacing: 0.12em; font-weight: 500;
+  text-align: center;
+  font-size: 0.8rem;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  font-weight: 500;
+}
+
+@keyframes pulse-text {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50%       { opacity: 0.7; transform: scale(1.05); }
+}
+
+@keyframes shake {
+  0%, 100% { transform: translateX(0); }
+  20%       { transform: translateX(-4px); }
+  40%       { transform: translateX(4px); }
+  60%       { transform: translateX(-3px); }
+  80%       { transform: translateX(3px); }
 }

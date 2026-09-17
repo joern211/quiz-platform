@@ -1,17 +1,8 @@
 {
   "extends": "../../tsconfig.json",
   "compilerOptions": {
-    "jsx": "react-jsx",
-    "moduleResolution": "bundler",
-    "noEmit": true,
     "outDir": "./dist",
-    "baseUrl": ".",
-    "paths": {
-      "@quiz/ui": ["../../packages/ui/src/index.tsx"],
-      "@quiz/shared": ["../../packages/shared/src/index.ts"],
-      "@quiz/game-sdk": ["../../packages/game-sdk/src/index.ts"]
-    },
-    "typeRoots": ["./src/types", "./node_modules/@types"]
+    "rootDir": "./src"
   },
   "include": ["src/**/*"],
   "exclude": ["node_modules", "dist"]

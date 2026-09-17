@@ -1,24 +1,21 @@
 {
   "name": "online-quiz-plattform",
-  "version": "0.3.1",
+  "version": "0.1.0",
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "pnpm --filter @quiz/web dev & pnpm --filter @quiz/server dev",
-    "build": "pnpm --filter @quiz/server build && pnpm --filter @quiz/web build",
+    "dev": "pnpm --filter @quiz/web --filter @quiz/server dev",
+    "build": "pnpm --filter @quiz/web build",
     "start": "pnpm --filter @quiz/server start",
-    "db:migrate:dev": "pnpm exec prisma migrate dev --schema=./prisma/schema.prisma",
-    "db:migrate:deploy": "pnpm exec prisma migrate deploy --schema=./prisma/schema.prisma",
+    "db:migrate": "pnpm exec prisma migrate dev --schema=./prisma/schema.prisma",
     "db:generate": "pnpm exec prisma generate --schema=./prisma/schema.prisma",
     "db:push": "pnpm exec prisma db push --schema=./prisma/schema.prisma",
     "db:seed": "tsx prisma/seed.ts",
     "db:studio": "pnpm exec prisma studio --schema=./prisma/schema.prisma",
-    "test": "pnpm -r --parallel run test",
-    "test:watch": "pnpm -r --parallel run test:watch",
+    "test": "pnpm -r test",
     "test:e2e": "pnpm --filter @quiz/web test:e2e",
-    "lint": "eslint . --ext .ts,.tsx",
+    "lint": "pnpm -r lint",
     "typecheck": "pnpm -r typecheck",
-    "check": "pnpm typecheck && pnpm lint && pnpm test && pnpm build",
     "backup": "bash scripts/backup.sh",
     "restore": "bash scripts/restore.sh",
     "import:legacy": "bash scripts/import-legacy.sh",
@@ -28,24 +25,17 @@
     "seed": "tsx prisma/seed.ts"
   },
   "devDependencies": {
-    "@eslint/js": "^9.0.0",
     "@types/node": "^22.0.0",
-    "eslint": "^9.0.0",
-    "eslint-plugin-react-hooks": "^5.0.0",
     "tsx": "^4.23.13",
-    "typescript": "^5.6.0",
-    "typescript-eslint": "^8.0.0",
-    "vitest": "^2.0.0"
+    "typescript": "^5.6.0"
   },
   "engines": {
     "node": ">=20.0.0",
-    "pnpm": "9.12.0"
+    "pnpm": ">=9.0.0"
   },
   "packageManager": "pnpm@9.12.0",
   "dependencies": {
     "@prisma/client": "^5.22.0",
-    "argon2": "^0.31.2",
-    "dotenv": "^17.4.2",
     "prisma": "^5.22.0"
   }
 }

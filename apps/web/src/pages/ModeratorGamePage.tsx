@@ -4,8 +4,7 @@
 
 import { useParams, useNavigate } from 'react-router-dom';
 import { useEffect, useState, useRef } from 'react';
-import { Socket } from 'socket.io-client';
-import { getSocket, connectSocket, disconnectSocket } from '../lib/socket';
+import { io, Socket } from 'socket.io-client';
 import { Card, Button, Badge } from '@quiz/ui';
 import { Timer } from '@quiz/ui';
 import styles from './ModeratorGamePage.module.css';
@@ -21,17 +20,14 @@ export function ModeratorGamePage() {
   const [endsAt, setEndsAt] = useState(0);
   const [answerStats, setAnswerStats] = useState<Record<string, number>>({});
   const [players, setPlayers] = useState<any[]>([]);
-  const [, setBuzzerWinner] = useState<any>(null);
-  const [, setGameEnded] = useState(false);
+  const [buzzerWinner, setBuzzerWinner] = useState<any>(null);
+  const [gameEnded, setGameEnded] = useState(false);
   const [revealed, setRevealed] = useState(false);
   const [scores, setScores] = useState<Record<string, number>>({});
-  const [timerPaused, setTimerPaused] = useState(false);
 
   useEffect(() => {
-    socketRef.current = getSocket();
-    const socket = socketRef.current;
-
-    connectSocket();
+    const socket = io(window.location.origin, { withCredentials: true });
+    socketRef.current = socket;
 
     socket.on('connect', () => setConnected(true));
     socket.on('disconnect', () => setConnected(false));
@@ -45,14 +41,13 @@ export function ModeratorGamePage() {
       }
     });
 
-    socket.on('geo:question', (data) => {
+    socket.on('geo:show', (data) => {
       setQuestion(data.question);
-      setEndsAt(data.timerEndMs);
+      setEndsAt(data.endsAt);
       setRevealed(false);
       setBuzzerWinner(null);
       setAnswerStats({});
-      setCurrentIndex(data.roundIndex);
-      if (data.totalRounds) setTotalQuestions(data.totalRounds);
+      setCurrentIndex(data.questionIndex);
     });
 
     socket.on('geo:answered', (data) => {
@@ -77,19 +72,15 @@ export function ModeratorGamePage() {
       }
     });
 
-    return () => {
-      disconnectSocket();
-    };
+    return () => socket.disconnect();
   }, [code]);
 
-  const handlePauseTimer = () => {
-    socketRef.current?.emit('game:pause', { roomCode: code });
-    setTimerPaused(true);
+  const handleStartTimer = () => {
+    socketRef.current?.emit('geo:timer:start', { roomCode: code });
   };
 
-  const handleResumeTimer = () => {
-    socketRef.current?.emit('game:resume', { roomCode: code });
-    setTimerPaused(false);
+  const handlePauseTimer = () => {
+    socketRef.current?.emit('geo:timer:pause', { roomCode: code });
   };
 
   const handleReveal = () => {
@@ -97,7 +88,15 @@ export function ModeratorGamePage() {
   };
 
   const handleNextQuestion = () => {
-    socketRef.current?.emit('geo:next', { roomCode: code });
+    socketRef.current?.emit('geo:show:next', { roomCode: code });
+  };
+
+  const handleJudge = (correct: boolean) => {
+    socketRef.current?.emit('geo:judge', { 
+      roomCode: code,
+      buzzerWinnerId: buzzerWinner?.playerId,
+      correct,
+    });
   };
 
   const handleEndGame = () => {
@@ -105,7 +104,6 @@ export function ModeratorGamePage() {
     navigate(`/moderator/raum/${code}/ergebnis`);
   };
 
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const getPlayerName = (playerId: string) => {
     const player = players.find(p => p.id === playerId);
     return player?.displayName || 'Unbekannt';
@@ -156,6 +154,16 @@ export function ModeratorGamePage() {
           <p>{question.options.find((o: any) => o.id === question.correctOptionId)?.text}</p>
           {question.explanation && <p className={styles.explanation}>{question.explanation}</p>}
         </div>
+
+        {buzzerWinner && !revealed && (
+          <div className={styles.judgeSection}>
+            <p>{getPlayerName(buzzerWinner.playerId)} hat gebuzzert</p>
+            <div className={styles.judgeButtons}>
+              <Button onClick={() => handleJudge(true)}>✓ Richtig</Button>
+              <Button variant="danger" onClick={() => handleJudge(false)}>✗ Falsch</Button>
+            </div>
+          </div>
+        )}
       </Card>
 
       <Card padding="lg" className={styles.controls}>
@@ -173,9 +181,7 @@ export function ModeratorGamePage() {
       <div className={styles.actions}>
         {!revealed ? (
           <>
-            <Button variant="secondary" onClick={timerPaused ? handleResumeTimer : handlePauseTimer}>
-              {timerPaused ? '▶ Weiter' : '⏸ Pause'}
-            </Button>
+            <Button variant="secondary" onClick={handlePauseTimer}>⏸ Pause</Button>
             <Button onClick={handleReveal}>✓ Auflösen</Button>
           </>
         ) : (

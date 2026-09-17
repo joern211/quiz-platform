@@ -3,27 +3,19 @@
 // ============================================================
 
 import { Router } from 'express';
+import { v4 as uuid } from 'uuid';
 import crypto from 'crypto';
 import { prisma } from '../persistence/prisma.js';
 import { verifySession } from '../auth/session.js';
 import { logger } from '../observability/logger.js';
 import { config } from '../config/index.js';
 
-export const roomsRouter : ReturnType<typeof Router> = Router();
+export const roomsRouter = Router();
 
-// Generate unique room code using crypto
+// Generate unique room code
 function generateRoomCode(): string {
-  const d1 = crypto.randomInt(0, 1000);
-  const d2 = crypto.randomInt(0, 1000);
-  return `${String(d1).padStart(3, '0')}-${String(d2).padStart(3, '0')}`;
-}
-
-// Normalize room code to NNN-NNN format
-// Accepts: NNN-NNN, NNNNNN, NNN NNN, strips spaces/dashes
-export function normalizeRoomCode(raw: string): string {
-  const digits = raw.replace(/[^\d]/g, '').slice(0, 6);
-  if (digits.length < 6) return digits;
-  return `${digits.slice(0, 3)}-${digits.slice(3)}`;
+  const digits = Array.from({ length: 6 }, () => Math.floor(Math.random() * 10));
+  return `${digits.slice(0, 3).join('')}-${digits.slice(3).join('')}`;
 }
 
 // GET /api/v1/rooms/public - List public rooms
@@ -31,7 +23,6 @@ roomsRouter.get('/public', async (_req, res) => {
   try {
     const rooms = await prisma.room.findMany({
       where: {
-        isPublic: true,
         status: { in: ['LOBBY', 'RUNNING'] },
       },
       select: {
@@ -114,7 +105,6 @@ roomsRouter.post('/', async (req, res) => {
     }
 
     const {
-      gameSlug,
       gameDefinitionId,
       roomName,
       pin,
@@ -128,32 +118,10 @@ roomsRouter.post('/', async (req, res) => {
     } = req.body;
 
     // Validate required fields
-    if (!roomName) {
+    if (!gameDefinitionId || !roomName) {
       return res.status(400).json({
         success: false,
-        error: { code: 'VALIDATION', message: 'Raumname erforderlich.' },
-      });
-    }
-
-    // Resolve game definition: prefer slug, fallback to id
-    let resolvedGameDefId = gameDefinitionId;
-    if (!resolvedGameDefId && gameSlug) {
-      const gameDef = await prisma.gameDefinition.findUnique({
-        where: { slug: gameSlug },
-      });
-      if (!gameDef) {
-        return res.status(400).json({
-          success: false,
-          error: { code: 'GAME_NOT_FOUND', message: 'Spiel nicht gefunden.' },
-        });
-      }
-      resolvedGameDefId = gameDef.id;
-    }
-
-    if (!resolvedGameDefId) {
-      return res.status(400).json({
-        success: false,
-        error: { code: 'VALIDATION', message: 'Spiel (slug oder id) erforderlich.' },
+        error: { code: 'VALIDATION', message: 'Spiel und Raumname erforderlich.' },
       });
     }
 
@@ -185,7 +153,7 @@ roomsRouter.post('/', async (req, res) => {
       data: {
         code,
         roomName,
-        gameDefinitionId: resolvedGameDefId,
+        gameDefinitionId,
         hostUserId: session.userId,
         pinHash,
         maxPlayers,
@@ -209,8 +177,6 @@ roomsRouter.post('/', async (req, res) => {
         role: 'MODERATOR',
         connected: true,
         ready: true,
-        rejoinToken: crypto.randomUUID(),
-        rejoinTokenVersion: 1,
       },
     });
 
@@ -219,8 +185,11 @@ roomsRouter.post('/', async (req, res) => {
     res.status(201).json({
       success: true,
       data: {
+        id: room.id,
         code: room.code,
-        roomId: room.id,
+        roomName: room.roomName,
+        status: room.status,
+        runPhase: room.runPhase,
       },
     });
   } catch (error) {
@@ -235,24 +204,8 @@ roomsRouter.post('/', async (req, res) => {
 // GET /api/v1/rooms/:code - Get room details
 roomsRouter.get('/:code', async (req, res) => {
   try {
-    // Check if user is authenticated
-    const sessionId = verifySession(req, config.sessionSecret);
-    let isAuthenticated = false;
-    let userId: string | null = null;
-
-    if (sessionId) {
-      const session = await prisma.session.findUnique({
-        where: { id: sessionId },
-        include: { user: true },
-      });
-      if (session && !session.revokedAt && session.expiresAt >= new Date()) {
-        isAuthenticated = true;
-        userId = session.userId;
-      }
-    }
-
     const room = await prisma.room.findUnique({
-      where: { code: normalizeRoomCode(req.params.code) },
+      where: { code: req.params.code },
       include: {
         gameDefinition: true,
         participations: {
@@ -276,21 +229,6 @@ roomsRouter.get('/:code', async (req, res) => {
     });
 
     if (!room) {
-      return res.status(404).json({
-        success: false,
-        error: { code: 'NOT_FOUND', message: 'Raum nicht gefunden.' },
-      });
-    }
-
-    // Only show isPublic rooms to non-authenticated users
-    // Authenticated moderators can see their own rooms regardless of isPublic
-    if (!isAuthenticated && !room.isPublic) {
-      return res.status(404).json({
-        success: false,
-        error: { code: 'NOT_FOUND', message: 'Raum nicht gefunden.' },
-      });
-    }
-    if (isAuthenticated && !room.isPublic && room.hostUserId !== userId) {
       return res.status(404).json({
         success: false,
         error: { code: 'NOT_FOUND', message: 'Raum nicht gefunden.' },
@@ -332,7 +270,6 @@ roomsRouter.get('/:code', async (req, res) => {
 });
 
 // POST /api/v1/rooms/:code/join - Player join
-// TODO: Add rate limiting for join attempts to prevent brute-force PIN attacks
 roomsRouter.post('/:code/join', async (req, res) => {
   try {
     const { displayName, pin } = req.body;
@@ -345,7 +282,7 @@ roomsRouter.post('/:code/join', async (req, res) => {
     }
 
     const room = await prisma.room.findUnique({
-      where: { code: normalizeRoomCode(req.params.code) },
+      where: { code: req.params.code },
     });
 
     if (!room) {
@@ -362,16 +299,9 @@ roomsRouter.post('/:code/join', async (req, res) => {
       });
     }
 
-    // Check PIN - compare hashes properly
+    // Check PIN
     if (room.pinHash) {
-      // PIN is stored as SHA256 hash, compare hashes directly
-      if (!pin) {
-        return res.status(403).json({
-          success: false,
-          error: { code: 'INVALID_PIN', message: 'PIN erforderlich.' },
-        });
-      }
-      const pinHash = crypto.createHash('sha256').update(pin).digest('hex');
+      const pinHash = crypto.createHash('sha256').update(pin || '').digest('hex');
       if (pinHash !== room.pinHash) {
         return res.status(403).json({
           success: false,
@@ -392,10 +322,10 @@ roomsRouter.post('/:code/join', async (req, res) => {
       });
     }
 
-    // Generate new rejoin token for this join
-    const newRejoinToken = crypto.randomUUID();
+    // Create rejoin token
+    const rejoinToken = uuid();
 
-    // Create participation with rejoinTokenVersion: 1 on first join
+    // Create participation
     const participation = await prisma.participation.create({
       data: {
         roomId: room.id,
@@ -404,8 +334,7 @@ roomsRouter.post('/:code/join', async (req, res) => {
         role: 'PLAYER',
         connected: true,
         ready: false,
-        rejoinToken: newRejoinToken,
-        rejoinTokenVersion: 1,
+        rejoinToken,
       },
     });
 
@@ -414,10 +343,10 @@ roomsRouter.post('/:code/join', async (req, res) => {
     res.status(201).json({
       success: true,
       data: {
-        rejoinToken: newRejoinToken,
         participationId: participation.id,
-        role: 'PLAYER',
-        roomCode: room.code,
+        rejoinToken,
+        roomId: room.id,
+        displayName,
       },
     });
   } catch (error) {
@@ -425,126 +354,6 @@ roomsRouter.post('/:code/join', async (req, res) => {
     res.status(500).json({
       success: false,
       error: { code: 'INTERNAL_ERROR', message: 'Beitritt fehlgeschlagen.' },
-    });
-  }
-});
-
-// DELETE /api/v1/rooms/:code - Close room (moderator only)
-roomsRouter.delete('/:code', async (req, res) => {
-  try {
-    const sessionId = verifySession(req, config.sessionSecret);
-    if (!sessionId) {
-      return res.status(401).json({
-        success: false,
-        error: { code: 'NOT_AUTHENTICATED', message: 'Anmeldung erforderlich.' },
-      });
-    }
-
-    const session = await prisma.session.findUnique({
-      where: { id: sessionId },
-      include: { user: true },
-    });
-
-    if (!session || session.revokedAt || session.expiresAt < new Date()) {
-      return res.status(401).json({
-        success: false,
-        error: { code: 'SESSION_EXPIRED', message: 'Sitzung abgelaufen.' },
-      });
-    }
-
-    const roomData = await prisma.room.findUnique({
-      where: { code: normalizeRoomCode(req.params.code) },
-    });
-
-    if (!roomData) {
-      return res.status(404).json({
-        success: false,
-        error: { code: 'NOT_FOUND', message: 'Raum nicht gefunden.' },
-      });
-    }
-
-    // Only host can close their room
-    if (roomData.hostUserId !== session.userId) {
-      return res.status(403).json({
-        success: false,
-        error: { code: 'UNAUTHORIZED', message: 'Nur der Raum-Ersteller kann den Raum schließen.' },
-      });
-    }
-
-    const room = await prisma.room.update({
-      where: { code: normalizeRoomCode(req.params.code) },
-      data: { status: 'ARCHIVED', archivedAt: new Date() },
-    });
-
-    logger.info('Room closed', { roomId: room.id, code: room.code });
-    res.json({ success: true });
-  } catch (error) {
-    logger.error('Failed to close room', { error });
-    res.status(500).json({
-      success: false,
-      error: { code: 'INTERNAL_ERROR', message: 'Raum konnte nicht geschlossen werden.' },
-    });
-  }
-});
-
-// GET /api/v1/rooms/:code/results - Get game results
-roomsRouter.get('/:code/results', async (req, res) => {
-  try {
-    const room = await prisma.room.findUnique({
-      where: { code: normalizeRoomCode(req.params.code) },
-      include: {
-        gameDefinition: { select: { slug: true, name: true } },
-        participations: {
-          where: { role: { not: 'VIEWER' } },
-          orderBy: { score: 'desc' },
-          select: { id: true, displayName: true, role: true, score: true },
-        },
-        gameState: {
-          select: { phase: true, stateJson: true },
-        },
-      },
-    });
-
-    if (!room) {
-      return res.status(404).json({
-        success: false,
-        error: { code: 'NOT_FOUND', message: 'Raum nicht gefunden.' },
-      });
-    }
-
-    // Return results for ENDED rooms or RUNNING rooms with RESULTS phase
-    if (room.status !== 'ENDED' && room.status !== 'RUNNING' && room.status !== 'LOBBY') {
-      return res.status(404).json({
-        success: false,
-        error: { code: 'RESULTS_NOT_AVAILABLE', message: 'Ergebnisse noch nicht verfügbar.' },
-      });
-    }
-
-    const rankedPlayers = room.participations.map((p, i) => ({
-      rank: i + 1,
-      participationId: p.id,
-      displayName: p.displayName,
-      role: p.role,
-      score: p.score,
-    }));
-
-    res.json({
-      success: true,
-      data: {
-        roomCode: room.code,
-        roomName: room.roomName,
-        status: room.status,
-        runPhase: room.runPhase,
-        game: room.gameDefinition,
-        scores: rankedPlayers,
-        endedAt: room.endedAt,
-      },
-    });
-  } catch (error) {
-    logger.error('Failed to get results', { error });
-    res.status(500).json({
-      success: false,
-      error: { code: 'INTERNAL_ERROR', message: 'Ergebnisse konnten nicht geladen werden.' },
     });
   }
 });

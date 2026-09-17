@@ -1,5 +1,5 @@
 /* ============================================================
-   Home Page Styles – v0.3.0 (Modern, clear, no flashy effects)
+   Home Page Styles – v0.2.0 (Gamified + playful)
    ============================================================ */
 
 .page {
@@ -50,9 +50,13 @@
   height: 6px;
   border-radius: 50%;
   background: var(--accent);
+  animation: pulse-dot 2s ease-in-out infinite;
 }
 
-
+@keyframes pulse-dot {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50%       { opacity: 0.5; transform: scale(1.4); }
+}
 
 .heroTitle {
   font-family: var(--font-display);
@@ -196,12 +200,15 @@
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
-  transition: border-color 0.2s, box-shadow 0.2s;
+  transition: transform 0.2s cubic-bezier(0.34,1.56,0.64,1),
+              border-color 0.2s,
+              box-shadow 0.2s;
 }
 
 .step:hover {
-  border-color: var(--border-hover);
-  box-shadow: var(--shadow-sm);
+  transform: translateY(-3px);
+  border-color: rgba(29,212,212,0.3);
+  box-shadow: 0 8px 24px rgba(0,0,0,0.3);
 }
 
 .stepNumber {

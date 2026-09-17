@@ -4,11 +4,10 @@
 
 import { useParams, useNavigate } from 'react-router-dom';
 import { useEffect, useState, useRef } from 'react';
-import { Socket } from 'socket.io-client';
-import { getSocket, connectSocket, disconnectSocket } from '../lib/socket';
-import { getSession } from '../lib/sessionStore';
+import { io, Socket } from 'socket.io-client';
 import { Card, Button, Badge } from '@quiz/ui';
 import { Timer } from '@quiz/ui';
+import { BuzzerButton } from '@quiz/ui';
 import styles from './PlayerGamePage.module.css';
 
 export function PlayerGamePage() {
@@ -16,7 +15,7 @@ export function PlayerGamePage() {
   const navigate = useNavigate();
   const socketRef = useRef<Socket | null>(null);
   const [connected, setConnected] = useState(false);
-  const [, setPhase] = useState<string>('WAITING');
+  const [phase, setPhase] = useState<string>('WAITING');
   const [question, setQuestion] = useState<any>(null);
   const [selectedOption, setSelectedOption] = useState<string | null>(null);
   const [locked, setLocked] = useState(false);
@@ -30,14 +29,14 @@ export function PlayerGamePage() {
   const [eliminatedOptions, setEliminatedOptions] = useState<string[]>([]);
   const [revealed, setRevealed] = useState(false);
   const [result, setResult] = useState<any>(null);
-  const session = getSession();
-  const rejoinToken = session.rejoinToken;
+  const rejoinToken = localStorage.getItem('rejoinToken');
 
   useEffect(() => {
-    socketRef.current = getSocket();
-    const socket = socketRef.current;
-
-    connectSocket();
+    const socket = io(window.location.origin, {
+      withCredentials: true,
+      auth: { rejoinToken },
+    });
+    socketRef.current = socket;
 
     socket.on('connect', () => setConnected(true));
     socket.on('disconnect', () => setConnected(false));
@@ -48,9 +47,9 @@ export function PlayerGamePage() {
       }
     });
 
-    socket.on('geo:question', (data) => {
+    socket.on('geo:show', (data) => {
       setQuestion(data.question);
-      setEndsAt(data.timerEndMs);
+      setEndsAt(data.endsAt);
       setSelectedOption(null);
       setLocked(false);
       setRevealed(false);
@@ -79,22 +78,21 @@ export function PlayerGamePage() {
       setRevealed(true);
       setResult(data);
       
-      // Update score from result - use socket identity if available
-      const myPartId = socket.data?.participationId || session.participationId;
-      const myResult = data.scores?.find((s: any) => s.participationId === myPartId);
+      // Update score from result
+      const myResult = data.scores?.find((s: any) => s.participationId === rejoinToken);
       if (myResult) {
         setScore(myResult.totalScore);
       }
     });
 
-    socket.on('buzz:won', (_data) => {
+    socket.on('buzz:won', (data) => {
       // Someone buzzed - only relevant if this client buzzed
     });
 
     // Subscribe to room
     socket.emit('room:subscribe', { roomCode: code, rejoinToken });
 
-    return () => { disconnectSocket(); };
+    return () => socket.disconnect();
   }, [code, navigate, rejoinToken]);
 
   const handleSelectOption = (optionId: string) => {
@@ -106,6 +104,7 @@ export function PlayerGamePage() {
     socketRef.current?.emit('geo:answer', {
       roomCode: code,
       optionId,
+      rejoinToken,
     });
   };
 
@@ -114,6 +113,7 @@ export function PlayerGamePage() {
     
     socketRef.current?.emit('geo:joker:5050', {
       roomCode: code,
+      rejoinToken,
     });
   };
 
@@ -122,6 +122,7 @@ export function PlayerGamePage() {
     
     socketRef.current?.emit('geo:joker:spy', {
       roomCode: code,
+      rejoinToken,
     });
   };
 
@@ -130,6 +131,7 @@ export function PlayerGamePage() {
     
     socketRef.current?.emit('geo:joker:risk', {
       roomCode: code,
+      rejoinToken,
     });
   };
 

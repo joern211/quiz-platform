@@ -3,8 +3,8 @@
 // ============================================================
 
 import { Server, Socket } from 'socket.io';
-import { prisma } from '../../persistence/prisma.js';
-import { logger } from '../../observability/logger.js';
+import { prisma } from '../persistence/prisma.js';
+import { logger } from '../observability/logger.js';
 
 interface SongState {
   clips: Array<{
@@ -34,7 +34,7 @@ export function initSongHandlers(io: Server, socket: Socket) {
     const room = await prisma.room.findUnique({ where: { code: roomCode } });
     if (!room || room.status !== 'RUNNING') return;
 
-    const setup = room.setupSnapshotJson as any;
+    const setup = room.setupSnapshot as any;
     const clips = setup?.clips || [];
     const judgeMode = setup?.judgeMode || 'strict';
 
@@ -154,6 +154,6 @@ export function initSongHandlers(io: Server, socket: Socket) {
   };
 }
 
-export function initSongState(_roomCode: string) {
+export function initSongState(roomCode: string) {
   // State initialized when game starts
 }

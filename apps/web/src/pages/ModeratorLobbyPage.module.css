@@ -1,5 +1,5 @@
 /* ============================================================
-   Moderator Lobby Page Styles – v0.3.0
+   Moderator Lobby Page Styles – v0.2.0
    ============================================================ */
 
 .page {
@@ -12,14 +12,14 @@
   display: flex;
   justify-content: space-between;
   align-items: flex-start;
-  margin-bottom: var(--space-6);
+  margin-bottom: var(--space-8);
   flex-wrap: wrap;
   gap: var(--space-4);
 }
 
 .title {
   font-family: var(--font-display);
-  font-size: 1.75rem;
+  font-size: 2rem;
   font-weight: 900;
   letter-spacing: -0.04em;
   color: var(--fg);
@@ -28,30 +28,12 @@
 
 .subtitle {
   font-family: var(--font-display);
-  font-size: 1.25rem;
+  font-size: 1.5rem;
   color: var(--accent);
-  letter-spacing: 0.15em;
+  letter-spacing: 0.2em;
   font-weight: 800;
 }
 
-.headerRight {
-  display: flex;
-  align-items: center;
-  gap: var(--space-3);
-}
-
-/* Error banner */
-.errorBanner {
-  padding: var(--space-3) var(--space-4);
-  background: rgba(255, 93, 115, 0.15);
-  border: 1px solid rgba(255, 93, 115, 0.3);
-  border-radius: var(--radius);
-  color: #ff5d73;
-  font-size: 0.875rem;
-  margin-bottom: var(--space-4);
-}
-
-/* Player grid */
 .grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -61,7 +43,7 @@
 
 .grid :global(h2) {
   font-family: var(--font-display);
-  font-size: 1rem;
+  font-size: 1.1rem;
   margin-bottom: var(--space-4);
   color: var(--fg);
 }
@@ -71,7 +53,7 @@
   display: flex;
   flex-direction: column;
   gap: var(--space-2);
-  max-height: 300px;
+  max-height: 320px;
   overflow-y: auto;
   padding-right: var(--space-1);
 }
@@ -117,13 +99,13 @@
 /* Invite section */
 .inviteSection {
   text-align: center;
-  padding: var(--space-2) 0;
+  padding: var(--space-4) 0;
 }
 
-.inviteHint {
+.inviteSection p {
   color: var(--muted);
   margin-bottom: var(--space-4);
-  font-size: 0.875rem;
+  font-size: 0.9rem;
 }
 
 .codeDisplay {
@@ -131,52 +113,25 @@
   align-items: center;
   justify-content: center;
   gap: var(--space-4);
-  margin-bottom: var(--space-5);
-  flex-wrap: wrap;
+  margin-bottom: var(--space-6);
 }
 
 .code {
   font-family: var(--font-display);
-  font-size: 2rem;
+  font-size: 2.5rem;
   font-weight: 900;
   letter-spacing: 0.25em;
   color: var(--accent);
-  text-shadow: 0 0 20px rgba(29, 212, 212, 0.4);
-}
-
-/* QR code section */
-.qrSection {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: var(--space-2);
-}
-
-.qrCode {
-  width: 160px;
-  height: 160px;
-  border-radius: var(--radius);
-  border: 1px solid var(--border);
-  background: white;
-  padding: var(--space-2);
-}
-
-.qrHint {
-  font-size: 0.75rem;
-  color: var(--muted);
+  text-shadow: 0 0 20px rgba(29, 212, 212, 0.5);
 }
 
 .qrPlaceholder {
-  width: 160px;
-  height: 160px;
   background: var(--surface-2);
   border-radius: var(--radius-lg);
   border: 1px dashed var(--border);
-  display: flex;
-  align-items: center;
-  justify-content: center;
+  padding: var(--space-6);
   color: var(--muted);
-  font-size: 0.8rem;
+  font-size: 0.85rem;
 }
 
 /* Controls */
@@ -189,9 +144,6 @@
   display: flex;
   flex-wrap: wrap;
   gap: var(--space-3);
-  margin-bottom: var(--space-4);
-  padding-bottom: var(--space-4);
-  border-bottom: 1px solid var(--border);
 }
 
 .startSection {
@@ -212,7 +164,5 @@
 }
 
 @media (max-width: 700px) {
-  .grid {
-    grid-template-columns: 1fr;
-  }
+  .grid { grid-template-columns: 1fr; }
 }

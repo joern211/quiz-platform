@@ -3,7 +3,7 @@
 // ============================================================
 
 import { useParams, useNavigate } from 'react-router-dom';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Card, Button, Input } from '@quiz/ui';
 import styles from './ModeratorSetupPage.module.css';
 
@@ -17,7 +17,7 @@ export function ModeratorSetupPage() {
   const [loading, setLoading] = useState(false);
 
   // Geo-specific setup
-  const [selectedQuestions] = useState<string[]>([]);
+  const [selectedQuestions, setSelectedQuestions] = useState<string[]>([]);
   const [questionCount, setQuestionCount] = useState(10);
   const [timerDuration, setTimerDuration] = useState(20);
 
@@ -25,7 +25,6 @@ export function ModeratorSetupPage() {
     setLoading(true);
 
     try {
-      // P0-02: send setupSnapshotJson instead of setup; server stores JSON string
       const res = await fetch('/api/v1/rooms', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -36,25 +35,25 @@ export function ModeratorSetupPage() {
           pin: pin || undefined,
           maxPlayers,
           allowViewers,
-          setupSnapshotJson: JSON.stringify({
+          setup: {
             questionCount,
             timerDuration,
             selectedQuestionIds: selectedQuestions,
-          }),
+          },
         }),
       });
 
       const data = await res.json();
 
-      if (!res.ok || !data.success) {
-        alert(data.error?.message || 'Raum konnte nicht erstellt werden');
+      if (!res.ok) {
+        alert(data.error || 'Raum konnte nicht erstellt werden');
         setLoading(false);
         return;
       }
 
-      // data.data.code is the room code
-      navigate(`/moderator/raum/${data.data.code}/lobby`);
-    } catch {
+      // Navigate to mod lobby
+      navigate(`/moderator/raum/${data.code}/lobby`);
+    } catch (err) {
       alert('Verbindungsfehler');
       setLoading(false);
     }

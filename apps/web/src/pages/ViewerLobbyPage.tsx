@@ -4,7 +4,7 @@
 
 import { useParams } from 'react-router-dom';
 import { useEffect, useState } from 'react';
-import { getSocket, connectSocket, disconnectSocket } from '../lib/socket';
+import { io } from 'socket.io-client';
 import { Card, Badge } from '@quiz/ui';
 import styles from './ViewerLobbyPage.module.css';
 
@@ -15,20 +15,18 @@ export function ViewerLobbyPage() {
   const [roomInfo, setRoomInfo] = useState<any>(null);
 
   useEffect(() => {
-    const socket = getSocket();
-
-    connectSocket();
+    const socket = io(window.location.origin, { withCredentials: true });
     
     socket.on('connect', () => setConnected(true));
     socket.on('disconnect', () => setConnected(false));
     
-    socket.emit('room:subscribe', { roomCode: code ?? '', role: 'VIEWER' }, () => {});
+    socket.emit('room:subscribe', { roomCode: code, role: 'viewer' });
     
     socket.on('room:snapshot', (data) => {
       setRoomInfo(data);
       setPlayers(data.players || []);
       if (data.status === 'RUNNING') {
-        window.location.href = `/zuschauen/${code}/spiel`;
+        window.location.href = `/zuschauen/${code}`;
       }
     });
 
@@ -36,7 +34,7 @@ export function ViewerLobbyPage() {
       setPlayers(data.players || []);
     });
 
-    return () => { disconnectSocket(); };
+    return () => socket.disconnect();
   }, [code]);
 
   return (
