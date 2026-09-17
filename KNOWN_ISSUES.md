@@ -68,8 +68,8 @@
 
 ### P1 – Kritisch (behoben in Branch `gate-1-2-fixes`)
 
-| ID | Problem | Status |
-|----|---------|--------|
+| ID | Problem | Status | Behoben in |
+|----|---------|--------|------------|
 | SEC-005 | PIN mit ungesalzenem SHA-256 → argon2id Hashing | ✅ FIXED | commit 479fe76 |
 | SEC-006 | Cookie: `SameSite=Lax` → `Strict` in Prod + `Secure` Flag | ✅ FIXED | commit 479fe76 |
 | SOCK-004 | Kick + Chat-lock ohne `requireRoomRole` Check | ✅ FIXED | commit 18851cf |
@@ -79,6 +79,9 @@
 | GAME-004 | Spieleransicht: keine Scoreboard, keine Joker-Nutzung angezeigt | ✅ FIXED | commit 78eb231 |
 | GAME-005 | 50:50 nummeriert nach Filterung neu → Original-Labels behalten | ✅ FIXED | commit 78eb231 |
 | GAME-006 | Spy-Joker: keine Auswertung → Verteilung wird angezeigt | ✅ FIXED | commit 78eb231 |
+| CAT-001 | Widersprüchliche Katalogquellen (mock vs DB) | ✅ FIXED | commit 110ae77 |
+| CAT-002 | Erfundene Spielzahlen → echte DB-Zählung | ✅ FIXED | commit 110ae77 |
+| CAT-003 | Mock-API mit `setTimeout(300)` → echte DB-Queries | ✅ FIXED | commit 110ae77 |
 
 ### P2 – Hoch (teilweise behoben)
 
@@ -110,12 +113,15 @@
 | API-003 | Profil/AV nicht im Beitrittsweg (Join → ProfilePage → Lobby) | P1 | Subagent kümmert sich |
 | SEC-002 | Nicht alle Moderator-Socket-Aktionen nutzen `requireRoomRole` | P1 | Geprüft: die wichtigsten tun es; Rest niedrig |
 | SEC-007 | Zod-Validierung nicht durchgängig | P1 | Zod nicht in package.json; minimaler Nutzen |
-| FLOW-003 | GeoSetupPage routing | P1 | ModeratorSetupPage existiert bereits; prüfen |
+| FLOW-003 | GeoSetupPage routing | P1 | ModeratorSetupPage existiert bereits |
 | FLOW-004 | Profil/AV-Weg nicht wie spezifiziert | P1 | Subagent kümmert sich |
 | FLOW-007 | Direkte Reloads nicht robust | P1 | SessionStore + sessionStorage vorhanden |
 | GAME-002 | `activeTimers` Map in geo/index.ts ist In-Memory | P2 | Nach Server-Restart verloren; akzeptabel für MVP |
 | GAME-007 | Max. 4 Kameras nicht durchgesetzt | P2 | Jeopardy-spezifisch; Engine nicht vollständig |
 | GAME-008 | Spielfläche/Kameraraster nicht konsistent | P2 | Jeopardy-spezifisch; Engine nicht vollständig |
+| UI-001 bis UI-012 | UI-Accessibility und Light Theme | P2 | 🔄 Subagent in Bearbeitung |
+| PWA-001/002/003 | PWA Service Worker + Manifest | P3 | 🔄 Subagent in Bearbeitung |
+| MEDIA-001 | Medien-Upload | P3 | Bereits vollständig implementiert in media.ts ✅ |
 
 ---
 

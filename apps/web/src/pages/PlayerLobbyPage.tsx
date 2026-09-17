@@ -30,6 +30,13 @@ export function PlayerLobbyPage() {
     }
   }, [code]);
 
+  // FLOW-007: redirect to /join if session is missing required data
+  useEffect(() => {
+    if (!session.participationId || !session.roomCode || session.roomCode !== code) {
+      navigate('/');
+    }
+  }, [session, code, navigate]);
+
   useEffect(() => {
     socketRef.current = getSocket();
     const socket = socketRef.current;

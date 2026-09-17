@@ -3,33 +3,33 @@
   "short_name": "Quiz",
   "description": "Spieleplattform für Freundesgruppen - Quiz, Buzzer, Schätz- und Kreativspiele",
   "start_url": "/",
+  "scope": "/",
   "display": "standalone",
   "background_color": "#0e1116",
   "theme_color": "#0e1116",
   "orientation": "any",
   "categories": ["games", "entertainment"],
+  "version": "1.0.0",
   "icons": [
     {
       "src": "/icon-192.png",
       "sizes": "192x192",
       "type": "image/png",
-      "purpose": "any maskable"
+      "purpose": "any"
     },
     {
       "src": "/icon-512.png",
       "sizes": "512x512",
       "type": "image/png",
-      "purpose": "any maskable"
+      "purpose": "any"
     }
   ],
-  "screenshots": [],
   "shortcuts": [
     {
       "name": "Neues Spiel erstellen",
       "short_name": "Neues Spiel",
       "description": "Erstelle einen neuen Quiz-Raum",
-      "url": "/",
-      "icons": [{ "src": "/icon-192.png", "sizes": "192x192" }]
+      "url": "/"
     }
   ]
 }
