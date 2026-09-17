@@ -65,7 +65,10 @@
 
 .avatarPlaceholder { background: var(--muted); color: var(--bg); }
 
-.avatarGenerated { color: white; }
+.avatarGenerated {
+  background-color: var(--avatar-color, var(--accent));
+  color: white;
+}
 
 .info {
   flex: 1;

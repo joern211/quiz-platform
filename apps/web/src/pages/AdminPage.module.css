@@ -9,5 +9,10 @@
 }
 
 .backButton {
-  margin-top: var(--space-6);
+  margin-top: var(--space-4);
+}
+
+.adminNote {
+  margin-top: var(--space-4);
+  color: var(--muted);
 }

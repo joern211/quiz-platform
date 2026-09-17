@@ -194,3 +194,13 @@
     grid-column: 1 / -1;
   }
 }
+
+/* P2-7: Screen-reader-only hide for file input */
+.fileInputHidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}

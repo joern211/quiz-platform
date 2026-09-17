@@ -55,9 +55,9 @@ export function Scoreboard({
               </div>
             )}
             {player.avatarMode === 'avatar' && player.avatarGenerated && (
-              <div 
+              <div
                 className={styles.avatarGenerated}
-                style={{ backgroundColor: player.avatarGenerated.color }}
+                style={{ '--avatar-color': player.avatarGenerated.color } as React.CSSProperties}
               >
                 {player.avatarGenerated.initials}
               </div>

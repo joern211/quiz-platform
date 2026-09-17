@@ -18,7 +18,7 @@ export function AdminPage() {
           <li>Backups erstellen und wiederherstellen</li>
           <li>Auditprotokolle einsehen</li>
         </ul>
-        <p style={{ marginTop: '1rem', color: 'var(--muted)' }}>
+        <p className={styles.adminNote}>
           (Phase 9 — kommt in einer späteren Version)
         </p>
       </Card>

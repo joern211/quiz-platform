@@ -237,7 +237,7 @@ export function JeopardySetupPage() {
               ref={fileInputRef}
               onChange={handleImport}
               accept=".json"
-              style={{ display: 'none' }}
+              className={styles.fileInputHidden}
             />
             <Button variant="secondary" onClick={handleExport}>
               Exportieren
