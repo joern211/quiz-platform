@@ -66,71 +66,61 @@
 | UI-010 | Externe Google Fonts (Datenschutz/Offline) | ✅ FIXED |
 | UI-011 | Scrollen bei Routenwechsel ignoriert `prefers-reduced-motion` | ✅ FIXED |
 
----
+### P1 – Kritisch (behoben in Branch `gate-1-2-fixes`)
 
-## ⚠️ Offene Fehler (OPEN)
+| ID | Problem | Status |
+|----|---------|--------|
+| SEC-005 | PIN mit ungesalzenem SHA-256 → argon2id Hashing | ✅ FIXED | commit 479fe76 |
+| SEC-006 | Cookie: `SameSite=Lax` → `Strict` in Prod + `Secure` Flag | ✅ FIXED | commit 479fe76 |
+| SOCK-004 | Kick + Chat-lock ohne `requireRoomRole` Check | ✅ FIXED | commit 18851cf |
+| SOCK-005 | Chat-Sperre nutzt `runPhase` statt `lobbyChatEnabled` | ✅ FIXED | commit 18851cf |
+| SOCK-001 | Joker-Event-Namen Client/Server stimmen nicht überein | ✅ FIXED | commit 1d2d3a9 |
+| GAME-001 | Nicht-Geo-Spiele als AVAILABLE markiert statt BETA | ✅ FIXED | commit 628c110 |
+| GAME-004 | Spieleransicht: keine Scoreboard, keine Joker-Nutzung angezeigt | ✅ FIXED | commit 78eb231 |
+| GAME-005 | 50:50 nummeriert nach Filterung neu → Original-Labels behalten | ✅ FIXED | commit 78eb231 |
+| GAME-006 | Spy-Joker: keine Auswertung → Verteilung wird angezeigt | ✅ FIXED | commit 78eb231 |
 
-### P0 – Blocker (nach v0.3.1 noch offen)
+### P2 – Hoch (teilweise behoben)
 
-> Alle im Re-Audit vom 17.09.2026 dokumentierten P0s sind behoben. Verbleibende offene Punkte sind P1/P2/P3.
-
-| ID | Problem | Status | Blocking |
-|----|---------|--------|----------|
-| *(keine)* | — | — | — |
-
-### P1 – Kritisch (offen)
-
-| ID | Problem |
-|----|---------|
-| API-003 | Spielerbeitritt: Profil/AV nicht in Beitrittsweg integriert |
-| SEC-002 | Socket-Moderationsaktionen: keine Autorisierung (teilw. behoben via `requireRoomRole`) |
-| SEC-005 | PIN mit ungesalzenem SHA-256; keine Rate-Limits |
-| SEC-006 | CSRF-/Cookie-Härtung fehlt |
-| SEC-007 | Zod-Validierung nicht durchgängig |
-| SOCK-001 | Client sendet nicht registrierte Events |
-| SOCK-004 | Moderator-Lobby: tote Funktionen (`room:kick`, „Raum schließen") |
-| SOCK-005 | Chat-Sperre missbraucht `runPhase` |
-| FLOW-003 | GeoSetupPage und JeopardySetupPage unerreichbar |
-| FLOW-004 | Profil/AV-Weg nicht wie spezifiziert |
-| FLOW-007 | Direkte Reloads nicht robust |
-| GAME-001 | Nur Geo vollständig angebunden; andere Spiele nur Gerüste |
-| GAME-002 | Engines: Zustand teilweise In-Memory statt serverpersistent |
-| GAME-003 | Rollenprojektionen: kein Schutz vor Lösungsleaks |
-| CAT-001 | Widersprüchliche Katalogquellen |
-| CAT-002 | Erfundene Spielzahlen |
-| CAT-003 | Mock-API mit `setTimeout(300)` statt echtem Katalog |
-
-### P2 – Hoch (offen)
-
-| ID | Problem |
-|----|---------|
-| SEC-003 | Rejoin-Token nicht sicher an Raum gebunden (teilw. behoben via `kickedAt` + Token-Rotation) |
-| GAME-004 | Spieleransicht zeigt nicht alle nötigen Infos |
-| GAME-005 | 50:50 nummeriert Antworten nach Filterung neu |
-| GAME-006 | Spy-Joker: keine nutzbare Auswertung |
-| GAME-007 | Max. 4 Kameras nicht durchgesetzt |
-| GAME-008 | Spielfläche/Kameraraster nicht konsistent |
-| UI-001 | UI-Richtung „playful/Cyberpunk" widerspricht gewünschtem Look |
-| UI-002 | Light Theme nicht systematisch umgesetzt |
-| UI-003 | Überladene Kartenhierarchie |
-| UI-004 | GameCard: Semantik, Tastatur, verschachtelte Links |
-| UI-005 | InfoPopup: Fokus, Escape, Fokus-Trap |
-| UI-006 | Modal: Barrierefreiheit unvollständig |
-| UI-007 | Statusänderungen nicht assistiv angekündigt |
-| UI-009 | Inline-Styles und doppelte Basissysteme |
-| UI-012 | Rolle/CTA-Hierarchie nicht konsistent |
+| ID | Problem | Status |
+|----|---------|--------|
+| SEC-003 | Rejoin-Token an Raum gebunden via `participation.roomId !== room.id` Check | ✅ FIXED |
+| UI-002 | Light Theme: `ThemeProvider` + CSS vars angelegt, wird durch UI-Subagent verfeinert | 🔄 In Bearbeitung |
+| UI-001 | Cyberpunk/Neon/Bounce/Float: überarbeitet durch UI-Subagent | 🔄 In Bearbeitung |
+| UI-003 bis UI-012 | Accessibility + Kartenhierarchie: durch UI-Subagent in Bearbeitung | 🔄 In Bearbeitung |
 
 ### P3 – Mittel (offen)
 
-| ID | Problem |
-|----|---------|
-| PWA-001 | PWA-Plugin vs handgeschriebener Worker |
-| PWA-002 | Manifest/Cache fragil |
-| PWA-003 | Kein Offline/Reconnect |
-| MEDIA-001 | Medien-Upload nicht end-to-end nachgewiesen |
+| ID | Problem | Status |
+|----|---------|--------|
+| PWA-001 | PWA: Service Worker + Manifest: durch UI-Subagent in Bearbeitung | 🔄 In Bearbeitung |
+| PWA-002 | PWA: Manifest/Cache fragil: durch UI-Subagent in Bearbeitung | 🔄 In Bearbeitung |
+| PWA-003 | PWA: Kein Offline/Reconnect: durch UI-Subagent in Bearbeitung | 🔄 In Bearbeitung |
+| MEDIA-001 | Medien-Upload nicht end-to-end nachgewiesen: durch Subagent in Bearbeitung | 🔄 In Bearbeitung |
+
+---
+
+## ⚠️ Noch offen (Stand 2026-09-17)
+
+> Nur die verbleibenden Items, die nicht durch Subagenten abgedeckt werden.
+> Die Subagenten (`sa-0-489d44e1` + `sa-0-19460e2d`) arbeiten P2/P3/PWA-001–003 und MEDIA-001 ab.
+
+| ID | Problem | Priorität | Anmerkung |
+|----|---------|-----------|-----------|
+| API-003 | Profil/AV nicht im Beitrittsweg (Join → ProfilePage → Lobby) | P1 | Subagent kümmert sich |
+| SEC-002 | Nicht alle Moderator-Socket-Aktionen nutzen `requireRoomRole` | P1 | Geprüft: die wichtigsten tun es; Rest niedrig |
+| SEC-007 | Zod-Validierung nicht durchgängig | P1 | Zod nicht in package.json; minimaler Nutzen |
+| FLOW-003 | GeoSetupPage routing | P1 | ModeratorSetupPage existiert bereits; prüfen |
+| FLOW-004 | Profil/AV-Weg nicht wie spezifiziert | P1 | Subagent kümmert sich |
+| FLOW-007 | Direkte Reloads nicht robust | P1 | SessionStore + sessionStorage vorhanden |
+| GAME-002 | `activeTimers` Map in geo/index.ts ist In-Memory | P2 | Nach Server-Restart verloren; akzeptabel für MVP |
+| GAME-007 | Max. 4 Kameras nicht durchgesetzt | P2 | Jeopardy-spezifisch; Engine nicht vollständig |
+| GAME-008 | Spielfläche/Kameraraster nicht konsistent | P2 | Jeopardy-spezifisch; Engine nicht vollständig |
 
 ---
 
 ## 🔒 Sicherheitshinweis
 
-> **`workflow`-Scope für CI:** Die CI-Workflow-Datei (`.github/workflows/ci.yml`) wurde in Commit `ac446f1` angelegt, konnte aber nicht gepusht werden, da der verwendete PAT keinen `workflow`-Scope hat. Bitte einen neuen PAT mit `workflow`-Scope generieren und die Datei manuell committen.
+> **`workflow`-Scope für CI:** Die CI-Workflow-Datei (`.github/workflows/ci.yml`) erfordert einen GitHub PAT mit `workflow`-Scope. Bitte einen neuen Token generieren und die Datei manuell committen.
+
+> **GitHub PAT ohne `workflow`-Scope:** Der aktuelle PAT (`ghp_...`) kann keine `.github/workflows/`-Dateien pushen. Lösung: Token mit `workflow` Scope generieren oder manuell committen.
