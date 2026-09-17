@@ -18,17 +18,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: actions/setup-node@v4
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: 20
 
       - name: Install pnpm
-        uses: pnpm/action-setup@v4
-        with:
-          version: 9
-
-      - name: Enable Corepack
-        run: corepack enable
+        run: npm install -g pnpm@9
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
@@ -52,7 +48,3 @@ jobs:
 
       - name: Build
         run: pnpm build
-
-      - name: Install Playwright
-        if: github.event_name == 'push' && hashFiles('playwright.config.ts') != ''
-        run: pnpm exec playwright install --with-deps
