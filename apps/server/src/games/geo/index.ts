@@ -538,13 +538,11 @@ export const handleGeoGame = {
       }));
 
       // Send full options list with eliminated flags to this player only (private)
-      socket.emit('geo:joker:applied', {
-        type: '5050',
-        result: {
-          roundIndex: state.currentRoundIndex,
-          options: optionsWithEliminated,
-          eliminated,
-        },
+      const eventName = 'geo:joker:5050:result';
+      socket.emit(eventName, {
+        roundIndex: state.currentRoundIndex,
+        options: optionsWithEliminated,
+        eliminated,
       });
 
       await prisma.roomGameState.update({
@@ -652,13 +650,11 @@ export const handleGeoGame = {
 
       roundState.spyDistribution = distribution;
 
-      // Send only to this player using 'geo:joker:applied'
-      socket.emit('geo:joker:applied', {
-        type: 'spy',
-        result: {
-          roundIndex: state.currentRoundIndex,
-          distribution,
-        },
+      // Send spy distribution to this player only (private)
+      const spyEventName = 'geo:joker:spy:result';
+      socket.emit(spyEventName, {
+        roundIndex: state.currentRoundIndex,
+        distribution,
       });
 
       await prisma.roomGameState.update({
@@ -739,13 +735,11 @@ export const handleGeoGame = {
       // Mark joker as used
       playerState.jokers.usedRisk = true;
 
-      // Confirm to player using 'geo:joker:applied'
-      socket.emit('geo:joker:applied', {
-        type: 'risk',
-        result: {
-          roundIndex: state.currentRoundIndex,
-          active: true,
-        },
+      // Confirm risk joker to player using the correct event name
+      const riskEventName = 'geo:joker:risk:result';
+      socket.emit(riskEventName, {
+        roundIndex: state.currentRoundIndex,
+        active: true,
       });
 
       await prisma.roomGameState.update({
