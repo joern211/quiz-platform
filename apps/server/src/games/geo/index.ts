@@ -846,14 +846,14 @@ export const handleGeoGame = {
       });
 
       // Cancel active timer if any
-      const existingTimer = activeTimers.get(data.roomCode);
+      const existingTimer = activeTimers.get(room.id);
       if (existingTimer) {
         clearTimeout(existingTimer);
-        activeTimers.delete(data.roomCode);
+        activeTimers.delete(room.id);
       }
 
       // P0-04: Emit 'geo:reveal' with correctOptionId and scores
-      io.to(data.roomCode).emit('geo:reveal', {
+      io.to(roomChannel(room.id)).emit('geo:reveal', {
         roundIndex: state.currentRoundIndex,
         correctOptionId: question.correctOptionId,
         correctOptionText: correctOption?.text,
@@ -928,7 +928,7 @@ export const handleGeoGame = {
       });
 
       // P0-04: Emit 'geo:next' (after reveal, to trigger next round)
-      io.to(data.roomCode).emit('geo:next', {
+      io.to(roomChannel(room.id)).emit('geo:next', {
         nextRoundIndex: state.currentRoundIndex,
         totalQuestions: state.questions.length,
       });
@@ -983,7 +983,7 @@ export const handleGeoGame = {
       }))
       .sort((a, b) => b.score - a.score);
 
-    io.to(room.code).emit('game:end', {
+    io.to(roomChannel(room.id)).emit('game:end', {
       roomCode: room.code,
       status: 'ENDED',
       runPhase: 'RESULTS',
