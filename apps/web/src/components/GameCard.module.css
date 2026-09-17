@@ -1,5 +1,5 @@
 /* ============================================================
-   Game Card Styles – v0.3.0 (Clean, no shimmer/glow/bounce)
+   Game Card Styles – v0.3.0 (Article, semantic, accessible)
    ============================================================ */
 
 .card {
@@ -13,30 +13,35 @@
   height: 100%;
   display: flex;
   flex-direction: column;
+  padding: var(--space-4);
+  gap: var(--space-2);
 }
 
-/* Subtle hover — no neon, no shine sweep */
 .card:hover {
   transform: translateY(-2px) scale(1.01);
   border-color: var(--border-hover);
   box-shadow: var(--shadow-md);
 }
 
-/* ── Card Header ── */
+.card:focus-within {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
 .header {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
-  padding: var(--space-4) var(--space-4) var(--space-2);
   gap: var(--space-2);
 }
 
-.icon { font-size: 2.5rem; line-height: 1; }
-
-.badges { display: flex; flex-wrap: wrap; gap: 4px; justify-content: flex-end; }
-
-/* ── Card Body ── */
-.body { flex: 1; padding: 0 var(--space-4) var(--space-3); }
+.badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  justify-content: flex-end;
+  flex-shrink: 0;
+}
 
 .name {
   font-family: var(--font-display);
@@ -48,57 +53,48 @@
   letter-spacing: -0.02em;
 }
 
-.shortRules {
+.category {
   font-size: 0.8rem;
   color: var(--muted);
-  line-height: 1.5;
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
 }
 
-/* ── Card Footer ── */
-.footer {
+.meta {
+  display: flex;
+  gap: var(--space-3);
+  font-size: 0.75rem;
+  color: var(--muted);
+}
+
+.meta span {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.actions {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: var(--space-3) var(--space-4);
+  margin-top: auto;
+  padding-top: var(--space-3);
   border-top: 1px solid var(--border);
 }
 
-.meta { display: flex; gap: var(--space-3); font-size: 0.75rem; color: var(--muted); }
-.meta span { display: flex; align-items: center; gap: 4px; }
-
-/* ── Status badges ── */
-.status { font-size: 0.7rem; font-weight: 700; padding: 2px 8px; border-radius: 999px; text-transform: uppercase; letter-spacing: 0.08em; }
-.status.AVAILABLE    { background: rgba(29, 209, 161, 0.15); color: var(--ok);     }
-.status.MAINTENANCE  { background: rgba(254, 202, 87, 0.15); color: var(--warn);   }
-.status.BETA         { background: rgba(29, 212, 212, 0.15); color: var(--accent); }
-.status.PLANNED      { background: var(--surface-2);         color: var(--muted);  }
-
-/* ── Click hint ── */
-.clickHint {
-  display: none;
-  position: absolute; inset: 0;
-  background: rgba(0, 0, 0, 0.5);
-  backdrop-filter: blur(2px);
-  align-items: center; justify-content: center;
-  border-radius: var(--radius-lg);
-  color: white; font-weight: 600; font-size: 0.9rem; gap: var(--space-2);
+.playLink {
+  font-weight: 600;
+  font-size: 0.875rem;
+  color: var(--accent);
+  text-decoration: none;
+  transition: color 0.15s ease;
+  padding: var(--space-1) var(--space-2);
+  border-radius: var(--radius-sm);
 }
-.card:hover .clickHint { display: flex; }
 
-/* ── Link overlay ── */
-.link { position: absolute; inset: 0; z-index: 1; }
-
-/* ── Info button ── */
-.infoBtn {
-  width: 28px; height: 28px; border-radius: 50%;
-  background: var(--surface-2); border: 1px solid var(--border);
-  color: var(--muted); display: flex; align-items: center; justify-content: center;
-  cursor: pointer; font-size: 0.75rem; font-weight: 700;
-  transition: color 0.15s, border-color 0.15s;
-  position: relative; z-index: 2;
+.playLink:hover {
+  color: var(--accent-strong);
 }
-.infoBtn:hover { color: var(--accent); border-color: var(--accent); }
+
+.playLink:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}

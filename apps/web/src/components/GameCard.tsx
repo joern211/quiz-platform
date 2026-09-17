@@ -1,5 +1,5 @@
 // ============================================================
-// Game Card Component
+// Game Card Component – v0.3.0 (Semantic, keyboard accessible, no nested links)
 // ============================================================
 
 import { Link } from 'react-router-dom';
@@ -24,25 +24,34 @@ interface GameCardProps {
   game: Game;
 }
 
+const statusBadge = {
+  AVAILABLE: { label: 'Verfügbar', variant: 'success' as const },
+  BETA: { label: 'Beta', variant: 'warning' as const },
+  PLANNED: { label: 'Geplant', variant: 'muted' as const },
+};
+
 export function GameCard({ game }: GameCardProps) {
-  const statusBadge = {
-    AVAILABLE: { label: 'Verfügbar', variant: 'success' as const },
-    BETA: { label: 'Beta', variant: 'warning' as const },
-    PLANNED: { label: 'Geplant', variant: 'muted' as const },
-  }[game.status];
+  const badge = statusBadge[game.status];
 
   const tags = [];
-  if (game.hasBuzzer) tags.push('Buzzer');
-  if (game.hasTeams) tags.push('Teams');
-  if (game.hasCamera) tags.push('Kamera');
-  if (game.hasAudio) tags.push('Audio');
+  if (game.hasBuzzer)  tags.push('Buzzer');
+  if (game.hasTeams)   tags.push('Teams');
+  if (game.hasCamera)  tags.push('Kamera');
+  if (game.hasAudio)   tags.push('Audio');
+
+  const rules = [
+    `Spieleranzahl: ${game.playerCount.min}-${game.playerCount.max}`,
+    `Dauer: ${game.duration}`,
+    ...(game.hasBuzzer ? ['Buzzer-Spiel'] : []),
+    ...(game.hasTeams ? ['Team-Modus verfügbar'] : []),
+  ];
 
   return (
-    <Card interactive padding="md" className={styles.card}>
+    <article className={styles.card} aria-label={`Spiel: ${game.name}`}>
       <div className={styles.header}>
         <h3 className={styles.name}>{game.name}</h3>
         <div className={styles.badges}>
-          <Badge variant={statusBadge.variant}>{statusBadge.label}</Badge>
+          <Badge variant={badge.variant}>{badge.label}</Badge>
           {tags.map(tag => (
             <Badge key={tag} variant="muted">{tag}</Badge>
           ))}
@@ -52,26 +61,25 @@ export function GameCard({ game }: GameCardProps) {
       <p className={styles.category}>{game.category}</p>
 
       <div className={styles.meta}>
-        <span>👥 {game.playerCount.min}-{game.playerCount.max} Spieler</span>
-        <span>⏱️ {game.duration}</span>
+        <span>👥 {game.playerCount.min}–{game.playerCount.max} Spieler</span>
+        <span>⏱ {game.duration}</span>
       </div>
 
       <div className={styles.actions}>
         <InfoPopup
           title={game.name}
           content={game.shortRules}
-          rules={[
-            `Spieleranzahl: ${game.playerCount.min}-${game.playerCount.max}`,
-            `Dauer: ${game.duration}`,
-            ...(game.hasBuzzer ? ['Buzzer-Spiel'] : []),
-            ...(game.hasTeams ? ['Team-Modus verfügbar'] : []),
-          ]}
+          rules={rules}
         />
-        
-        <Link to={`/spiel/${game.slug}`} className={styles.playLink}>
+
+        <Link
+          to={`/spiel/${game.slug}`}
+          className={styles.playLink}
+          aria-label={`${game.name} spielen`}
+        >
           Spielen →
         </Link>
       </div>
-    </Card>
+    </article>
   );
 }
