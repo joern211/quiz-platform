@@ -5,7 +5,7 @@
 import { Server, Socket } from 'socket.io';
 import { prisma } from '../../persistence/prisma.js';
 import { logger } from '../../observability/logger.js';
-import { requireRoomRole } from '../../http/middleware/auth.js';
+import { requireRoomRole, socketIdentityMap } from '../../http/middleware/auth.js';
 import { roomChannel } from '../../sockets/index.js';
 
 interface GeoPlayerState {
@@ -925,11 +925,13 @@ export const handleGeoGame = {
         select: { id: true, displayName: true, score: true },
       });
 
-      // P0-04/P0-17: Emit 'geo:reveal' with correctOptionId, scores array with displayName, correct, bonus
-      // P0-17: Include answers for each participant
+      // P0-17/P0-21: Split reveal into targeted messages:
+      // - Players/Viewers get geo:reveal WITHOUT correctOptionId (scores only)
+      // - Moderator gets geo:reveal WITH correctOptionId via targeted socket emit
+
+      // P0-21: Broadcast scores-only reveal to all (no correctOptionId - prevents cheating)
       io.to(roomChannel(room.id)).emit('geo:reveal', {
         roundIndex: state.currentRoundIndex,
-        correctOptionId: question.correctOptionId,
         correctOptionText: correctOption?.text,
         explanation: question.explanation,
         scores: participations.map((p: any) => {
@@ -943,6 +945,31 @@ export const handleGeoGame = {
           };
         }),
       });
+
+      // P0-21: Send correctOptionId ONLY to moderators via targeted socket emit
+      const moderatorSockets = [...socketIdentityMap.entries()]
+        .filter(([, identity]) => identity.roomId === room.id && identity.role === 'MODERATOR')
+        .map(([sid]) => io.sockets.sockets.get(sid))
+        .filter(Boolean);
+
+      for (const modSocket of moderatorSockets) {
+        modSocket?.emit('geo:reveal', {
+          roundIndex: state.currentRoundIndex,
+          correctOptionId: question.correctOptionId,
+          correctOptionText: correctOption?.text,
+          explanation: question.explanation,
+          scores: participations.map((p: any) => {
+            const answer = roundState.answers[p.id];
+            return {
+              participationId: p.id,
+              displayName: p.displayName,
+              score: state.scores[p.id] || 0,
+              correct: answer?.correct || false,
+              bonus: answer?.bonus || 0,
+            };
+          }),
+        });
+      }
 
       callback?.({ success: true });
     } catch (error) {
