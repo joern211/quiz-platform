@@ -15,8 +15,8 @@ import { handleGameEvents } from './game.js';
 // Room channel helper - returns a Socket.IO room identifier for a specific room
 export function roomChannel(roomId: string): string {
   // Socket.IO uses room names to emit to specific rooms
-  // The roomId is the primary identifier
-  return roomId;
+  // The roomId is the room UUID (not the public code)
+  return `room:${roomId}`;
 }
 
 export function setupSocketHandlers(io: Server) {

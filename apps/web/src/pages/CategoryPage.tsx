@@ -5,7 +5,6 @@
 import { useParams, Link } from 'react-router-dom';
 import { useEffect, useState } from 'react';
 import { GameCard } from '../components/GameCard';
-import { Badge } from '@quiz/ui';
 import styles from './CategoryPage.module.css';
 
 // Mock game data - in production this would come from the API

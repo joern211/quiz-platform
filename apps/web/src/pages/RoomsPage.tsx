@@ -32,7 +32,7 @@ export function RoomsPage() {
       if (json.success && json.data) {
         setRooms(json.data.rooms || []);
       }
-    } catch (err) {
+    } catch {
       console.error('Failed to fetch rooms');
     } finally {
       setLoading(false);

@@ -11,13 +11,16 @@
     "./types": "./src/types/index.ts"
   },
   "scripts": {
-    "typecheck": "tsc --noEmit",
-    "lint": "eslint src --ext .ts"
+    "typecheck": "tsc --noEmit -p tsconfig.json"
   },
   "dependencies": {
     "zod": "^3.23.8"
   },
   "devDependencies": {
-    "typescript": "^5.6.0"
+    "@eslint/js": "^10.0.1",
+    "eslint": "^10.10.0",
+    "eslint-plugin-react-hooks": "^7.1.1",
+    "typescript": "^5.6.0",
+    "typescript-eslint": "^8.70.0"
   }
 }

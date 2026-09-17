@@ -8,7 +8,6 @@ import { Socket } from 'socket.io-client';
 import { getSocket, connectSocket, disconnectSocket } from '../lib/socket';
 import { Card, Button, Badge } from '@quiz/ui';
 import { Timer } from '@quiz/ui';
-import { BuzzerButton } from '@quiz/ui';
 import styles from './PlayerGamePage.module.css';
 
 export function PlayerGamePage() {
@@ -16,7 +15,7 @@ export function PlayerGamePage() {
   const navigate = useNavigate();
   const socketRef = useRef<Socket | null>(null);
   const [connected, setConnected] = useState(false);
-  const [phase, setPhase] = useState<string>('WAITING');
+  const [, setPhase] = useState<string>('WAITING');
   const [question, setQuestion] = useState<any>(null);
   const [selectedOption, setSelectedOption] = useState<string | null>(null);
   const [locked, setLocked] = useState(false);
@@ -85,7 +84,7 @@ export function PlayerGamePage() {
       }
     });
 
-    socket.on('buzz:won', (data) => {
+    socket.on('buzz:won', (_data) => {
       // Someone buzzed - only relevant if this client buzzed
     });
 

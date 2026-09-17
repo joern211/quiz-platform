@@ -18,6 +18,14 @@ function generateRoomCode(): string {
   return `${String(d1).padStart(3, '0')}-${String(d2).padStart(3, '0')}`;
 }
 
+// Normalize room code to NNN-NNN format
+// Accepts: NNN-NNN, NNNNNN, NNN NNN, strips spaces/dashes
+export function normalizeRoomCode(raw: string): string {
+  const digits = raw.replace(/[^\d]/g, '').slice(0, 6);
+  if (digits.length < 6) return digits;
+  return `${digits.slice(0, 3)}-${digits.slice(3)}`;
+}
+
 // GET /api/v1/rooms/public - List public rooms
 roomsRouter.get('/public', async (_req, res) => {
   try {
@@ -110,7 +118,6 @@ roomsRouter.post('/', async (req, res) => {
       gameDefinitionId,
       roomName,
       pin,
-      isPublic = true,
       maxPlayers = 10,
       cameraEnabled = false,
       allowViewers = true,
@@ -245,7 +252,7 @@ roomsRouter.get('/:code', async (req, res) => {
     }
 
     const room = await prisma.room.findUnique({
-      where: { code: req.params.code },
+      where: { code: normalizeRoomCode(req.params.code) },
       include: {
         gameDefinition: true,
         participations: {
@@ -328,7 +335,7 @@ roomsRouter.get('/:code', async (req, res) => {
 // TODO: Add rate limiting for join attempts to prevent brute-force PIN attacks
 roomsRouter.post('/:code/join', async (req, res) => {
   try {
-    const { displayName, pin, rejoinToken } = req.body;
+    const { displayName, pin } = req.body;
 
     if (!displayName) {
       return res.status(400).json({
@@ -338,7 +345,7 @@ roomsRouter.post('/:code/join', async (req, res) => {
     }
 
     const room = await prisma.room.findUnique({
-      where: { code: req.params.code },
+      where: { code: normalizeRoomCode(req.params.code) },
     });
 
     if (!room) {
@@ -446,7 +453,7 @@ roomsRouter.delete('/:code', async (req, res) => {
     }
 
     const room = await prisma.room.findUnique({
-      where: { code: req.params.code },
+      where: { code: normalizeRoomCode(req.params.code) },
     });
 
     if (!room) {
@@ -464,8 +471,8 @@ roomsRouter.delete('/:code', async (req, res) => {
       });
     }
 
-    await prisma.room.update({
-      where: { code: req.params.code },
+    const room = await prisma.room.update({
+      where: { code: normalizeRoomCode(req.params.code) },
       data: { status: 'ARCHIVED', archivedAt: new Date() },
     });
 
@@ -484,7 +491,7 @@ roomsRouter.delete('/:code', async (req, res) => {
 roomsRouter.get('/:code/results', async (req, res) => {
   try {
     const room = await prisma.room.findUnique({
-      where: { code: req.params.code },
+      where: { code: normalizeRoomCode(req.params.code) },
       include: {
         gameDefinition: { select: { slug: true, name: true } },
         participations: {

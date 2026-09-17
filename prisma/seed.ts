@@ -15,6 +15,18 @@ async function hashPassword(password: string): Promise<string> {
 async function main() {
   console.log('Seeding database...');
 
+  // Idempotent seed: check if already seeded
+  const existingGames = await prisma.gameDefinition.count();
+  if (existingGames > 0) {
+    console.log('Database already seeded, skipping...');
+    return;
+  }
+
+  // Get admin credentials from env (with defaults for dev)
+  const adminUsername = process.env.INITIAL_ADMIN_USERNAME || 'admin';
+  const adminPassword = process.env.INITIAL_ADMIN_PASSWORD || 'admin123';
+  const modPassword = process.env.INITIAL_ADMIN_PASSWORD || 'moderator123';
+
   // Create a default question pack
   await prisma.questionPack.upsert({
     where: { id: 'default-pack' },
@@ -35,8 +47,8 @@ async function main() {
     create: {
       id: 'mod-1',
       email: 'moderator@example.com',
-      displayName: 'Moderator',
-      passwordHash: await hashPassword(process.env.INITIAL_ADMIN_PASSWORD || 'secret'),
+      displayName: adminUsername,
+      passwordHash: await hashPassword(modPassword),
       role: 'MODERATOR',
     },
   });
@@ -48,7 +60,7 @@ async function main() {
     create: {
       id: 'admin-1',
       displayName: 'Admin',
-      passwordHash: await hashPassword(process.env.INITIAL_ADMIN_PASSWORD || 'admin123'),
+      passwordHash: await hashPassword(adminPassword),
       role: 'ADMIN',
     },
   });

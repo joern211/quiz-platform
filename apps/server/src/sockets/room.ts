@@ -30,12 +30,16 @@ export async function handleRoomSubscription(
     return;
   }
 
+  // P0-04: Extract authenticated userId from HTTP session (set by socket middleware)
+  const userId = (socket as any).user?.id;
+
   // Initialize default socket data
   socket.data = {
     participationId: undefined,
     roomId: undefined,
     role: undefined,
     displayName: undefined,
+    userId: userId ?? undefined,
   };
 
   let identity = {
@@ -51,6 +55,12 @@ export async function handleRoomSubscription(
       where: { rejoinToken },
       include: { room: true },
     });
+
+    // P0-13: Check if kicked
+    if (participation?.kickedAt) {
+      callback?.({ success: false, error: 'KICKED' });
+      return;
+    }
 
     // Validate rejoin token belongs to THIS room (P0-07 fix)
     if (!participation || participation.roomId !== room.id) {
@@ -70,25 +80,36 @@ export async function handleRoomSubscription(
       role: participation.role,
       displayName: participation.displayName,
     };
+
+    // P0-04: If userId matches host, auto-upgrade to MODERATOR
+    if (userId && room.hostUserId && userId === room.hostUserId) {
+      identity.role = 'MODERATOR';
+      // Update DB to reflect MODERATOR role
+      await prisma.participation.update({
+        where: { id: participation.id },
+        data: { role: 'MODERATOR' },
+      });
+    }
   } else if (!room.allowViewers) {
     // Viewers not allowed
     callback?.({ success: false, error: 'VIEWERS_NOT_ALLOWED' });
     return;
-  } else if (room.viewerRequiresPin) {
-    // Check PIN for viewer access (P0-06 fix)
+  // P0-05: ONLY require PIN if viewerRequiresPin=true AND room.pinHash != null
+  // If pinHash is null, skip PIN requirement (room was created without PIN)
+  // If viewerRequiresPin is false, skip PIN requirement
+  } else if (room.viewerRequiresPin && room.pinHash != null) {
+    // Check PIN for viewer access
     if (!pin) {
       callback?.({ success: false, error: 'PIN_REQUIRED' });
       return;
     }
 
     // Verify PIN
-    if (room.pinHash) {
-      const crypto = await import('crypto');
-      const inputHash = crypto.createHash('sha256').update(pin).digest('hex');
-      if (inputHash !== room.pinHash) {
-        callback?.({ success: false, error: 'INVALID_PIN' });
-        return;
-      }
+    const crypto = await import('crypto');
+    const inputHash = crypto.createHash('sha256').update(pin).digest('hex');
+    if (inputHash !== room.pinHash) {
+      callback?.({ success: false, error: 'INVALID_PIN' });
+      return;
     }
 
     // Create or update ViewerSession
@@ -107,7 +128,7 @@ export async function handleRoomSubscription(
       displayName: 'Zuschauer',
     };
   } else {
-    // Anonymous viewer
+    // Anonymous viewer (no PIN required)
     const viewerSession = await prisma.viewerSession.create({
       data: {
         roomId: room.id,
@@ -125,7 +146,13 @@ export async function handleRoomSubscription(
   }
 
   // Store identity in socket.data (P0-08/P0-09 fix)
-  socket.data = identity;
+  socket.data = {
+    ...socket.data,
+    participationId: identity.participationId,
+    roomId: identity.roomId,
+    role: identity.role,
+    displayName: identity.displayName,
+  };
 
   // Also update socketIdentityMap for http/middleware/auth.ts compatibility
   socketIdentityMap.set(socket.id, {
@@ -135,8 +162,8 @@ export async function handleRoomSubscription(
     roomId: identity.roomId,
   });
 
-  // ONLY AFTER identity validated: socket.join(roomCode) (P0-07 fix)
-  await socket.join(roomCode);
+  // ONLY AFTER identity validated: socket.join(roomChannel(room.id)) (P0-07 fix)
+  await socket.join(roomChannel(room.id));
 
   // Build snapshot
   const snapshot = {
@@ -173,15 +200,15 @@ export async function handleRoomSubscription(
   socket.emit('room:snapshot', snapshot);
 
   // Broadcast update to room (only THIS room)
-  io.to(roomCode).emit('room:updated', {
-    roomCode,
+  io.to(roomChannel(room.id)).emit('room:updated', {
+    roomCode: room.code,
     revision: room.revision + 1,
     players: snapshot.players,
   });
 
   // Emit player join only for actual players (not viewers), only to THIS room
   if (identity.role !== 'VIEWER' && identity.participationId) {
-    io.to(roomCode).emit('player:join', {
+    io.to(roomChannel(room.id)).emit('player:join', {
       player: {
         id: identity.participationId,
         displayName: identity.displayName,
@@ -240,33 +267,33 @@ export async function handleKickPlayer(
       return;
     }
 
-    // Mark as kicked
+    // Mark as kicked and update timestamp
     await prisma.participation.update({
       where: { id: data.playerId },
       data: { kickedAt: new Date(), connected: false },
     });
 
-    // Invalidate rejoin token (bump version so old token is useless)
+    // P0-09/P0-13: Rotate rejoin token (bump version so old token is useless)
     await prisma.participation.update({
       where: { id: data.playerId },
       data: { rejoinTokenVersion: { increment: 1 } },
     });
 
-    // Notify the kicked player
-    io.to(room.code).emit('room:kicked', {
+    // P0-12: Broadcast 'room:kicked' to the kicked player
+    io.to(roomChannel(room.id)).emit('room:kicked', {
       participationId: data.playerId,
       reason: 'Du wurdest vom Moderator entfernt',
     });
 
     // Broadcast updated room state
     const updatedRoom = await prisma.room.findUnique({
-      where: { code: data.roomCode },
+      where: { id: room.id },
       include: { participations: { where: { role: { not: 'VIEWER' } } } },
     });
 
     if (updatedRoom) {
-      io.to(data.roomCode).emit('room:updated', {
-        roomCode: data.roomCode,
+      io.to(roomChannel(room.id)).emit('room:updated', {
+        roomCode: room.code,
         revision: room.revision + 1,
         players: updatedRoom.participations.map(p => ({
           id: p.id,

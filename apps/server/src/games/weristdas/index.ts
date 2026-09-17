@@ -178,6 +178,6 @@ export function initWerIstDasHandlers(io: Server, socket: Socket) {
   };
 }
 
-export function initWerIstDasState(roomCode: string) {
+export function initWerIstDasState(_roomCode: string) {
   // State initialized when game starts
 }

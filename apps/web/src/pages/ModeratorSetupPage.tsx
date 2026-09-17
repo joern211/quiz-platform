@@ -3,7 +3,7 @@
 // ============================================================
 
 import { useParams, useNavigate } from 'react-router-dom';
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { Card, Button, Input } from '@quiz/ui';
 import styles from './ModeratorSetupPage.module.css';
 
@@ -17,7 +17,7 @@ export function ModeratorSetupPage() {
   const [loading, setLoading] = useState(false);
 
   // Geo-specific setup
-  const [selectedQuestions, setSelectedQuestions] = useState<string[]>([]);
+  const [selectedQuestions] = useState<string[]>([]);
   const [questionCount, setQuestionCount] = useState(10);
   const [timerDuration, setTimerDuration] = useState(20);
 
@@ -53,8 +53,8 @@ export function ModeratorSetupPage() {
       }
 
       // data.data.code is the room code
-      navigate(`/moderator/${data.data.code}/lobby`);
-    } catch (err) {
+      navigate(`/moderator/raum/${data.data.code}/lobby`);
+    } catch {
       alert('Verbindungsfehler');
       setLoading(false);
     }

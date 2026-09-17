@@ -2,7 +2,7 @@
 // Player Result Page - v0.3.0
 // ============================================================
 
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams } from 'react-router-dom';
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Card, Button } from '@quiz/ui';

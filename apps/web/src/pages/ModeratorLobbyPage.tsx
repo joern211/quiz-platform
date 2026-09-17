@@ -5,7 +5,8 @@
 import { useParams, useNavigate } from 'react-router-dom';
 import { useEffect, useState, useRef } from 'react';
 import { Socket } from 'socket.io-client';
-import { getSocket, connectSocket, disconnectSocket, setSessionData, getActiveRoomCode } from '../lib/socket';
+import { getSocket, connectSocket, disconnectSocket } from '../lib/socket';
+import { setSession } from '../lib/sessionStore';
 import { Card, Button, Badge } from '@quiz/ui';
 import styles from './ModeratorLobbyPage.module.css';
 
@@ -20,10 +21,12 @@ export function ModeratorLobbyPage() {
   const [loading, setLoading] = useState(false);
   const [kickError, setKickError] = useState('');
 
+  const session = getSession();
+
   // Store active room in session
   useEffect(() => {
     if (code) {
-      setSessionData({ roomCode: code, role: 'MODERATOR' });
+      setSession({ roomCode: code, role: 'MODERATOR' });
     }
     return () => {
       // Don't clear on unmount - user might navigate to game page
@@ -148,7 +151,7 @@ export function ModeratorLobbyPage() {
       // Server will handle cleanup
     }
 
-    setSessionData({}); // Clear session
+    setSession({}); // Clear session
     navigate('/kategorien');
   };
 

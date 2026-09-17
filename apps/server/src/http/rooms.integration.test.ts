@@ -2,7 +2,7 @@
 // These tests require a running server or a test database.
 // Currently this is a placeholder documenting what needs to be tested.
 
-import { describe, it, expect } from 'vitest';
+import { describe, it } from 'vitest';
 
 /**
  * Integration Test Plan for Rooms API

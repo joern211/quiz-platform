@@ -571,8 +571,7 @@ export const handleGeoGame = {
       // Mark joker as used
       playerState.jokers.usedSpy = true;
 
-      // Calculate distribution
-      const options = JSON.parse(state.questions[state.currentRoundIndex].options);
+      // Calculate distribution (from roundState, not question options)
       const distribution: Record<string, number> = {};
       
       // Count answers per option
@@ -939,7 +938,7 @@ export const handleGeoGame = {
   // End Game
   // ============================================================
 
-  async handleGameEnd(io: Server, room: any, state: GeoGameState) {
+  async handleGameEnd(io: Server, room: any, _state: GeoGameState) {
     // Cancel any active timer
     const existingTimer = activeTimers.get(room.code);
     if (existingTimer) {

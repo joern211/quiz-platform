@@ -5,7 +5,8 @@
 import { useParams, useNavigate } from 'react-router-dom';
 import { useEffect, useState, useRef } from 'react';
 import { Socket } from 'socket.io-client';
-import { getSocket, connectSocket, disconnectSocket, setSessionData, getSessionData } from '../lib/socket';
+import { getSocket, connectSocket, disconnectSocket } from '../lib/socket';
+import { getSession, setSession } from '../lib/sessionStore';
 import { Card, Button, Badge } from '@quiz/ui';
 import styles from './PlayerLobbyPage.module.css';
 
@@ -20,12 +21,12 @@ export function PlayerLobbyPage() {
   const [chatInput, setChatInput] = useState('');
   const [kicked, setKicked] = useState(false);
 
-  const session = getSessionData();
+  const session = getSession();
   const rejoinToken = session.rejoinToken;
 
   useEffect(() => {
     if (code) {
-      setSessionData({ roomCode: code, role: 'PLAYER' });
+      setSession({ roomCode: code, role: 'PLAYER' });
     }
   }, [code]);
 
@@ -58,10 +59,14 @@ export function PlayerLobbyPage() {
       setPlayers(data.players || []);
     });
 
-    socket.on('room:kicked', (data) => {
+    socket.on('room:kicked', (data: { participationId?: string }) => {
+      // P0-12: Only react if kicked participationId matches self
+      if (data.participationId && data.participationId !== session.participationId) {
+        return; // Not this player
+      }
       setKicked(true);
       setTimeout(() => {
-        setSessionData({});
+        setSession({});
         navigate('/');
       }, 3000);
     });

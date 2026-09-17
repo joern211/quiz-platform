@@ -2,7 +2,7 @@
 // Join Page – v0.3.0 (P0-01: Name field, proper room code)
 // ============================================================
 
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { Card, Button, Input } from '@quiz/ui';
 import styles from './JoinPage.module.css';
@@ -41,9 +41,9 @@ export function JoinPage() {
     e.preventDefault();
     setError('');
 
-    // Strip dashes for the API call (server stores NNN-NNN, DB stores plain digits)
-    const cleanCode = code.replace(/-/g, '');
-    if (cleanCode.length !== 6) {
+    // Send NNN-NNN format as-is to server (server normalizes)
+    const codeToSend = code;
+    if (codeToSend.length !== 7 || !codeToSend.match(/^\d{3}-\d{3}$/)) {
       setError('Bitte gib einen gültigen 6-stelligen Code ein');
       return;
     }
@@ -54,7 +54,7 @@ export function JoinPage() {
 
     setLoading(true);
     try {
-      const res = await fetch(`/api/v1/rooms/${cleanCode}/join`, {
+      const res = await fetch(`/api/v1/rooms/${codeToSend}/join`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
@@ -74,17 +74,22 @@ export function JoinPage() {
 
       const { rejoinToken, participationId, role } = json.data;
 
-      // Persist both tokens separately
-      localStorage.setItem('rejoinToken', rejoinToken ?? '');
-      localStorage.setItem('participationId', participationId ?? '');
-      localStorage.setItem('roomCode', cleanCode);
-      localStorage.setItem('displayName', name.trim());
+      // Persist to sessionStorage atomically - keep dash in room code
+      // NNN-NNN with dash
+      import('../lib/sessionStore').then(({ setSession }) => {
+        setSession({
+          rejoinToken: rejoinToken ?? null,
+          participationId: participationId ?? null,
+          roomCode: codeToSend, // NNN-NNN format
+          role: role ?? null,
+        });
+      });
 
-      // Navigate based on role
+      // Navigate based on role - use route format from App.tsx
       const target =
         role === 'MODERATOR'
-          ? `/moderator/${cleanCode}/lobby`
-          : `/raum/${cleanCode}/lobby`;
+          ? `/moderator/raum/${codeToSend}/lobby`
+          : `/raum/${codeToSend}/lobby`;
 
       navigate(target);
     } catch {

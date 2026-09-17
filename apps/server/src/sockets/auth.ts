@@ -5,7 +5,7 @@
 // This module provides convenience wrappers for socket handlers
 
 import { Socket } from 'socket.io';
-import { getSocketIdentity, requireRoomRole as checkRole } from '../http/middleware/auth.js';
+
 import { logger } from '../observability/logger.js';
 
 // Re-export for convenience in socket handlers

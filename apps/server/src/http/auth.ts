@@ -4,7 +4,6 @@
 
 import { Router } from 'express';
 import argon2 from 'argon2';
-import { v4 as uuid } from 'uuid';
 import rateLimit from 'express-rate-limit';
 import { prisma } from '../persistence/prisma.js';
 import { createSessionCookie, verifySession, deleteSessionCookie } from '../auth/session.js';

@@ -1,5 +1,5 @@
 // Unit tests for config loader
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect } from 'vitest';
 
 // We need to test the loadConfig logic without running it (it exits on failure).
 // Re-implement the relevant parts inline for unit testing.

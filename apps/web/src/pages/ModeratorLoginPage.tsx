@@ -41,7 +41,7 @@ export function ModeratorLoginPage() {
 
       // Success - redirect
       navigate(returnUrl);
-    } catch (err) {
+    } catch {
       setError('Verbindungsfehler. Bitte versuche es erneut.');
       setLoading(false);
     }

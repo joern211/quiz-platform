@@ -52,14 +52,33 @@ app.use('/api/v1/rooms', roomsRouter);
 app.use('/api/v1/setups', setupRouter);
 app.use('/api/v1/media', mediaRouter);
 
-// Health check
-app.get('/api/v1/health', (_req, res) => {
-  res.json({
-    status: 'ok',
-    version: '0.2.1',
-    timestamp: new Date().toISOString(),
-  });
-});
+// Health check - /api/v1/ready (primary for k8s) and /api/v1/health (alias)
+const healthHandler = async (_req: express.Request, res: express.Response) => {
+  try {
+    // DB connectivity check: run a simple query
+    await prisma.$queryRaw`SELECT 1`;
+    res.json({
+      status: 'ok',
+      version: '0.2.1',
+      timestamp: new Date().toISOString(),
+      checks: {
+        db: 'ok',
+      },
+    });
+  } catch (error) {
+    logger.error('Health check failed', { error });
+    res.status(503).json({
+      status: 'error',
+      version: '0.2.1',
+      timestamp: new Date().toISOString(),
+      checks: {
+        db: 'error',
+      },
+    });
+  }
+};
+app.get('/api/v1/ready', healthHandler);
+app.get('/api/v1/health', healthHandler);
 
 // Legacy redirects (Kapitel 25)
 app.get('/api/mod/login', (_req, res) => {

@@ -5,7 +5,7 @@
 import { Server, Socket } from 'socket.io';
 import { prisma } from '../persistence/prisma.js';
 import { logger } from '../observability/logger.js';
-import { getSocketDataIdentity, socketIdentityMap } from './auth.js';
+import { getSocketDataIdentity } from './auth.js';
 import { roomChannel } from './index.js';
 
 export const handleLobbyEvents = {

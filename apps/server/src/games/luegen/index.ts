@@ -152,7 +152,6 @@ function startRevealPhase(io: Server, roomCode: string, state: LuegenState) {
   }
 
   // Count who got votes on their lie
-  const truthId = 'truth'; // The actual answer was keyed as 'truth' placeholder
   for (const [, submissionId] of state.votes) {
     if (submissionId !== 'truth' && scores[submissionId]) {
       scores[submissionId].earnedVotes++;
@@ -176,6 +175,6 @@ function startRevealPhase(io: Server, roomCode: string, state: LuegenState) {
   logger.info('Luegen reveal', { roomCode, submissions: allSubmissions.length });
 }
 
-export function initLuegenState(roomCode: string) {
+export function initLuegenState(_roomCode: string) {
   // State initialized when game starts
 }

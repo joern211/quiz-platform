@@ -21,8 +21,8 @@ export function ModeratorGamePage() {
   const [endsAt, setEndsAt] = useState(0);
   const [answerStats, setAnswerStats] = useState<Record<string, number>>({});
   const [players, setPlayers] = useState<any[]>([]);
-  const [buzzerWinner, setBuzzerWinner] = useState<any>(null);
-  const [gameEnded, setGameEnded] = useState(false);
+  const [, setBuzzerWinner] = useState<any>(null);
+  const [, setGameEnded] = useState(false);
   const [revealed, setRevealed] = useState(false);
   const [scores, setScores] = useState<Record<string, number>>({});
   const [timerPaused, setTimerPaused] = useState(false);
@@ -105,6 +105,7 @@ export function ModeratorGamePage() {
     navigate(`/moderator/raum/${code}/ergebnis`);
   };
 
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const getPlayerName = (playerId: string) => {
     const player = players.find(p => p.id === playerId);
     return player?.displayName || 'Unbekannt';

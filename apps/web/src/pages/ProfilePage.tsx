@@ -110,7 +110,7 @@ export function ProfilePage() {
         videoRef.current.play().catch(() => {});
       }
       setCameraLoading(false);
-    } catch (err: any) {
+    } catch {
       setCameraError('Kamera konnte nicht gestartet werden');
       setCameraLoading(false);
     }

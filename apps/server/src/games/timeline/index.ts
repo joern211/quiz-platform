@@ -156,6 +156,6 @@ export function initTimelineHandlers(io: Server, socket: Socket) {
   };
 }
 
-export function initTimelineState(roomCode: string) {
+export function initTimelineState(_roomCode: string) {
   // Timeline state is initialized when game starts
 }

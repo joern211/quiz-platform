@@ -154,6 +154,6 @@ export function initSongHandlers(io: Server, socket: Socket) {
   };
 }
 
-export function initSongState(roomCode: string) {
+export function initSongState(_roomCode: string) {
   // State initialized when game starts
 }
