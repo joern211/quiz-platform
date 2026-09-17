@@ -1142,28 +1142,9 @@ export const handleGeoGame = {
         return;
       }
 
-      // P0-20: Use stored remaining time to set new timerEndMs
-      const newTimerEndMs = Date.now() + roundState.pauseRemainingMs;
-      roundState.timerEndMs = newTimerEndMs;
+      // P0-20: Capture remaining time BEFORE clearing pause state
+      const remainingTime = roundState.pauseRemainingMs || 1000;
       roundState.pauseRemainingMs = null;
-
-      // Update DB
-      await prisma.roomGameState.update({
-        where: { roomId: room.id },
-        data: {
-          stateJson: JSON.stringify(state),
-          revision: { increment: 1 },
-        },
-      });
-
-      // Emit resume event with new timerEndMs
-      io.to(roomChannel(room.id)).emit('geo:resumed', {
-        roundIndex: state.currentRoundIndex,
-        timerEndMs: newTimerEndMs,
-      });
-
-      // P0-20: Set new timer for remaining time (use stored pauseRemainingMs before clearing)
-      const remainingTime = roundState.pauseRemainingMs;
       const existingTimer = activeTimers.get(room.id);
       if (existingTimer) {
         clearTimeout(existingTimer);
@@ -1176,6 +1157,7 @@ export const handleGeoGame = {
 
       activeTimers.set(room.id, timer);
 
+      const newTimerEndMs = Date.now() + remainingTime;
       callback?.({ success: true, timerEndMs: newTimerEndMs });
     } catch (error) {
       logger.error('Geo resume error', { error });
@@ -1189,10 +1171,10 @@ export const handleGeoGame = {
 
   async handleGameEnd(io: Server, room: any, _state: GeoGameState) {
     // Cancel any active timer
-    const existingTimer = activeTimers.get(room.code);
+    const existingTimer = activeTimers.get(room.id);
     if (existingTimer) {
       clearTimeout(existingTimer);
-      activeTimers.delete(room.code);
+      activeTimers.delete(room.id);
     }
 
     await prisma.room.update({

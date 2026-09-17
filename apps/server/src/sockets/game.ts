@@ -20,11 +20,6 @@ export const handleGameEvents = {
     data: { roomCode: string },
     callback?: (result: any) => void
   ) {
-    // P0-05: Require MODERATOR role
-    if (!requireRoomRole(socket, 'MODERATOR', callback)) {
-      return;
-    }
-
     try {
       const room = await prisma.room.findUnique({
         where: { code: data.roomCode },
@@ -36,7 +31,14 @@ export const handleGameEvents = {
         return;
       }
 
-      // Verify socket is in this room (P0-07 fix)
+      // P0-17: Use socket.data.roomId for authorization
+      const authorized = await requireRoomRole(socket, room.id, 'MODERATOR');
+      if (!authorized) {
+        callback?.({ success: false, error: 'UNAUTHORIZED' });
+        return;
+      }
+
+      // Verify socket is in this room
       const channel = roomChannel(room.id);
       if (!socket.rooms.has(channel)) {
         callback?.({ success: false, error: 'WRONG_ROOM' });
@@ -122,11 +124,6 @@ export const handleGameEvents = {
     data: { roomCode: string },
     callback?: (result: any) => void
   ) {
-    // P0-05: Require MODERATOR role
-    if (!requireRoomRole(socket, 'MODERATOR', callback)) {
-      return;
-    }
-
     try {
       const room = await prisma.room.findUnique({
         where: { code: data.roomCode },
@@ -137,11 +134,23 @@ export const handleGameEvents = {
         return;
       }
 
-      // Verify socket is in this room (P0-07 fix)
+      // P0-17: Use socket.data.roomId for authorization
+      const authorized = await requireRoomRole(socket, room.id, 'MODERATOR');
+      if (!authorized) {
+        callback?.({ success: false, error: 'UNAUTHORIZED' });
+        return;
+      }
+
+      // Verify socket is in this room
       const channel = roomChannel(room.id);
       if (!socket.rooms.has(channel)) {
         callback?.({ success: false, error: 'WRONG_ROOM' });
         return;
+      }
+
+      // P0-20: Delegate to geo engine for proper pause handling
+      if (room.gameDefinition?.slug === 'geo') {
+        return handleGeoGame.handlePause(io, socket, data, callback);
       }
 
       await prisma.room.update({
@@ -163,11 +172,6 @@ export const handleGameEvents = {
     data: { roomCode: string },
     callback?: (result: any) => void
   ) {
-    // P0-05: Require MODERATOR role
-    if (!requireRoomRole(socket, 'MODERATOR', callback)) {
-      return;
-    }
-
     try {
       const room = await prisma.room.findUnique({
         where: { code: data.roomCode },
@@ -178,11 +182,23 @@ export const handleGameEvents = {
         return;
       }
 
-      // Verify socket is in this room (P0-07 fix)
+      // P0-17: Use socket.data.roomId for authorization
+      const authorized = await requireRoomRole(socket, room.id, 'MODERATOR');
+      if (!authorized) {
+        callback?.({ success: false, error: 'UNAUTHORIZED' });
+        return;
+      }
+
+      // Verify socket is in this room
       const channel = roomChannel(room.id);
       if (!socket.rooms.has(channel)) {
         callback?.({ success: false, error: 'WRONG_ROOM' });
         return;
+      }
+
+      // P0-20: Delegate to geo engine for proper resume handling
+      if (room.gameDefinition?.slug === 'geo') {
+        return handleGeoGame.handleResume(io, socket, data, callback);
       }
 
       await prisma.room.update({
@@ -204,11 +220,6 @@ export const handleGameEvents = {
     data: { roomCode: string },
     callback?: (result: any) => void
   ) {
-    // P0-05: Require MODERATOR role
-    if (!requireRoomRole(socket, 'MODERATOR', callback)) {
-      return;
-    }
-
     try {
       const room = await prisma.room.findUnique({
         where: { code: data.roomCode },
@@ -219,7 +230,14 @@ export const handleGameEvents = {
         return;
       }
 
-      // Verify socket is in this room (P0-07 fix)
+      // P0-17: Use socket.data.roomId for authorization
+      const authorized = await requireRoomRole(socket, room.id, 'MODERATOR');
+      if (!authorized) {
+        callback?.({ success: false, error: 'UNAUTHORIZED' });
+        return;
+      }
+
+      // Verify socket is in this room
       const channel = roomChannel(room.id);
       if (!socket.rooms.has(channel)) {
         callback?.({ success: false, error: 'WRONG_ROOM' });
@@ -255,10 +273,34 @@ export const handleGameEvents = {
   async geoAnswer(
     io: Server,
     socket: Socket,
-    data: { roomCode: string; optionId: string; rejoinToken?: string },
+    data: { questionIndex?: number; optionId: string },
     callback?: (result: any) => void
   ) {
-    return handleGeoGame.handleAnswer(io, socket, data, callback);
+    // P0-10: No rejoinToken required - uses socket.identity
+    // Get roomId from socket.data
+    const roomId = socket.data.roomId;
+    if (!roomId) {
+      callback?.({ success: false, error: 'ROOM_NOT_FOUND' });
+      return;
+    }
+
+    const room = await prisma.room.findUnique({
+      where: { id: roomId },
+    });
+
+    if (!room) {
+      callback?.({ success: false, error: 'ROOM_NOT_FOUND' });
+      return;
+    }
+
+    // P0-10: Use socket.data.participationId instead of rejoinToken
+    const dataWithRoom = {
+      ...data,
+      roomCode: room.code,
+      participationId: socket.data.participationId,
+    };
+
+    return handleGeoGame.handleAnswer(io, socket, dataWithRoom, callback);
   },
 
   async geoJoker5050(
@@ -294,12 +336,29 @@ export const handleGameEvents = {
     data: { roomCode: string },
     callback?: (result: any) => void
   ) {
-    // P0-05: Require MODERATOR role
-    if (!requireRoomRole(socket, 'MODERATOR', callback)) {
+    // P0-17: Use socket.data.roomId for authorization
+    const roomId = socket.data.roomId;
+    if (!roomId) {
+      callback?.({ success: false, error: 'ROOM_NOT_FOUND' });
       return;
     }
 
-    return handleGeoGame.handleReveal(io, socket, data, callback);
+    const room = await prisma.room.findUnique({
+      where: { id: roomId },
+    });
+
+    if (!room) {
+      callback?.({ success: false, error: 'ROOM_NOT_FOUND' });
+      return;
+    }
+
+    const authorized = await requireRoomRole(socket, room.id, 'MODERATOR');
+    if (!authorized) {
+      callback?.({ success: false, error: 'UNAUTHORIZED' });
+      return;
+    }
+
+    return handleGeoGame.handleReveal(io, socket, { roomCode: room.code }, callback);
   },
 
   async geoNext(
@@ -308,12 +367,29 @@ export const handleGameEvents = {
     data: { roomCode: string },
     callback?: (result: any) => void
   ) {
-    // P0-05: Require MODERATOR role
-    if (!requireRoomRole(socket, 'MODERATOR', callback)) {
+    // P0-17: Use socket.data.roomId for authorization
+    const roomId = socket.data.roomId;
+    if (!roomId) {
+      callback?.({ success: false, error: 'ROOM_NOT_FOUND' });
       return;
     }
 
-    return handleGeoGame.handleNext(io, socket, data, callback);
+    const room = await prisma.room.findUnique({
+      where: { id: roomId },
+    });
+
+    if (!room) {
+      callback?.({ success: false, error: 'ROOM_NOT_FOUND' });
+      return;
+    }
+
+    const authorized = await requireRoomRole(socket, room.id, 'MODERATOR');
+    if (!authorized) {
+      callback?.({ success: false, error: 'UNAUTHORIZED' });
+      return;
+    }
+
+    return handleGeoGame.handleNext(io, socket, { roomCode: room.code }, callback);
   },
 
   // ============================================================
