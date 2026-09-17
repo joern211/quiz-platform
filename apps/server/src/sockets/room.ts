@@ -6,6 +6,7 @@ import { Server, Socket } from 'socket.io';
 import { prisma } from '../persistence/prisma.js';
 import { logger } from '../observability/logger.js';
 import { socketIdentityMap } from '../http/middleware/auth.js';
+import { roomChannel } from './index.js';
 
 export async function handleRoomSubscription(
   io: Server,

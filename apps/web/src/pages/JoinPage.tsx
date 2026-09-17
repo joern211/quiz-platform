@@ -2,9 +2,10 @@
 // Join Page – v0.3.0 (P0-01: Name field, proper room code)
 // ============================================================
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { Card, Button, Input } from '@quiz/ui';
+import { setSession } from '../lib/sessionStore';
 import styles from './JoinPage.module.css';
 
 // Normalize: strip all non-digits, then reformat as NNN-NNN
@@ -74,15 +75,12 @@ export function JoinPage() {
 
       const { rejoinToken, participationId, role } = json.data;
 
-      // Persist to sessionStorage atomically - keep dash in room code
-      // NNN-NNN with dash
-      import('../lib/sessionStore').then(({ setSession }) => {
-        setSession({
-          rejoinToken: rejoinToken ?? null,
-          participationId: participationId ?? null,
-          roomCode: codeToSend, // NNN-NNN format
-          role: role ?? null,
-        });
+      // Persist to sessionStorage atomically
+      setSession({
+        rejoinToken: rejoinToken ?? null,
+        participationId: participationId ?? null,
+        roomCode: codeToSend, // NNN-NNN format
+        role: role ?? null,
       });
 
       // Navigate based on role - use route format from App.tsx

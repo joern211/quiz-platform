@@ -132,7 +132,7 @@ export const handleGeoGame = {
     });
 
     // Emit initial state
-    io.to(room.code).emit('geo:init', {
+    io.to(roomChannel(room.id)).emit('geo:init', {
       questionCount: questions.length,
       phase: initialPhase,
     });
@@ -227,7 +227,7 @@ export const handleGeoGame = {
     });
 
     // P0-04: Emit 'geo:question' (not 'geo:show')
-    io.to(roomCode).emit('geo:question', {
+    io.to(roomChannelName).emit('geo:question', {
       roundIndex: state.currentRoundIndex,
       question: {
         id: question.id,
@@ -243,13 +243,13 @@ export const handleGeoGame = {
     });
 
     // P0-16: Set server-side timeout to auto-close answers
-    const existingTimer = activeTimers.get(roomCode);
+    const existingTimer = activeTimers.get(roomRecord.id);
     if (existingTimer) {
       clearTimeout(existingTimer);
     }
 
     const timer = setTimeout(async () => {
-      activeTimers.delete(roomCode);
+      activeTimers.delete(roomRecord.id);
       await this.handleTimerExpired(io, roomRecord);
     }, timerMs);
 
@@ -288,7 +288,7 @@ export const handleGeoGame = {
         },
       });
 
-      io.to(room.code).emit('geo:timer-expired', {
+      io.to(roomChannel(room.id)).emit('geo:timer-expired', {
         roundIndex: state.currentRoundIndex,
       });
 
@@ -391,7 +391,7 @@ export const handleGeoGame = {
       roundState.playerStates[participation.id] = playerState;
 
       // P0-04: Broadcast using correct event name
-      io.to(room.code).emit('geo:answered', {
+      io.to(roomChannel(room.id)).emit('geo:answered', {
         playerId: participation.id,
         questionIndex: state.currentRoundIndex,
       });
