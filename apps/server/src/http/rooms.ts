@@ -124,7 +124,8 @@ roomsRouter.post('/', async (req, res) => {
       viewerRequiresPin = true,
       viewerLimit = 50,
       lobbyChatEnabled = true,
-      setupSnapshotJson = {},
+      setup,                  // P0-05: canonical field — an object
+      setupSnapshotJson,      // legacy: may be object OR a (possibly stringified) string
     } = req.body;
 
     // Validate required fields
@@ -180,7 +181,16 @@ roomsRouter.post('/', async (req, res) => {
       pinHash = crypto.createHash('sha256').update(pin).digest('hex');
     }
 
-    // Create room
+    // Create room. Setup is serialized exactly ONCE (P0-05): the input may be an
+    // object (new contract) or an already-stringified string (legacy client).
+    let setupObj: any = setup ?? setupSnapshotJson ?? {};
+    if (typeof setupObj === 'string') {
+      try {
+        setupObj = JSON.parse(setupObj);
+      } catch {
+        setupObj = {};
+      }
+    }
     const room = await prisma.room.create({
       data: {
         code,
@@ -194,7 +204,7 @@ roomsRouter.post('/', async (req, res) => {
         viewerRequiresPin,
         viewerLimit,
         lobbyChatEnabled,
-        setupSnapshotJson: JSON.stringify(setupSnapshotJson),
+        setupSnapshotJson: JSON.stringify(setupObj),
         status: 'LOBBY',
         runPhase: 'OPEN',
       },

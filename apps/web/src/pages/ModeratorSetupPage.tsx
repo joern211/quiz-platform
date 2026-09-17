@@ -36,11 +36,11 @@ export function ModeratorSetupPage() {
           pin: pin || undefined,
           maxPlayers,
           allowViewers,
-          setupSnapshotJson: JSON.stringify({
+          setup: {
             questionCount,
             timerDuration,
             selectedQuestionIds: selectedQuestions,
-          }),
+          },
         }),
       });
 
