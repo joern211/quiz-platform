@@ -2,7 +2,7 @@
 // Join Page – v0.3.0 (P0-01: Name field, proper room code)
 // ============================================================
 
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { Card, Button, Input } from '@quiz/ui';
 import { setSession } from '../lib/sessionStore';

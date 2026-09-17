@@ -6,7 +6,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { useEffect, useState, useRef } from 'react';
 import { Socket } from 'socket.io-client';
 import { getSocket, connectSocket, disconnectSocket } from '../lib/socket';
-import { getSession, setSession } from '../lib/sessionStore';
+import { setSession } from '../lib/sessionStore';
 import { Card, Button, Badge } from '@quiz/ui';
 import styles from './ModeratorLobbyPage.module.css';
 
@@ -20,8 +20,6 @@ export function ModeratorLobbyPage() {
   const [gameStarted, setGameStarted] = useState(false);
   const [loading, setLoading] = useState(false);
   const [kickError, setKickError] = useState('');
-
-  const session = getSession();
 
   // Store active room in session
   useEffect(() => {

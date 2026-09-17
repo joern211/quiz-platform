@@ -39,12 +39,10 @@ describe('loadConfig', () => {
   const origEnv = process.env;
 
   beforeEach(() => {
-    // @ts-ignore vitest globals
     process.env = { ...origEnv };
   });
 
   afterEach(() => {
-    // @ts-ignore vitest globals
     process.env = origEnv;
   });
 
