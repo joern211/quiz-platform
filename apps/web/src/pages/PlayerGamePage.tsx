@@ -99,37 +99,42 @@ export function PlayerGamePage() {
 
   const handleSelectOption = (optionId: string) => {
     if (locked) return;
-    
+
     setSelectedOption(optionId);
     setLocked(true);
-    
+
+    // P0-07: Include rejoinToken so server can validate the player's identity
     socketRef.current?.emit('geo:answer', {
       roomCode: code,
       optionId,
+      rejoinToken,
     });
   };
 
   const handle5050 = () => {
     if (jokers.used5050 || locked) return;
-    
+
     socketRef.current?.emit('geo:joker:5050', {
       roomCode: code,
+      rejoinToken,
     });
   };
 
   const handleSpy = () => {
     if (jokers.usedSpy) return;
-    
+
     socketRef.current?.emit('geo:joker:spy', {
       roomCode: code,
+      rejoinToken,
     });
   };
 
   const handleRisk = () => {
     if (jokers.usedRisk || locked) return;
-    
+
     socketRef.current?.emit('geo:joker:risk', {
       roomCode: code,
+      rejoinToken,
     });
   };
 
