@@ -5,6 +5,7 @@
 import { Router } from 'express';
 import crypto from 'crypto';
 import argon2 from 'argon2';
+import rateLimit from 'express-rate-limit';
 import { prisma } from '../persistence/prisma.js';
 import { verifySession } from '../auth/session.js';
 import { logger } from '../observability/logger.js';
@@ -332,9 +333,17 @@ roomsRouter.get('/:code', async (req, res) => {
   }
 });
 
+// Rate limit join attempts to prevent brute-force PIN attacks
+const joinLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 5,
+  message: { success: false, error: { code: 'RATE_LIMIT', message: 'Zu viele Beitrittsversuche. Bitte 15 Minuten warten.' } },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
 // POST /api/v1/rooms/:code/join - Player join
-// TODO: Add rate limiting for join attempts to prevent brute-force PIN attacks
-roomsRouter.post('/:code/join', async (req, res) => {
+roomsRouter.post('/:code/join', joinLimiter, async (req, res) => {
   try {
     const { displayName, pin } = req.body;
 
@@ -345,8 +354,9 @@ roomsRouter.post('/:code/join', async (req, res) => {
       });
     }
 
+    const roomCode = req.params.code as string;
     const room = await prisma.room.findUnique({
-      where: { code: normalizeRoomCode(req.params.code) },
+      where: { code: normalizeRoomCode(roomCode) },
     });
 
     if (!room) {

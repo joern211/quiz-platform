@@ -9,6 +9,8 @@ import cookieParser from 'cookie-parser';
 import cors from 'cors';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { readFileSync } from 'fs';
+import { resolve, dirname } from 'path';
 
 import { config } from './config/index.js';
 import { authRouter } from './http/auth.js';
@@ -19,6 +21,11 @@ import { mediaRouter } from './http/media.js';
 import { setupSocketHandlers } from './sockets/index.js';
 import { prisma } from './persistence/prisma.js';
 import { logger } from './observability/logger.js';
+
+// Version aus package.json lesen (nicht hart kodiert)
+const _serverDir = dirname(fileURLToPath(import.meta.url));
+const serverPkg = JSON.parse(readFileSync(resolve(_serverDir, '../../package.json'), 'utf8'));
+const APP_VERSION = serverPkg.version;
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -59,7 +66,7 @@ const healthHandler = async (_req: express.Request, res: express.Response) => {
     await prisma.$queryRaw`SELECT 1`;
     res.json({
       status: 'ok',
-      version: '0.2.1',
+      version: APP_VERSION,
       timestamp: new Date().toISOString(),
       checks: {
         db: 'ok',
@@ -69,7 +76,7 @@ const healthHandler = async (_req: express.Request, res: express.Response) => {
     logger.error('Health check failed', { error });
     res.status(503).json({
       status: 'error',
-      version: '0.2.1',
+      version: APP_VERSION,
       timestamp: new Date().toISOString(),
       checks: {
         db: 'error',

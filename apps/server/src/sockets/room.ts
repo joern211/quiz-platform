@@ -105,10 +105,10 @@ export async function handleRoomSubscription(
       return;
     }
 
-    // Verify PIN
-    const crypto = await import('crypto');
-    const inputHash = crypto.createHash('sha256').update(pin).digest('hex');
-    if (inputHash !== room.pinHash) {
+    // P0-21: Verify PIN with argon2 (must match hashing in http/rooms.ts)
+    const argon2 = await import('argon2');
+    const validPin = await argon2.default.verify(room.pinHash, pin);
+    if (!validPin) {
       callback?.({ success: false, error: 'INVALID_PIN' });
       return;
     }
@@ -280,11 +280,18 @@ export async function handleKickPlayer(
       data: { rejoinTokenVersion: { increment: 1 } },
     });
 
-    // P0-12: Broadcast 'room:kicked' to the kicked player
-    io.to(roomChannel(room.id)).emit('room:kicked', {
-      participationId: data.playerId,
-      reason: 'Du wurdest vom Moderator entfernt',
-    });
+    // P0-12/P0-21: Targeted emit only to kicked player's sockets
+    const targetSockets = [...socketIdentityMap.entries()]
+      .filter(([, identity]) => identity.participationId === data.playerId && identity.roomId === room.id)
+      .map(([sid]) => io.sockets.sockets.get(sid))
+      .filter(Boolean);
+
+    for (const targetSocket of targetSockets) {
+      targetSocket?.emit('room:kicked', {
+        participationId: data.playerId,
+        reason: 'Du wurdest vom Moderator entfernt',
+      });
+    }
 
     // Broadcast updated room state
     const updatedRoom = await prisma.room.findUnique({
