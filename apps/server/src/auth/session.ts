@@ -54,5 +54,8 @@ export function verifySession(req: Request, secret: string): string | null {
 }
 
 export function deleteSessionCookie(res: Response): void {
-  res.setHeader('Set-Cookie', `${COOKIE_NAME}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0; Expires=Thu, 01 Jan 1970 00:00:00 GMT`);
+  const isProduction = config.nodeEnv === 'production';
+  const sameSite = isProduction ? 'Strict' : 'Lax';
+  const secure = isProduction ? '; Secure' : '';
+  res.setHeader('Set-Cookie', `${COOKIE_NAME}=; Path=/; HttpOnly; SameSite=${sameSite}; Max-Age=0; Expires=Thu, 01 Jan 1970 00:00:00 GMT${secure}`);
 }
