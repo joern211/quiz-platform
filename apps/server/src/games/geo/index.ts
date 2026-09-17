@@ -6,6 +6,7 @@ import { Server, Socket } from 'socket.io';
 import { prisma } from '../../persistence/prisma.js';
 import { logger } from '../../observability/logger.js';
 import { requireRoomRole } from '../../http/middleware/auth.js';
+import { roomChannel } from '../../sockets/index.js';
 
 interface GeoPlayerState {
   answered: boolean;
@@ -149,13 +150,21 @@ export const handleGeoGame = {
 
   async startRound(io: Server, room: any) {
     // Accept either room object or roomCode string for backwards compat
-    const roomCode = typeof room === 'string' ? room : room.code;
-
-    const roomRecord = await prisma.room.findUnique({
-      where: { code: roomCode },
-    });
-
-    if (!roomRecord) return;
+    let roomRecord: any;
+    let roomChannelName: string;
+    
+    if (typeof room === 'string') {
+      // Backwards compat: passed roomCode string
+      roomRecord = await prisma.room.findUnique({
+        where: { code: room },
+      });
+      if (!roomRecord) return;
+      roomChannelName = roomChannel(roomRecord.id);
+    } else {
+      // Room object passed directly
+      roomRecord = room;
+      roomChannelName = roomChannel(room.id);
+    }
 
     const gameStateData = await prisma.roomGameState.findUnique({
       where: { roomId: roomRecord.id },
@@ -168,7 +177,7 @@ export const handleGeoGame = {
 
     if (!question) {
       // No more questions - end game
-      io.to(roomCode).emit('game:end', { reason: 'NO_MORE_QUESTIONS' });
+      io.to(roomChannelName).emit('game:end', { reason: 'NO_MORE_QUESTIONS' });
       return;
     }
 
