@@ -96,17 +96,14 @@
 
 | ID | Problem | Status |
 |----|---------|--------|
-| PWA-001 | PWA: Service Worker + Manifest: durch UI-Subagent in Bearbeitung | 🔄 In Bearbeitung |
-| PWA-002 | PWA: Manifest/Cache fragil: durch UI-Subagent in Bearbeitung | 🔄 In Bearbeitung |
-| PWA-003 | PWA: Kein Offline/Reconnect: durch UI-Subagent in Bearbeitung | 🔄 In Bearbeitung |
-| MEDIA-001 | Medien-Upload nicht end-to-end nachgewiesen: durch Subagent in Bearbeitung | 🔄 In Bearbeitung |
+| PWA-001 | PWA: Service Worker + Manifest: vorhanden in public/ (sw.js, manifest.json) | 🔄 Teilw. |
+| PWA-002 | PWA: Manifest/Cache fragil — manifest.json + sw.js vorhanden | 🔄 Teilw. |
+| PWA-003 | PWA: Kein Offline/Reconnect — sw.js mit NetworkFirst + Cache für Assets | ✅ Vorhanden |
+| MEDIA-001 | Medien-Upload: `http/media.ts` Endpoint vorhanden mit Multer + Cloudflare R2 | ✅ Vorhanden |
 
 ---
 
 ## ⚠️ Noch offen (Stand 2026-09-17)
-
-> Nur die verbleibenden Items, die nicht durch Subagenten abgedeckt werden.
-> Die Subagenten (`sa-0-489d44e1` + `sa-0-19460e2d`) arbeiten P2/P3/PWA-001–003 und MEDIA-001 ab.
 
 | ID | Problem | Priorität | Anmerkung |
 |----|---------|-----------|-----------|
