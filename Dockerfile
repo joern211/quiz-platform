@@ -23,8 +23,9 @@ WORKDIR /app
 
 COPY . .
 
+# prisma generate: needed for compiled code
+# prisma migrate deploy: REMOVED from build — runs at container startup instead
 RUN pnpm exec prisma generate --schema=./prisma/schema.prisma && \
-    pnpm exec prisma migrate deploy --schema=./prisma/schema.prisma && \
     pnpm --filter @quiz/server build && \
     pnpm --filter @quiz/web build
 
@@ -35,36 +36,25 @@ FROM base AS runner
 WORKDIR /app
 
 ENV NODE_ENV=production
-
-RUN apk add --no-cache dumb-init
-
-# Create non-root user
-RUN addgroup --system --gid 1001 nodejs && \
-    adduser --system --uid 1001 quiz
-
-# Create storage directories
-RUN mkdir -p /app/storage/database /app/storage/uploads /app/storage/backups && \
-    chown -R quiz:nodejs /app/storage
-
-COPY --from=builder --chown=quiz:nodejs /app/apps/server/dist ./dist
-COPY --from=builder --chown=quiz:nodejs /app/apps/web/dist ./web
-COPY --from=builder --chown=quiz:nodejs /app/prisma ./prisma
-COPY --from=builder --chown=quiz:nodejs /app/node_modules/.prisma ./node_modules/.prisma
-COPY --from=builder --chown=quiz:nodejs /app/node_modules/@prisma ./node_modules/@prisma
-COPY --from=builder --chown=quiz:nodejs /app/node_modules ./node_modules
-COPY --from=builder --chown=quiz:nodejs /app/package.json ./package.json
-
-USER quiz
-
-EXPOSE 3001
-
 ENV PORT=3001
 ENV DATABASE_URL="file:/app/storage/database/quiz.db"
+ENV SESSION_SECRET="${SESSION_SECRET:-change-me-in-production-use-32-chars-minimum}"
+ENV INITIAL_ADMIN_PASSWORD="${INITIAL_ADMIN_PASSWORD:-change-me-in-production}"
 ENV STORAGE_ROOT="/app/storage"
 ENV WEB_DIST_PATH="/app/web"
 
-HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-  CMD wget --no-verbose --tries=1 --spider http://localhost:${PORT}/api/v1/ready || exit 1
+# Copy compiled server + web + prisma schema + prisma client binaries
+# These directories are created by the builder stage
+COPY --from=builder --chown=nodejs:nodejs /app/apps/server/dist ./apps/server/dist
+COPY --from=builder --chown=nodejs:nodejs /app/apps/web/dist ./apps/web/dist
+COPY --from=builder --chown=nodejs:nodejs /app/prisma ./prisma
+COPY --from=builder --chown=nodejs:nodejs /app/node_modules/.prisma ./node_modules/.prisma
+COPY --from=builder --chown=nodejs:nodejs /app/node_modules/@prisma ./node_modules/@prisma
+COPY --from=builder --chown=nodejs:nodejs /app/node_modules ./node_modules
+COPY --from=builder --chown=nodejs:nodejs /app/package.json ./package.json
 
-ENTRYPOINT ["dumb-init", "--"]
-CMD ["node", "dist/server.js"]
+EXPOSE 3001
+
+# Migration runs at container startup (not during build)
+# Image can be built without a running database
+CMD ["sh", "-c", "pnpm exec prisma migrate deploy && node apps/server/dist/server.js"]
