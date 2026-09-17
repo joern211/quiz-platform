@@ -1,5 +1,5 @@
 /* ============================================================
-   InfoPopup Styles – v0.2.0
+   InfoPopup Styles – v0.3.0 (Clean, accessible)
    ============================================================ */
 
 .wrapper {
@@ -18,15 +18,13 @@
   background: var(--surface-2);
   color: var(--muted);
   cursor: pointer;
-  transition: all 0.2s cubic-bezier(0.34, 1.56, 0.64, 1);
+  transition: color 0.15s ease, border-color 0.15s ease;
   padding: 0;
 }
 
 .trigger:hover {
-  background: rgba(29, 212, 212, 0.15);
-  border-color: var(--accent);
   color: var(--accent);
-  transform: scale(1.1);
+  border-color: var(--accent);
 }
 
 .trigger svg {
@@ -43,15 +41,19 @@
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
-  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.5);
-  z-index: 200;
-  animation: popup-in 0.25s cubic-bezier(0.22, 1, 0.36, 1) both;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+  z-index: var(--z-dropdown);
+  animation: popup-in 0.2s ease-out both;
   overflow: hidden;
 }
 
 @keyframes popup-in {
-  from { opacity: 0; transform: translateX(-50%) translateY(8px) scale(0.95); }
-  to   { opacity: 1; transform: translateX(-50%) translateY(0) scale(1); }
+  from { opacity: 0; transform: translateX(-50%) translateY(4px); }
+  to   { opacity: 1; transform: translateX(-50%) translateY(0); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .popup { animation: none; }
 }
 
 .header {
@@ -60,7 +62,7 @@
   justify-content: space-between;
   padding: var(--space-3) var(--space-4);
   border-bottom: 1px solid var(--border);
-  background: rgba(255, 255, 255, 0.02);
+  background: var(--surface-2);
 }
 
 .title {
@@ -78,19 +80,18 @@
   width: 24px;
   height: 24px;
   border: none;
-  background: var(--surface-2);
+  background: transparent;
   border-radius: 50%;
   color: var(--muted);
   font-size: 1rem;
   cursor: pointer;
-  transition: all 0.2s;
+  transition: color 0.15s ease;
   padding: 0;
   line-height: 1;
 }
 
 .close:hover {
   color: var(--danger);
-  transform: rotate(90deg);
 }
 
 .content {
@@ -121,6 +122,7 @@
   content: '→';
   color: var(--accent);
   font-size: 0.75rem;
+  flex-shrink: 0;
 }
 
 .rules li:last-child { border-bottom: none; }

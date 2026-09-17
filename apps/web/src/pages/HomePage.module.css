@@ -233,3 +233,91 @@
   color: var(--muted);
   line-height: 1.5;
 }
+
+/* ── Game Card (Home page featured games) ── */
+.gameCard {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  cursor: pointer;
+  text-decoration: none;
+  color: inherit;
+}
+
+.gameCardBody {
+  padding: var(--space-4);
+  flex: 1;
+}
+
+.gameIcon {
+  font-size: 2.5rem;
+  margin-bottom: var(--space-2);
+  line-height: 1;
+}
+
+.gameName {
+  font-family: var(--font-display);
+  font-weight: 700;
+  margin-bottom: var(--space-1);
+  font-size: 1.1rem;
+  color: var(--fg);
+  letter-spacing: -0.02em;
+}
+
+.gameDesc {
+  font-size: 0.8rem;
+  color: var(--muted);
+  line-height: 1.5;
+}
+
+.gameCardFooter {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: var(--space-3) var(--space-4);
+  border-top: 1px solid var(--border);
+  font-size: 0.75rem;
+  color: var(--muted);
+  margin-top: auto;
+}
+
+/* ── Quick CTA Cards (Home page) ── */
+.quickCta {
+  text-align: center;
+}
+
+.quickCtaTitle {
+  font-family: var(--font-display);
+  font-size: 1.3rem;
+  font-weight: 700;
+  margin-bottom: var(--space-3);
+  color: var(--fg);
+  letter-spacing: -0.02em;
+}
+
+.quickCtaSubtitle {
+  color: var(--muted);
+  margin-bottom: var(--space-5);
+  font-size: 0.9rem;
+}
+
+.viewerCta {
+  text-align: center;
+  border: 1px solid var(--border);
+}
+
+.viewerCtaTitle {
+  font-family: var(--font-display);
+  font-size: 1.2rem;
+  font-weight: 700;
+  margin-bottom: var(--space-2);
+  color: var(--fg);
+  letter-spacing: -0.02em;
+}
+
+.viewerCtaSubtitle {
+  color: var(--muted);
+  margin-bottom: var(--space-4);
+  font-size: 0.9rem;
+}
+

@@ -1,31 +1,19 @@
 // ============================================================
-// 404 Not Found Page
+// 404 Not Found Page – v0.2.0 (CSS Modules + accessibility)
 // ============================================================
 
 import { Link } from 'react-router-dom';
 import { Card, Button } from '@quiz/ui';
+import styles from './NotFoundPage.module.css';
 
 export function NotFoundPage() {
   return (
-    <div style={{ 
-      maxWidth: '500px', 
-      margin: '4rem auto', 
-      textAlign: 'center',
-      padding: '2rem'
-    }}>
-      <h1 style={{ 
-        fontSize: '6rem', 
-        margin: '0',
-        background: 'linear-gradient(135deg, var(--accent), var(--accent-strong))',
-        WebkitBackgroundClip: 'text',
-        WebkitTextFillColor: 'transparent',
-      }}>
-        404
-      </h1>
+    <div className={styles.page}>
+      <p className={styles.errorCode} aria-label="404 — Seite nicht gefunden">404</p>
       <Card>
         <h2>Seite nicht gefunden</h2>
         <p>Die gesuchte Seite existiert nicht oder wurde verschoben.</p>
-        <div style={{ marginTop: '1.5rem', display: 'flex', gap: '1rem', justifyContent: 'center' }}>
+        <div className={styles.actions}>
           <Link to="/">
             <Button>Zur Startseite</Button>
           </Link>

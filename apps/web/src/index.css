@@ -1,21 +1,9 @@
 /* ============================================================
-   Global Styles – Quiz Plattform v0.3.0
-   Modern, clean, dark-first. No flashy effects.
+   Quiz Plattform – App-level styles
+   Resets and base layout live in @quiz/ui/styles/tokens.css
    ============================================================ */
 
-:root {
-  --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-  --font-display: 'Space Grotesk', var(--font-sans);
-}
-
-*, *::before, *::after {
-  box-sizing: border-box;
-  margin: 0;
-  padding: 0;
-}
-
 html {
-  /* Respect reduced motion preference */
   scroll-behavior: smooth;
   -webkit-text-size-adjust: 100%;
 }
@@ -24,21 +12,13 @@ html {
   html { scroll-behavior: auto; }
 }
 
-body {
-  font-family: var(--font-sans);
-  background: var(--bg);
-  color: var(--fg);
-  line-height: 1.6;
-  min-height: 100vh;
-  /* Subtle noise texture — very subtle, not distracting */
-  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)' opacity='0.015'/%3E%3C/svg%3E");
-}
-
+/* ── Selection ── */
 ::selection {
-  background: rgba(29, 212, 212, 0.25);
+  background: rgba(var(--accent-rgb), 0.2);
   color: var(--fg);
 }
 
+/* ── Focus visible (fallback; tokens.css handles focus rings) ── */
 :focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 3px;
@@ -53,12 +33,12 @@ body {
   border-radius: 4px;
   border: 2px solid var(--bg);
 }
-::-webkit-scrollbar-thumb:hover { background: var(--muted); }
+::-webkit-scrollbar-thumb:hover { background: var(--muted-2); }
 
 /* ── Links ── */
 a { color: inherit; text-decoration: none; }
 
-/* ── Images ── */
+/* ── Images / SVGs ── */
 img, svg { display: block; max-width: 100%; }
 
 /* ── App layout ── */
@@ -74,14 +54,14 @@ img, svg { display: block; max-width: 100%; }
   min-height: 100vh;
 }
 
+/* ── Page transition ── */
 .page {
   flex: 1;
-  /* Simple page transition — not distracting */
-  animation: page-in 0.25s ease-out both;
+  animation: page-in 0.2s ease-out both;
 }
 
 @keyframes page-in {
-  from { opacity: 0; transform: translateY(8px); }
+  from { opacity: 0; transform: translateY(6px); }
   to   { opacity: 1; transform: translateY(0); }
 }
 
@@ -99,7 +79,7 @@ img, svg { display: block; max-width: 100%; }
 .stagger > *:nth-child(8)  { animation-delay: 0.32s; }
 
 @keyframes stagger-in {
-  from { opacity: 0; transform: translateY(8px); }
+  from { opacity: 0; transform: translateY(6px); }
   to   { opacity: 1; transform: translateY(0); }
 }
 
@@ -116,7 +96,7 @@ img, svg { display: block; max-width: 100%; }
   background-clip: text;
 }
 
-/* ── Utility ── */
+/* ── Screen-reader only utility ── */
 .sr-only {
   position: absolute;
   width: 1px; height: 1px;
@@ -127,7 +107,9 @@ img, svg { display: block; max-width: 100%; }
   border-width: 0;
 }
 
-/* ── Focus within trap for modals ── */
-[aria-modal="true"] {
-  /* Modal content gets focus trap */
+/* ── Light theme: system preference ── */
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme="dark"]) {
+    color-scheme: light;
+  }
 }

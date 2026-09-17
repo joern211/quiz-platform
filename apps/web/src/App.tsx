@@ -1,5 +1,5 @@
 // ============================================================
-// App Component – v0.2.1 (Clean routes, no redirect loops)
+// App Component – v0.3.0 (aria-live region, no duplicate base styles)
 // ============================================================
 
 import { Routes, Route, useLocation } from 'react-router-dom';
@@ -11,27 +11,27 @@ import { Header } from './components/layout/Header';
 import { Footer } from './components/layout/Footer';
 
 // Pages
-import { HomePage }        from './pages/HomePage';
-import { CategoriesPage }  from './pages/CategoriesPage';
-import { CategoryPage }    from './pages/CategoryPage';
-import { GamePage }        from './pages/GamePage';
-import { ModeratorLoginPage }  from './pages/ModeratorLoginPage';
-import { ModeratorSetupPage }  from './pages/ModeratorSetupPage';
-import { ModeratorLobbyPage }  from './pages/ModeratorLobbyPage';
-import { ModeratorGamePage }   from './pages/ModeratorGamePage';
-import { ModeratorResultPage } from './pages/ModeratorResultPage';
-import { JoinPage }        from './pages/JoinPage';
-import { PlayerLobbyPage } from './pages/PlayerLobbyPage';
-import { PlayerGamePage }  from './pages/PlayerGamePage';
-import { PlayerResultPage } from './pages/PlayerResultPage';
-import { ViewerPage }          from './pages/ViewerPage';
-import { ViewerLobbyPage }     from './pages/ViewerLobbyPage';
-import { ViewerGamePage }      from './pages/ViewerGamePage';
-import { ViewerResultPage }    from './pages/ViewerResultPage';
-import { RoomsPage }       from './pages/RoomsPage';
-import { ProfilePage }     from './pages/ProfilePage';
-import { AdminPage }       from './pages/AdminPage';
-import { NotFoundPage }    from './pages/NotFoundPage';
+import { HomePage }           from './pages/HomePage';
+import { CategoriesPage }     from './pages/CategoriesPage';
+import { CategoryPage }       from './pages/CategoryPage';
+import { GamePage }           from './pages/GamePage';
+import { ModeratorLoginPage } from './pages/ModeratorLoginPage';
+import { ModeratorSetupPage } from './pages/ModeratorSetupPage';
+import { ModeratorLobbyPage } from './pages/ModeratorLobbyPage';
+import { ModeratorGamePage }  from './pages/ModeratorGamePage';
+import { ModeratorResultPage }from './pages/ModeratorResultPage';
+import { JoinPage }           from './pages/JoinPage';
+import { PlayerLobbyPage }    from './pages/PlayerLobbyPage';
+import { PlayerGamePage }     from './pages/PlayerGamePage';
+import { PlayerResultPage }   from './pages/PlayerResultPage';
+import { ViewerPage }         from './pages/ViewerPage';
+import { ViewerLobbyPage }    from './pages/ViewerLobbyPage';
+import { ViewerGamePage }     from './pages/ViewerGamePage';
+import { ViewerResultPage }   from './pages/ViewerResultPage';
+import { RoomsPage }          from './pages/RoomsPage';
+import { ProfilePage }        from './pages/ProfilePage';
+import { AdminPage }          from './pages/AdminPage';
+import { NotFoundPage }       from './pages/NotFoundPage';
 
 export default function App() {
   const { theme } = useTheme();
@@ -50,41 +50,39 @@ export default function App() {
 
   return (
     <div className="app">
+      {/* UI-007: aria-live region for dynamic status announcements */}
+      <div
+        role="status"
+        aria-live="polite"
+        aria-atomic="true"
+        className="sr-only"
+        id="aria-live-region"
+      />
+
       <Header />
       <main key={location.pathname}>
         <Routes>
-          {/* ── Öffentliche Startseite ── */}
           <Route path="/"                        element={<HomePage />} />
           <Route path="/kategorien"              element={<CategoriesPage />} />
           <Route path="/kategorie/:categorySlug" element={<CategoryPage />} />
           <Route path="/spiel/:gameSlug"         element={<GamePage />} />
           <Route path="/beitreten"               element={<JoinPage />} />
-
-          {/* ── Moderator ── */}
           <Route path="/moderator/anmelden"                              element={<ModeratorLoginPage />} />
           <Route path="/moderator/vorbereitung/:gameSlug"                element={<ModeratorSetupPage />} />
           <Route path="/moderator/raeume"                                element={<RoomsPage />} />
           <Route path="/moderator/raum/:code/lobby"                      element={<ModeratorLobbyPage />} />
           <Route path="/moderator/raum/:code/spiel"                      element={<ModeratorGamePage />} />
           <Route path="/moderator/raum/:code/ergebnis"                   element={<ModeratorResultPage />} />
-
-          {/* ── Spieler ── */}
-          <Route path="/raum/:code/lobby"     element={<PlayerLobbyPage />} />
-          <Route path="/raum/:code/spiel"     element={<PlayerGamePage />} />
-          <Route path="/raum/:code/ergebnis"  element={<PlayerResultPage />} />
-
-          {/* ── Zuschauer ── */}
-          <Route path="/zuschauen"                        element={<ViewerPage />} />
-          <Route path="/zuschauen/:code/lobby"            element={<ViewerLobbyPage />} />
-          <Route path="/zuschauen/:code/spiel"            element={<ViewerGamePage />} />
-          <Route path="/zuschauen/:code/ergebnis"         element={<ViewerResultPage />} />
-
-          {/* ── Profil / Admin ── */}
-          <Route path="/spieler/profil" element={<ProfilePage />} />
-          <Route path="/admin/*"       element={<AdminPage />} />
-
-          {/* ── 404 ── */}
-          <Route path="*" element={<NotFoundPage />} />
+          <Route path="/raum/:code/lobby"                                element={<PlayerLobbyPage />} />
+          <Route path="/raum/:code/spiel"                                element={<PlayerGamePage />} />
+          <Route path="/raum/:code/ergebnis"                             element={<PlayerResultPage />} />
+          <Route path="/zuschauen"                                       element={<ViewerPage />} />
+          <Route path="/zuschauen/:code/lobby"                           element={<ViewerLobbyPage />} />
+          <Route path="/zuschauen/:code/spiel"                           element={<ViewerGamePage />} />
+          <Route path="/zuschauen/:code/ergebnis"                        element={<ViewerResultPage />} />
+          <Route path="/spieler/profil"  element={<ProfilePage />} />
+          <Route path="/admin/*"         element={<AdminPage />} />
+          <Route path="*"                element={<NotFoundPage />} />
         </Routes>
       </main>
       <Footer />

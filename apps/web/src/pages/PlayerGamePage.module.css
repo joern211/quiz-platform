@@ -151,4 +151,66 @@
   justify-content: center;
   gap: var(--space-3);
   flex-wrap: wrap;
+  margin-bottom: var(--space-4);
+}
+
+/* ── Spy distribution display ── */
+.spySection {
+  margin-top: var(--space-3);
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--border);
+}
+
+.spyTitle {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--muted);
+  margin-bottom: var(--space-2);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.spyBars {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  max-width: 300px;
+  margin: 0 auto;
+}
+
+.spyBar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.spyBarLabel {
+  width: 20px;
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: var(--muted);
+  flex-shrink: 0;
+}
+
+.spyBarTrack {
+  flex: 1;
+  height: 8px;
+  background: var(--surface-2);
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.spyBarFill {
+  height: 100%;
+  background: var(--accent);
+  border-radius: 4px;
+  transition: width 0.4s ease;
+}
+
+.spyBarPercent {
+  width: 36px;
+  font-size: 0.75rem;
+  color: var(--muted);
+  text-align: right;
+  flex-shrink: 0;
 }

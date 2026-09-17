@@ -1,0 +1,30 @@
+/* ============================================================
+   Not Found Page Styles – v0.2.0
+   ============================================================ */
+
+.page {
+  max-width: 500px;
+  margin: 0 auto;
+  text-align: center;
+  padding: var(--space-8) var(--space-4);
+}
+
+.errorCode {
+  font-size: 6rem;
+  font-weight: 900;
+  margin: 0 0 var(--space-4);
+  background: linear-gradient(135deg, var(--accent), var(--accent-strong));
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  letter-spacing: -0.04em;
+  font-family: var(--font-display);
+  line-height: 1;
+}
+
+.actions {
+  display: flex;
+  gap: var(--space-3);
+  justify-content: center;
+  margin-top: var(--space-6);
+}

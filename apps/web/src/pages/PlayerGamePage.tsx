@@ -1,5 +1,5 @@
 // ============================================================
-// Player Game Page (Geo Quiz)
+// Player Game Page (Geo Quiz) – v0.3.0 (spy distribution, fixed state)
 // ============================================================
 
 import { useParams, useNavigate } from 'react-router-dom';
@@ -27,7 +27,7 @@ export function PlayerGamePage() {
     usedSpy: false,
     usedRisk: false,
   });
-  const [spyDistribution, setSpyDistribution] = useState<Record<string, number>>({});
+  const [spyDistribution, setSpyDistribution] = useState<Record<string, number> | null>(null);
   const [eliminatedOptions, setEliminatedOptions] = useState<string[]>([]);
   const [revealed, setRevealed] = useState(false);
   const [result, setResult] = useState<any>(null);
@@ -56,11 +56,8 @@ export function PlayerGamePage() {
       setLocked(false);
       setRevealed(false);
       setEliminatedOptions([]);
+      setSpyDistribution(null);
       setPhase('INPUT_OPEN');
-    });
-
-    socket.on('geo:answered', () => {
-      // Another player answered - info only
     });
 
     socket.on('geo:joker:5050:result', (data) => {
@@ -68,20 +65,11 @@ export function PlayerGamePage() {
       setJokers(prev => ({ ...prev, used5050: true }));
     });
 
-    // P1: Listen for all joker result events (server emits these specifically)
-    socket.on('geo:joker:applied', (data: { type: string }) => {
-      // geo:joker:5050 result
-      if (data.type === 'FIFTY_FIFTY') setJokers(prev => ({ ...prev, used5050: true }));
-    });
-
-    socket.on('geo:joker:5050:result', () => {
-      setJokers(prev => ({ ...prev, used5050: true }));
-    });
-
     socket.on('geo:joker:risk:result', () => {
       setJokers(prev => ({ ...prev, usedRisk: true }));
     });
 
+    // GAME-006: Spy joker — receive and display distribution
     socket.on('geo:joker:spy:result', (data) => {
       setJokers(prev => ({ ...prev, usedSpy: true }));
       setSpyDistribution(data.distribution || null);
@@ -91,7 +79,6 @@ export function PlayerGamePage() {
       setRevealed(true);
       setResult(data);
 
-      // Update score from result
       const myPartId = (socket as any).data?.participationId || session.participationId;
       const myResult = data.scores?.find((s: any) => s.participationId === myPartId);
       if (myResult) {
@@ -99,18 +86,8 @@ export function PlayerGamePage() {
       }
     });
 
-    // P0-20: Handle pause/resume - lock inputs while paused
-    socket.on('game:pause', () => {
-      setLocked(true);
-    });
-
-    socket.on('game:resume', () => {
-      setLocked(false);
-    });
-
-    socket.on('buzz:won', (_data) => {
-      // Someone buzzed - only relevant if this client buzzed
-    });
+    socket.on('game:pause', () => setLocked(true));
+    socket.on('game:resume', () => setLocked(false));
 
     // Subscribe to room
     socket.emit('room:subscribe', { roomCode: code, rejoinToken });
@@ -124,7 +101,6 @@ export function PlayerGamePage() {
     setSelectedOption(optionId);
     setLocked(true);
 
-    // P0-07: Include rejoinToken so server can validate the player's identity
     socketRef.current?.emit('geo:answer', {
       roomCode: code,
       optionId,
@@ -172,6 +148,9 @@ export function PlayerGamePage() {
     );
   }
 
+  // GAME-005: Use original option labels (A/B/C/D from option.label), not array index
+  const LABELS = ['A', 'B', 'C', 'D'];
+
   return (
     <div className={styles.page}>
       <div className={styles.header}>
@@ -184,19 +163,21 @@ export function PlayerGamePage() {
       <Card padding="lg" className={styles.questionCard}>
         <p className={styles.category}>{question.category}</p>
         <h2 className={styles.prompt}>{question.prompt}</h2>
-        
+
         <div className={styles.timer}>
           {!revealed && <Timer endsAt={endsAt} size="lg" />}
         </div>
 
-        <div className={styles.options}>
-          {question.options.map((option: any, index: number) => {
+        <div className={styles.options} role="group" aria-label="Antwortoptionen">
+          {question.options.map((option: any) => {
             const isEliminated = eliminatedOptions.includes(option.id);
             const isSelected = selectedOption === option.id;
             const isCorrect = revealed && option.id === result?.correctOptionId;
             const isWrong = revealed && isSelected && !isCorrect;
-            const originalIndex = ['A', 'B', 'C', 'D'].indexOf(option.label);
-            const letter = originalIndex >= 0 ? ['A', 'B', 'C', 'D'][originalIndex] : String(index + 1);
+            // GAME-005: Use option.label (A/B/C/D) if available, fallback to index
+            const letter = option.label && LABELS.includes(option.label)
+              ? option.label
+              : LABELS[question.options.indexOf(option)] ?? '?';
 
             return (
               <button
@@ -204,9 +185,10 @@ export function PlayerGamePage() {
                 className={`${styles.option} ${isEliminated ? styles.eliminated : ''} ${isSelected ? styles.selected : ''} ${isCorrect ? styles.correct : ''} ${isWrong ? styles.wrong : ''}`}
                 onClick={() => !isEliminated && handleSelectOption(option.id)}
                 disabled={locked || revealed || isEliminated}
-                aria-label={`Option ${letter}: ${option.text}${isEliminated ? ' (ausgeschlossen)' : ''}`}
+                aria-label={`Antwort ${letter}: ${option.text}${isEliminated ? ' (ausgeschlossen)' : ''}${isCorrect ? ' — richtig' : ''}${isWrong ? ' — falsch' : ''}`}
+                aria-pressed={isSelected}
               >
-                <span className={styles.optionLetter}>{letter}</span>
+                <span className={styles.optionLetter} aria-hidden="true">{letter}</span>
                 <span className={styles.optionText}>{option.text}</span>
               </button>
             );
@@ -221,21 +203,21 @@ export function PlayerGamePage() {
       <Card padding="md" className={styles.jokerCard}>
         <h3>Joker</h3>
         <div className={styles.jokers}>
-          <Button 
+          <Button
             variant={jokers.used5050 ? 'ghost' : 'secondary'}
             disabled={jokers.used5050 || locked}
             onClick={handle5050}
           >
             50:50 {jokers.used5050 && '✓'}
           </Button>
-          <Button 
+          <Button
             variant={jokers.usedSpy ? 'ghost' : 'secondary'}
             disabled={jokers.usedSpy}
             onClick={handleSpy}
           >
             Spy {jokers.usedSpy && '✓'}
           </Button>
-          <Button 
+          <Button
             variant={jokers.usedRisk ? 'ghost' : 'secondary'}
             disabled={jokers.usedRisk || locked}
             onClick={handleRisk}
@@ -243,6 +225,30 @@ export function PlayerGamePage() {
             Risk ×2 {jokers.usedRisk && '✓'}
           </Button>
         </div>
+
+        {/* GAME-006: Spy distribution bar chart */}
+        {spyDistribution && jokers.usedSpy && (
+          <div className={styles.spySection} aria-live="polite" aria-label="Verteilung der Mitspieler-Antworten">
+            <div className={styles.spyTitle}>Verteilung (Spy)</div>
+            <div className={styles.spyBars}>
+              {question.options.map((option: any) => {
+                const pct = spyDistribution[option.id] ?? 0;
+                const letter = option.label && LABELS.includes(option.label)
+                  ? option.label
+                  : LABELS[question.options.indexOf(option)] ?? '?';
+                return (
+                  <div key={option.id} className={styles.spyBar}>
+                    <span className={styles.spyBarLabel}>{letter}</span>
+                    <div className={styles.spyBarTrack} role="progressbar" aria-valuenow={pct} aria-valuemin={0} aria-valuemax={100} aria-label={`Antwort ${letter}: ${pct}%`}>
+                      <div className={styles.spyBarFill} style={{ width: `${pct}%` }} />
+                    </div>
+                    <span className={styles.spyBarPercent}>{pct}%</span>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
       </Card>
     </div>
   );

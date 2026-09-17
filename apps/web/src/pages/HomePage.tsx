@@ -1,5 +1,5 @@
 // ============================================================
-// Home Page – v0.2.0 (Gamified + playful)
+// Home Page – v0.3.0 (CSS Modules, no inline styles)
 // ============================================================
 
 import { Link } from 'react-router-dom';
@@ -122,27 +122,14 @@ export function HomePage() {
         </div>
         <div className={styles.gameGrid}>
           {featuredGames.map(game => (
-            <Link to={`/spiel/${game.slug}`} key={game.slug}>
-              <Card interactive padding="none" style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
-                <div style={{ padding: 'var(--space-4)' }}>
-                  <div style={{ fontSize: '2.5rem', marginBottom: 'var(--space-2)' }}>{game.icon}</div>
-                  <div style={{ fontFamily: 'var(--font-display)', fontWeight: 700, marginBottom: 'var(--space-1)', fontSize: '1.1rem' }}>
-                    {game.name}
-                  </div>
-                  <div style={{ fontSize: '0.8rem', color: 'var(--muted)', lineHeight: 1.5 }}>
-                    {game.shortRules}
-                  </div>
+            <Link to={`/spiel/${game.slug}`} key={game.slug} className={styles.gameCard}>
+              <Card interactive padding="none">
+                <div className={styles.gameCardBody}>
+                  <div className={styles.gameIcon}>{game.icon}</div>
+                  <div className={styles.gameName}>{game.name}</div>
+                  <div className={styles.gameDesc}>{game.shortRules}</div>
                 </div>
-                <div style={{
-                  display: 'flex',
-                  justifyContent: 'space-between',
-                  alignItems: 'center',
-                  padding: 'var(--space-3) var(--space-4)',
-                  borderTop: '1px solid var(--border)',
-                  fontSize: '0.75rem',
-                  color: 'var(--muted)',
-                  marginTop: 'auto',
-                }}>
+                <div className={styles.gameCardFooter}>
                   <span>👥 {game.playerCount.min}–{game.playerCount.max}</span>
                   <span>⏱ {game.duration}</span>
                 </div>
@@ -154,13 +141,9 @@ export function HomePage() {
 
       {/* ── Quick join CTA ── */}
       <section className={styles.section}>
-        <Card padding="lg" className="glass" style={{ textAlign: 'center' }}>
-          <div style={{ fontFamily: 'var(--font-display)', fontSize: '1.3rem', fontWeight: 700, marginBottom: 'var(--space-3)' }}>
-            Du hast einen Raumcode?
-          </div>
-          <div style={{ color: 'var(--muted)', marginBottom: 'var(--space-5)', fontSize: '0.9rem' }}>
-            Dann tritt direkt ein — kein Login nötig.
-          </div>
+        <Card padding="lg" className={styles.quickCta}>
+          <div className={styles.quickCtaTitle}>Du hast einen Raumcode?</div>
+          <div className={styles.quickCtaSubtitle}>Dann tritt direkt ein — kein Login nötig.</div>
           <Link to="/beitreten">
             <Button size="lg">Raum beitreten →</Button>
           </Link>
@@ -169,11 +152,9 @@ export function HomePage() {
 
       {/* ── Zuschauer CTA ── */}
       <section className={styles.section}>
-        <Card padding="lg" style={{ textAlign: 'center', border: '1px solid var(--border)' }}>
-          <div style={{ fontFamily: 'var(--font-display)', fontSize: '1.2rem', fontWeight: 700, marginBottom: 'var(--space-2)' }}>
-            Kein Account nötig — einfach zuschauen
-          </div>
-          <div style={{ color: 'var(--muted)', marginBottom: 'var(--space-4)', fontSize: '0.9rem' }}>
+        <Card padding="lg" className={styles.viewerCta}>
+          <div className={styles.viewerCtaTitle}>Kein Account nötig — einfach zuschauen</div>
+          <div className={styles.viewerCtaSubtitle}>
             Hast du keinen Account, aber möchtest du ein laufendes Spiel verfolgen? Kein Problem.
           </div>
           <Link to="/zuschauen">

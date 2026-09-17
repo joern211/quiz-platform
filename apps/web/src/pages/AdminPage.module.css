@@ -1,0 +1,13 @@
+/* ============================================================
+   Admin Page Styles – v0.2.0
+   ============================================================ */
+
+.page {
+  max-width: 800px;
+  margin: 0 auto;
+  padding: var(--space-8) var(--space-4);
+}
+
+.backButton {
+  margin-top: var(--space-6);
+}
