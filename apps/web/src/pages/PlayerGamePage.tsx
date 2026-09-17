@@ -6,6 +6,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { useEffect, useState, useRef } from 'react';
 import { Socket } from 'socket.io-client';
 import { getSocket, connectSocket, disconnectSocket } from '../lib/socket';
+import { getSession } from '../lib/sessionStore';
 import { Card, Button, Badge } from '@quiz/ui';
 import { Timer } from '@quiz/ui';
 import styles from './PlayerGamePage.module.css';
@@ -29,7 +30,8 @@ export function PlayerGamePage() {
   const [eliminatedOptions, setEliminatedOptions] = useState<string[]>([]);
   const [revealed, setRevealed] = useState(false);
   const [result, setResult] = useState<any>(null);
-  const rejoinToken = localStorage.getItem('rejoinToken');
+  const session = getSession();
+  const rejoinToken = session.rejoinToken;
 
   useEffect(() => {
     socketRef.current = getSocket();
