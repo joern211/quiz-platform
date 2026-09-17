@@ -3,8 +3,8 @@
 // ============================================================
 
 import { Server, Socket } from 'socket.io';
-import { prisma } from '../../persistence/prisma.js';
-import { logger } from '../../observability/logger.js';
+import { prisma } from '../persistence/prisma.js';
+import { logger } from '../observability/logger.js';
 
 interface JeopardyState {
   currentBoard: 1 | 2;
@@ -38,7 +38,7 @@ export function initJeopardyHandlers(io: Server, socket: Socket) {
     state.buzzWinner = null;
 
     // Get the clue
-    const setup = room.setupSnapshotJson as any;
+    const setup = room.setupSnapshot as any;
     const board = data.categoryIndex < 6 ? setup.board1 : setup.board2;
     const catIndex = data.categoryIndex % 6;
     const clue = board?.categories[catIndex]?.clues.find((c: any) => c.value === data.value);
@@ -78,7 +78,7 @@ export function initJeopardyHandlers(io: Server, socket: Socket) {
     const state = states.get(roomCode)!;
     if (!state.buzzWinner) return;
 
-    const setup = room.setupSnapshotJson as any;
+    const setup = room.setupSnapshot as any;
     const value = state.selectedValue || 0;
 
     // Main player judgment
@@ -130,7 +130,7 @@ export function initJeopardyHandlers(io: Server, socket: Socket) {
     if (!state.buzzWinner) return;
 
     const value = state.selectedValue || 0;
-    const setup = room.setupSnapshotJson as any;
+    const setup = room.setupSnapshot as any;
 
     if (data.correct) {
       // Half points for steal

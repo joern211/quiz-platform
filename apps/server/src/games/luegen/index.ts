@@ -3,8 +3,8 @@
 // ============================================================
 
 import { Server, Socket } from 'socket.io';
-import { prisma } from '../../persistence/prisma.js';
-import { logger } from '../../observability/logger.js';
+import { prisma } from '../persistence/prisma.js';
+import { logger } from '../observability/logger.js';
 
 interface LuegenState {
   currentRound: number;
@@ -25,7 +25,7 @@ export function initLuegenHandlers(io: Server, socket: Socket) {
     const room = await prisma.room.findUnique({ where: { code: roomCode } });
     if (!room || room.status !== 'RUNNING') return;
 
-    const setup = room.setupSnapshotJson as any;
+    const setup = room.setupSnapshot as any;
     const questions = setup?.questions || [];
     const totalRounds = Math.min(questions.length, setup?.rounds || 10);
 
@@ -83,7 +83,7 @@ export function initLuegenHandlers(io: Server, socket: Socket) {
     });
 
     if (state.submissions.size >= participations.length) {
-      startVotingPhase(io, roomCode, state);
+      startVotingPhase(roomCode, state);
     }
   });
 
@@ -110,7 +110,7 @@ export function initLuegenHandlers(io: Server, socket: Socket) {
     });
 
     if (state.votes.size >= participations.length) {
-      startRevealPhase(io, roomCode, state);
+      startRevealPhase(roomCode, state);
     }
   });
 
@@ -119,7 +119,7 @@ export function initLuegenHandlers(io: Server, socket: Socket) {
   };
 }
 
-function startVotingPhase(io: Server, roomCode: string, state: LuegenState) {
+function startVotingPhase(roomCode: string, state: LuegenState) {
   state.phase = 'voting';
 
   // Shuffle submissions for anonymous display
@@ -133,7 +133,7 @@ function startVotingPhase(io: Server, roomCode: string, state: LuegenState) {
   });
 }
 
-function startRevealPhase(io: Server, roomCode: string, state: LuegenState) {
+function startRevealPhase(roomCode: string, state: LuegenState) {
   state.phase = 'reveal';
 
   // Calculate scores
@@ -152,6 +152,7 @@ function startRevealPhase(io: Server, roomCode: string, state: LuegenState) {
   }
 
   // Count who got votes on their lie
+  const truthId = 'truth'; // The actual answer was keyed as 'truth' placeholder
   for (const [, submissionId] of state.votes) {
     if (submissionId !== 'truth' && scores[submissionId]) {
       scores[submissionId].earnedVotes++;
@@ -175,6 +176,6 @@ function startRevealPhase(io: Server, roomCode: string, state: LuegenState) {
   logger.info('Luegen reveal', { roomCode, submissions: allSubmissions.length });
 }
 
-export function initLuegenState(_roomCode: string) {
+export function initLuegenState(roomCode: string) {
   // State initialized when game starts
 }

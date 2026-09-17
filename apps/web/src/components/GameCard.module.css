@@ -1,25 +1,51 @@
 /* ============================================================
-   Game Card Styles – v0.3.0 (Clean, no shimmer/glow/bounce)
+   Game Card Styles – v0.2.0 (whole-card clickable)
    ============================================================ */
 
+/* ── Card wrapper (whole-card link) ── */
 .card {
   position: relative;
   border-radius: var(--radius-lg);
   background: var(--surface);
   border: 1px solid var(--border);
   overflow: hidden;
-  transition: transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease;
+  transition: transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1),
+              box-shadow 0.3s ease,
+              border-color 0.3s ease;
   cursor: pointer;
   height: 100%;
   display: flex;
   flex-direction: column;
 }
 
-/* Subtle hover — no neon, no shine sweep */
+/* Neon glow on hover */
 .card:hover {
-  transform: translateY(-2px) scale(1.01);
-  border-color: var(--border-hover);
-  box-shadow: var(--shadow-md);
+  transform: translateY(-4px) scale(1.01);
+  border-color: rgba(29, 212, 212, 0.4);
+  box-shadow:
+    0 0 0 1px rgba(29, 212, 212, 0.15),
+    0 8px 32px rgba(0, 0, 0, 0.4),
+    0 0 40px rgba(29, 212, 212, 0.12);
+}
+
+/* Shine sweep on hover */
+.card::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    135deg,
+    transparent 40%,
+    rgba(29, 212, 212, 0.06) 50%,
+    transparent 60%
+  );
+  transform: translateX(-100%);
+  transition: transform 0.6s;
+  pointer-events: none;
+}
+
+.card:hover::after {
+  transform: translateX(100%);
 }
 
 /* ── Card Header ── */
@@ -31,12 +57,28 @@
   gap: var(--space-2);
 }
 
-.icon { font-size: 2.5rem; line-height: 1; }
+.icon {
+  font-size: 2.5rem;
+  line-height: 1;
+  transition: transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
 
-.badges { display: flex; flex-wrap: wrap; gap: 4px; justify-content: flex-end; }
+.card:hover .icon {
+  transform: scale(1.15) rotate(-5deg);
+}
+
+.badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  justify-content: flex-end;
+}
 
 /* ── Card Body ── */
-.body { flex: 1; padding: 0 var(--space-4) var(--space-3); }
+.body {
+  flex: 1;
+  padding: 0 var(--space-4) var(--space-3);
+}
 
 .name {
   font-family: var(--font-display);
@@ -65,40 +107,63 @@
   justify-content: space-between;
   padding: var(--space-3) var(--space-4);
   border-top: 1px solid var(--border);
+  background: rgba(255, 255, 255, 0.02);
 }
 
-.meta { display: flex; gap: var(--space-3); font-size: 0.75rem; color: var(--muted); }
-.meta span { display: flex; align-items: center; gap: 4px; }
+.meta {
+  display: flex;
+  gap: var(--space-3);
+  font-size: 0.75rem;
+  color: var(--muted);
+}
 
-/* ── Status badges ── */
-.status { font-size: 0.7rem; font-weight: 700; padding: 2px 8px; border-radius: 999px; text-transform: uppercase; letter-spacing: 0.08em; }
-.status.AVAILABLE    { background: rgba(29, 209, 161, 0.15); color: var(--ok);     }
-.status.MAINTENANCE  { background: rgba(254, 202, 87, 0.15); color: var(--warn);   }
-.status.BETA         { background: rgba(29, 212, 212, 0.15); color: var(--accent); }
-.status.PLANNED      { background: var(--surface-2);         color: var(--muted);  }
+.meta span {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+/* ── Status badge colors ── */
+.status {
+  font-size: 0.7rem;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: 999px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.status.AVAILABLE {
+  background: rgba(29, 209, 161, 0.15);
+  color: var(--ok);
+}
+
+.status.MAINTENANCE {
+  background: rgba(254, 202, 87, 0.15);
+  color: var(--warn);
+}
+
+.status.BETA {
+  background: rgba(29, 212, 212, 0.15);
+  color: var(--accent);
+}
 
 /* ── Click hint ── */
 .clickHint {
   display: none;
-  position: absolute; inset: 0;
+  position: absolute;
+  inset: 0;
   background: rgba(0, 0, 0, 0.5);
   backdrop-filter: blur(2px);
-  align-items: center; justify-content: center;
+  align-items: center;
+  justify-content: center;
   border-radius: var(--radius-lg);
-  color: white; font-weight: 600; font-size: 0.9rem; gap: var(--space-2);
+  color: white;
+  font-weight: 600;
+  font-size: 0.9rem;
+  gap: var(--space-2);
 }
-.card:hover .clickHint { display: flex; }
 
-/* ── Link overlay ── */
-.link { position: absolute; inset: 0; z-index: 1; }
-
-/* ── Info button ── */
-.infoBtn {
-  width: 28px; height: 28px; border-radius: 50%;
-  background: var(--surface-2); border: 1px solid var(--border);
-  color: var(--muted); display: flex; align-items: center; justify-content: center;
-  cursor: pointer; font-size: 0.75rem; font-weight: 700;
-  transition: color 0.15s, border-color 0.15s;
-  position: relative; z-index: 2;
+.card:hover .clickHint {
+  display: flex;
 }
-.infoBtn:hover { color: var(--accent); border-color: var(--accent); }

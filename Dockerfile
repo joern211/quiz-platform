@@ -23,10 +23,7 @@ WORKDIR /app
 
 COPY . .
 
-RUN pnpm exec prisma generate --schema=./prisma/schema.prisma && \
-    pnpm exec prisma migrate deploy --schema=./prisma/schema.prisma && \
-    pnpm --filter @quiz/server build && \
-    pnpm --filter @quiz/web build
+RUN pnpm build --filter @quiz/server --filter @quiz/web
 
 # ============================================================
 # Runner
@@ -49,22 +46,19 @@ RUN mkdir -p /app/storage/database /app/storage/uploads /app/storage/backups && 
 COPY --from=builder --chown=quiz:nodejs /app/apps/server/dist ./dist
 COPY --from=builder --chown=quiz:nodejs /app/apps/web/dist ./web
 COPY --from=builder --chown=quiz:nodejs /app/prisma ./prisma
-COPY --from=builder --chown=quiz:nodejs /app/node_modules/.prisma ./node_modules/.prisma
-COPY --from=builder --chown=quiz:nodejs /app/node_modules/@prisma ./node_modules/@prisma
 COPY --from=builder --chown=quiz:nodejs /app/node_modules ./node_modules
 COPY --from=builder --chown=quiz:nodejs /app/package.json ./package.json
 
 USER quiz
 
-EXPOSE 3001
+EXPOSE 5173
 
-ENV PORT=3001
+ENV PORT=5173
 ENV DATABASE_URL="file:/app/storage/database/quiz.db"
 ENV STORAGE_ROOT="/app/storage"
-ENV WEB_DIST_PATH="/app/web"
 
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-  CMD wget --no-verbose --tries=1 --spider http://localhost:${PORT}/api/v1/ready || exit 1
+  CMD wget --no-verbose --tries=1 --spider http://localhost:${PORT}/api/v1/health || exit 1
 
 ENTRYPOINT ["dumb-init", "--"]
 CMD ["node", "dist/server.js"]

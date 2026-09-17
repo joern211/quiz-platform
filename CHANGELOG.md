@@ -2,106 +2,56 @@
 
 Alle wesentlichen Änderungen werden hier dokumentiert.
 
-## [0.3.0] - 2026-09-16 (IN ARBEIT)
-
-### Status: PROTOTYP – noch nicht produktionsreif
-
-> Nur Geo-Quiz hat einen vollständigen End-to-End-Ablauf (Stand: 2026-09-16).
-> Andere Spiele sind `PLANNED` oder `BETA`.
-> Branch: `gate-1-2-fixes` mit uncommitted P0-Fixes.
-
----
-
-### ✅ Abgeschlossen (committed)
-
-| ID | Beschreibung |
-|----|--------------|
-| P0-01 | JoinPage: Namensfeld; `{displayName}` statt nur `{pin}`; Room-Code mit Auto-Format `NNN-NNN` |
-| P0-02 | ModeratorSetupPage: sendet `setupSnapshotJson` statt `setup` |
-| P0-10 | Seed: `estimatedMinutes`, `JSON.stringify(tags)`, Argon2 |
-| P0-11 | Initiale Migration erstellt und eingecheckt |
-| P0-13 | Tests: `@testing-library/jest-dom`, Vitest CI-Modus |
-
-### 🔄 In Bearbeitung (uncommitted fixes in working tree)
-
-| ID | Beschreibung | Dateien |
-|----|--------------|---------|
-| P0-03 | `startRound()` wird nach `initialize()` automatisch aufgerufen | geo/index.ts |
-| P0-04 | Socket-Events vereinheitlicht | game.ts, geo/index.ts |
-| P0-05 | `requireRoomRole()` an Moderator-Endpoints angebunden | game.ts, auth.js |
-| P0-06 | `room:subscribe`: Zuschauer-Login, PIN, `allowViewers`, Limit geprüft | room.ts |
-| P0-07 | Cross-Room-Schutz: alle Aktionen prüfen `socket.data.roomId` | game.ts, room.ts |
-| P0-08 | Disconnect: `connected=false` in DB und broadcastet | room.ts |
-| P0-09 | Socket-Verbindung: `connectSocket()` beim Mount aufgerufen | socket.ts |
-| P0-12 | Docker: `WEB_DIST_PATH=/app/web`, `INITIAL_ADMIN_PASSWORD` | Dockerfile, docker-compose.yml |
-| P0-14 | Ergebnis-Seiten: API/Resync statt nur `sessionStorage` | ModeratorGamePage.tsx, PlayerGamePage.tsx |
-| P0-15 | Zuschauer: korrekte Routen `/zuschauen/:code/lobby\|spiel\|ergebnis` | App.tsx |
-| P0-16 | Serverseitiger Timer: `setTimeout` schließt Eingaben | geo/index.ts |
-| P0-17 | Reveal: idempotent mit Transaktion; Moderator-autorisiert | geo/index.ts |
-| P0-18 | Mindestspielerzahl: `minPlayers` wird bei Start geprüft | game.ts |
-
-### 🔧 Infrastructure
-
-- Initiale Prisma-Migration eingecheckt (`prisma/migrations/`)
-- `@testing-library/jest-dom` hinzugefügt
-- `test:run` → `vitest run` (CI); `test:watch` separat
-- Root-Build baut Web + Server
-- `db:generate`, `db:migrate:dev`, `db:migrate:deploy` Scripts
-- `packages/game-sdk`: Game-Engine-Typen implementiert
-- Einheitliche Versionsnummer: `0.3.0`
-
-### 🔐 Socket-Sicherheit
-
-- `socket.data` speichert Identität: `{participationId, roomId, role, displayName}`
-- Jeder mutierende Event zentral autorisiert
-- Rejoin-Token nur für Participation in diesem Raum gültig
-
-### 🎮 Spielstände
-
-| Spiel | Status | Anmerkung |
-|-------|--------|-----------|
-| **Geo-Quiz** | 🔶 BETA | Engine vollständig; Socket-Integration + P0-Fixes in Bearbeitung |
-| **Jeopardy** | 🔶 PLANNED | Engine-Scaffold vorhanden |
-| **Wer ist das?** | 🔶 PLANNED | Engine-Scaffold vorhanden |
-| **Timeline** | 🔶 PLANNED | Engine-Scaffold vorhanden |
-| **Wer lügt am besten?** | 🔶 PLANNED | Engine-Scaffold mit In-Memory-State |
-| **Erkenne den Song** | 🔶 PLANNED | Engine-Scaffold vorhanden |
-
----
-
-## [0.2.1] - 2026-09-16
-
-### Gate 1+2 Fixes
-
-| ID | Problem | Fix |
-|----|---------|-----|
-| TECH-001/002/003/004 | Build, TS, ESM, Ports | Repariert |
-| SEC-001 | Argon2 statt SHA-256 im Seed | ✅ |
-| SEC-009 | `crypto.randomInt()` für Raumcodes | ✅ |
-| API-001 | Zentraler `ApiResponse<T>` Client | ✅ |
-| SOCK-003 | Registry korrigiert | ✅ |
-| FLOW-001/002/005/006 | Navigation, Ergebnis-Routen, Mobile Nav | ✅ |
-
----
-
 ## [0.2.0] - 2026-09-16
 
-### UI-Redesign
+### UI/UX — Komplettes Redesign
 
-- Google Fonts: Inter + Space Grotesk
-- Gamified Startseite mit animierten Cards
-- Glass Morphism, Neon Glows, Page Transitions
-- Buzzer mit Pulse-Glow, Scoreboard, Toast Notifications
-- Responsive Grid-Layouts
+- **Google Fonts**: Inter + Space Grotesk als Display-Font für moderne, athletische Typografie
+- **Ganzflächig klickbare GameCards**: Overlay-Link-Trick mit `::after`-Shine-Sweep und Neon-Glow-Hover
+- **Gradient-Buttons**: Shimmer-Sweep-Animation auf Hover, `cubic-bezier(0.34, 1.56, 0.64, 1)` Spring-Übergänge
+- **Glass Morphism Header**: `backdrop-filter: blur(20px)`, semi-transparente Backgrounds
+- **Cyberpunk Dark Theme**: Neon-Glows auf Akzentelementen, Subtle-Noise-Textur im Background
+- **Page Transitions**: `cubic-bezier(0.22, 1, 0.36, 1)` Slide-In pro Route, Keyed `<main>` für React
+- **Stagger Entrance**: Listenelemente erscheinen gestaffelt mit Delay 0.05s–0.55s
+- **Playful Buzzer**: Pulse-Ring-Animation, Shine-Sweep, Winner-Glow, Spring-Transform
+- **Scoreboard Pop-Animation**: Punkte fliegen mit Scale+Bounce ein bei Änderung
+- **Rank Badges**: Gold/Silber/Bronze mit Glow-Text-Shadow für Top-3
+- **Toast Slide-In**: `cubic-bezier` Bounce-in von rechts, Auto-Exit-Animation
+- **Modal Spring-Entry**: Scale 0.92 → 1 + Translate-Y, Blur-Backdrop
+- **Kategorie-Cards**: Emoji als halbtransparente Background-Deko, Hover-Scale+Rotate
+- **Ambient Float**: CSS `@keyframes float` für dekorative Elemente
+- **Room-Code Anzeige**: Large Monospace mit Neon-Text-Shadow in der Lobby
 
----
+### Code-Qualität
+
+- **CSS-Variablen aufgeräumt**: Keine harten Werte, konsistente `--space-*` + `--radius-*` Nutzung
+- **Alle Pages modernisiert**: GamePage, CategoryPage, RoomsPage, ModeratorSetupPage, ModeratorLobbyPage
+- **Footer versioniert**: v0.2.0 Badge mit Pill-Style
+
+### Performance
+
+- **FOUC-Schutz**: Theme vor dem Render in `<head>` via Inline-Script gesetzt
+- **SVG-Favicon**: Inline als data-URI, kein Extra-Request
+- **Font preconnect**: Google Fonts mit `preconnect` + `crossorigin` optimiert
 
 ## [0.1.0] - 2026-09-16
 
-### Initial
+### Hinzugefügt
 
-- Monorepo mit pnpm Workspaces
-- packages/shared, packages/ui, packages/game-sdk
-- Prisma Schema, Backend (Express+Socket.IO), Frontend (React+Vite+PWA)
-- Geo-Quiz, Jeopardy, Wer ist das?, Timeline, Wer lügt am besten?, Erkenne den Song
-- Docker, Backup/Restore Scripts
+- **Projektstruktur**: Monorepo mit pnpm Workspaces
+- **packages/shared**: Gemeinsame Typen, Zod-Schemas, Event-Envelopes
+- **packages/ui**: Design System mit Dark/Light Theme (Cyan/Lila)
+- **packages/game-sdk**: Spiel-Engine Interface
+- **Prisma Schema**: User, Room, Participation, MediaAsset, Quiz-Modelle
+- **Backend**: Express + Socket.IO + TypeScript
+- **Frontend**: React + Vite + PWA
+- **Auth**: Moderator-Login mit Argon2id und HTTP-only Sessions
+- **Geo-Quiz**: Vollständige Engine mit Timer, Joker, Reveal
+- **Jeopardy**: Engine mit 2 Boards, Abstauber, Bewertung
+- **Wer ist das?**: Fusionbilder-Engine mit Hinweis
+- **Timeline**: Einordnungs-Engine mit Leben/KO
+- **Wer lügt am besten?**: Abstimmungs-Engine
+- **Erkenne den Song**: Audio-Buzzer-Engine
+- **Docker**: Dockerfile und docker-compose.yml
+- **Scripts**: backup.sh, restore.sh, import-legacy.sh
+- **Dokumentation**: README, ADR, Deployment Guide, Spielregeln

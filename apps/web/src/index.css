@@ -1,13 +1,15 @@
 /* ============================================================
-   Global Styles – Quiz Plattform v0.3.0
-   Modern, clean, dark-first. No flashy effects.
+   Global Styles – Quiz Plattform v0.2.0
+   Modern, playful, dark-first with glass morphism
    ============================================================ */
 
+/* ── Fonts (fallback stack — Inter/Space Grotesk via Google Fonts in index.html) ── */
 :root {
   --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
   --font-display: 'Space Grotesk', var(--font-sans);
 }
 
+/* ── Reset ── */
 *, *::before, *::after {
   box-sizing: border-box;
   margin: 0;
@@ -15,13 +17,8 @@
 }
 
 html {
-  /* Respect reduced motion preference */
   scroll-behavior: smooth;
   -webkit-text-size-adjust: 100%;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  html { scroll-behavior: auto; }
 }
 
 body {
@@ -30,22 +27,24 @@ body {
   color: var(--fg);
   line-height: 1.6;
   min-height: 100vh;
-  /* Subtle noise texture — very subtle, not distracting */
-  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)' opacity='0.015'/%3E%3C/svg%3E");
+  /* Subtle noise texture for depth */
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)' opacity='0.03'/%3E%3C/svg%3E");
 }
 
+/* ── Text selection ── */
 ::selection {
-  background: rgba(29, 212, 212, 0.25);
+  background: rgba(29, 212, 212, 0.3);
   color: var(--fg);
 }
 
+/* ── Focus visible ── */
 :focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 3px;
   border-radius: var(--radius);
 }
 
-/* ── Scrollbar ── */
+/* ── Scrollbar (webkit) ── */
 ::-webkit-scrollbar { width: 8px; height: 8px; }
 ::-webkit-scrollbar-track { background: var(--bg); }
 ::-webkit-scrollbar-thumb {
@@ -56,7 +55,7 @@ body {
 ::-webkit-scrollbar-thumb:hover { background: var(--muted); }
 
 /* ── Links ── */
-a { color: inherit; text-decoration: none; }
+a { color: inherit; }
 
 /* ── Images ── */
 img, svg { display: block; max-width: 100%; }
@@ -76,58 +75,112 @@ img, svg { display: block; max-width: 100%; }
 
 .page {
   flex: 1;
-  /* Simple page transition — not distracting */
-  animation: page-in 0.25s ease-out both;
+  animation: page-in 0.35s cubic-bezier(0.22, 1, 0.36, 1) both;
 }
 
+/* ── Page Transition ── */
 @keyframes page-in {
-  from { opacity: 0; transform: translateY(8px); }
-  to   { opacity: 1; transform: translateY(0); }
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 /* ── Stagger entrance for lists ── */
-.stagger > * {
-  animation: stagger-in 0.3s ease-out both;
-}
-.stagger > *:nth-child(1)  { animation-delay: 0.04s; }
-.stagger > *:nth-child(2)  { animation-delay: 0.08s; }
-.stagger > *:nth-child(3)  { animation-delay: 0.12s; }
-.stagger > *:nth-child(4)  { animation-delay: 0.16s; }
-.stagger > *:nth-child(5)  { animation-delay: 0.20s; }
-.stagger > *:nth-child(6)  { animation-delay: 0.24s; }
-.stagger > *:nth-child(7)  { animation-delay: 0.28s; }
-.stagger > *:nth-child(8)  { animation-delay: 0.32s; }
-
 @keyframes stagger-in {
-  from { opacity: 0; transform: translateY(8px); }
-  to   { opacity: 1; transform: translateY(0); }
+  from {
+    opacity: 0;
+    transform: translateY(16px) scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
 }
 
-/* Reduced motion: disable all animations */
-@media (prefers-reduced-motion: reduce) {
-  .page, .stagger > * { animation: none; }
+.stagger > * {
+  animation: stagger-in 0.4s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+.stagger > *:nth-child(1)  { animation-delay: 0.05s; }
+.stagger > *:nth-child(2)  { animation-delay: 0.10s; }
+.stagger > *:nth-child(3)  { animation-delay: 0.15s; }
+.stagger > *:nth-child(4)  { animation-delay: 0.20s; }
+.stagger > *:nth-child(5)  { animation-delay: 0.25s; }
+.stagger > *:nth-child(6)  { animation-delay: 0.30s; }
+.stagger > *:nth-child(7)  { animation-delay: 0.35s; }
+.stagger > *:nth-child(8)  { animation-delay: 0.40s; }
+.stagger > *:nth-child(9)  { animation-delay: 0.45s; }
+.stagger > *:nth-child(10) { animation-delay: 0.50s; }
+.stagger > *:nth-child(n+11) { animation-delay: 0.55s; }
+
+/* ── Ambient float animation ── */
+@keyframes float {
+  0%, 100% { transform: translateY(0); }
+  50%       { transform: translateY(-8px); }
 }
 
-/* ── Gradient text ── */
+.animate-float {
+  animation: float 3s ease-in-out infinite;
+}
+
+/* ── Gradient text helper ── */
 .gradient-text {
-  background: linear-gradient(135deg, var(--accent) 0%, var(--accent-strong) 100%);
+  background: linear-gradient(135deg, var(--accent), #00d2ff 50%, var(--accent-strong));
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;
 }
 
+/* ── Pulse glow ── */
+@keyframes pulse-glow {
+  0%, 100% { box-shadow: 0 0 8px var(--accent); }
+  50%       { box-shadow: 0 0 24px var(--accent), 0 0 48px rgba(29,212,212,0.3); }
+}
+
+.pulse-glow {
+  animation: pulse-glow 2s ease-in-out infinite;
+}
+
+/* ── Neon border ── */
+@keyframes neon-border {
+  0%   { border-color: var(--accent); box-shadow: 0 0 8px var(--accent); }
+  50%  { border-color: var(--accent-strong); box-shadow: 0 0 16px var(--accent-strong); }
+  100% { border-color: var(--accent); box-shadow: 0 0 8px var(--accent); }
+}
+
+/* ── Typing cursor ── */
+@keyframes blink {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0; }
+}
+
+.cursor-blink::after {
+  content: '|';
+  animation: blink 1s step-end infinite;
+  color: var(--accent);
+}
+
+/* ── Glass surface ── */
+.glass {
+  background: rgba(255, 255, 255, 0.04);
+  backdrop-filter: blur(16px) saturate(180%);
+  -webkit-backdrop-filter: blur(16px) saturate(180%);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
 /* ── Utility ── */
 .sr-only {
   position: absolute;
-  width: 1px; height: 1px;
-  padding: 0; margin: -1px;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
   overflow: hidden;
   clip: rect(0, 0, 0, 0);
   white-space: nowrap;
   border-width: 0;
-}
-
-/* ── Focus within trap for modals ── */
-[aria-modal="true"] {
-  /* Modal content gets focus trap */
 }

@@ -8,7 +8,7 @@ import { verifySession } from '../auth/session.js';
 import { logger } from '../observability/logger.js';
 import { config } from '../config/index.js';
 
-export const setupRouter : ReturnType<typeof Router> = Router();
+export const setupRouter = Router();
 
 // GET /api/v1/setups/:id
 setupRouter.get('/:id', async (req, res) => {

@@ -16,19 +16,18 @@ datasource db {
 
 model User {
   id           String    @id @default(uuid())
-  email        String?   @unique
   displayName  String
   passwordHash String
   role         String    @default("MODERATOR") // ADMIN | MODERATOR
   createdAt    DateTime  @default(now())
   updatedAt    DateTime  @updatedAt
   disabledAt   DateTime?
-
+  
   sessions     Session[]
   rooms        Room[]    @relation("HostRooms")
   auditLogs    AuditLog[]
   scoreEvents  ScoreEvent[]
-
+  
   @@map("users")
 }
 
@@ -165,7 +164,6 @@ model Room {
   runPhase           String   @default("DRAFT")
   
   pinHash            String?
-  isPublic           Boolean  @default(true)
   maxPlayers         Int      @default(10)
   cameraEnabled      Boolean  @default(false)
   allowViewers       Boolean  @default(true)

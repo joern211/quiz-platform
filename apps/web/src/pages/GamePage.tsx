@@ -4,7 +4,7 @@
 
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { useEffect, useState } from 'react';
-import { Card, Button, Badge } from '@quiz/ui';
+import { Card, Button, Badge, InfoPopup } from '@quiz/ui';
 import styles from './GamePage.module.css';
 
 // Mock game data

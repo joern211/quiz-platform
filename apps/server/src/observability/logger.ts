@@ -14,7 +14,7 @@ const levels: Record<LogLevel, number> = {
 };
 
 function shouldLog(level: LogLevel): boolean {
-  return levels[level] >= levels[config.logLevel];
+  return levels[level] >= levels[config.LOG_LEVEL];
 }
 
 function formatMessage(level: LogLevel, message: string, meta?: Record<string, unknown>): string {

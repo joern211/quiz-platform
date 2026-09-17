@@ -2,30 +2,17 @@
 // Prisma Seed Script
 // ============================================================
 
-import 'dotenv/config';
 import { PrismaClient } from '@prisma/client';
-import argon2 from 'argon2';
+import { createHash } from 'crypto';
 
 const prisma = new PrismaClient();
 
-async function hashPassword(password: string): Promise<string> {
-  return await argon2.hash(password, { type: argon2.argon2id });
+function hashPassword(password: string): string {
+  return createHash('sha256').update(password).digest('hex');
 }
 
 async function main() {
   console.log('Seeding database...');
-
-  // Idempotent seed: check if already seeded
-  const existingGames = await prisma.gameDefinition.count();
-  if (existingGames > 0) {
-    console.log('Database already seeded, skipping...');
-    return;
-  }
-
-  // Get admin credentials from env (with defaults for dev)
-  const adminUsername = process.env.INITIAL_ADMIN_USERNAME || 'admin';
-  const adminPassword = process.env.INITIAL_ADMIN_PASSWORD || 'admin123';
-  const modPassword = process.env.INITIAL_ADMIN_PASSWORD || 'moderator123';
 
   // Create a default question pack
   await prisma.questionPack.upsert({
@@ -46,9 +33,8 @@ async function main() {
     update: {},
     create: {
       id: 'mod-1',
-      email: 'moderator@example.com',
-      displayName: adminUsername,
-      passwordHash: await hashPassword(modPassword),
+      displayName: 'Moderator',
+      passwordHash: hashPassword(process.env.ADMIN_PASSWORD || 'admin123'),
       role: 'MODERATOR',
     },
   });
@@ -60,7 +46,7 @@ async function main() {
     create: {
       id: 'admin-1',
       displayName: 'Admin',
-      passwordHash: await hashPassword(adminPassword),
+      passwordHash: hashPassword(process.env.ADMIN_PASSWORD || 'admin123'),
       role: 'ADMIN',
     },
   });

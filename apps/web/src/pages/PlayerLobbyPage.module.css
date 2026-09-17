@@ -47,13 +47,6 @@
   overflow-y: auto;
 }
 
-.empty {
-  color: var(--muted);
-  text-align: center;
-  padding: var(--space-6);
-  font-size: 0.9rem;
-}
-
 .playerRow {
   display: flex;
   align-items: center;
