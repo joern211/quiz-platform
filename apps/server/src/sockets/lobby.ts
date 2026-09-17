@@ -70,7 +70,7 @@ export const handleLobbyEvents = {
       });
 
       // Broadcast to THIS room only
-      io.to(data.roomCode).emit('lobby:chat:message', {
+      io.to(roomChannel(identity.roomId)).emit('lobby:chat:message', {
         id: message.id,
         senderId: message.senderId,
         senderName: message.senderName,
@@ -124,7 +124,7 @@ export const handleLobbyEvents = {
         data: { runPhase: data.locked ? 'LOCKED' : 'OPEN' },
       });
 
-      io.to(data.roomCode).emit('lobby:chat:lock', {
+      io.to(roomChannel(identity.roomId)).emit('lobby:chat:lock', {
         locked: data.locked,
       });
 

@@ -5,6 +5,8 @@
 import { Server, Socket } from 'socket.io';
 import { prisma } from '../persistence/prisma.js';
 import { logger } from '../observability/logger.js';
+import { getSocketDataIdentity } from './auth.js';
+import { roomChannel } from './index.js';
 
 export const handlePlayerEvents = {
   async setReady(
@@ -14,13 +16,23 @@ export const handlePlayerEvents = {
     callback?: (result: any) => void
   ) {
     try {
-      if (!data.rejoinToken) {
+      // Try socket identity first, then fall back to rejoinToken
+      const identity = getSocketDataIdentity(socket);
+      const participationId = identity?.participationId || data.rejoinToken;
+
+      if (!participationId) {
         callback?.({ success: false, error: 'TOKEN_REQUIRED' });
         return;
       }
 
-      const participation = await prisma.participation.findUnique({
-        where: { rejoinToken: data.rejoinToken },
+      // Look up participation by id or rejoinToken
+      const participation = await prisma.participation.findFirst({
+        where: {
+          OR: [
+            { id: participationId },
+            { rejoinToken: participationId },
+          ],
+        },
       });
 
       if (!participation) {
@@ -33,8 +45,9 @@ export const handlePlayerEvents = {
         data: { ready: data.ready },
       });
 
-      // Broadcast
-      io.to(data.roomCode).emit('player:ready:set', {
+      // Broadcast to room using roomChannel
+      const roomId = identity?.roomId || participation.roomId;
+      io.to(roomChannel(roomId)).emit('player:ready:set', {
         playerId: participation.id,
         ready: data.ready,
       });
@@ -53,13 +66,23 @@ export const handlePlayerEvents = {
     callback?: (result: any) => void
   ) {
     try {
-      if (!data.rejoinToken) {
+      // Try socket identity first, then fall back to rejoinToken
+      const identity = getSocketDataIdentity(socket);
+      const participationId = identity?.participationId || data.rejoinToken;
+
+      if (!participationId) {
         callback?.({ success: false, error: 'TOKEN_REQUIRED' });
         return;
       }
 
-      const participation = await prisma.participation.findUnique({
-        where: { rejoinToken: data.rejoinToken },
+      // Look up participation by id or rejoinToken
+      const participation = await prisma.participation.findFirst({
+        where: {
+          OR: [
+            { id: participationId },
+            { rejoinToken: participationId },
+          ],
+        },
       });
 
       if (!participation) {
@@ -76,8 +99,9 @@ export const handlePlayerEvents = {
         },
       });
 
-      // Broadcast
-      io.to(data.roomCode).emit('player:profile:update', {
+      // Broadcast to room using roomChannel
+      const roomId = identity?.roomId || participation.roomId;
+      io.to(roomChannel(roomId)).emit('player:profile:update', {
         playerId: participation.id,
         avatarMode: data.avatarMode,
         avatarGenerated: data.avatarGenerated,

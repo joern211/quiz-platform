@@ -452,11 +452,11 @@ roomsRouter.delete('/:code', async (req, res) => {
       });
     }
 
-    const room = await prisma.room.findUnique({
+    const roomData = await prisma.room.findUnique({
       where: { code: normalizeRoomCode(req.params.code) },
     });
 
-    if (!room) {
+    if (!roomData) {
       return res.status(404).json({
         success: false,
         error: { code: 'NOT_FOUND', message: 'Raum nicht gefunden.' },
@@ -464,7 +464,7 @@ roomsRouter.delete('/:code', async (req, res) => {
     }
 
     // Only host can close their room
-    if (room.hostUserId !== session.userId) {
+    if (roomData.hostUserId !== session.userId) {
       return res.status(403).json({
         success: false,
         error: { code: 'UNAUTHORIZED', message: 'Nur der Raum-Ersteller kann den Raum schließen.' },
