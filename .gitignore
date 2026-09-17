@@ -41,7 +41,8 @@ coverage/
 .DS_Store
 
 # Prisma
-prisma/migrations/
+# Prisma migrations MUST be committed for reproducible deploys (P0-15)
+# (they are SQL snapshots under prisma/migrations/)
 
 # Misc
 *.tgz
