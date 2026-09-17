@@ -34,6 +34,17 @@ export async function handleRoomSubscription(
   // P0-04: Extract authenticated userId from HTTP session (set by socket middleware)
   const userId = (socket as any).user?.id;
 
+  // P0-10: Enforce viewer limit before creating a new viewer session.
+  // Count connected viewer sessions; if this socket provides a rejoinToken it is
+  // handled in the rejoin branch below and does not consume a viewer slot.
+  if (!rejoinToken && room.allowViewers && room.viewerLimit != null && room.viewerLimit > 0) {
+    const connectedViewers = room.viewerSessions.filter(vs => vs.connected).length;
+    if (connectedViewers >= room.viewerLimit) {
+      callback?.({ success: false, error: 'VIEWER_LIMIT_REACHED', limit: room.viewerLimit });
+      return;
+    }
+  }
+
   // Initialize default socket data
   socket.data = {
     participationId: undefined,
@@ -268,16 +279,17 @@ export async function handleKickPlayer(
       return;
     }
 
-    // Mark as kicked and update timestamp
+    // Mark as kicked and update timestamp; rotate rejoin token so the old
+    // one can never be reused (P0-11). kickedAt is checked on every subscribe.
+    const crypto = await import('crypto');
     await prisma.participation.update({
       where: { id: data.playerId },
-      data: { kickedAt: new Date(), connected: false },
-    });
-
-    // P0-09/P0-13: Rotate rejoin token (bump version so old token is useless)
-    await prisma.participation.update({
-      where: { id: data.playerId },
-      data: { rejoinTokenVersion: { increment: 1 } },
+      data: {
+        kickedAt: new Date(),
+        connected: false,
+        rejoinToken: crypto.randomUUID(),
+        rejoinTokenVersion: { increment: 1 },
+      },
     });
 
     // P0-12: Broadcast 'room:kicked' to the kicked player
@@ -322,6 +334,8 @@ export const handleRoomEvents = {
     data: { roomCode: string },
     callback?: (result: any) => void
   ) {
+    // P0-09: only authorized, room-bound sockets may resync
+    const identity = (socket as any).data;
     const room = await prisma.room.findUnique({
       where: { code: data.roomCode },
       include: {
@@ -333,6 +347,12 @@ export const handleRoomEvents = {
 
     if (!room) {
       callback?.({ success: false, error: 'ROOM_NOT_FOUND' });
+      return;
+    }
+
+    if (!identity?.roomId || identity.roomId !== room.id ||
+        !socket.rooms.has(roomChannel(room.id))) {
+      callback?.({ success: false, error: 'UNAUTHORIZED' });
       return;
     }
 

@@ -40,6 +40,19 @@ export const handlePlayerEvents = {
         return;
       }
 
+      // P0-08: Cross-Room-Schutz — Participation muss zum mitgesendeten roomCode gehören
+      const room = await prisma.room.findUnique({ where: { id: participation.roomId } });
+      if (!room || room.code !== data.roomCode) {
+        callback?.({ success: false, error: 'WRONG_ROOM' });
+        return;
+      }
+
+      // P0-08: kicked players may not mutate state
+      if ((participation as any).kickedAt) {
+        callback?.({ success: false, error: 'KICKED' });
+        return;
+      }
+
       await prisma.participation.update({
         where: { id: participation.id },
         data: { ready: data.ready },
@@ -87,6 +100,19 @@ export const handlePlayerEvents = {
 
       if (!participation) {
         callback?.({ success: false, error: 'PARTICIPATION_NOT_FOUND' });
+        return;
+      }
+
+      // P0-08: Cross-Room-Schutz — Participation muss zum mitgesendeten roomCode gehören
+      const room = await prisma.room.findUnique({ where: { id: participation.roomId } });
+      if (!room || room.code !== data.roomCode) {
+        callback?.({ success: false, error: 'WRONG_ROOM' });
+        return;
+      }
+
+      // P0-08: kicked players may not mutate state
+      if ((participation as any).kickedAt) {
+        callback?.({ success: false, error: 'KICKED' });
         return;
       }
 
