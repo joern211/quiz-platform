@@ -9,6 +9,28 @@ import { socketIdentityMap } from '../http/middleware/auth.js';
 import { roomChannel } from './index.js';
 import { requireRoomRole } from './auth.js';
 
+/**
+ * Cleanup old disconnected ViewerSessions for a room
+ * Called before creating a new session to prevent orphaned sessions
+ */
+async function cleanupOldViewerSessions(roomId: string): Promise<number> {
+  // Delete sessions disconnected more than 5 minutes ago
+  const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000);
+  
+  const result = await prisma.viewerSession.deleteMany({
+    where: {
+      roomId,
+      connected: false,
+      OR: [
+        { disconnectedAt: { lt: fiveMinutesAgo } },
+        { lastSeenAt: { lt: fiveMinutesAgo } },
+      ],
+    },
+  });
+  
+  return result.count;
+}
+
 export async function handleRoomSubscription(
   io: Server,
   socket: Socket,
@@ -285,8 +307,8 @@ export async function handleKickPlayer(
   callback?: (result: any) => void
 ) {
   try {
-    // Require MODERATOR role
-    const identity = (socket as any).data;
+    // Require MODERATOR role (identity check via socketIdentityMap)
+    const identity = socketIdentityMap.get(socket.id);
     if (!identity || identity.role !== 'MODERATOR') {
       callback?.({ success: false, error: 'UNAUTHORIZED' });
       return;
