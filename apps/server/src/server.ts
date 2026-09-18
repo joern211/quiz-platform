@@ -21,6 +21,7 @@ import { mediaRouter } from './http/media.js';
 import { setupSocketHandlers } from './sockets/index.js';
 import { prisma } from './persistence/prisma.js';
 import { logger } from './observability/logger.js';
+import { restoreActiveTimers } from './games/geo/index.js';
 
 // Version aus package.json lesen (nicht hart kodiert)
 const _serverDir = dirname(fileURLToPath(import.meta.url));
@@ -122,7 +123,10 @@ export async function start() {
     // Test database connection
     await prisma.$connect();
     logger.info('Database connected');
-    
+
+    // P0-16: Restauriere aktive Timer nach Server-Restart
+    await restoreActiveTimers(io);
+
     httpServer.listen(PORT, () => {
       logger.info(`Server running on port ${PORT}`);
       logger.info(`App URL: ${config.publicAppUrl}`);

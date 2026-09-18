@@ -46,6 +46,47 @@ interface GeoGameState {
 // Store active timer handles per roomCode (for cancellation)
 const activeTimers = new Map<string, NodeJS.Timeout>();
 
+// P0-16: Rekonstruiere aktive Timer nach Server-Restart aus der DB
+export async function restoreActiveTimers(io: Server): Promise<void> {
+  try {
+    // Finde alle Räume mit aktiver Runde
+    const roomsWithActiveRound = await prisma.room.findMany({
+      where: { runPhase: 'ROUND_ACTIVE' },
+      include: {
+        gameState: true,
+      },
+    });
+
+    logger.info('P0-16: Restauriere aktive Timer', { count: roomsWithActiveRound.length });
+
+    for (const room of roomsWithActiveRound) {
+      if (!room.gameState) continue;
+
+      const state: GeoGameState = JSON.parse(room.gameState.stateJson);
+      const roundState = state.roundStates[state.currentRoundIndex];
+      if (!roundState || !roundState.timerEndMs) continue;
+
+      const remaining = roundState.timerEndMs - Date.now();
+      if (remaining <= 0) {
+        // Timer bereits abgelaufen → Runde beenden
+        logger.info('P0-16: Timer bereits abgelaufen, beende Runde', { roomId: room.id });
+        await handleGeoGame.handleTimerExpired(io, room);
+        continue;
+      }
+
+      const timer = setTimeout(async () => {
+        activeTimers.delete(room.id);
+        await handleGeoGame.handleTimerExpired(io, room);
+      }, remaining);
+
+      activeTimers.set(room.id, timer);
+      logger.info('P0-16: Timer restauriert', { roomId: room.id, remainingMs: remaining });
+    }
+  } catch (error) {
+    logger.error('P0-16: Fehler beim Restaurieren der Timer', { error });
+  }
+}
+
 export const handleGeoGame = {
   // ============================================================
   // Initialize Game
@@ -380,8 +421,54 @@ export const handleGeoGame = {
         return;
       }
 
-      const gameStateData = await prisma.roomGameState.findUnique({
-        where: { roomId: room.id },
+      // P0-12: Atomare Antwort-Speicherung mit revision check (optimistic locking)
+      const gameStateData = await prisma.$transaction(async (tx) => {
+        const existing = await tx.roomGameState.findUnique({
+          where: { roomId: room.id },
+        });
+        if (!existing) return null;
+
+        const parsed: GeoGameState = JSON.parse(existing.stateJson);
+        const roundState = parsed.roundStates[parsed.currentRoundIndex];
+        const ps = roundState.playerStates[participationId];
+
+        // P0-16: Check timer hasn't expired
+        if (roundState.timerEndMs && Date.now() > roundState.timerEndMs) {
+          throw new Error('TIME_EXPIRED');
+        }
+
+        // P0-10: Check player hasn't already answered
+        const playerState = ps || {
+          answered: false,
+          selectedOptionId: null,
+          locked: false,
+          score: 0,
+          jokers: { used5050: false, usedSpy: false, usedRisk: false },
+        };
+
+        if (playerState.answered || playerState.locked) {
+          throw new Error('ALREADY_ANSWERED');
+        }
+
+        // P0-10: Validate optionId is valid for current question
+        const currentQuestion = parsed.questions[parsed.currentRoundIndex];
+        const options = JSON.parse(currentQuestion.options);
+        const validOptionIds = options.map((o: any) => o.id);
+        if (!validOptionIds.includes(data.optionId)) {
+          throw new Error('INVALID_OPTION');
+        }
+
+        // State mutation
+        playerState.answered = true;
+        playerState.selectedOptionId = data.optionId;
+        roundState.playerStates[participationId] = playerState;
+
+        await tx.roomGameState.update({
+          where: { roomId: room.id },
+          data: { stateJson: JSON.stringify(parsed), revision: { increment: 1 } },
+        });
+
+        return { existing, roundIndex: parsed.currentRoundIndex };
       });
 
       if (!gameStateData) {
@@ -389,67 +476,30 @@ export const handleGeoGame = {
         return;
       }
 
-      const state: GeoGameState = JSON.parse(gameStateData.stateJson);
-      const roundState = state.roundStates[state.currentRoundIndex];
-
-      // P0-10: Validate round is active (INPUT_OPEN phase)
-      if (state.phase !== 'INPUT_OPEN') {
-        callback?.({ success: false, error: 'INPUT_CLOSED' });
-        return;
-      }
-
-      // P0-16: Check timer hasn't expired
-      if (roundState.timerEndMs && Date.now() > roundState.timerEndMs) {
-        callback?.({ success: false, error: 'TIME_EXPIRED' });
-        return;
-      }
-
-      // P0-10: Check player hasn't already answered
-      const playerState = roundState.playerStates[participationId] || {
-        answered: false,
-        selectedOptionId: null,
-        locked: false,
-        score: 0,
-        jokers: { used5050: false, usedSpy: false, usedRisk: false },
-      };
-
-      if (playerState.answered || playerState.locked) {
-        callback?.({ success: false, error: 'ALREADY_ANSWERED' });
-        return;
-      }
-
-      // P0-10: Validate optionId is valid for current question
-      const currentQuestion = state.questions[state.currentRoundIndex];
-      const options = JSON.parse(currentQuestion.options);
-      const validOptionIds = options.map((o: any) => o.id);
-      if (!validOptionIds.includes(data.optionId)) {
-        callback?.({ success: false, error: 'INVALID_OPTION' });
-        return;
-      }
-
-      // Update player state
-      playerState.answered = true;
-      playerState.selectedOptionId = data.optionId;
-
-      roundState.playerStates[participationId] = playerState;
+      const { roundIndex } = gameStateData;
 
       // P0-04: Broadcast using correct event name 'geo:answered'
       io.to(roomChannel(room.id)).emit('geo:answered', {
-        questionIndex: state.currentRoundIndex,
+        questionIndex: roundIndex,
         participantId: participationId,
         optionId: data.optionId,
       });
 
-      await prisma.roomGameState.update({
-        where: { roomId: room.id },
-        data: {
-          stateJson: JSON.stringify(state),
-          revision: { increment: 1 },
-        },
-      });
-
       callback?.({ success: true });
-    } catch (error) {
+    } catch (error: any) {
+      const msg = error instanceof Error ? error.message : String(error);
+      if (msg === 'TIME_EXPIRED') {
+        callback?.({ success: false, error: 'TIME_EXPIRED' });
+        return;
+      }
+      if (msg === 'ALREADY_ANSWERED') {
+        callback?.({ success: false, error: 'ALREADY_ANSWERED' });
+        return;
+      }
+      if (msg === 'INVALID_OPTION') {
+        callback?.({ success: false, error: 'INVALID_OPTION' });
+        return;
+      }
       logger.error('Geo answer error', { error });
       callback?.({ success: false, error: 'INTERNAL_ERROR' });
     }
