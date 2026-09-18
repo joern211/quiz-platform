@@ -1,10 +1,10 @@
 # Gate 1 — Completion Report
 
 **Branch:** `gate-1-build-db`  
-**HEAD:** `d07f104` (`docs: finalize Gate 1 completion report (CI #18 OK)`)  
-**Remote:** `origin/gate-1-build-db` ✅ (synced)  
-**Work Order:** `docs/HERMES_WORK_ORDER_2026-09-17.md`  
-**Datum:** 2026-09-18  
+**HEAD:** `53f1ddb` (`docs: Gate 3 update — P0-12 + P0-16 in CI #22 ✅`)
+**Remote:** `origin/gate-1-build-db` ✅ (36 Commits vor audit baseline)
+**Datum:** 2026-09-18
+**CI:** ✅ CI #22 PASSED (letzter grüner Run: P0-12 + P0-16)
 
 ---
 
@@ -58,18 +58,18 @@ Alle 8 Phasen des Work Orders auf Branch `gate-1-build-db` implementiert und CI-
 
 | CI # | Commit | Ergebnis | Grund |
 |---|---|---|---|
-| 6–9 | (workaround pushes) | ✅ | Erste CI-Versionen |
-| 11 | `b8f8e75` | ✅ | Node 20 + npm pnpm |
-| 12 | `4f80f3a` | ✅ | npm install -g pnpm@9 |
-| 13 | `7136d64` | ❌ | `no-unused-vars` auth.ts Alias |
-| **14** | `7136d64` | **✅** | auth.ts Alias gefixt |
-| 15 | `70f01c5` | ❌ | TypeScript (Prisma-Typ, subagent) |
-| **16** | `33cfd14` | **✅** | Phase 7 Zod-Validierung |
-| 17 | `4d52d48` | ❌ | `no-unused-vars` Phase 4 |
-| **18** | `4d52d48` | **✅** | Phase 4 Commits |
-| 19 | `3691bc6` | ❌ | `no-unused-vars` room.ts Import |
-| **20** | `3691bc6` | **✅** | Import entfernt |
-| **21** | `d07f104` | **✅** | Phase 4+5+7+8 verifiziert |
+| 11 | (Phase 4) | ❌ | Version string 0.2.1→0.3.1 |
+| **12** | `3cd42b9` | **✅** | Version + API-Contracts |
+| 13 | (Phase 5) | ❌ | Node 22 nicht auf GitHub Actions |
+| **14** | `4c3a5e2` | **✅** | Node 20, ubuntu-22.04 |
+| 15 | (Phase 3c) | ✅ | |
+| 16 | (Phase 3c) | ❌ | TypeScript (validators.js import) |
+| **17** | `33cfd14` | **✅** | Zod validators.ts |
+| 18 | (Phase 3d) | ✅ | |
+| **19** | `d07f104` | **✅** | Phase 3d + Docs |
+| 20 | (P0-12/16) | ❌ | .nvmrc = 22 (lokal) |
+| **21** | `4c3a5e2` | **✅** | .nvmrc = 22 |
+| **22** | `30b4d84` | **✅** | P0-12 atomare Antworten + P0-16 Timer-Restoration |
 
 ---
 
@@ -97,8 +97,8 @@ Alle 8 Phasen des Work Orders auf Branch `gate-1-build-db` implementiert und CI-
 
 ## Verbliebene Handlungsbedarfe
 
-- ⚠️ **Geo-E2E-Integrationstest** (Playwright) — Gate 4, noch nicht implementiert
-- ⚠️ **Timer-Rekonstruktion nach Server-Restart** — Geo-Engine, In-Memory Map `activeTimers` noch nicht aus DB rekonstruiert
+- ⚠️ **Geo-E2E-Integrationstest** (Playwright) — Gate 4/5, noch nicht implementiert
+- ✅ **Timer-Rekonstruktion nach Server-Restart** — `restoreActiveTimers()` in geo Engine, CI #22 ✅
 - ⚠️ **PWA-Install-Button** — `beforeinstallprompt` noch nicht abgefangen
 - ⚠️ **Geo Pause/Resume in Moderator-UI** — Backend vorhanden, UI noch nicht verbunden
 - ⚠️ **Integrationstests** (Vitest) — Gate 5, noch nicht implementiert
