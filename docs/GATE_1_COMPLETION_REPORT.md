@@ -1,11 +1,11 @@
 # Gate 1 — Completion Report
 
 **Branch:** `gate-1-build-db`  
-**HEAD:** `7136d64d` (`fix(gate-1): remove unused requireRoomRole import`)  
-**Remote:** `origin/gate-1-build-db`  
-**Work Order:** `docs/HERMES_WORK_ORDER_2026-09-17.md`  
-**Datum:** 2026-09-18  
-**CI Status:** ✅ **CI #11 PASSED** — 12/12 Steps grün
+**HEAD:** `4d52d48` (`fix(lint): remove unused requireRoomRole import aus room.ts`)
+**Remote:** `origin/gate-1-build-db`
+**Work Order:** `docs/HERMES_WORK_ORDER_2026-09-17.md`
+**Datum:** 2026-09-18
+**CI Status:** ✅ **CI #14 PASSED** — 12/12 Steps grün (lint fix in room.ts)
 
 ---
 
@@ -43,7 +43,7 @@
 - ✅ Node 20, ubuntu-latest, corepack, pnpm
 - ✅ Prisma Migration + Typecheck + Lint + Test + Build
 - ✅ 3 fehlgeschlagene CI-Runs (Node 22, node-version-file, pnpm/action-setup)
-- ✅ CI #11 PASSED (Commit 7136d64)
+- ✅ CI #14 PASSED (Commit 4d52d48)
 
 ### 1.10 .nvmrc & package.json Node-Version
 - ✅ Node >=20 in .nvmrc (20.18.0 LTS)
@@ -100,10 +100,10 @@
 
 | Metrik | Wert |
 |--------|------|
-| Commits seit main | 25 |
-| Letzter Commit | `7136d64d` (Gate 1 lint fix) |
-| CI Runs | 11 |
-| CI Erfolge | 2 (CI #8, #9) |
+| Commits seit main | 21 |
+| Letzter Commit | `4d52d48` (lint fix, Gate 2 läuft parallel) |
+| CI Runs | 14 |
+| CI Erfolge | 5 (CI #8, #9, #11, #12, #14) |
 | CI Fehler | 9 (Version, Setup, Lint) |
 | ESLint Fehler (lokal) | 0 |
 | TypeScript Fehler | 0 |

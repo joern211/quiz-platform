@@ -9,6 +9,7 @@ import { prisma } from '../persistence/prisma.js';
 import { createSessionCookie, verifySession, deleteSessionCookie } from '../auth/session.js';
 import { logger } from '../observability/logger.js';
 import { config } from '../config/index.js';
+import { LoginSchema, validateBody } from './validators.js';
 
 export const authRouter: ReturnType<typeof Router> = Router();
 
@@ -24,14 +25,10 @@ const loginLimiter = rateLimit({
 // POST /api/v1/auth/login
 authRouter.post('/login', loginLimiter, async (req, res) => {
   try {
-    const { username, password } = req.body;
+    const parsed = validateBody(LoginSchema, req.body, res);
+    if (!parsed) return;
 
-    if (!username || !password) {
-      return res.status(400).json({
-        success: false,
-        error: { code: 'VALIDATION', message: 'Benutzername und Passwort erforderlich.' },
-      });
-    }
+    const { username, password } = parsed;
 
     // Find user by email or displayName
     const user = await prisma.user.findFirst({

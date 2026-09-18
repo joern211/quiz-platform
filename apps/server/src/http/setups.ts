@@ -13,6 +13,26 @@ export const setupRouter : ReturnType<typeof Router> = Router();
 // GET /api/v1/setups/:id
 setupRouter.get('/:id', async (req, res) => {
   try {
+    // Authentifizierung erforderlich für Eigentumsprüfung
+    const sessionId = verifySession(req, config.sessionSecret);
+    if (!sessionId) {
+      return res.status(401).json({
+        success: false,
+        error: { code: 'NOT_AUTHENTICATED', message: 'Anmeldung erforderlich.' },
+      });
+    }
+
+    const session = await prisma.session.findUnique({
+      where: { id: sessionId },
+    });
+
+    if (!session || session.revokedAt || session.expiresAt < new Date()) {
+      return res.status(401).json({
+        success: false,
+        error: { code: 'SESSION_EXPIRED', message: 'Sitzung abgelaufen.' },
+      });
+    }
+
     const draft = await prisma.setupDraft.findUnique({
       where: { id: req.params.id },
       include: { gameDefinition: true },
@@ -22,6 +42,14 @@ setupRouter.get('/:id', async (req, res) => {
       return res.status(404).json({
         success: false,
         error: { code: 'NOT_FOUND', message: 'Entwurf nicht gefunden.' },
+      });
+    }
+
+    // Eigentumsprüfung: Nur der Besitzer darf sein eigenes Setup lesen
+    if (draft.ownerId !== session.userId) {
+      return res.status(403).json({
+        success: false,
+        error: { code: 'FORBIDDEN', message: 'Kein Zugriff auf diesen Entwurf.' },
       });
     }
 
@@ -98,6 +126,37 @@ setupRouter.put('/:id', async (req, res) => {
       return res.status(401).json({
         success: false,
         error: { code: 'NOT_AUTHENTICATED', message: 'Anmeldung erforderlich.' },
+      });
+    }
+
+    const session = await prisma.session.findUnique({
+      where: { id: sessionId },
+    });
+
+    if (!session || session.revokedAt || session.expiresAt < new Date()) {
+      return res.status(401).json({
+        success: false,
+        error: { code: 'SESSION_EXPIRED', message: 'Sitzung abgelaufen.' },
+      });
+    }
+
+    // Prüfe ob Entwurf existiert
+    const existingDraft = await prisma.setupDraft.findUnique({
+      where: { id: req.params.id },
+    });
+
+    if (!existingDraft) {
+      return res.status(404).json({
+        success: false,
+        error: { code: 'NOT_FOUND', message: 'Entwurf nicht gefunden.' },
+      });
+    }
+
+    // Eigentumsprüfung: Nur der Besitzer darf ändern
+    if (existingDraft.ownerId !== session.userId) {
+      return res.status(403).json({
+        success: false,
+        error: { code: 'FORBIDDEN', message: 'Kein Zugriff auf diesen Entwurf.' },
       });
     }
 

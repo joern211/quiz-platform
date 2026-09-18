@@ -116,27 +116,22 @@ roomsRouter.post('/', async (req, res) => {
       });
     }
 
+    const parsed = validateBody(CreateRoomSchema, req.body, res);
+    if (!parsed) return;
+
     const {
       gameSlug,
       gameDefinitionId,
       roomName,
       pin,
-      maxPlayers = 10,
-      cameraEnabled = false,
-      allowViewers = true,
-      viewerRequiresPin = true,
-      viewerLimit = 50,
-      lobbyChatEnabled = true,
-      setupSnapshotJson = {},
-    } = req.body;
-
-    // Validate required fields
-    if (!roomName) {
-      return res.status(400).json({
-        success: false,
-        error: { code: 'VALIDATION', message: 'Raumname erforderlich.' },
-      });
-    }
+      maxPlayers,
+      cameraEnabled,
+      allowViewers,
+      viewerRequiresPin,
+      viewerLimit,
+      lobbyChatEnabled,
+      setupSnapshotJson,
+    } = parsed;
 
     // Resolve game definition: prefer slug, fallback to id
     let resolvedGameDefId = gameDefinitionId;
@@ -354,14 +349,10 @@ const joinLimiter = rateLimit({
 // POST /api/v1/rooms/:code/join - Player join
 roomsRouter.post('/:code/join', joinLimiter, async (req, res) => {
   try {
-    const { displayName, pin } = req.body;
+    const parsed = validateBody(JoinRoomSchema, req.body, res);
+    if (!parsed) return;
 
-    if (!displayName) {
-      return res.status(400).json({
-        success: false,
-        error: { code: 'VALIDATION', message: 'Name erforderlich.' },
-      });
-    }
+    const { displayName, pin } = parsed;
 
     const roomCode = req.params.code as string;
     const room = await prisma.room.findUnique({
