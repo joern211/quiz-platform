@@ -7,7 +7,6 @@ import { prisma } from '../persistence/prisma.js';
 import { logger } from '../observability/logger.js';
 import { socketIdentityMap } from '../http/middleware/auth.js';
 import { roomChannel } from './index.js';
-import { requireRoomRole } from './auth.js';
 
 /**
  * Cleanup old disconnected ViewerSessions for a room
