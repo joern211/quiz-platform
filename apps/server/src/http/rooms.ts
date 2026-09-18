@@ -10,6 +10,7 @@ import { prisma } from '../persistence/prisma.js';
 import { verifySession } from '../auth/session.js';
 import { logger } from '../observability/logger.js';
 import { config } from '../config/index.js';
+import { CreateRoomSchema, JoinRoomSchema, validateBody } from './validators.js';
 
 export const roomsRouter : ReturnType<typeof Router> = Router();
 
@@ -216,6 +217,13 @@ roomsRouter.post('/', async (req, res) => {
       },
     });
 
+    // Fetch the moderator's participation to get their rejoinToken (used as moderatorToken)
+    const moderatorParticipation = await prisma.participation.findFirst({
+      where: { roomId: room.id, role: 'MODERATOR' },
+    });
+
+    const moderatorToken = moderatorParticipation?.rejoinToken ?? null;
+
     logger.info('Room created', { roomId: room.id, code, hostId: session.userId });
 
     res.status(201).json({
@@ -223,6 +231,7 @@ roomsRouter.post('/', async (req, res) => {
       data: {
         code: room.code,
         roomId: room.id,
+        moderatorToken,
       },
     });
   } catch (error) {
