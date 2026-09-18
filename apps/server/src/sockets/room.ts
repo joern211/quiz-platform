@@ -7,14 +7,15 @@ import { prisma } from '../persistence/prisma.js';
 import { logger } from '../observability/logger.js';
 import { socketIdentityMap } from '../http/middleware/auth.js';
 import { roomChannel } from './index.js';
+import { requireRoomRole } from './auth.js';
 
 export async function handleRoomSubscription(
   io: Server,
   socket: Socket,
-  data: { roomCode: string; rejoinToken?: string; pin?: string },
+  data: { roomCode: string; rejoinToken?: string; pin?: string; moderatorToken?: string },
   callback?: (result: any) => void
 ) {
-  const { roomCode, rejoinToken, pin } = data;
+  const { roomCode, rejoinToken, pin, moderatorToken } = data;
 
   // Find room
   const room = await prisma.room.findUnique({
@@ -67,6 +68,54 @@ export async function handleRoomSubscription(
     if (!participation || participation.roomId !== room.id) {
       callback?.({ success: false, error: 'INVALID_REJOIN_TOKEN' });
       return;
+    }
+
+    // Phase 3: Moderator Identity Validation
+    // If participation is MODERATOR in DB, require moderatorToken to match
+    // Token + Participation (MODERATOR role) + Host-User + Room must all align
+    if (participation.role === 'MODERATOR') {
+      // A moderator MUST provide a valid moderatorToken that matches their participation
+      // moderatorToken is the same as rejoinToken for the moderator's own participation
+      if (!moderatorToken || moderatorToken !== participation.rejoinToken) {
+        logger.warn('Invalid moderator token', {
+          socketId: socket.id,
+          roomCode,
+          participationId: participation.id,
+          hasModeratorToken: !!moderatorToken,
+          tokenMatches: moderatorToken === participation.rejoinToken,
+        });
+        // P0 Security: Immediately disconnect - do NOT silently create anonymous viewer
+        socket.emit('error', { code: 'INVALID_MODERATOR_TOKEN' });
+        socket.disconnect(true);
+        return;
+      }
+
+      // Also verify the moderator's userId matches the room's hostUserId
+      if (userId && room.hostUserId && userId !== room.hostUserId) {
+        logger.warn('Moderator token user mismatch', {
+          socketId: socket.id,
+          roomCode,
+          tokenUserId: userId,
+          hostUserId: room.hostUserId,
+        });
+        socket.emit('error', { code: 'INVALID_MODERATOR_TOKEN' });
+        socket.disconnect(true);
+        return;
+      }
+    }
+
+    // P0-21: Targeted emit session:replaced to OLD device sockets (same participation, different socket id)
+    const existingSockets = [...socketIdentityMap.entries()]
+      .filter(([sid, identity]) =>
+        identity.participationId === participation.id &&
+        identity.roomId === room.id &&
+        sid !== socket.id
+      )
+      .map(([sid]) => io.sockets.sockets.get(sid))
+      .filter(Boolean);
+
+    for (const oldSocket of existingSockets) {
+      oldSocket?.emit('session:replaced');
     }
 
     // Update to connected
@@ -291,6 +340,8 @@ export async function handleKickPlayer(
         participationId: data.playerId,
         reason: 'Du wurdest vom Moderator entfernt',
       });
+      // P0-21: Force immediate disconnect so token is useless immediately
+      targetSocket?.disconnect(true);
     }
 
     // Broadcast updated room state
