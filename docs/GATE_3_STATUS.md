@@ -1,8 +1,8 @@
 # Gate 3 — Geo-E2E-Tests
 
-**Branch:** `gate-1-build-db`  
-**Status:** 🔄 IN BEARBEITUNG  
-**Subagent:** `deleg_f04cea50` (P0-12 + P0-16)
+**Branch:** `gate-1-build-db`
+**HEAD:** `30b4d84` (`P0-12/P0-16: Atomare Antwort-Speicherung + Timer-Restoration für Geo-Engine`)
+**Status CI:** ✅ **CI #22 PASSED**
 
 ---
 
@@ -12,8 +12,8 @@
 
 | Phase | Beschreibung | Status |
 |---|---|---|
-| 3a | P0-12 Atomare Antworten (Prisma-Tx mit revision) | 🔄 deleg_f04cea50 |
-| 3b | P0-16 Timer-Rekonstruktion nach Server-Restart | 🔄 deleg_f04cea50 |
+| 3a | P0-12 Atomare Antworten (Prisma-Tx mit revision) | ✅ CI #22 |
+| 3b | P0-16 Timer-Rekonstruktion nach Server-Restart | ✅ CI #22 |
 | 3c | P0-20 Pause/Resume UI in ModeratorGamePage | ✅ geo engine implementiert, UI button vorhanden |
 | 3d | Geo-E2E-Integrationstests (Vitest) | 🔜 Gate 5 |
 | 3e | Geo Playwright E2E | 🔜 Gate 5 |
@@ -63,5 +63,5 @@ Alle Security-Features vollständig implementiert und CI-passiert:
 12. ✅ Moderator-Token in Raumerstellung  
 13. ✅ Setup-Ownership-Prüfungen  
 
-**Commit:** `4c3a5e2`  
-**CI:** ✅ CI #21 PASSED
+**Commit:** `30b4d84`  
+**CI:** ✅ CI #22 PASSED
