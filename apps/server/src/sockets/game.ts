@@ -302,10 +302,14 @@ export const handleGameEvents = {
     data: { questionIndex?: number; optionId: string },
     callback?: (result: any) => void
   ) {
-    // P0-10: No rejoinToken required - uses socket.identity
+    // VIEWER role check: only PLAYER and MODERATOR can answer
     const identity = getSocketDataIdentity(socket);
     if (!identity || !identity.roomId) {
       callback?.({ success: false, error: 'NOT_IN_ROOM' });
+      return;
+    }
+    if (identity.role === 'VIEWER') {
+      callback?.({ success: false, error: 'VIEWERS_CANNOT_MODIFY' });
       return;
     }
 
@@ -334,6 +338,16 @@ export const handleGameEvents = {
     data: { roomCode: string; rejoinToken?: string },
     callback?: (result: any) => void
   ) {
+    // VIEWER role check: only PLAYER and MODERATOR can use jokers
+    const identity = getSocketDataIdentity(socket);
+    if (!identity || !identity.roomId) {
+      callback?.({ success: false, error: 'NOT_IN_ROOM' });
+      return;
+    }
+    if (identity.role === 'VIEWER') {
+      callback?.({ success: false, error: 'VIEWERS_CANNOT_MODIFY' });
+      return;
+    }
     return handleGeoGame.handleJoker5050(io, socket, data, callback);
   },
 
@@ -343,6 +357,16 @@ export const handleGameEvents = {
     data: { roomCode: string; rejoinToken?: string },
     callback?: (result: any) => void
   ) {
+    // VIEWER role check: only PLAYER and MODERATOR can use jokers
+    const identity = getSocketDataIdentity(socket);
+    if (!identity || !identity.roomId) {
+      callback?.({ success: false, error: 'NOT_IN_ROOM' });
+      return;
+    }
+    if (identity.role === 'VIEWER') {
+      callback?.({ success: false, error: 'VIEWERS_CANNOT_MODIFY' });
+      return;
+    }
     return handleGeoGame.handleJokerSpy(io, socket, data, callback);
   },
 
@@ -352,6 +376,16 @@ export const handleGameEvents = {
     data: { roomCode: string; rejoinToken?: string },
     callback?: (result: any) => void
   ) {
+    // VIEWER role check: only PLAYER and MODERATOR can use jokers
+    const identity = getSocketDataIdentity(socket);
+    if (!identity || !identity.roomId) {
+      callback?.({ success: false, error: 'NOT_IN_ROOM' });
+      return;
+    }
+    if (identity.role === 'VIEWER') {
+      callback?.({ success: false, error: 'VIEWERS_CANNOT_MODIFY' });
+      return;
+    }
     return handleGeoGame.handleJokerRisk(io, socket, data, callback);
   },
 
@@ -428,6 +462,17 @@ export const handleGameEvents = {
     callback?: (result: any) => void
   ) {
     try {
+      // VIEWER role check: only PLAYER and MODERATOR can buzz
+      const identity = getSocketDataIdentity(socket);
+      if (!identity || !identity.roomId) {
+        callback?.({ success: false, error: 'NOT_IN_ROOM' });
+        return;
+      }
+      if (identity.role === 'VIEWER') {
+        callback?.({ success: false, error: 'VIEWERS_CANNOT_MODIFY' });
+        return;
+      }
+
       const room = await prisma.room.findUnique({
         where: { code: data.roomCode },
       });
@@ -443,7 +488,7 @@ export const handleGameEvents = {
         return;
       }
 
-      const identity = getSocketDataIdentity(socket);
+      // Reuse identity from above (already validated as non-VIEWER)
       const participationId = identity?.participationId || data.rejoinToken;
       
       if (!participationId) {

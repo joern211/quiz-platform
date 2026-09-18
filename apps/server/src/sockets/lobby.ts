@@ -154,11 +154,11 @@ export async function handleDisconnect(io: Server, socket: Socket) {
 
     // Update participation or viewer session based on type
     if (identity.participationId.startsWith('viewer:')) {
-      // Viewer session
+      // Viewer session - set disconnectedAt timestamp for reliable cleanup tracking
       const viewerSessionId = identity.participationId.replace('viewer:', '');
       await prisma.viewerSession.updateMany({
         where: { id: viewerSessionId },
-        data: { connected: false, lastSeenAt: new Date() },
+        data: { connected: false, lastSeenAt: new Date(), disconnectedAt: new Date() },
       });
     } else {
       // Regular participation - set connected=false

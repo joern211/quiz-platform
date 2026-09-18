@@ -162,45 +162,51 @@ export async function handleRoomSubscription(
         data: { role: 'MODERATOR' },
       });
     }
-  } else if (!room.allowViewers) {
-    // Viewers not allowed
-    callback?.({ success: false, error: 'VIEWERS_NOT_ALLOWED' });
-    return;
-  // P0-05: ONLY require PIN if viewerRequiresPin=true AND room.pinHash != null
-  // If pinHash is null, skip PIN requirement (room was created without PIN)
-  // If viewerRequiresPin is false, skip PIN requirement
-  } else if (room.viewerRequiresPin && room.pinHash != null) {
-    // Check PIN for viewer access
-    if (!pin) {
-      callback?.({ success: false, error: 'PIN_REQUIRED' });
-      return;
-    }
-
-    // P0-21: Verify PIN with argon2 (must match hashing in http/rooms.ts)
-    const argon2 = await import('argon2');
-    const validPin = await argon2.default.verify(room.pinHash, pin);
-    if (!validPin) {
-      callback?.({ success: false, error: 'INVALID_PIN' });
-      return;
-    }
-
-    // Create or update ViewerSession
-    const viewerSession = await prisma.viewerSession.create({
-      data: {
-        roomId: room.id,
-        connected: true,
-        lastSeenAt: new Date(),
-      },
-    });
-
-    identity = {
-      participationId: `viewer:${viewerSession.id}`,
-      roomId: room.id,
-      role: 'VIEWER',
-      displayName: 'Zuschauer',
-    };
   } else {
-    // Anonymous viewer (no PIN required)
+    // -----------------------------------------------------------
+    // VIEWER SUBSCRIPTION PATH
+    // -----------------------------------------------------------
+    
+    // 1. P0-04: Check allowViewers - viewers not allowed in this room
+    if (!room.allowViewers) {
+      callback?.({ success: false, error: 'VIEWERS_NOT_ALLOWED' });
+      return;
+    }
+
+    // 2. Cleanup old disconnected ViewerSessions (before checking limit)
+    const cleaned = await cleanupOldViewerSessions(room.id);
+    if (cleaned > 0) {
+      logger.debug('Cleaned up old viewer sessions', { roomCode, count: cleaned });
+    }
+
+    // 3. P0-05/P0-21: viewerLimit prüfen (zählt nur verbundene ViewerSessions)
+    const activeViewerCount = await prisma.viewerSession.count({
+      where: { roomId: room.id, connected: true },
+    });
+    
+    if (activeViewerCount >= room.viewerLimit) {
+      callback?.({ success: false, error: 'VIEWER_LIMIT_REACHED' });
+      return;
+    }
+
+    // 4. P0-05: PIN-Prüfung nur wenn viewerRequiresPin=true UND room.pinHash != null
+    if (room.viewerRequiresPin && room.pinHash != null) {
+      // Check PIN for viewer access
+      if (!pin) {
+        callback?.({ success: false, error: 'PIN_REQUIRED' });
+        return;
+      }
+
+      // P0-21: Verify PIN with argon2 (must match hashing in http/rooms.ts)
+      const argon2 = await import('argon2');
+      const validPin = await argon2.default.verify(room.pinHash, pin);
+      if (!validPin) {
+        callback?.({ success: false, error: 'INVALID_PIN' });
+        return;
+      }
+    }
+
+    // Create new ViewerSession
     const viewerSession = await prisma.viewerSession.create({
       data: {
         roomId: room.id,

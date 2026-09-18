@@ -237,15 +237,17 @@ model Participation {
 }
 
 model ViewerSession {
-  id          String   @id @default(uuid())
-  roomId      String
-  room        Room     @relation(fields: [roomId], references: [id], onDelete: Cascade)
-  connected   Boolean  @default(false)
-  lastSeenAt  DateTime @default(now())
+  id            String    @id @default(uuid())
+  roomId        String
+  room          Room      @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  connected     Boolean   @default(false)
+  lastSeenAt    DateTime  @default(now())
+  disconnectedAt DateTime?
   
-  createdAt   DateTime @default(now())
+  createdAt     DateTime  @default(now())
   
   @@index([roomId])
+  @@index([roomId, connected])
   @@map("viewer_sessions")
 }
 

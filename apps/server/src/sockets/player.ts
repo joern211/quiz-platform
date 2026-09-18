@@ -16,8 +16,18 @@ export const handlePlayerEvents = {
     callback?: (result: any) => void
   ) {
     try {
-      // Try socket identity first, then fall back to rejoinToken
+      // VIEWER role check: players only, not viewers
       const identity = getSocketDataIdentity(socket);
+      if (!identity || !identity.role) {
+        callback?.({ success: false, error: 'NOT_IN_ROOM' });
+        return;
+      }
+      if (identity.role === 'VIEWER') {
+        callback?.({ success: false, error: 'VIEWERS_CANNOT_MODIFY' });
+        return;
+      }
+
+      // Try socket identity first, then fall back to rejoinToken
       const participationId = identity?.participationId || data.rejoinToken;
 
       if (!participationId) {
@@ -66,8 +76,18 @@ export const handlePlayerEvents = {
     callback?: (result: any) => void
   ) {
     try {
-      // Try socket identity first, then fall back to rejoinToken
+      // VIEWER role check: players only, not viewers
       const identity = getSocketDataIdentity(socket);
+      if (!identity || !identity.role) {
+        callback?.({ success: false, error: 'NOT_IN_ROOM' });
+        return;
+      }
+      if (identity.role === 'VIEWER') {
+        callback?.({ success: false, error: 'VIEWERS_CANNOT_MODIFY' });
+        return;
+      }
+
+      // Try socket identity first, then fall back to rejoinToken
       const participationId = identity?.participationId || data.rejoinToken;
 
       if (!participationId) {
