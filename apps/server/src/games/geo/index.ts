@@ -784,9 +784,9 @@ export const handleGeoGame = {
           return;
         }
 
-        const authorized = await requireRoomRole(socket, roomRecord.id, 'MODERATOR');
-        if (!authorized) {
-          callback?.({ success: false, error: 'UNAUTHORIZED' });
+        const authResult = await requireRoomRole(socket, roomRecord.id, { role: 'MODERATOR' });
+        if (!authResult.authorized) {
+          callback?.({ success: false, error: authResult.errorCode ?? 'UNAUTHORIZED' });
           return;
         }
       }
@@ -999,9 +999,9 @@ export const handleGeoGame = {
       }
 
       // P0-17: Authorization check
-      const authorized = await requireRoomRole(socket, room.id, 'MODERATOR');
-      if (!authorized) {
-        callback?.({ success: false, error: 'UNAUTHORIZED' });
+      const authResult = await requireRoomRole(socket, room.id, { role: 'MODERATOR' });
+      if (!authResult.authorized) {
+        callback?.({ success: false, error: authResult.errorCode ?? 'UNAUTHORIZED' });
         return;
       }
 
@@ -1070,9 +1070,9 @@ export const handleGeoGame = {
         return;
       }
 
-      const authorized = await requireRoomRole(socket, room.id, 'MODERATOR');
-      if (!authorized) {
-        callback?.({ success: false, error: 'UNAUTHORIZED' });
+      const authResult = await requireRoomRole(socket, room.id, { role: 'MODERATOR' });
+      if (!authResult.authorized) {
+        callback?.({ success: false, error: authResult.errorCode ?? 'UNAUTHORIZED' });
         return;
       }
 
@@ -1146,9 +1146,9 @@ export const handleGeoGame = {
         return;
       }
 
-      const authorized = await requireRoomRole(socket, room.id, 'MODERATOR');
-      if (!authorized) {
-        callback?.({ success: false, error: 'UNAUTHORIZED' });
+      const authResult = await requireRoomRole(socket, room.id, { role: 'MODERATOR' });
+      if (!authResult.authorized) {
+        callback?.({ success: false, error: authResult.errorCode ?? 'UNAUTHORIZED' });
         return;
       }
 
