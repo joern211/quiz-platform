@@ -364,3 +364,109 @@ export const ScoreEventSchema = z.object({
 });
 
 export type ScoreEvent = z.infer<typeof GameManifestSchema>;
+
+// ============================================================
+// API Contract — Request / Response Schemas
+// ============================================================
+
+// ── POST /api/v1/rooms ──────────────────────────────────────
+
+export const CreateRoomInputSchema = z.object({
+  gameSlug: z.string().optional(),
+  gameDefinitionId: z.string().uuid().optional(),
+  roomName: z.string().min(1).max(100),
+  pin: z.string().max(10).optional(),
+  maxPlayers: z.number().int().min(2).max(10).default(10),
+  cameraEnabled: z.boolean().default(false),
+  allowViewers: z.boolean().default(true),
+  viewerRequiresPin: z.boolean().default(true),
+  viewerLimit: z.number().int().min(1).max(50).default(50),
+  lobbyChatEnabled: z.boolean().default(true),
+  setupSnapshotJson: z.record(z.unknown()).optional(),
+});
+
+export type CreateRoomInput = z.infer<typeof CreateRoomInputSchema>;
+
+export const CreateRoomResponseSchema = z.object({
+  code: z.string().regex(/^\d{3}-\d{3}$/),
+  roomId: z.string().uuid(),
+});
+
+export type CreateRoomResponse = z.infer<typeof CreateRoomResponseSchema>;
+
+// ── POST /api/v1/rooms/:code/join ───────────────────────────
+
+export const JoinRoomInputSchema = z.object({
+  displayName: z.string().min(1).max(50),
+  pin: z.string().max(10).optional(),
+});
+
+export type JoinRoomInput = z.infer<typeof JoinRoomInputSchema>;
+
+export const JoinRoomResponseSchema = z.object({
+  rejoinToken: z.string(),
+  participationId: z.string().uuid(),
+  role: z.enum(['MODERATOR', 'PLAYER', 'VIEWER']),
+  roomCode: z.string().regex(/^\d{3}-\d{3}$/),
+});
+
+export type JoinRoomResponse = z.infer<typeof JoinRoomResponseSchema>;
+
+// ── POST /api/v1/auth/login ─────────────────────────────────
+
+export const LoginInputSchema = z.object({
+  username: z.string().min(1),
+  password: z.string().min(1),
+});
+
+export type LoginInput = z.infer<typeof LoginInputSchema>;
+
+export const LoginResponseSchema = z.object({
+  user: z.object({
+    id: z.string().uuid(),
+    displayName: z.string(),
+    role: z.enum(['ADMIN', 'MODERATOR']),
+  }),
+});
+
+export type LoginResponse = z.infer<typeof LoginResponseSchema>;
+
+// ── POST /api/v1/setups ─────────────────────────────────────
+
+export const SetupInputSchema = z.object({
+  gameDefinitionId: z.string().uuid(),
+  config: z.record(z.unknown()).optional(),
+  content: z.record(z.unknown()).optional(),
+});
+
+export type SetupInput = z.infer<typeof SetupInputSchema>;
+
+export const CreateSetupResponseSchema = z.object({
+  id: z.string().uuid(),
+});
+
+export type CreateSetupResponse = z.infer<typeof CreateSetupResponseSchema>;
+
+// ── GET /api/v1/setups/:id ──────────────────────────────────
+
+export const SetupResponseSchema = z.object({
+  id: z.string().uuid(),
+  game: z.object({
+    id: z.string().uuid(),
+    slug: z.string(),
+    name: z.string(),
+    category: z.string(),
+  }),
+  config: z.record(z.unknown()),
+  content: z.record(z.unknown()),
+  schemaVersion: z.number().int(),
+  isValid: z.boolean(),
+  validationErrors: z.array(z.object({
+    field: z.string(),
+    message: z.string(),
+  })).nullable(),
+  createdAt: z.string().datetime(),
+  updatedAt: z.string().datetime(),
+});
+
+export type SetupResponse = z.infer<typeof SetupResponseSchema>;
