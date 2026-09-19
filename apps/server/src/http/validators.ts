@@ -31,7 +31,14 @@ export const CreateRoomSchema = z.object({
   viewerRequiresPin: z.boolean().default(true),
   viewerLimit: z.number().int().min(0).max(500).default(50),
   lobbyChatEnabled: z.boolean().default(true),
-  setupSnapshotJson: z.record(z.unknown()).default({}),
+  setupSnapshotJson: z.union([z.record(z.unknown()), z.string()]).transform((v) => {
+    // Accept both object and JSON-string; normalize to object for storage
+    if (typeof v === 'string') {
+      try { return JSON.parse(v); }
+      catch { return {}; }
+    }
+    return v;
+  }).default({}),
 });
 
 /**
@@ -65,6 +72,13 @@ export const LoginSchema = z.object({
   password: z
     .string({ required_error: 'Passwort erforderlich.' })
     .min(1, 'Passwort darf nicht leer sein.'),
+});
+
+/**
+ * Validate E2E test token request (dev-only, no password needed).
+ */
+export const E2ETokenSchema = z.object({
+  userId: z.string().min(1, 'userId erforderlich.'),
 });
 
 // ---- Setup Schemas -----------------------------------------------

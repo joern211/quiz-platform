@@ -311,3 +311,6 @@ CREATE INDEX "audit_logs_userId_idx" ON "audit_logs"("userId");
 
 -- CreateIndex
 CREATE INDEX "audit_logs_createdAt_idx" ON "audit_logs"("createdAt");
+
+-- Migration 20260918: Add disconnectedAt to viewer_sessions (missing in init)
+ALTER TABLE "viewer_sessions" ADD COLUMN "disconnectedAt" DATETIME;

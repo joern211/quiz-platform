@@ -20,6 +20,8 @@ export const handleGameEvents = {
     data: { roomCode: string },
     callback?: (result: any) => void
   ) {
+    logger.info('game:start received', { socketId: socket.id, roomCode: data.roomCode, socketData: socket.data });
+
     try {
       const room = await prisma.room.findUnique({
         where: { code: data.roomCode },
@@ -33,12 +35,14 @@ export const handleGameEvents = {
 
       // P0-17: Use socket identity for authorization
       const identity = getSocketDataIdentity(socket);
+      logger.info('game:start identity check', { identity, socketId: socket.id });
       if (!identity || !identity.roomId) {
         callback?.({ success: false, error: 'NOT_IN_ROOM' });
         return;
       }
 
       const authorized = requireRoomRole(socket, 'MODERATOR');
+      logger.info('game:start auth result', { authorized, socketId: socket.id, role: identity?.role });
       if (!authorized) {
         callback?.({ success: false, error: 'UNAUTHORIZED' });
         return;

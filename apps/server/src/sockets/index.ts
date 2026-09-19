@@ -19,11 +19,30 @@ export function roomChannel(roomId: string): string {
   return `room:${roomId}`;
 }
 
+// E2E helper: find socket ID by session ID
+// Uses the module-level io reference (set in setupSocketHandlers)
+export function getSocketIdBySession(sessionId: string): string | undefined {
+  // io is set by setupSocketHandlers; use type assertion for flexibility
+  const theIo = (globalThis as any).__quiz_io as any;
+  if (!theIo?.sockets?.sockets) return undefined;
+  for (const [id, sock] of theIo.sockets.sockets.entries() ?? []) {
+    if ((sock as any).sessionId === sessionId || (sock as any).user?.sessionId === sessionId) {
+      return id;
+    }
+  }
+  return undefined;
+}
+
 export function setupSocketHandlers(io: Server) {
+  // Register on globalThis so getSocketIdBySession (called from HTTP routes)
+  // can access the io instance
+  (globalThis as any).__quiz_io = io;
+
   // Authentication middleware
   io.use(async (socket, next) => {
     try {
       const sessionId = verifySession(socket.request as any, config.sessionSecret);
+      (socket as any).sessionId = sessionId;
       if (sessionId) {
         const session = await prisma.session.findUnique({
           where: { id: sessionId },
@@ -31,6 +50,7 @@ export function setupSocketHandlers(io: Server) {
         });
         if (session && !session.revokedAt && session.expiresAt > new Date()) {
           (socket as any).user = session.user;
+          (socket as any).user.sessionId = sessionId; // store for lookup
         }
       }
       next();
