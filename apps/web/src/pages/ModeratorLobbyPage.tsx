@@ -37,6 +37,19 @@ export function ModeratorLobbyPage() {
 
     connectSocket();
 
+    // E2E-Fix + App-Quality: room:subscribe MUSS nach jedem Page-Reload neu gesendet werden.
+    // Problem: socket.io-client Singleton → nach page.reload() ist das Socket bereits
+    // verbunden, das 'connect'-Event wird NICHT mehr gefeuert → room:subscribe wird nicht
+    // emitted → Moderator-Socket subscription geht verloren → game:start → NOT_IN_ROOM.
+    // Fix: room:subscribe direkt aufrufen wenn das Socket bereits verbunden ist.
+    const doSubscribe = () => {
+      socket.emit('room:subscribe', { roomCode: code, role: 'MODERATOR' });
+    };
+
+    if (socket.connected) {
+      doSubscribe();
+    }
+
     socket.on('connect', () => {
       setConnected(true);
       socket.emit('room:subscribe', { roomCode: code, role: 'MODERATOR' });

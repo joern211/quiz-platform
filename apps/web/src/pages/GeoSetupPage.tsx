@@ -161,11 +161,11 @@ export function GeoSetupPage() {
         }),
       });
 
-      const data = await res.json();
-      if (res.ok) {
-        navigate(`/moderator/raum/${data.code}/lobby`);
+      const json = await res.json();
+      if (res.ok && json.success) {
+        navigate(`/moderator/raum/${json.data.code}/lobby`);
       } else {
-        alert(data.error || 'Fehler beim Erstellen');
+        alert(json.error || 'Fehler beim Erstellen');
       }
     } catch {
       alert('Verbindungsfehler');

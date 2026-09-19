@@ -194,6 +194,19 @@ export function disconnectSocket() {
   socket = null;
 }
 
+// E2E: Expose a reset function that disconnects AND nulls the singleton.
+// After page.reload(), call __resetSocket() from page.evaluate() to force a
+// FRESH Socket instance on next connect(), which fires 'connect' event
+// → room:subscribe → Moderator is in Room → game:start succeeds.
+export function resetSocket() {
+  socket?.disconnect();
+  socket = null;
+}
+
+if (typeof window !== 'undefined') {
+  (window as any).__resetSocket = resetSocket;
+}
+
 // ── Kick Player Helper ─────────────────────────────────────────
 // Used by ModeratorLobbyPage to emit room:kick events
 

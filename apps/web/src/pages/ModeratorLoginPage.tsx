@@ -31,16 +31,16 @@ export function ModeratorLoginPage() {
         credentials: 'include',
       });
 
-      const data = await res.json();
+      const json = await res.json();
 
-      if (!res.ok) {
-        setError(data.error || 'Anmeldung fehlgeschlagen');
+      if (!res.ok || !json.success) {
+        setError(json.error || 'Anmeldung fehlgeschlagen');
         setLoading(false);
         return;
       }
 
-      // Success - redirect
-      navigate(returnUrl);
+      // Success - redirect to Geo setup page directly
+      navigate(`/moderator/vorbereitung/geo`);
     } catch {
       setError('Verbindungsfehler. Bitte versuche es erneut.');
       setLoading(false);

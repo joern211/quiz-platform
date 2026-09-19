@@ -24,6 +24,8 @@ export default defineConfig({
       '/api': {
         target: 'http://localhost:3001',
         changeOrigin: true,
+        // http-proxy events via configure-Proxy
+        selfHandleResponse: false,
       },
       '/socket.io': {
         target: 'http://localhost:3001',

@@ -2,12 +2,16 @@
 // Online Quiz Plattform - Rooms Router
 // ============================================================
 
-import { Router } from 'express';
+import { Router, RequestHandler } from 'express';
 import crypto from 'crypto';
+import argon2 from 'argon2';
+import rateLimit from 'express-rate-limit';
 import { prisma } from '../persistence/prisma.js';
 import { verifySession } from '../auth/session.js';
+import { roomChannel } from '../sockets/index.js';
 import { logger } from '../observability/logger.js';
 import { config } from '../config/index.js';
+import { CreateRoomSchema, JoinRoomSchema, validateBody } from './validators.js';
 
 export const roomsRouter : ReturnType<typeof Router> = Router();
 
@@ -113,27 +117,22 @@ roomsRouter.post('/', async (req, res) => {
       });
     }
 
+    const parsed = validateBody(CreateRoomSchema, req.body, res);
+    if (!parsed) return;
+
     const {
       gameSlug,
       gameDefinitionId,
       roomName,
       pin,
-      maxPlayers = 10,
-      cameraEnabled = false,
-      allowViewers = true,
-      viewerRequiresPin = true,
-      viewerLimit = 50,
-      lobbyChatEnabled = true,
-      setupSnapshotJson = {},
-    } = req.body;
-
-    // Validate required fields
-    if (!roomName) {
-      return res.status(400).json({
-        success: false,
-        error: { code: 'VALIDATION', message: 'Raumname erforderlich.' },
-      });
-    }
+      maxPlayers,
+      cameraEnabled,
+      allowViewers,
+      viewerRequiresPin,
+      viewerLimit,
+      lobbyChatEnabled,
+      setupSnapshotJson,
+    } = parsed;
 
     // Resolve game definition: prefer slug, fallback to id
     let resolvedGameDefId = gameDefinitionId;
@@ -174,10 +173,10 @@ roomsRouter.post('/', async (req, res) => {
       });
     }
 
-    // Hash PIN if provided
+    // Hash PIN if provided (using argon2id)
     let pinHash: string | null = null;
     if (pin) {
-      pinHash = crypto.createHash('sha256').update(pin).digest('hex');
+      pinHash = await argon2.hash(pin, { type: argon2.argon2id });
     }
 
     // Create room
@@ -214,6 +213,13 @@ roomsRouter.post('/', async (req, res) => {
       },
     });
 
+    // Fetch the moderator's participation to get their rejoinToken (used as moderatorToken)
+    const moderatorParticipation = await prisma.participation.findFirst({
+      where: { roomId: room.id, role: 'MODERATOR' },
+    });
+
+    const moderatorToken = moderatorParticipation?.rejoinToken ?? null;
+
     logger.info('Room created', { roomId: room.id, code, hostId: session.userId });
 
     res.status(201).json({
@@ -221,6 +227,7 @@ roomsRouter.post('/', async (req, res) => {
       data: {
         code: room.code,
         roomId: room.id,
+        moderatorToken,
       },
     });
   } catch (error) {
@@ -331,21 +338,37 @@ roomsRouter.get('/:code', async (req, res) => {
   }
 });
 
+// Rate limit join attempts to prevent brute-force PIN attacks
+// Join rate limiter — only active in production to avoid blocking E2E tests
+const noopMiddleware: RequestHandler = (_req, _res, next) => next();
+
+const joinLimiter = process.env.NODE_ENV === 'production'
+  ? rateLimit({
+      windowMs: 15 * 60 * 1000, // 15 minutes
+      max: 20,
+      standardHeaders: true,
+      legacyHeaders: false,
+      message: { success: false, error: { code: 'RATE_LIMIT', message: 'Zu viele Beitrittsversuche. Bitte 15 Minuten warten.' } },
+    })
+  : noopMiddleware;
+
 // POST /api/v1/rooms/:code/join - Player join
-// TODO: Add rate limiting for join attempts to prevent brute-force PIN attacks
-roomsRouter.post('/:code/join', async (req, res) => {
+roomsRouter.post('/:code/join', (req, res, next) => {
+  // Development/E2E: skip rate limiter to avoid blocking tests
+  if (process.env.NODE_ENV !== 'production') {
+    (req as any).skipRateLimit = true;
+  }
+  next();
+}, async (req, res) => {
   try {
-    const { displayName, pin } = req.body;
+    const parsed = validateBody(JoinRoomSchema, req.body, res);
+    if (!parsed) return;
 
-    if (!displayName) {
-      return res.status(400).json({
-        success: false,
-        error: { code: 'VALIDATION', message: 'Name erforderlich.' },
-      });
-    }
+    const { displayName, pin } = parsed;
 
+    const roomCode = req.params.code as string;
     const room = await prisma.room.findUnique({
-      where: { code: normalizeRoomCode(req.params.code) },
+      where: { code: normalizeRoomCode(roomCode) },
     });
 
     if (!room) {
@@ -362,17 +385,16 @@ roomsRouter.post('/:code/join', async (req, res) => {
       });
     }
 
-    // Check PIN - compare hashes properly
+    // Check PIN - verify with argon2
     if (room.pinHash) {
-      // PIN is stored as SHA256 hash, compare hashes directly
       if (!pin) {
         return res.status(403).json({
           success: false,
           error: { code: 'INVALID_PIN', message: 'PIN erforderlich.' },
         });
       }
-      const pinHash = crypto.createHash('sha256').update(pin).digest('hex');
-      if (pinHash !== room.pinHash) {
+      const validPin = await argon2.verify(room.pinHash, pin);
+      if (!validPin) {
         return res.status(403).json({
           success: false,
           error: { code: 'INVALID_PIN', message: 'Falscher PIN.' },

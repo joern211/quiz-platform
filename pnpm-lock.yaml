@@ -159,7 +159,7 @@ importers:
         specifier: ^10.0.1
         version: 10.0.1(eslint@10.10.0)
       '@playwright/test':
-        specifier: ^1.48.2
+        specifier: ^1.63.0
         version: 1.63.0
       '@testing-library/jest-dom':
         specifier: ^6.6.3
