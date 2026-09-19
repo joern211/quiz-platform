@@ -12,5 +12,5 @@ test.describe('Online Quiz Plattform', () => {
 });
 
 test.describe.skip('Player Flow', () => {
-  test('placeholder', async ({ page }) => {});
+  test('placeholder', async () => {});
 });
