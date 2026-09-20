@@ -33,8 +33,8 @@ jobs:
 
       - name: Run database migrations
         env:
-          DATABASE_URL: file:///tmp/test-ci.db
-        run: pnpm prisma migrate deploy
+          DATABASE_URL: file:./prisma/dev.db
+        run: pnpm prisma migrate deploy --schema=./prisma/schema.prisma
 
       - name: Type check
         run: pnpm typecheck
@@ -47,3 +47,77 @@ jobs:
 
       - name: Build
         run: pnpm build
+
+  e2e:
+    name: E2E
+    runs-on: ubuntu-latest
+    needs: ci
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+
+      - name: Enable Corepack
+        run: corepack enable
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Generate Prisma Client
+        run: pnpm prisma generate
+
+      - name: Install Playwright
+        run: pnpm exec playwright install --with-deps chromium
+
+      - name: Create fresh SQLite DB and run migrations + seed
+        run: |
+          rm -f /tmp/test-e2e.db
+          DATABASE_URL=file:///tmp/test-e2e.db pnpm prisma migrate deploy
+          DATABASE_URL=file:///tmp/test-e2e.db pnpm prisma db seed
+
+      - name: Start server in background
+        run: |
+          DATABASE_URL=file:///tmp/test-e2e.db pnpm --filter @quiz/server dev &
+          SERVER_PID=$!
+          echo "SERVER_PID=$SERVER_PID" >> $GITHUB_ENV
+          # Wait for server to be ready
+          for i in $(seq 1 60); do
+            if curl -s http://localhost:3001/api/v1/health > /dev/null 2>&1; then
+              echo "Server is ready"
+              break
+            fi
+            if [ $i -eq 60 ]; then
+              echo "Server failed to start within 60 seconds"
+              exit 1
+            fi
+            sleep 1
+          done
+
+      - name: Run E2E tests
+        env:
+          DATABASE_URL: file:///tmp/test-e2e.db
+          SESSION_SECRET: test-secret-32chars-long-for-e2e
+          ALLOWED_ORIGINS: http://localhost:3001
+          PUBLIC_APP_URL: http://localhost:3001
+          WEB_DIST_PATH: apps/web/dist
+        run: pnpm test:e2e
+        timeout-minutes: 5
+
+      - name: Upload Playwright report
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: playwright-report/
+          retention-days: 7
+
+      - name: Upload Playwright test trace
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-trace
+          path: playwright/.cache/
+          retention-days: 7

@@ -112,7 +112,7 @@ describe('Rooms API — Create Room', () => {
     const res = await request
       .post('/api/v1/rooms')
       .set('Cookie', cookie)
-      .send({ roomName: 'Room Without Game', gameSlug: 'non-existent-game-slug' });
+      .send({ roomName: 'Room Without Game', gameDefinitionId: '00000000-0000-0000-0000-000000000000' });
 
     expect(res.status).toBe(400);
     expect(res.body.success).toBe(false);

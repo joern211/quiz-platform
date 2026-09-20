@@ -97,4 +97,8 @@ export async function cleanupTestSessions() {
   await prisma.session.deleteMany({
     where: { id: { startsWith: 'test-session-' } },
   });
+  // Also clean up e2e-* sessions from E2E endpoint integration tests
+  await prisma.session.deleteMany({
+    where: { userId: { startsWith: 'e2e-' } },
+  });
 }

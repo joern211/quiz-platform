@@ -19,7 +19,7 @@ export default defineConfig({
     timeout: 60000,
     env: {
       SESSION_SECRET: 'test-secret-32chars-long-for-e2e',
-      DATABASE_URL: 'file:prisma/dev.db',
+      DATABASE_URL: process.env.DATABASE_URL ?? 'file:prisma/dev.db',
       ALLOWED_ORIGINS: 'http://localhost:3001',
       PUBLIC_APP_URL: 'http://localhost:3001',
       WEB_DIST_PATH: 'apps/web/dist',
