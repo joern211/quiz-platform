@@ -119,7 +119,12 @@ describe('Rooms API — Create Room', () => {
   });
 
   it('POST /api/v1/rooms — should reject missing roomName', async () => {
-    const res = await request
+    // Create a fresh app to ensure cookie middleware uses current DB state.
+    // The module-level `request` may reuse an app created before its cookie's session existed.
+    const { app } = createApp();
+    const freshRequest = supertest(app);
+
+    const res = await freshRequest
       .post('/api/v1/rooms')
       .set('Cookie', cookie)
       .send({ gameSlug: geoDefSlug });

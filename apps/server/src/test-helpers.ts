@@ -92,13 +92,21 @@ export async function cleanupTestRoom(code: string) {
   await prisma.room.deleteMany({ where: { code } }).catch(() => {/* ignore */});
 }
 
-/** Delete all sessions that start with 'test-session-' (cleanup after test) */
+/** Delete all sessions created during these integration tests.
+ * Scoped to test-specific prefixes to avoid wiping sessions created by
+ * the current test (before its own requests). */
 export async function cleanupTestSessions() {
+  // Remove sessions from previous test runs (stale timestamps)
   await prisma.session.deleteMany({
     where: { id: { startsWith: 'test-session-' } },
   });
-  // Also clean up e2e-* sessions from E2E endpoint integration tests
   await prisma.session.deleteMany({
     where: { userId: { startsWith: 'e2e-' } },
+  });
+  await prisma.session.deleteMany({
+    where: { userId: { startsWith: 'mod-rl-' } },
+  });
+  await prisma.session.deleteMany({
+    where: { userId: { startsWith: 'geo-room-' } },
   });
 }

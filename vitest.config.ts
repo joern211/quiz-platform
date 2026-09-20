@@ -25,5 +25,8 @@ export default defineConfig({
         isolate: true,
       },
     },
+    // Rate-limiter subprocess can take up to 20s to start under load
+    hookTimeout: 30_000,
+    testTimeout: 60_000,
   },
 });
