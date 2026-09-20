@@ -16,14 +16,13 @@ export default defineConfig({
       '**/build/**',
     ],
     globals: true,
-    // Server integration tests need their own DB. Run server tests in separate
-    // pool from web tests to avoid DB contention.
-    // Integration tests run with NODE_ENV=test for conditional rate limiter.
+    // Each test file gets its own fork and DB to prevent cross-test-state pollution.
+    // isolate: true ensures test-setup.ts runs once per file (seed, env vars).
     pool: 'forks',
     poolOptions: {
       forks: {
-        // false = each test file gets its own subprocess with own DB
         singleFork: false,
+        isolate: true,
       },
     },
   },
