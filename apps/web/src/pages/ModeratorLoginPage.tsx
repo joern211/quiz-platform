@@ -5,6 +5,7 @@
 import { useState } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { Card, Button, Input } from '@quiz/ui';
+import { validateReturnUrl } from '../lib/validateReturnUrl';
 import styles from './ModeratorLoginPage.module.css';
 
 export function ModeratorLoginPage() {
@@ -17,10 +18,7 @@ export function ModeratorLoginPage() {
 
   // Get return URL from query params, validate it is internal and safe
   const requestedReturnUrl = new URLSearchParams(location.search).get('return');
-  const returnUrl =
-    requestedReturnUrl?.startsWith('/') && !requestedReturnUrl.startsWith('//')
-      ? requestedReturnUrl
-      : '/kategorien';
+  const returnUrl = validateReturnUrl(requestedReturnUrl);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();

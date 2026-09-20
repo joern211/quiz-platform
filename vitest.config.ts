@@ -16,12 +16,14 @@ export default defineConfig({
       '**/build/**',
     ],
     globals: true,
-    // Server tests use node env, web uses jsdom
-    // Run in separate passes via the workspace scripts instead
+    // Server integration tests need their own DB. Run server tests in separate
+    // pool from web tests to avoid DB contention.
+    // Integration tests run with NODE_ENV=test for conditional rate limiter.
     pool: 'forks',
     poolOptions: {
       forks: {
-        singleFork: true,
+        // false = each test file gets its own subprocess with own DB
+        singleFork: false,
       },
     },
   },
