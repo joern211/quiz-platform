@@ -41,6 +41,7 @@ function getAppVersion(): string {
 
 export function createApp(): AppFactoryResult {
   const __dirname = path.dirname(fileURLToPath(import.meta.url));
+  // Read live — config.nodeEnv may be cached from import time
   const isDev = process.env.NODE_ENV !== 'production';
   const APP_VERSION = getAppVersion();
 
