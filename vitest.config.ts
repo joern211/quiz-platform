@@ -16,12 +16,13 @@ export default defineConfig({
       '**/build/**',
     ],
     globals: true,
-    // Server tests use node env, web uses jsdom
-    // Run in separate passes via the workspace scripts instead
+    // Each test file gets its own fork and DB to prevent cross-test-state pollution.
+    // isolate: true ensures test-setup.ts runs once per file (seed, env vars).
     pool: 'forks',
     poolOptions: {
       forks: {
-        singleFork: true,
+        singleFork: false,
+        isolate: true,
       },
     },
   },
