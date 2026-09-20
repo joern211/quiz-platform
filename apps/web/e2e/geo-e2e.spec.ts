@@ -1,4 +1,4 @@
-import { test, expect, type Page, type BrowserContext } from '@playwright/test';
+import { test, expect, type Page } from '@playwright/test';
 
 // ── Browser-Console-Logger ────────────────────────────────────────
 function setupBrowserLogger(page: Page, label: string) {
@@ -15,58 +15,6 @@ function setupBrowserLogger(page: Page, label: string) {
 // Testet: Moderator + 2 Spieler + 1 Zuschauer, alle Spielphasen
 
 const BASE = process.env.E2E_BASE_URL || 'http://localhost:5173';
-
-/**
- * E2E Socket Patch: Stellt sicher dass nach Page-Reload die Socket.IO-Verbindung
- * korrekt `room:subscribe` sendet.
- *
- * Problem: socket.io-client Singleton — nach page.reload() wird kein 'connect'-Event
- * mehr gefeuert weil das Socket bereits verbunden ist → room:subscribe wird nie
- * emitted → Server hat Socket nicht im Room → game:start schlägt mit NOT_IN_ROOM fehl.
- *
- * Fix: Nach dem Reload explizit `room:subscribe` per page.evaluate() senden.
- * Das geht zuverlässiger als Socket-Client-Patching.
- */
-async function ensureModeratorInRoom(page: Page, code: string) {
-  // Warte auf Socket-Verbindung
-  await page.waitForSelector('text=Verbunden', { timeout: 15000 });
-  await page.waitForTimeout(2000); // Extra Puffer
-
-  // Prüfe ob der Moderator bereits im DOM als "Host" sichtbar ist
-  const hostVisible = await page.getByText('admin').isVisible({ timeout: 3000 }).catch(() => false);
-  if (hostVisible) {
-    console.log(`[ensureModeratorInRoom] admin sichtbar — Socket vermutlich OK`);
-    return;
-  }
-
-  // NICHT sichtbar → Socket hat room:subscribe nicht gesendet.
-  // Sende es MANUELL per evaluate.
-  console.log(`[ensureModeratorInRoom] admin NICHT sichtbar — sende room:subscribe manuell`);
-  const result = await page.evaluate((roomCode: string) => {
-    // Finde das Socket über window (von React/Socket.IO gesetzt)
-    // socket.io-client setzt das Socket nicht global — wir nutzen fetch als Workaround
-    // Sende ein HTTP-Request der im Server-Log sichtbar wird
-    return { sent: false, roomCode, reason: 'Socket nicht global verfügbar — muss via page.evaluate socket.emit simuliert werden' };
-  }, code);
-  console.log(`[ensureModeratorInRoom] ${JSON.stringify(result)}`);
-
-  // FALLBACK: Erzwinge ein disconnect + reconnect
-  await page.evaluate(() => {
-    const win = window as any;
-    // socket.io-client hat eine intere Manager-Instanz
-    // Wir können sie über io() mit leerem URL finden
-    if (win.io && win.io.manager) {
-      const mgr = win.io.manager;
-      const sockets = mgr.sockets;
-      if (sockets && sockets[0]) {
-        console.log('[E2E] Found socket via io.manager, emitting room:subscribe');
-        // sockets[0] ist das aktuelle Socket
-        // Aber room:subscribe braucht eine callback-Funktion...
-        // Wir können hier nichts tun ohne das Socket zu kennen
-      }
-    }
-  });
-}
 
 // --- Hilfsfunktionen ---
 

@@ -2,13 +2,12 @@
 // Online Quiz Plattform - Rooms Router
 // ============================================================
 
-import { Router, RequestHandler } from 'express';
+import { Router } from 'express';
 import crypto from 'crypto';
 import argon2 from 'argon2';
 import rateLimit from 'express-rate-limit';
 import { prisma } from '../persistence/prisma.js';
 import { verifySession } from '../auth/session.js';
-import { roomChannel } from '../sockets/index.js';
 import { logger } from '../observability/logger.js';
 import { config } from '../config/index.js';
 import { CreateRoomSchema, JoinRoomSchema, validateBody } from './validators.js';
@@ -339,9 +338,6 @@ roomsRouter.get('/:code', async (req, res) => {
 });
 
 // Rate limit join attempts to prevent brute-force PIN attacks
-// Join rate limiter — only active in production to avoid blocking E2E tests
-const noopMiddleware: RequestHandler = (_req, _res, next) => next();
-
 const joinLimiter = process.env.NODE_ENV === 'production'
   ? rateLimit({
       windowMs: 15 * 60 * 1000, // 15 minutes
@@ -350,16 +346,10 @@ const joinLimiter = process.env.NODE_ENV === 'production'
       legacyHeaders: false,
       message: { success: false, error: { code: 'RATE_LIMIT', message: 'Zu viele Beitrittsversuche. Bitte 15 Minuten warten.' } },
     })
-  : noopMiddleware;
+  : (_req: import('express').Request, _res: import('express').Response, next: import('express').NextFunction) => next();
 
 // POST /api/v1/rooms/:code/join - Player join
-roomsRouter.post('/:code/join', (req, res, next) => {
-  // Development/E2E: skip rate limiter to avoid blocking tests
-  if (process.env.NODE_ENV !== 'production') {
-    (req as any).skipRateLimit = true;
-  }
-  next();
-}, async (req, res) => {
+roomsRouter.post('/:code/join', joinLimiter, async (req, res) => {
   try {
     const parsed = validateBody(JoinRoomSchema, req.body, res);
     if (!parsed) return;

@@ -15,8 +15,12 @@ export function ModeratorLoginPage() {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
-  // Get return URL from query params
-  const returnUrl = new URLSearchParams(location.search).get('return') || '/kategorien';
+  // Get return URL from query params, validate it is internal and safe
+  const requestedReturnUrl = new URLSearchParams(location.search).get('return');
+  const returnUrl =
+    requestedReturnUrl?.startsWith('/') && !requestedReturnUrl.startsWith('//')
+      ? requestedReturnUrl
+      : '/kategorien';
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -39,8 +43,8 @@ export function ModeratorLoginPage() {
         return;
       }
 
-      // Success - redirect to Geo setup page directly
-      navigate(`/moderator/vorbereitung/geo`);
+      // Success - redirect to validated return URL
+      navigate(returnUrl, { replace: true });
     } catch {
       setError('Verbindungsfehler. Bitte versuche es erneut.');
       setLoading(false);
