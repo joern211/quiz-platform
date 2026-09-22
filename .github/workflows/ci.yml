@@ -47,8 +47,17 @@ jobs:
           DATABASE_URL: file:/tmp/quiz-server-test.db
           SESSION_SECRET: ci-test-secret-at-least-32-chars-long
         run: |
-          echo "=== Server tests ===" && pnpm --filter @quiz/server test
-          echo "=== Web tests ===" && pnpm --filter @quiz/web test
+          echo "=== DIAGNOSTIC: environment check ==="
+          echo "NODE_VERSION=$(node --version)"
+          echo "PNPM_VERSION=$(pnpm --version)"
+          echo "DATABASE_URL=$DATABASE_URL"
+          echo ""
+          echo "=== Server tests ===" && pnpm --filter @quiz/server test; SV=$?
+          echo "Server exit code: $SV"
+          echo ""
+          echo "=== Web tests ===" && pnpm --filter @quiz/web test; WV=$?
+          echo "Web exit code: $WV"
+          exit $((SV || WV))
 
       - name: Build
         run: pnpm build
