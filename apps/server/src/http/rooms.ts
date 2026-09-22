@@ -131,6 +131,7 @@ roomsRouter.post('/', async (req, res) => {
       viewerLimit,
       lobbyChatEnabled,
       setupSnapshotJson,
+      isPublic,
     } = parsed;
 
     // Resolve game definition: prefer slug, fallback to id
@@ -193,6 +194,7 @@ roomsRouter.post('/', async (req, res) => {
         viewerLimit,
         lobbyChatEnabled,
         setupSnapshotJson: JSON.stringify(setupSnapshotJson),
+        isPublic: isPublic ?? true,
         status: 'LOBBY',
         runPhase: 'OPEN',
       },

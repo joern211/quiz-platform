@@ -225,6 +225,47 @@ test('G4-3: Zuschauer kann Lobby beitreten ohne Login', async ({ browser }) => {
   }
 });
 
+test('G4-5: Private Raum — nicht in öffentlicher Liste, Moderator sieht eigenen', async ({ browser }) => {
+  const modCtx = await browser.newContext();
+  const page = await modCtx.newPage();
+
+  try {
+    await loginAsModerator(page);
+    await createGeoRoom(page); // Erst öffentlichen Raum erstellen (nötig für Cookie/Session)
+
+    // Privaten Raum erstellen via REST (kein isPublic-Toggle in der UI)
+    const createRes = await page.context().request.post(`${BASE}/api/v1/rooms`, {
+      data: {
+        gameSlug: 'geo',
+        roomName: 'E2E Privater Test',
+        isPublic: false,
+      },
+      headers: { 'Content-Type': 'application/json' },
+    });
+    const createJson = await createRes.json();
+    expect(createRes.ok(), `Raum erstellen fehlgeschlagen: ${JSON.stringify(createJson)}`).toBeTruthy();
+    const privateCode = createJson.data.code;
+    console.log(`[G4-5] Privater Raum erstellt: ${privateCode}`);
+
+    // Privater Raum NICHT in öffentlicher Liste
+    const listRes = await page.context().request.get(`${BASE}/api/v1/rooms/public`);
+    expect(listRes.ok()).toBeTruthy();
+    const listJson = await listRes.json();
+    const codes = listJson.data?.rooms?.map((r: any) => r.code) ?? [];
+    expect(codes).not.toContain(privateCode);
+
+    // Privater Raum NICHT direkt abrufbar ohne Session
+    const unauthRes = await page.context().request.get(`${BASE}/api/v1/rooms/${privateCode}`);
+    expect(unauthRes.status, 'Unauthenticated access to private room should be 404').toBe(404);
+
+    // Moderator sieht eigenen privaten Raum
+    await page.goto(`${BASE}/moderator/raum/${privateCode}/lobby`);
+    await page.waitForTimeout(2000);
+    expect(page.url()).toContain(privateCode);
+  } finally {
+    await modCtx.close();
+  }
+});
 test('G4-4: Vollständiger Spielablauf (Moderator startet, 1 Spieler antwortet)', async ({ browser }) => {
   const modCtx = await browser.newContext();
   const playerCtx = await browser.newContext();
