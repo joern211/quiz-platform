@@ -277,37 +277,30 @@ test('G4-4: Vollständiger Spielablauf (Moderator startet, 1 Spieler antwortet)'
     // E2E-Socket-Identity-Fix: Nach page.reload() hat das neue Socket bereits
     // room:subscribe gesendet aber role war möglicherweise falsch (VIEWER statt MODERATOR).
     // Das Kernproblem: mod-1 ist nicht der Raum-Host (Raum wurde von admin erstellt).
-    // Lösung: REST /api/v1/e2e/game-start statt Socket.IO für game:start.
-    const roomCode = code;
-
-    const pageContent = await modPage.locator('body').innerText();
-    console.log(`[modPage reload] URL=${await modPage.url()}`);
-    console.log(`[modPage reload] Players: ${pageContent.slice(0, 500)}`);
-
-    const playerVisible = await modPage.getByText('Quiz Champion').isVisible({ timeout: 3000 }).catch(() => false);
-    const adminVisible = await modPage.getByText('admin').isVisible({ timeout: 3000 }).catch(() => false);
-    console.log(`[modPage] admin sichtbar: ${adminVisible}, Quiz Champion sichtbar: ${playerVisible}`);
-
-    // ── Block 4: Spiel starten via REST ─────────────────────────────
-    // Problem: game:start via Socket.IO schlägt fehl weil die Moderator-Rolle
-    // nicht korrekt im Socket gesetzt ist (Session-Cookie-Problem bei E2E).
     // Lösung: POST /api/v1/e2e/game-start startet das Spiel direkt via REST.
     // Prüft: game-start-Logik, minPlayers, Fragen laden, RUNNING-Status, game:start emit.
-    console.log('[Block 4] Starte Spiel via REST /api/v1/e2e/game-start');
-    const startResult = await modPage.context().request.post(`${BASE}/api/v1/e2e/game-start`, {
-      data: { roomCode, gameType: 'GEO' },
-    });
-    const startData = await startResult.json();
-    console.log('[Block 4] game-start result:', JSON.stringify(startData));
-    expect(startResult.ok(), `game-start failed: ${JSON.stringify(startData)}`).toBeTruthy();
+    console.log('[Block 4] Starte Spiel via UI-Button (echter Nutzerfluss)');
+    const startBtn = modPage.getByRole('button', { name: /Spiel starten/i }).first();
+    if (await startBtn.isVisible({ timeout: 3000 }).catch(() => false)) {
+      await startBtn.click();
+      console.log('[Block 4] UI-Button geklickt — warte auf Navigation');
+      await modPage.waitForTimeout(5000);
+      console.log('[Block 4] URL nach Klick:', modPage.url());
+    } else {
+      // Fallback: UI-Button nicht sichtbar — Socket-basierter Start via handleStart
+      // Hole das moderatoreigene Rejoin-Token für die Moderator-Partizipation
+      const modPageContent = await modPage.locator('body').innerText();
+      console.log('[Block 4] Start-Button nicht sichtbar. Prüfe minPlayers...');
+      console.log(`[modPage] Content: ${modPageContent.slice(0, 300)}`);
+      // Prüfe ob genug Spieler da sind
+      const hasMinPlayers = await modPage.getByText(/Mindestens 2 Spieler benötigt/i).isVisible({ timeout: 1000 }).catch(() => false);
+      if (hasMinPlayers) {
+        throw new Error('Nicht genug Spieler — minPlayers-Check schlägt fehl');
+      }
+    }
 
-    // e2e/game-start hat room.status = 'RUNNING' gesetzt und game:start emitted.
-    // pushState + popstate triggert React Router NICHT → direkter page.goto.
-    // Das funktioniert weil der Moderator ein gültiges Session-Cookie hat.
-    const gameUrl = `${BASE}/moderator/raum/${code}/spiel`;
-    console.log(`[Block 4] Navigiere direkt zu Spiel-Seite: ${gameUrl}`);
-    await modPage.goto(gameUrl, { waitUntil: 'load' });
-    console.log(`[Block 4] Spiel-Seite URL: ${modPage.url()}`);
+    // Navigiere zur Spiel-Seite
+    await modPage.waitForURL(/\/spiel/, { timeout: 15000 });
     expect(modPage.url()).toContain('/spiel');
     console.log('[Block 4] Spiel-Seite erreicht!');
   } finally {
