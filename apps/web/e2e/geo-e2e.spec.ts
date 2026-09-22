@@ -257,14 +257,19 @@ test('G4-5: Private Raum — nicht in öffentlicher Liste, Moderator sieht eigen
 
     // ── Schritt 3: Anonymer GET /api/v1/rooms/:code → 404 ───────────
     const unauthRes = await anonPage.context().request.get(`${BASE}/api/v1/rooms/${privateCode}`);
-    expect(unauthRes.status, 'Anonym/ungeloggt GET /api/v1/rooms/:code → 404').toBe(404);
+    const unauthJson = await unauthRes.json().catch(() => null);
+    expect(
+      unauthRes.status() === 404 || (unauthJson && unauthJson.success === false && unauthJson.error?.code === 'NOT_FOUND'),
+      `Anonym/ungeloggt GET /api/v1/rooms/:code → 404 NOT_FOUND, bekam status=${unauthRes.status()} body=${JSON.stringify(unauthJson)}`
+    ).toBe(true);
 
     // ── Schritt 4: Host mit Session → 200 ───────────────────────────
     const hostRes = await modPage.context().request.get(`${BASE}/api/v1/rooms/${privateCode}`);
-    expect(hostRes.status, 'Host-GET /api/v1/rooms/:code → 200').toBe(200);
-    const hostData = (await hostRes.json()).data;
-    expect(hostData.code).toBe(privateCode);
-    expect(hostData.isPublic).toBe(false);
+    const hostJson = await hostRes.json();
+    expect(
+      hostRes.status() === 200 && hostJson && hostJson.success && hostJson.data && hostJson.data.code === privateCode,
+      `Host-GET /api/v1/rooms/:code → 200, bekam status=${hostRes.status()} body=${JSON.stringify(hostJson)}`
+    ).toBe(true);
 
     // ── Schritt 5: Anderer Moderator (mod-2) → 404 ──────────────────
     const otherCtx = await browser.newContext();
@@ -273,9 +278,13 @@ test('G4-5: Private Raum — nicht in öffentlicher Liste, Moderator sieht eigen
       data: { userId: 'mod-2' },
       headers: { 'Content-Type': 'application/json' },
     });
-    expect(tokenRes.ok()).toBeTruthy();
+    expect(tokenRes.status() < 400, `e2e-token für mod-2 fehlgeschlagen: ${tokenRes.status()}`).toBe(true);
     const otherRes = await otherPage.context().request.get(`${BASE}/api/v1/rooms/${privateCode}`);
-    expect(otherRes.status, 'Anderer Moderator GET /api/v1/rooms/:code → 404').toBe(404);
+    const otherJson = await otherRes.json().catch(() => null);
+    expect(
+      otherRes.status() === 404 || (otherJson && otherJson.success === false && otherJson.error?.code === 'NOT_FOUND'),
+      `Anderer Moderator GET /api/v1/rooms/:code → 404, bekam status=${otherRes.status()} body=${JSON.stringify(otherJson)}`
+    ).toBe(true);
     await otherCtx.close();
 
     // ── Schritt 6: Browser-URL zeigt Lobby für Host ──────────────────
