@@ -75,7 +75,11 @@ export function createApp(): AppFactoryResult {
 
   // API Routes
   app.use('/api/v1/auth', authRouter);
-  app.use('/api/v1/e2e', e2eRouter);
+  // E2E test helpers — only mounted in development
+  // In production they must not be reachable at all (no route registration)
+  if (process.env.NODE_ENV !== 'production') {
+    app.use('/api/v1/e2e', e2eRouter);
+  }
   app.use('/api/v1/catalog', catalogRouter);
   app.use('/api/v1/rooms', roomsRouter);
   app.use('/api/v1/setups', setupRouter);

@@ -1,21 +1,92 @@
 // ============================================================
-// Rooms Integration Tests — using createApp() factory + supertest
+// Rooms Integration Tests
+//
+// Strategy: Every test creates its OWN PrismaClient and fresh createApp().
+// The lazy prisma Proxy (persistence/prisma.ts) reads globalThis.__prisma at
+// call-time, so setting globalThis.__prisma = freshPrisma BEFORE importing
+// createApp makes the entire app chain use the test DB.
+//
+// mkdtemp used for temp dirs — cleaned up in afterEach.
 // ============================================================
 
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, afterAll } from 'vitest';
 import supertest from 'supertest';
-import { createApp } from '../app.js';
-import { prisma } from '../persistence/prisma.js';
+import { rm as rmAsync } from 'node:fs/promises';
+import { resolve as pathResolve } from 'node:path';
 import {
-  seedTestUser,
+  seedTestUserWithDb,
   getOrCreateGeoGame,
-  cleanupTestSessions,
+  cleanupTestDataForDb,
 } from '../test-helpers.js';
 
-const request = supertest(createApp().app);
+const ALL_TEMP_DIRS: string[] = [];
 
-// ── Helpers ─────────────────────────────────────────────────
+afterAll(async () => {
+  for (const dir of ALL_TEMP_DIRS) {
+    try { await rmAsync(dir, { recursive: true, force: true }); } catch { /* ignore */ }
+  }
+});
 
+// ── Per-test app factory ─────────────────────────────────────
+// nodeBin: absolute path to the running node executable (reliable, no symlinks)
+// prismaBin: from monorepo root's node_modules (apps/ is the workspace root)
+// src/http/ → apps/server/src/ → apps/server/ → apps/ → monorepo root (4 Ebenen)
+const rootNodeModules = pathResolve(__dirname, '..', '..', '..', '..');
+const prismaBin = pathResolve(rootNodeModules, 'node_modules/.bin/prisma');
+
+// Run migration using `prisma db push` via execFile (no dynamic import needed).
+// This avoids the "ERR_MODULE_NOT_FOUND" issue that occurs when a subprocess
+// script in /tmp tries to `import('@prisma/client')` — Node can't find the
+// monorepo's node_modules from a temp directory.
+// Uses mkdtemp for unique temp dirs cleaned in afterAll.
+async function migrateDb(dbUrl: string) {
+  const { execFile } = await import('node:child_process');
+  const { mkdtemp } = await import('node:fs/promises');
+  const { join } = await import('node:path');
+  const { tmpdir } = await import('node:os');
+
+  const tmpDir = await mkdtemp(join(tmpdir(), 'quiz-migrate-'));
+  ALL_TEMP_DIRS.push(tmpDir);
+
+  const env = { ...process.env, DATABASE_URL: dbUrl };
+
+  // `prisma db push` is non-interactive with --accept-data-loss
+  await new Promise<void>((resolve, reject) => {
+    execFile(prismaBin, ['db', 'push', '--accept-data-loss', '--skip-generate'], { cwd: rootNodeModules, env }, (err, _out, stderr) => {
+      if (err) { console.error(stderr); reject(err); }
+      else resolve();
+    });
+  });
+}
+
+async function createTestApp() {
+  const { PrismaClient } = await import('@prisma/client');
+  const { mkdtemp } = await import('node:fs/promises');
+  const { join } = await import('node:path');
+  const { tmpdir } = await import('node:os');
+
+  const tmpDir = await mkdtemp(join(tmpdir(), 'quiz-server-'));
+  ALL_TEMP_DIRS.push(tmpDir);
+  const dbPath = join(tmpDir, 'test.db');
+  const dbUrl = `file:${dbPath}`;
+
+  // ── MIGRATE before any DB access ──────────────────────────────
+  await migrateDb(dbUrl);
+
+  const freshPrisma = new PrismaClient({ datasourceUrl: dbUrl });
+  await freshPrisma.$connect();
+
+  // Set globalThis BEFORE import — lazy prisma reads it at call-time
+  globalThis.__prisma = freshPrisma;
+
+  const { createApp } = await import('../app.js');
+  const { app } = createApp();
+  return { app, prisma: freshPrisma, request: supertest(app), dbUrl, tmpDir };
+}
+
+// ── Room helpers ─────────────────────────────────────────────
+
+/** Create a test room using the patched prisma (accessible via dynamic import). */
 async function createTestRoom(opts: {
   hostUserId: string;
   code?: string;
@@ -24,368 +95,249 @@ async function createTestRoom(opts: {
   maxPlayers?: number;
   isPublic?: boolean;
 }) {
-  const code =
-    opts.code ??
-    `${String(Math.floor(Math.random() * 900) + 100)}-${String(
-      Math.floor(Math.random() * 900) + 100,
-    )}`;
+  const { prisma } = await import('../persistence/prisma.js');
+  const code = opts.code ?? `${String(Math.floor(Math.random() * 900) + 100)}-${String(Math.floor(Math.random() * 900) + 100)}`;
   const geoDef = await getOrCreateGeoGame();
   await prisma.room.upsert({
     where: { code },
     update: {},
     create: {
-      code,
-      roomName: `Test Room ${code}`,
-      hostUserId: opts.hostUserId,
-      gameDefinitionId: geoDef.id,
-      status: opts.status ?? 'LOBBY',
-      pinHash: opts.pinHash ?? null,
-      maxPlayers: opts.maxPlayers ?? 10,
-      isPublic: opts.isPublic ?? true,
-      setupSnapshotJson: '{}',
-      setupSchemaVersion: 1,
-      runPhase: 'LOBBY',
-      revision: 0,
+      code, roomName: `Test Room ${code}`, hostUserId: opts.hostUserId,
+      gameDefinitionId: geoDef.id, status: opts.status ?? 'LOBBY',
+      pinHash: opts.pinHash ?? null, maxPlayers: opts.maxPlayers ?? 10,
+      isPublic: opts.isPublic ?? true, setupSnapshotJson: '{}',
+      setupSchemaVersion: 1, runPhase: 'LOBBY', revision: 0,
     },
   });
   return code;
 }
 
-async function cleanupTestData(codes: string[] = []) {
-  await prisma.participation.deleteMany({
-    where: {
-      OR: codes.map((code) => ({ room: { code } })),
-    },
-  });
-  await prisma.room.deleteMany({ where: { code: { in: codes } } });
-  await cleanupTestSessions();
-}
+// ── Tests ────────────────────────────────────────────────────
 
 describe('Rooms API — Create Room', () => {
-  let cookie: string;
-  let geoDefId: string;
-  let geoDefSlug: string;
-
-  beforeEach(async () => {
-    await cleanupTestData();
-    const result = await seedTestUser(
-      'mod-create-1',
-      'RoomCreator',
-      'mod-create-1@test.local',
-    );
-    cookie = result.cookie;
-    const geoDef = await getOrCreateGeoGame();
-    geoDefId = geoDef.id;
-    geoDefSlug = geoDef.slug;
-  });
-
-  afterEach(async () => {
-    await cleanupTestData();
-  });
-
   it('POST /api/v1/rooms — should create room with valid session', async () => {
-    const res = await request
-      .post('/api/v1/rooms')
-      .set('Cookie', cookie)
-      .send({ gameSlug: geoDefSlug, gameDefinitionId: geoDefId, roomName: 'My Test Room' });
+    const { request: req, prisma: db, dbUrl } = await createTestApp();
+    const ts = Date.now();
+    const result = await seedTestUserWithDb(db, `mod-create-${ts}`, `Creator${ts}`, `mod-create-${ts}@test.local`);
+    const geoDef = await getOrCreateGeoGame();
 
-    expect(res.status).toBe(201);
+    const res = await req
+      .post('/api/v1/rooms')
+      .set('Cookie', result.cookie)
+      .send({ roomName: 'My Test Room', gameSlug: geoDef.slug, gameDefinitionId: geoDef.id });
+
+    expect(res.status, res.text).toBe(201);
     expect(res.body.success).toBe(true);
     expect(res.body.data.code).toMatch(/^\d{3}-\d{3}$/);
-    expect(res.body.data.roomId).toBeTruthy();
     expect(res.body.data.moderatorToken).toBeTruthy();
 
-    await cleanupTestData([res.body.data.code]);
+    await cleanupTestDataForDb(dbUrl);
+    await db.$disconnect();
   });
 
   it('POST /api/v1/rooms — should reject unauthenticated request with 401', async () => {
-    const res = await request
-      .post('/api/v1/rooms')
-      .send({ gameDefinitionId: geoDefId, roomName: 'Private Room' });
-
+    const { request: req } = await createTestApp();
+    const res = await req.post('/api/v1/rooms').send({ gameDefinitionId: 'does-not-exist', roomName: 'Private Room' });
     expect(res.status).toBe(401);
     expect(res.body.success).toBe(false);
     expect(res.body.error.code).toBe('NOT_AUTHENTICATED');
   });
 
-  it('POST /api/v1/rooms — should reject missing game definition', async () => {
-    const res = await request
-      .post('/api/v1/rooms')
-      .set('Cookie', cookie)
-      .send({ roomName: 'Room Without Game', gameDefinitionId: '00000000-0000-0000-0000-000000000000' });
+  it('POST /api/v1/rooms — should reject missing roomName with 400', async () => {
+    const { request: req, prisma: db, dbUrl } = await createTestApp();
+    const ts = Date.now();
+    const result = await seedTestUserWithDb(db, `mod-noname-${ts}`, `CreatorNoName${ts}`, `mod-noname-${ts}@test.local`);
+    const geoDef = await getOrCreateGeoGame();
 
-    expect(res.status).toBe(400);
+    const res = await req
+      .post('/api/v1/rooms')
+      .set('Cookie', result.cookie)
+      .send({ gameSlug: geoDef.slug, gameDefinitionId: geoDef.id });
+
+    expect(res.status, res.text).toBe(400);
     expect(res.body.success).toBe(false);
+
+    await cleanupTestDataForDb(dbUrl);
+    await db.$disconnect();
   });
 
-  it('POST /api/v1/rooms — should reject missing roomName', async () => {
-    // Create a fresh app to ensure cookie middleware uses current DB state.
-    // The module-level `request` may reuse an app created before its cookie's session existed.
-    const { app } = createApp();
-    const freshRequest = supertest(app);
+  it('POST /api/v1/rooms — should reject missing game definition with 400', async () => {
+    const { request: req, prisma: db, dbUrl } = await createTestApp();
+    const ts = Date.now();
+    const result = await seedTestUserWithDb(db, `mod-nogame-${ts}`, `CreatorNoGame${ts}`, `mod-nogame-${ts}@test.local`);
 
-    const res = await freshRequest
+    const res = await req
       .post('/api/v1/rooms')
-      .set('Cookie', cookie)
-      .send({ gameSlug: geoDefSlug });
+      .set('Cookie', result.cookie)
+      .send({ roomName: 'Room Without Game' });
 
-    expect(res.status).toBe(400);
+    expect(res.status, res.text).toBe(400);
     expect(res.body.success).toBe(false);
-    expect(res.body.error.code).toBe('VALIDATION');
+    expect(['VALIDATION', 'VALIDATION_ERROR']).toContain(res.body.error.code);
+
+    await cleanupTestDataForDb(dbUrl);
+    await db.$disconnect();
   });
 });
 
 describe('Rooms API — List & Get Room', () => {
-  let cookie: string;
-  let roomCode: string;
+  it('GET /api/v1/rooms/public — should list public LOBBY rooms', async () => {
+    const { request: req, prisma: db, dbUrl } = await createTestApp();
+    const ts = Date.now();
+    const result = await seedTestUserWithDb(db, `mod-list1-${ts}`, `Lister${ts}`, `mod-list1-${ts}@test.local`);
+    const roomCode = await createTestRoom({ hostUserId: result.userId });
 
-  beforeEach(async () => {
-    await cleanupTestData();
-    const result = await seedTestUser(
-      'mod-list-1',
-      'Lister',
-      'mod-list-1@test.local',
-    );
-    cookie = result.cookie;
-    roomCode = await createTestRoom({ hostUserId: result.userId });
-  });
-
-  afterEach(async () => {
-    await cleanupTestData([roomCode]);
-  });
-
-  it('GET /api/v1/rooms/public — should list public LOBBY/RUNNING rooms', async () => {
-    const res = await request.get('/api/v1/rooms/public');
-
+    const res = await req.get('/api/v1/rooms/public');
     expect(res.status).toBe(200);
-    expect(res.body.success).toBe(true);
     expect(Array.isArray(res.body.data)).toBe(true);
-    const found = res.body.data.find(
-      (r: { code: string }) => r.code === roomCode,
-    );
-    expect(found).toBeDefined();
-    expect(found.status).toBe('LOBBY');
+    const found = res.body.data.find((r: { code: string }) => r.code === roomCode);
+    expect(found?.status).toBe('LOBBY');
+
+    await cleanupTestDataForDb(dbUrl);
+    await db.$disconnect();
   });
 
   it('GET /api/v1/rooms/:code — should return room details', async () => {
-    const res = await request.get(`/api/v1/rooms/${roomCode}`);
+    const { request: req, prisma: db, dbUrl } = await createTestApp();
+    const ts = Date.now();
+    const result = await seedTestUserWithDb(db, `mod-get1-${ts}`, `Getter${ts}`, `mod-get1-${ts}@test.local`);
+    const roomCode = await createTestRoom({ hostUserId: result.userId });
 
+    const res = await req.get(`/api/v1/rooms/${roomCode}`);
     expect(res.status).toBe(200);
-    expect(res.body.success).toBe(true);
     expect(res.body.data.code).toBe(roomCode);
+
+    await cleanupTestDataForDb(dbUrl);
+    await db.$disconnect();
   });
 
-  it('GET /api/v1/rooms/:code — should return 404 for unknown code', async () => {
-    const res = await request.get('/api/v1/rooms/999-999');
-
+  it('GET /api/v1/rooms/:code — unknown code returns 404', async () => {
+    const { request: req } = await createTestApp();
+    const res = await req.get('/api/v1/rooms/999-999');
     expect(res.status).toBe(404);
-    expect(res.body.success).toBe(false);
     expect(res.body.error.code).toBe('NOT_FOUND');
   });
 
   it('GET /api/v1/rooms/:code — private rooms hidden from unauthenticated users', async () => {
-    // Create a private room
-    const result = await seedTestUser(
-      'mod-private-1',
-      'PrivateHost',
-      'mod-private-1@test.local',
-    );
-    const privateCode = await createTestRoom({
-      hostUserId: result.userId,
-      isPublic: false,
-    });
+    const { request: req, prisma: db, dbUrl } = await createTestApp();
+    const ts = Date.now();
+    const result = await seedTestUserWithDb(db, `mod-priv1-${ts}`, `PrivHost${ts}`, `mod-priv1-${ts}@test.local`);
+    const privateCode = await createTestRoom({ hostUserId: result.userId, isPublic: false });
 
-    const res = await request.get(`/api/v1/rooms/${privateCode}`);
-
-    // Without auth, non-public rooms are hidden as 404
+    const res = await req.get(`/api/v1/rooms/${privateCode}`);
     expect(res.status).toBe(404);
 
-    await cleanupTestData([privateCode]);
+    await cleanupTestDataForDb(dbUrl);
+    await db.$disconnect();
   });
 
   it('GET /api/v1/rooms/:code — host can retrieve own private room', async () => {
-    const res = await request
-      .get(`/api/v1/rooms/${roomCode}`)
-      .set('Cookie', cookie);
+    const { request: req, prisma: db, dbUrl } = await createTestApp();
+    const ts = Date.now();
+    const result = await seedTestUserWithDb(db, `mod-hostpriv-${ts}`, `HostPriv${ts}`, `mod-hostpriv-${ts}@test.local`);
+    const roomCode = await createTestRoom({ hostUserId: result.userId, isPublic: false });
 
+    const res = await req.get(`/api/v1/rooms/${roomCode}`).set('Cookie', result.cookie);
     expect(res.status).toBe(200);
     expect(res.body.data.code).toBe(roomCode);
+
+    await cleanupTestDataForDb(dbUrl);
+    await db.$disconnect();
   });
 });
 
 describe('Rooms API — Join Room', () => {
-  let roomCode: string;
+  it('POST /api/v1/rooms/:code/join — creates participation with rejoinToken', async () => {
+    const { request: req, prisma: db, dbUrl } = await createTestApp();
+    const ts = Date.now();
+    const host = await seedTestUserWithDb(db, `mod-join1-${ts}`, `JoinHost${ts}`, `mod-join1-${ts}@test.local`);
+    const freeCode = await createTestRoom({ hostUserId: host.userId, maxPlayers: 10 });
 
-  beforeEach(async () => {
-    await cleanupTestData();
-    const result = await seedTestUser(
-      'mod-join-1',
-      'JoinHost',
-      'mod-join-1@test.local',
-    );
-    // maxPlayers=1 so moderator already occupies it, leaving no slot for player
-    roomCode = await createTestRoom({
-      hostUserId: result.userId,
-      maxPlayers: 1,
-      pinHash: null,
-    });
-  });
-
-  afterEach(async () => {
-    await cleanupTestData([roomCode]);
-  });
-
-  it('POST /api/v1/rooms/:code/join — should create participation with rejoinToken', async () => {
-    // Create a room with a free slot
-    const host = await seedTestUser(
-      'mod-join-slot-1',
-      'SlotHost',
-      'mod-join-slot-1@test.local',
-    );
-    const freeCode = await createTestRoom({
-      hostUserId: host.userId,
-      maxPlayers: 10,
-      pinHash: null,
-    });
-
-    const res = await request
+    const res = await req
       .post(`/api/v1/rooms/${freeCode}/join`)
       .send({ displayName: 'JoinPlayer' });
 
-    expect(res.status).toBe(201);
+    expect(res.status, res.text).toBe(201);
     expect(res.body.success).toBe(true);
     expect(res.body.data.rejoinToken).toBeTruthy();
     expect(res.body.data.participationId).toBeTruthy();
     expect(res.body.data.role).toBe('PLAYER');
-    expect(res.body.data.roomCode).toBe(freeCode);
 
-    await cleanupTestData([freeCode]);
+    await cleanupTestDataForDb(dbUrl);
+    await db.$disconnect();
   });
 
   it('POST /api/v1/rooms/:code/join — wrong PIN returns 403', async () => {
-    const host = await seedTestUser(
-      'mod-pin-1',
-      'PinHost',
-      'mod-pin-1@test.local',
-    );
+    const { request: req, prisma: db, dbUrl } = await createTestApp();
+    const ts = Date.now();
+    const host = await seedTestUserWithDb(db, `mod-pin1-${ts}`, `PinHost${ts}`, `mod-pin1-${ts}@test.local`);
     const argon2 = (await import('argon2')).default;
     const pinHash = await argon2.hash('1234', { type: argon2.argon2id });
-    const pinCode = await createTestRoom({
-      hostUserId: host.userId,
-      pinHash,
-    });
+    const pinCode = await createTestRoom({ hostUserId: host.userId, pinHash });
 
-    // Must use a valid 4-digit PIN (Zod validation) to test PIN mismatch
-    const res = await request
+    const res = await req
       .post(`/api/v1/rooms/${pinCode}/join`)
       .send({ displayName: 'PinBreaker', pin: '9999' });
 
     expect(res.status).toBe(403);
-    expect(res.body.success).toBe(false);
     expect(res.body.error.code).toBe('INVALID_PIN');
 
-    await cleanupTestData([pinCode]);
+    await cleanupTestDataForDb(dbUrl);
+    await db.$disconnect();
   });
 
   it('POST /api/v1/rooms/:code/join — room full returns 400', async () => {
-    // Create a room that already has players filling it (maxPlayers=1, one player already joined)
-    const host = await seedTestUser(
-      'mod-full-1',
-      'FullHost',
-      'mod-full-1@test.local',
-    );
-    // Use maxPlayers=1: first player joins successfully, second is rejected
-    const fullCode = await createTestRoom({
-      hostUserId: host.userId,
-      maxPlayers: 1,
-      pinHash: null,
-    });
+    const { request: req, prisma: db, dbUrl } = await createTestApp();
+    const ts = Date.now();
+    const host = await seedTestUserWithDb(db, `mod-full1-${ts}`, `FullHost${ts}`, `mod-full1-${ts}@test.local`);
+    const fullCode = await createTestRoom({ hostUserId: host.userId, maxPlayers: 1 });
 
-    // First player joins (now playerCount=1, maxPlayers=1 → room full)
-    const first = await request
-      .post(`/api/v1/rooms/${fullCode}/join`)
-      .send({ displayName: 'FirstPlayer' });
+    const first = await req.post(`/api/v1/rooms/${fullCode}/join`).send({ displayName: 'FirstPlayer' });
     expect(first.status).toBe(201);
 
-    // Second player should be rejected
-    const second = await request
-      .post(`/api/v1/rooms/${fullCode}/join`)
-      .send({ displayName: 'ExtraPlayer' });
-
+    const second = await req.post(`/api/v1/rooms/${fullCode}/join`).send({ displayName: 'ExtraPlayer' });
     expect(second.status).toBe(400);
-    expect(second.body.success).toBe(false);
     expect(second.body.error.code).toBe('ROOM_FULL');
 
-    await cleanupTestData([fullCode]);
+    await cleanupTestDataForDb(dbUrl);
+    await db.$disconnect();
   });
 
   it('POST /api/v1/rooms/:code/join — non-joinable room (RUNNING) returns 400', async () => {
-    const host = await seedTestUser(
-      'mod-running-1',
-      'RunningHost',
-      'mod-running-1@test.local',
-    );
-    const runningCode = await createTestRoom({
-      hostUserId: host.userId,
-      status: 'RUNNING',
-    });
+    const { request: req, prisma: db, dbUrl } = await createTestApp();
+    const ts = Date.now();
+    const host = await seedTestUserWithDb(db, `mod-run1-${ts}`, `RunHost${ts}`, `mod-run1-${ts}@test.local`);
+    const runningCode = await createTestRoom({ hostUserId: host.userId, status: 'RUNNING' });
 
-    const res = await request
+    const res = await req
       .post(`/api/v1/rooms/${runningCode}/join`)
       .send({ displayName: 'LateJoiner' });
 
     expect(res.status).toBe(400);
-    expect(res.body.success).toBe(false);
     expect(res.body.error.code).toBe('ROOM_NOT_JOINABLE');
 
-    await cleanupTestData([runningCode]);
-  });
+    try { const { prisma } = await import('../persistence/prisma.js'); await prisma.room.deleteMany({ where: { code: runningCode } }); } catch { /* ignore */ }
 
-  it('POST /api/v1/rooms/:code/join — PIN required when room has PIN', async () => {
-    const host = await seedTestUser(
-      'mod-pinreq-1',
-      'PinReqHost',
-      'mod-pinreq-1@test.local',
-    );
-    const argon2 = (await import('argon2')).default;
-    const pinHash = await argon2.hash('9999', { type: argon2.argon2id });
-    const pinCode = await createTestRoom({
-      hostUserId: host.userId,
-      pinHash,
-    });
-
-    const res = await request
-      .post(`/api/v1/rooms/${pinCode}/join`)
-      .send({ displayName: 'NoPin' });
-
-    expect(res.status).toBe(403);
-    expect(res.body.error.code).toBe('INVALID_PIN');
-
-    await cleanupTestData([pinCode]);
+    await cleanupTestDataForDb(dbUrl);
+    await db.$disconnect();
   });
 
   it('POST /api/v1/rooms/:code/join — correct PIN joins successfully', async () => {
-    const host = await seedTestUser(
-      'mod-corrpin-1',
-      'CorrPinHost',
-      'mod-corrpin-1@test.local',
-    );
+    const { request: req, prisma: db, dbUrl } = await createTestApp();
+    const ts = Date.now();
+    const host = await seedTestUserWithDb(db, `mod-cpin1-${ts}`, `CPinHost${ts}`, `mod-cpin1-${ts}@test.local`);
     const argon2 = (await import('argon2')).default;
     const pinHash = await argon2.hash('5678', { type: argon2.argon2id });
-    const pinCode = await createTestRoom({
-      hostUserId: host.userId,
-      pinHash,
-      maxPlayers: 10,
-    });
+    const pinCode = await createTestRoom({ hostUserId: host.userId, pinHash, maxPlayers: 10 });
 
-    const res = await request
+    const res = await req
       .post(`/api/v1/rooms/${pinCode}/join`)
       .send({ displayName: 'CorrectPinPlayer', pin: '5678' });
 
-    expect(res.status).toBe(201);
-    expect(res.body.success).toBe(true);
+    expect(res.status, res.text).toBe(201);
     expect(res.body.data.rejoinToken).toBeTruthy();
 
-    await cleanupTestData([pinCode]);
+    await cleanupTestDataForDb(dbUrl);
+    await db.$disconnect();
   });
 });

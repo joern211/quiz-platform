@@ -16,13 +16,13 @@ export default defineConfig({
       '**/build/**',
     ],
     globals: true,
-    // Each test file gets its own fork and DB to prevent cross-test-state pollution.
-    // isolate: true ensures test-setup.ts runs once per file (seed, env vars).
-    pool: 'forks',
+    // Run server integration tests in the SAME VM fork to avoid Prisma singleton
+    // issues. Module-level prisma is opened at file import time, so all test files
+    // share it. Tests that need fresh DB state use createTestApp() + patching.
+    pool: 'vmForks',
     poolOptions: {
-      forks: {
-        singleFork: false,
-        isolate: true,
+      vmForks: {
+        isolate: false,
       },
     },
     // Rate-limiter subprocess can take up to 20s to start under load
