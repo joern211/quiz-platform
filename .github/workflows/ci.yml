@@ -42,25 +42,17 @@ jobs:
       - name: Lint
         run: pnpm lint
 
-      - name: Test
+      - name: Build
+        run: pnpm build
+
+      - name: Server tests
         env:
           DATABASE_URL: file:/tmp/quiz-server-test.db
           SESSION_SECRET: ci-test-secret-at-least-32-chars-long
-        run: |
-          echo "=== DIAGNOSTIC: environment check ==="
-          echo "NODE_VERSION=$(node --version)"
-          echo "PNPM_VERSION=$(pnpm --version)"
-          echo "DATABASE_URL=$DATABASE_URL"
-          echo ""
-          echo "=== Server tests ===" && pnpm --filter @quiz/server test; SV=$?
-          echo "Server exit code: $SV"
-          echo ""
-          echo "=== Web tests ===" && pnpm --filter @quiz/web test; WV=$?
-          echo "Web exit code: $WV"
-          exit $((SV || WV))
+        run: pnpm --filter @quiz/server test
 
-      - name: Build
-        run: pnpm build
+      - name: Web tests
+        run: pnpm --filter @quiz/web test
 
   e2e:
     name: E2E
@@ -86,53 +78,22 @@ jobs:
       - name: Install Playwright
         run: pnpm exec playwright install --with-deps chromium
 
-      - name: Build all apps (needed for server dist + web dist)
+      - name: Build all apps
         run: pnpm build
 
       - name: Create fresh SQLite DB and run migrations + seed
         env:
-          DATABASE_URL: file:///tmp/test-e2e.db
+          DATABASE_URL: file:/tmp/test-e2e.db
           SESSION_SECRET: test-secret-32chars-long-for-e2e
         run: |
           rm -f /tmp/test-e2e.db
-          pnpm prisma migrate deploy
-          pnpm prisma db seed
-
-      - name: Start backend server (port 3001) in background
-        run: |
-          DATABASE_URL=file:///tmp/test-e2e.db \
-          SESSION_SECRET=test-secret-32chars-long-for-e2e \
-          ALLOWED_ORIGINS=http://localhost:3001,http://localhost:5173 \
-          PUBLIC_APP_URL=http://localhost:3001 \
-          NODE_ENV=development \
-          pnpm --filter @quiz/server dev &
-          echo "BACKEND_PID=$!" >> $GITHUB_ENV
-          for i in $(seq 1 60); do
-            if curl -s http://localhost:3001/api/v1/health > /dev/null 2>&1; then
-              echo "Backend server ready"
-              break
-            fi
-            if [ $i -eq 60 ]; then echo "Backend failed to start"; exit 1; fi
-            sleep 1
-          done
-
-      - name: Start frontend dev server (port 5173) in background
-        run: |
-          pnpm --filter @quiz/web dev &
-          echo "FRONTEND_PID=$!" >> $GITHUB_ENV
-          for i in $(seq 1 60); do
-            if curl -s http://localhost:5173 > /dev/null 2>&1; then
-              echo "Frontend dev server ready"
-              break
-            fi
-            if [ $i -eq 60 ]; then echo "Frontend failed to start"; exit 1; fi
-            sleep 1
-          done
+          pnpm prisma migrate deploy --schema=./prisma/schema.prisma
+          pnpm db:seed
 
       - name: Run E2E tests
         env:
           E2E_BASE_URL: http://localhost:5173
-          DATABASE_URL: file:///tmp/test-e2e.db
+          DATABASE_URL: file:/tmp/test-e2e.db
           SESSION_SECRET: test-secret-32chars-long-for-e2e
           ALLOWED_ORIGINS: http://localhost:3001,http://localhost:5173
           PUBLIC_APP_URL: http://localhost:3001
@@ -148,10 +109,10 @@ jobs:
           path: playwright-report/
           retention-days: 7
 
-      - name: Upload Playwright test trace
+      - name: Upload test-results
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: playwright-trace
-          path: playwright/.cache/
+          name: test-results
+          path: test-results/
           retention-days: 7
