@@ -13,7 +13,7 @@
 import { describe, it, expect, afterAll, beforeAll } from 'vitest';
 import supertest from 'supertest';
 import { mkdtemp, rm as rmDir } from 'node:fs/promises';
-import { resolve as pathResolve } from 'node:path';
+import { join, resolve as pathResolve } from 'node:path';
 import os from 'node:os';
 import { seedTestUserWithDb, cleanupTestDataForDb } from '../test-helpers.js';
 
@@ -84,9 +84,15 @@ async function createTestApp() {
 
 // ── Module-level production guard app ────────────────────────
 // Safe: no DB access needed for simple 404 guard tests.
-// Uses the seeded /tmp/quiz-server-test.db from the test script.
+// Uses a temp DB so production app doesn't try to open a non-existent default path.
 const savedNodeEnv = process.env.NODE_ENV;
 process.env.NODE_ENV = 'production';
+// Must set DATABASE_URL here so the production app doesn't try to use
+// the default './storage/database/quiz.db' which doesn't exist in CI/test.
+const tmpDir = await mkdtemp(join(os.tmpdir(), 'quiz-e2e-prod-'));
+ALL_TEMP_DIRS.push(tmpDir);
+process.env.DATABASE_URL = `file:${tmpDir}/prod.db`;
+
 const { createApp } = await import('../app.js');
 const productionApp = createApp();
 const productionRequest = supertest(productionApp.app);
@@ -144,7 +150,7 @@ describe('E2E Endpoints — Production Block', () => {
       const sig = createHmac('sha256', config.sessionSecret).update(session.id).digest('base64url');
       const cookie = `quiz_session=${session.id}.${sig}`;
 
-      // Count sessions in the production DB (global singleton, seeded /tmp/quiz-server-test.db)
+      // Count sessions in the production DB (production app's temp DB)
       const { prisma: prodPrisma } = await import('../persistence/prisma.js');
       const beforeCount = await prodPrisma.session.count({ where: { userId: testUserId } });
       expect(beforeCount).toBe(1);
