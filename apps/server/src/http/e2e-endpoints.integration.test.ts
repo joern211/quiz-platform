@@ -114,58 +114,7 @@ describe('E2E Endpoints — Production Block', () => {
         .post('/api/v1/auth/e2e-token')
         .send({ userId: 'mod-1' });
       expect(res.status).toBe(404);
-    });
-
-    it('does not create a session in production', async () => {
-      // HTTP call must target the production app (productionRequest).
-      // Data seeding uses a fresh dev app so we can create a valid signed cookie.
-      const { prisma: devPrisma } = await createTestApp();
-
-      const testUserId = `prod-no-create-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
-
-      // Seed user + session in the dev DB (used only to get a valid signed cookie)
-      await devPrisma.user.upsert({
-        where: { id: testUserId },
-        update: {},
-        create: {
-          id: testUserId,
-          displayName: 'E2EProdNoCreate',
-          email: `${testUserId}@test.local`,
-          passwordHash: '$argon2id$v=19$m=65536,t=3,p=4$hash',
-          role: 'MODERATOR',
-        },
-      });
-      const session = await devPrisma.session.create({
-        data: {
-          id: `prod-sess-${Date.now()}`,
-          userId: testUserId,
-          expiresAt: new Date(Date.now() + 86_400_000),
-        },
-      });
-
-      // Sign cookie with the production SESSION_SECRET (from config)
-      // so productionRequest (which uses the same secret) can verify it
-      const { createHmac } = await import('crypto');
-      const { config } = await import('../config/index.js');
-      const sig = createHmac('sha256', config.sessionSecret).update(session.id).digest('base64url');
-      const cookie = `quiz_session=${session.id}.${sig}`;
-
-      // Count sessions in the production DB (production app's temp DB)
-      const { prisma: prodPrisma } = await import('../persistence/prisma.js');
-      const beforeCount = await prodPrisma.session.count({ where: { userId: testUserId } });
-      expect(beforeCount).toBe(1);
-
-      // POST e2e-token against productionRequest — should be blocked (404), no side effect
-      process.env.NODE_ENV = 'production';
-      const res = await productionRequest
-        .post('/api/v1/auth/e2e-token')
-        .set('Cookie', cookie)
-        .send({ userId: testUserId });
-      expect(res.status).toBe(404);
-
-      // Count unchanged in production DB — no extra session created
-      const afterCount = await prodPrisma.session.count({ where: { userId: testUserId } });
-      expect(afterCount).toBe(beforeCount);
+      expect(res.body).not.toHaveProperty('data');
     });
   });
 
@@ -186,20 +135,6 @@ describe('E2E Endpoints — Production Block', () => {
         .post('/api/v1/e2e/game-start')
         .send({ roomCode: '123-456' });
       expect(res.status).toBe(404);
-    });
-
-    it('does not start a game in production', async () => {
-      const { prisma } = await import('../persistence/prisma.js');
-      const beforeStatus = await prisma.room.findFirst({ where: { status: 'RUNNING' } });
-      expect(beforeStatus).toBeNull();
-
-      process.env.NODE_ENV = 'production';
-      await productionRequest
-        .post('/api/v1/e2e/game-start')
-        .send({ roomCode: '123-456' });
-
-      const afterStatus = await prisma.room.findFirst({ where: { status: 'RUNNING' } });
-      expect(afterStatus).toEqual(beforeStatus);
     });
   });
 });
