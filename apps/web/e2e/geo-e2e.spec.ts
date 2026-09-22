@@ -193,8 +193,9 @@ test('G4-2: Zwei Spieler treten bei → Lobby zeigt beide', async ({ browser }) 
     const playerALoaded = await modPage.getByText('Spieler A').isVisible({ timeout: 5000 }).catch(() => false);
     const playerBLoaded = await modPage.getByText('Spieler B').isVisible({ timeout: 5000 }).catch(() => false);
 
-    // Mindestens einer sollte sichtbar sein (Socket-Zeitfenster)
-    expect(playerALoaded || playerBLoaded).toBeTruthy();
+    // BEIDE Spieler müssen gleichzeitig sichtbar sein (Abschnitt 5: kein OR erlaubt)
+    expect(playerALoaded, 'Spieler A muss in der Lobby sichtbar sein').toBeTruthy();
+    expect(playerBLoaded, 'Spieler B muss in der Lobby sichtbar sein').toBeTruthy();
   } finally {
     await modCtx.close();
     await playerACtx.close();
