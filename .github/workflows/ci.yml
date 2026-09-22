@@ -33,7 +33,7 @@ jobs:
 
       - name: Run database migrations
         env:
-          DATABASE_URL: file:./prisma/dev.db
+          DATABASE_URL: file:/tmp/quiz-server-test.db
         run: pnpm prisma migrate deploy --schema=./prisma/schema.prisma
 
       - name: Type check
@@ -72,39 +72,56 @@ jobs:
       - name: Install Playwright
         run: pnpm exec playwright install --with-deps chromium
 
+      - name: Build all apps (needed for server dist + web dist)
+        run: pnpm build
+
       - name: Create fresh SQLite DB and run migrations + seed
         run: |
           rm -f /tmp/test-e2e.db
           DATABASE_URL=file:///tmp/test-e2e.db pnpm prisma migrate deploy
           DATABASE_URL=file:///tmp/test-e2e.db pnpm prisma db seed
 
-      - name: Start server in background
+      - name: Start backend server (port 3001) in background
         run: |
-          DATABASE_URL=file:///tmp/test-e2e.db pnpm --filter @quiz/server dev &
-          SERVER_PID=$!
-          echo "SERVER_PID=$SERVER_PID" >> $GITHUB_ENV
-          # Wait for server to be ready
+          DATABASE_URL=file:///tmp/test-e2e.db \
+          SESSION_SECRET=test-secret-32chars-long-for-e2e \
+          ALLOWED_ORIGINS=http://localhost:3001,http://localhost:5173 \
+          PUBLIC_APP_URL=http://localhost:3001 \
+          NODE_ENV=development \
+          pnpm --filter @quiz/server dev &
+          echo "BACKEND_PID=$!" >> $GITHUB_ENV
           for i in $(seq 1 60); do
             if curl -s http://localhost:3001/api/v1/health > /dev/null 2>&1; then
-              echo "Server is ready"
+              echo "Backend server ready"
               break
             fi
-            if [ $i -eq 60 ]; then
-              echo "Server failed to start within 60 seconds"
-              exit 1
+            if [ $i -eq 60 ]; then echo "Backend failed to start"; exit 1; fi
+            sleep 1
+          done
+
+      - name: Start frontend dev server (port 5173) in background
+        run: |
+          pnpm --filter @quiz/web dev &
+          echo "FRONTEND_PID=$!" >> $GITHUB_ENV
+          for i in $(seq 1 60); do
+            if curl -s http://localhost:5173 > /dev/null 2>&1; then
+              echo "Frontend dev server ready"
+              break
             fi
+            if [ $i -eq 60 ]; then echo "Frontend failed to start"; exit 1; fi
             sleep 1
           done
 
       - name: Run E2E tests
         env:
+          E2E_BASE_URL: http://localhost:5173
           DATABASE_URL: file:///tmp/test-e2e.db
           SESSION_SECRET: test-secret-32chars-long-for-e2e
-          ALLOWED_ORIGINS: http://localhost:3001
+          ALLOWED_ORIGINS: http://localhost:3001,http://localhost:5173
           PUBLIC_APP_URL: http://localhost:3001
-          WEB_DIST_PATH: apps/web/dist
+          NODE_ENV: development
         run: pnpm test:e2e
-        timeout-minutes: 5
+        timeout-minutes: 10
 
       - name: Upload Playwright report
         if: failure()
