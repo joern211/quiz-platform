@@ -221,25 +221,37 @@ describe('Rooms API — List & Get Room', () => {
   it('GET /api/v1/rooms/:code — private rooms hidden from unauthenticated users', async () => {
     const { request: req, prisma: db, dbUrl } = await createTestApp();
     const ts = Date.now();
-    const result = await seedTestUserWithDb(db, `mod-priv1-${ts}`, `PrivHost${ts}`, `mod-priv1-${ts}@test.local`);
-    const privateCode = await createTestRoom({ hostUserId: result.userId, isPublic: false });
+    const host = await seedTestUserWithDb(db, `mod-priv1-${ts}`, `PrivHost${ts}`, `mod-priv1-${ts}@test.local`);
+    const privateCode = await createTestRoom({ hostUserId: host.userId, isPublic: false });
 
-    const res = await req.get(`/api/v1/rooms/${privateCode}`);
-    expect(res.status).toBe(404);
+    // Without cookie → 404 (unauthenticated can't see private room)
+    const unauthRes = await req.get(`/api/v1/rooms/${privateCode}`);
+    expect(unauthRes.status).toBe(404);
+
+    // With host cookie → 200 (owner can access own private room)
+    const authRes = await req.get(`/api/v1/rooms/${privateCode}`).set('Cookie', host.cookie);
+    expect(authRes.status).toBe(200);
+    expect(authRes.body.data.code).toBe(privateCode);
 
     await cleanupTestDataForDb(dbUrl);
     await db.$disconnect();
   });
 
-  it('GET /api/v1/rooms/:code — host can retrieve own private room', async () => {
+  it('GET /api/v1/rooms/:code — host can retrieve own private room, another user cannot', async () => {
     const { request: req, prisma: db, dbUrl } = await createTestApp();
     const ts = Date.now();
-    const result = await seedTestUserWithDb(db, `mod-hostpriv-${ts}`, `HostPriv${ts}`, `mod-hostpriv-${ts}@test.local`);
-    const roomCode = await createTestRoom({ hostUserId: result.userId, isPublic: false });
+    const host = await seedTestUserWithDb(db, `mod-host-${ts}`, `Host${ts}`, `mod-host-${ts}@test.local`);
+    const other = await seedTestUserWithDb(db, `mod-other-${ts}`, `Other${ts}`, `mod-other-${ts}@test.local`);
+    const privateCode = await createTestRoom({ hostUserId: host.userId, isPublic: false });
 
-    const res = await req.get(`/api/v1/rooms/${roomCode}`).set('Cookie', result.cookie);
-    expect(res.status).toBe(200);
-    expect(res.body.data.code).toBe(roomCode);
+    // Host with cookie → 200
+    const hostRes = await req.get(`/api/v1/rooms/${privateCode}`).set('Cookie', host.cookie);
+    expect(hostRes.status).toBe(200);
+    expect(hostRes.body.data.code).toBe(privateCode);
+
+    // Other user with cookie → 404 (no access to private room)
+    const otherRes = await req.get(`/api/v1/rooms/${privateCode}`).set('Cookie', other.cookie);
+    expect(otherRes.status).toBe(404);
 
     await cleanupTestDataForDb(dbUrl);
     await db.$disconnect();

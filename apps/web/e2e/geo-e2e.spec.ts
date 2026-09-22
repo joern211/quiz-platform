@@ -187,13 +187,10 @@ test('G4-2: Zwei Spieler treten bei → Lobby zeigt beide', async ({ browser }) 
 
     // Moderator aktualisiert die Lobby
     await modPage.reload();
-    await modPage.waitForTimeout(3000);
-
-    // Prüfe: Mindestens ein Spieler in der Lobby
-    const playerALoaded = await modPage.getByText('Spieler A').isVisible({ timeout: 5000 }).catch(() => false);
-    const playerBLoaded = await modPage.getByText('Spieler B').isVisible({ timeout: 5000 }).catch(() => false);
-
-    // BEIDE Spieler müssen gleichzeitig sichtbar sein (Abschnitt 5: kein OR erlaubt)
+    // 5 s warten, dann explizit auf beide Spieler prüfen (Abschnitt 5: kein OR erlaubt)
+    await modPage.waitForTimeout(5_000);
+    const playerALoaded = await modPage.getByText('Spieler A').isVisible({ timeout: 1000 }).catch(() => false);
+    const playerBLoaded = await modPage.getByText('Spieler B').isVisible({ timeout: 1000 }).catch(() => false);
     expect(playerALoaded, 'Spieler A muss in der Lobby sichtbar sein').toBeTruthy();
     expect(playerBLoaded, 'Spieler B muss in der Lobby sichtbar sein').toBeTruthy();
   } finally {
