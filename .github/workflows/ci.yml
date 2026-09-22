@@ -46,7 +46,9 @@ jobs:
         env:
           DATABASE_URL: file:/tmp/quiz-server-test.db
           SESSION_SECRET: ci-test-secret-at-least-32-chars-long
-        run: pnpm test
+        run: |
+          echo "=== Server tests ===" && pnpm --filter @quiz/server test
+          echo "=== Web tests ===" && pnpm --filter @quiz/web test
 
       - name: Build
         run: pnpm build
