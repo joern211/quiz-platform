@@ -43,6 +43,9 @@ jobs:
         run: pnpm lint
 
       - name: Test
+        env:
+          DATABASE_URL: file:/tmp/quiz-server-test.db
+          SESSION_SECRET: ci-test-secret-at-least-32-chars-long
         run: pnpm test
 
       - name: Build
@@ -76,10 +79,13 @@ jobs:
         run: pnpm build
 
       - name: Create fresh SQLite DB and run migrations + seed
+        env:
+          DATABASE_URL: file:///tmp/test-e2e.db
+          SESSION_SECRET: test-secret-32chars-long-for-e2e
         run: |
           rm -f /tmp/test-e2e.db
-          DATABASE_URL=file:///tmp/test-e2e.db pnpm prisma migrate deploy
-          DATABASE_URL=file:///tmp/test-e2e.db pnpm prisma db seed
+          pnpm prisma migrate deploy
+          pnpm prisma db seed
 
       - name: Start backend server (port 3001) in background
         run: |
