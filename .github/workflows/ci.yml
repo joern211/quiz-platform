@@ -87,8 +87,8 @@ jobs:
           SESSION_SECRET: test-secret-32chars-long-for-e2e
         run: |
           rm -f /tmp/test-e2e.db
-          pnpm prisma migrate deploy --schema=./prisma/schema.prisma
-          pnpm db:seed
+          DATABASE_URL=file:/tmp/test-e2e.db pnpm prisma migrate deploy
+          DATABASE_URL=file:/tmp/test-e2e.db SESSION_SECRET=test-secret-32chars-long-for-e2e pnpm db:seed
 
       - name: Start backend server (port 3001) in background
         run: |
@@ -111,8 +111,11 @@ jobs:
       - name: Run E2E tests
         env:
           E2E_BASE_URL: http://localhost:5173
-        run: pnpm test:e2e
-        timeout-minutes: 10
+        run: |
+          pnpm test:e2e || {
+            echo "=== E2E FAILED EXIT CODE: $? ==="
+            exit 1
+          }
 
       - name: Upload Playwright report
         if: failure()

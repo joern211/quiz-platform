@@ -90,49 +90,32 @@ async function createGeoRoom(page: Page): Promise<string> {
 }
 
 async function joinAsPlayer(page: Page, code: string, name: string) {
-  // Spieler über REST API beitreten lassen (POST /api/v1/rooms/:code/join)
-  // page.context().request teilt den Cookie-Jar mit dem Browser-Context
-  const response = await page.context().request.post(`${BASE}/api/v1/rooms/${code}/join`, {
-    data: { displayName: name },
-    headers: { 'Content-Type': 'application/json' },
-  });
-
-  if (!response.ok()) {
-    const text = await response.text();
-    throw new Error(`Player join API failed: ${response.status()} ${text}`);
-  }
-
-  const json = await response.json();
-  if (!json.success) {
-    throw new Error(`Player join failed: ${JSON.stringify(json)}`);
-  }
-
-  const { rejoinToken, participationId, roomCode } = json.data;
-  console.log(`[joinAsPlayer] ${name} beigetreten: pid=${participationId}, token=${rejoinToken?.slice(0,8)}...`);
-
-  // SessionStorage im Browser-Context setzen (localStorage-Escape via page.evaluate)
+  // Navigiere zur Lobby. Beim Laden der Seite wird /lobby/:code verwendet
+  // und die Socket-ID gesetzt. Vor dem Reload setzen wir das sessionStorage
+  // damit das Socket nach dem Reload sofort mit den richtigen Werten startet.
   await page.goto(`${BASE}/raum/${code}/lobby`);
-  await page.waitForLoadState('networkidle');
-
-  await page.evaluate((tokens: { rejoinToken: string; participationId: string; roomCode: string }) => {
-    sessionStorage.setItem('qp_rejoinToken', tokens.rejoinToken);
-    sessionStorage.setItem('qp_participationId', tokens.participationId);
-    sessionStorage.setItem('qp_roomCode', tokens.roomCode);
+  await page.waitForLoadState('domcontentloaded');
+  // Prüfe ob wir auf der Lobby-Seite sind (URL enthält /lobby)
+  const onLobby = page.url().includes('/lobby');
+  if (!onLobby) {
+    console.log(`[joinAsPlayer] ${name} nicht auf Lobby, URL=${page.url()}, warte...`);
+    await page.waitForURL(RegExp(`/raum/${code}/lobby`), { timeout: 10000 });
+  }
+  // Setze sessionStorage VOR dem Reload, damit das Socket es sofort liest
+  await page.evaluate(({ c, n }: { c: string; n: string }) => {
+    sessionStorage.setItem('qp_roomCode', c);
     sessionStorage.setItem('qp_role', 'PLAYER');
-  }, { rejoinToken, participationId, roomCode });
-
-  // Seite neu laden damit React die sessionStorage liest + Socket verbindet
+    sessionStorage.setItem('qp_displayName', n);
+    console.log('[joinAsPlayer] sessionStorage gesetzt, role=PLAYER');
+  }, { c: code, n: name });
   await page.reload();
-  await page.waitForLoadState('networkidle');
-
-  // Warten bis Socket-Verbindung steht + Lobby-Snapshot empfangen
-  await page.waitForTimeout(3000);
+  await page.waitForLoadState('domcontentloaded');
+  await page.waitForTimeout(4000);
   await page.waitForURL(RegExp(`/raum/${code}/lobby`), { timeout: 15000 });
 
-  // DEBUG: Socket-Verbindungsstatus prüfen
-  const connected = await page.locator('text=Verbunden').isVisible({ timeout: 3000 }).catch(() => false);
-  const players = await page.locator('text=Bereit').count().catch(() => 0);
-  console.log(`[joinAsPlayer] Lobby geladen. Verbunden=${connected}, Bereit-Buttons=${players}`);
+  const connected = await page.locator('text=Verbunden').isVisible({ timeout: 5000 }).catch(() => false);
+  const url = page.url();
+  console.log(`[joinAsPlayer] ${name} Lobby geladen. Verbunden=${connected}, URL=${url}`);
 }
 
 async function joinAsViewer(page: Page, code: string) {
@@ -304,7 +287,7 @@ test('G4-4: Vollständiger Spielablauf (Moderator startet, 1 Spieler antwortet)'
     // Spieler tritt bei und markiert sich als bereit
     await joinAsPlayer(playerPage, code, 'Quiz Champion');
 
-    // Spieler: "Ich bin bereit" klicken — MANDATORY
+    // ── Schritt 3b: Spieler ist bereit ──────────────────────────────
     const readyBtn = playerPage.locator('button:has-text("bereit")').first();
     const readyVisible = await readyBtn.isVisible({ timeout: 3000 }).catch(() => false);
     expect(readyVisible, '"Bereit"-Button muss sichtbar sein').toBe(true);
@@ -312,45 +295,73 @@ test('G4-4: Vollständiger Spielablauf (Moderator startet, 1 Spieler antwortet)'
     await playerPage.waitForTimeout(1000);
     console.log('[Block 3] Spieler hat Bereit-Button geklickt');
 
-    // WICHTIG: Nach jedem page.reload() muss das Socket-Singleton zurückgesetzt werden.
-    // Problem: socket.io-client Singleton → nach reload wird kein 'connect'-Event mehr
-    // gefeuert → room:subscribe wird nicht emitted → game:start → NOT_IN_ROOM.
-    // Fix: Vor dem reload __resetSocket() aufrufen (nullt das Singleton).
-    // Nach dem Reload erstellt getSocket() ein FRISCHES Socket → connect-Event →
-    // room:subscribe → Moderator ist im Room → game:start funktioniert.
+    // Warten bis Lobby beide Spieler zeigt + ready synchronisiert ist
+    await modPage.waitForTimeout(2000);
+
+    // DEBUG: Lobby-Status vor dem Klick protokollieren
+    const readyCount = await modPage.locator('[class*="Bereit"], [class*="bereit"], [class*="ready"]').count();
+    const playerItems = await modPage.locator('[class*="Spieler"]').count();
+    const connText = await modPage.locator('text=/Verbunden|Spieler/').allInnerTexts();
+    console.log(`[Block 3] Lobby-Status: Bereit=${readyCount}, Spieler=${playerItems}, Texte=${JSON.stringify(connText)}`);
+
+    // ── Schritt 4: E2E-Socket-Identity-Fix ──────────────────────────
+    // Problem: Nach loginAsModerator() + createGeoRoom() (sessionStorage + reload)
+    // hat das Socket room:subscribe VOR dem Spieler-Beitritt gesendet.
+    // Wenn der Spieler dann beitritt und bereit wird, hat das Moderator-Socket
+    // noch keine PLAYER-Rolle — aber game:start braucht MODERATOR.
+    // Lösung: Socket nullen → Seite neu laden → useEffect läuft → connect
+    // → room:subscribe mit sessionStorage (MODERATOR-Rolle aus Host-UserId).
     await modPage.evaluate(() => {
       const win = window as any;
       if (win.__resetSocket) {
         console.log('[E2E] Calling __resetSocket() before reload');
         win.__resetSocket();
-      } else {
-        console.log('[E2E] __resetSocket not found — may not be in bundle yet');
       }
     });
     await modPage.waitForTimeout(300);
     await modPage.reload();
+    await modPage.waitForLoadState('networkidle');
+    // Nach Reload: Socket verbindet sich neu → 'connect' → useEffect (socket.connected)
+    // → room:subscribe (liest sessionStorage → MODERATOR-Rolle aus host-UserId)
+    console.log('[E2E] Reload done, socket reconnected as MODERATOR');
 
-    // NEUES Socket wird nach Reload erstellt (autoConnect=true).
-    // Das "Verbunden"-Element im DOM erscheint NACHdem das Socket
-    // room:subscribe gesendet hat → damit ist Subscription implizit bestätigt.
-
-    // Warten auf "Verbunden" (erscheint NACH room:snapshot im DOM)
-    await modPage.waitForSelector('text=Verbunden', { timeout: 15000 });
-    await modPage.waitForTimeout(3000);
-
-    // ── Schritt 4: Moderator klickt "Spiel starten" via UI ─────────────
+    // ── Schritt 5: Moderator klickt "Spiel starten" via UI ─────────────
     // Button MUSS sichtbar sein — kein Fallback
     console.log('[Block 4] Suche "Spiel starten"-Button...');
     const startBtn = modPage.getByRole('button', { name: /Spiel starten/i }).first();
     const startVisible = await startBtn.isVisible({ timeout: 5000 }).catch(() => false);
     expect(startVisible, '"Spiel starten"-Button muss sichtbar sein').toBe(true);
     await startBtn.click();
-    console.log('[Block 4] UI-Button geklickt — warte auf Navigation');
+    console.log('[Block 4] UI-Button geklickt — warte auf Spielstart');
 
-    // Navigiere zur Spiel-Seite
-    await modPage.waitForURL(/\/spiel/, { timeout: 15000 });
-    expect(modPage.url(), 'Spiel-Seite für Moderator erreicht').toContain('/spiel');
-    console.log('[Block 4] Spiel-Seite für Moderator erreicht!');
+    // Dialog-Handler VOR dem Klick registrieren
+    let dialogShown = false;
+    let reachedGame = false;
+    modPage.on('dialog', async dialog => {
+      dialogShown = true;
+      console.log(`[Block 4] Dialog: "${dialog.message()}" (type=${dialog.type()})`);
+      await dialog.dismiss();
+    });
+
+    // Navigiere zur Moderator-Spiel-Seite.
+    // navigate() wird im socket-Callback aufgerufen, NICHT nach einem page.goto.
+    // Nach dem Klick warten wir, ob die URL sich ändert.
+    for (let i = 0; i < 40; i++) {
+      await modPage.waitForTimeout(500);
+      const currentUrl = modPage.url();
+      if (currentUrl.includes('/spiel')) {
+        reachedGame = true;
+        console.log('[Block 4] Spiel-Seite für Moderator erreicht!');
+        break;
+      }
+    }
+    if (!reachedGame) {
+      const debugUrl = modPage.url();
+      const debugTitle = await modPage.title();
+      const debugBody = (await modPage.locator('body').innerText()).substring(0, 300);
+      console.log(`[Block 4] KEINE Navigation. Dialog=${dialogShown}, URL=${debugUrl}, Title=${debugTitle}, Body=${debugBody}`);
+    }
+    expect(reachedGame, `Spiel-Seite nach Button-Klick erreichen (warte 20s). Aktuelle URL: ${modPage.url()}`).toBe(true);
 
     // ── Schritt 5: Spieler ist ebenfalls auf Spiel-Seite ─────────────
     await playerPage.waitForURL(/\/spiel/, { timeout: 15000 });

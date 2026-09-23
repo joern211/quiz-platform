@@ -10,7 +10,7 @@
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:e2e": "cd ../.. && pnpm --filter @quiz/web exec playwright test",
+    "test:e2e": "playwright test",
     "clean": "rm -rf dist"
   },
   "dependencies": {
