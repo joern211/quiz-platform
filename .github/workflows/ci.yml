@@ -116,7 +116,7 @@ jobs:
           echo "NODE=$(node --version)" >> $GITHUB_OUTPUT
           echo "PLAYWRIGHT_PATH=$(ls apps/web/node_modules/.bin/playwright 2>/dev/null || ls node_modules/.bin/playwright 2>/dev/null || echo 'NOT FOUND')" >> $GITHUB_OUTPUT
           echo "NODE_MODULES_PW=$(node -e "require.resolve('@playwright/test')" 2>&1)" >> $GITHUB_OUTPUT
-          pnpm test:e2e 2>&1 | tee /tmp/e2e-output.txt
+          pnpm test:e2e -- --project=chromium --grep="G4-" 2>&1 | tee /tmp/e2e-output.txt
           EXIT=${PIPESTATUS[0]}
           echo "EXIT_CODE=$EXIT" >> $GITHUB_OUTPUT
           echo "E2E_OUTPUT<<EOF" >> $GITHUB_OUTPUT

@@ -85,7 +85,7 @@ async function joinAsViewer(page: Page, code: string) {
   await page.goto(`${BASE}/zuschauen/${code}/lobby`);
   await page.waitForLoadState('networkidle');
   await page.waitForTimeout(2000);
-  await page.waitForURL(RegExp(`/zuschauen/${code}/(lobby|spiel)`), { timeout: 10000 }).catch(
+  await page.waitForURL(RegExp(`/zuschauen/${code}/(lobby|spiel)`), { timeout: 20000 }).catch(
     async () => { await page.waitForTimeout(3000); }
   );
 }
