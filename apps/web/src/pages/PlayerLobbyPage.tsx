@@ -36,10 +36,17 @@ export function PlayerLobbyPage() {
 
     connectSocket();
 
+    // If socket is already connected (singleton reused from previous page),
+    // 'connect' event won't fire — send room:subscribe immediately.
     socket.on('connect', () => {
       setConnected(true);
       socket.emit('room:subscribe', { roomCode: code, rejoinToken: rejoinToken || undefined });
     });
+
+    if (socket.connected) {
+      setConnected(true);
+      socket.emit('room:subscribe', { roomCode: code, rejoinToken: rejoinToken || undefined });
+    }
 
     socket.on('room:snapshot', (data) => {
       setPlayers(data.players || []);
