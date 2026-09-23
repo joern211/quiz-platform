@@ -111,35 +111,33 @@ jobs:
       - name: Run E2E tests
         env:
           E2E_BASE_URL: http://localhost:5173
-          PLAYWRIGHT_REPORT_DIR: test-results
+          PLAYWRIGHT_REPORT_DIR: playwright-report
         run: |
-          set -exo pipefail
-          echo "NODE: $(node --version)" > /tmp/e2e-diag.txt
-          echo "PNPM: $(pnpm --version)" >> /tmp/e2e-diag.txt
-          ls apps/web/node_modules/.bin/playwright >> /tmp/e2e-diag.txt 2>&1
-          echo "@playwright/test require:" >> /tmp/e2e-diag.txt
-          node -e "require('@playwright/test')" >> /tmp/e2e-diag.txt 2>&1 || true
-          echo "test-results before:" >> /tmp/e2e-diag.txt
-          ls test-results/ >> /tmp/e2e-diag.txt 2>&1 || true
+          echo "NODE=$(node --version)" >> $GITHUB_OUTPUT
+          echo "PLAYWRIGHT_PATH=$(ls apps/web/node_modules/.bin/playwright 2>/dev/null || ls node_modules/.bin/playwright 2>/dev/null || echo 'NOT FOUND')" >> $GITHUB_OUTPUT
+          echo "NODE_MODULES_PW=$(node -e "require.resolve('@playwright/test')" 2>&1)" >> $GITHUB_OUTPUT
           pnpm test:e2e 2>&1 | tee /tmp/e2e-output.txt
-          echo "EXIT_CODE: $?" >> /tmp/e2e-diag.txt
-          echo "test-results after:" >> /tmp/e2e-diag.txt
-          ls test-results/ >> /tmp/e2e-diag.txt 2>&1 || true
-          cat /tmp/e2e-diag.txt
-          cat /tmp/e2e-output.txt || true
+          EXIT=${PIPESTATUS[0]}
+          echo "EXIT_CODE=$EXIT" >> $GITHUB_OUTPUT
+          echo "E2E_OUTPUT<<EOF" >> $GITHUB_OUTPUT
+          cat /tmp/e2e-output.txt >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+          ls test-results/ >> /tmp/e2e-output.txt 2>&1 || true
+          ls playwright-report/ >> /tmp/e2e-output.txt 2>&1 || true
+          exit $EXIT
 
       - name: Upload Playwright report
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: playwright-report
+          name: e2e-playwright-report
           path: playwright-report/
-          retention-days: 7
+          retention-days: 2
 
       - name: Upload test-results
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: test-results
+          name: e2e-test-results
           path: test-results/
-          retention-days: 7
+          retention-days: 2
