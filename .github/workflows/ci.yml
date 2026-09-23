@@ -113,17 +113,44 @@ jobs:
           E2E_BASE_URL: http://localhost:5173
           PLAYWRIGHT_REPORT_DIR: playwright-report
         run: |
-          echo "NODE=$(node --version)" >> $GITHUB_OUTPUT
-          echo "PLAYWRIGHT_PATH=$(ls apps/web/node_modules/.bin/playwright 2>/dev/null || ls node_modules/.bin/playwright 2>/dev/null || echo 'NOT FOUND')" >> $GITHUB_OUTPUT
-          echo "NODE_MODULES_PW=$(node -e "require.resolve('@playwright/test')" 2>&1)" >> $GITHUB_OUTPUT
-          pnpm test:e2e -- --project=chromium --grep="G4-" 2>&1 | tee /tmp/e2e-output.txt
+          DIAG_FILE=/tmp/e2e-diag.log
+          TEST_OUT=/tmp/e2e-test-out.log
+
+          echo "=== E2E DIAGNOSTIC ===" > $DIAG_FILE
+          echo "NODE=$(node --version)" >> $DIAG_FILE
+          echo "PLAYWRIGHT_BIN=$(ls apps/web/node_modules/.bin/playwright 2>/dev/null || echo NOT_FOUND)" >> $DIAG_FILE
+          echo "PW_MODULE=$(node -e "require.resolve('@playwright/test')" 2>&1)" >> $DIAG_FILE
+
+          echo "=== RUNNING G4 E2E TESTS ===" >> $DIAG_FILE
+
+          # Run tests, capture exit code, tee to file
+          set -o pipefail
+          pnpm test:e2e -- --project=chromium --grep="G4-" 2>&1 | tee $TEST_OUT
           EXIT=${PIPESTATUS[0]}
-          echo "EXIT_CODE=$EXIT" >> $GITHUB_OUTPUT
-          echo "E2E_OUTPUT<<EOF" >> $GITHUB_OUTPUT
-          cat /tmp/e2e-output.txt >> $GITHUB_OUTPUT
-          echo "EOF" >> $GITHUB_OUTPUT
-          ls test-results/ >> /tmp/e2e-output.txt 2>&1 || true
-          ls playwright-report/ >> /tmp/e2e-output.txt 2>&1 || true
+
+          echo "=== TEST EXIT CODE: $EXIT ===" >> $DIAG_FILE
+
+          # Append test output to GITHUB_OUTPUT (each line as key=value)
+          # Long multi-line output: write separately
+          {
+            echo "E2E_EXIT=$EXIT"
+            echo "E2E_DIAG<<EOF"
+            cat $DIAG_FILE
+            echo "EOF"
+          } >> $GITHUB_OUTPUT
+
+          {
+            echo "E2E_OUT<<EOF"
+            cat $TEST_OUT
+            echo "EOF"
+          } >> $GITHUB_OUTPUT
+
+          ls playwright-report/ >> $DIAG_FILE 2>&1 || true
+          ls test-results/ >> $DIAG_FILE 2>&1 || true
+
+          # Always print diagnostic so it shows in step output
+          cat $DIAG_FILE
+
           exit $EXIT
 
       - name: Upload Playwright report
