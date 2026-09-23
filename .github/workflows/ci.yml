@@ -92,19 +92,25 @@ jobs:
 
       - name: Start backend server (port 3001) in background
         run: |
-          DATABASE_URL=file:/tmp/test-e2e.db \
-          SESSION_SECRET=test-secret-32chars-long-for-e2e \
-          ALLOWED_ORIGINS=http://localhost:3001,http://localhost:5173 \
-          PUBLIC_APP_URL=http://localhost:3001 \
-          NODE_ENV=development \
-          node apps/server/dist/server.js &
-          echo "BACKEND_PID=$!" >> $GITHUB_ENV
-          for i in $(seq 1 60); do
-            if curl -s http://localhost:3001/api/v1/health > /dev/null 2>&1; then
-              echo "Backend server ready"
+          nohup env \
+            DATABASE_URL=file:/tmp/test-e2e.db \
+            SESSION_SECRET=test-secret-32chars-long-for-e2e \
+            ALLOWED_ORIGINS=http://localhost:3001,http://localhost:5173 \
+            PUBLIC_APP_URL=http://localhost:3001 \
+            NODE_ENV=development \
+            node apps/server/dist/server.js \
+            > /tmp/backend.log 2>&1 &
+          echo "Backend PID: $!"
+          for i in $(seq 1 30); do
+            if curl -sf http://localhost:3001/api/v1/health > /dev/null 2>&1; then
+              echo "Backend ready after ${i}s"
               break
             fi
-            if [ $i -eq 60 ]; then echo "Backend failed to start"; exit 1; fi
+            if [ $i -eq 30 ]; then
+              echo "Backend FAILED to start. Log:"
+              cat /tmp/backend.log
+              exit 1
+            fi
             sleep 1
           done
 
@@ -113,45 +119,34 @@ jobs:
           E2E_BASE_URL: http://localhost:5173
           PLAYWRIGHT_REPORT_DIR: playwright-report
         run: |
-          DIAG_FILE=/tmp/e2e-diag.log
-          TEST_OUT=/tmp/e2e-test-out.log
+          # ── PRE-FLIGHT (always runs, always visible in step output) ──
+          echo ""
+          echo "=== E2E PRE-FLIGHT ==="
+          echo "NODE=$(node --version)"
+          PLAYWRIGHT_BIN=$(ls apps/web/node_modules/.bin/playwright 2>/dev/null || echo NOT_FOUND)
+          echo "PLAYWRIGHT_BIN=$PLAYWRIGHT_BIN"
+          echo "PW_MODULE=$(node -e "require.resolve('@playwright/test')" 2>&1 || echo FAIL)"
+          echo "BACKEND=$(curl -sf http://localhost:3001/api/v1/health 2>&1 || echo DOWN)"
+          echo "SEED_USERS=$(node -e "const {PrismaClient}=require('@prisma/client');const db=new PrismaClient({datasourceUrl:'file:/tmp/test-e2e.db'});db.user.findMany({take:5}).then(u=>{console.log(JSON.stringify(u.map(x=>({id:x.id,role:x.role}))))}).catch(e=>{console.error(e.message)}).finally(()=>db.\$disconnect());" 2>&1 || echo 'DB_ERROR')"
 
-          echo "=== E2E DIAGNOSTIC ===" > $DIAG_FILE
-          echo "NODE=$(node --version)" >> $DIAG_FILE
-          echo "PLAYWRIGHT_BIN=$(ls apps/web/node_modules/.bin/playwright 2>/dev/null || echo NOT_FOUND)" >> $DIAG_FILE
-          echo "PW_MODULE=$(node -e "require.resolve('@playwright/test')" 2>&1)" >> $DIAG_FILE
+          echo ""
+          echo "=== RUNNING G4 E2E TESTS ==="
 
-          echo "=== RUNNING G4 E2E TESTS ===" >> $DIAG_FILE
+          # Run E2E tests and capture exit code
+          pnpm test:e2e -- --project=chromium --grep="G4-" || EXIT=$?
 
-          # Run tests, capture exit code, tee to file
-          set -o pipefail
-          pnpm test:e2e -- --project=chromium --grep="G4-" 2>&1 | tee $TEST_OUT
-          EXIT=${PIPESTATUS[0]}
+          echo ""
+          echo "=== POST-RUN CHECKS ==="
+          echo "PLAYWRIGHT_REPORT=$(ls playwright-report/ 2>/dev/null || echo NONE)"
+          echo "TEST_RESULTS=$(ls test-results/ 2>/dev/null || echo NONE)"
 
-          echo "=== TEST EXIT CODE: $EXIT ===" >> $DIAG_FILE
+          echo ""
+          echo "=== TEST OUTPUT TAIL ==="
+          tail -50 /tmp/e2e-test-out.log 2>/dev/null || true
 
-          # Append test output to GITHUB_OUTPUT (each line as key=value)
-          # Long multi-line output: write separately
-          {
-            echo "E2E_EXIT=$EXIT"
-            echo "E2E_DIAG<<EOF"
-            cat $DIAG_FILE
-            echo "EOF"
-          } >> $GITHUB_OUTPUT
-
-          {
-            echo "E2E_OUT<<EOF"
-            cat $TEST_OUT
-            echo "EOF"
-          } >> $GITHUB_OUTPUT
-
-          ls playwright-report/ >> $DIAG_FILE 2>&1 || true
-          ls test-results/ >> $DIAG_FILE 2>&1 || true
-
-          # Always print diagnostic so it shows in step output
-          cat $DIAG_FILE
-
-          exit $EXIT
+          echo ""
+          echo "=== TEST EXIT: $EXIT ==="
+          exit ${EXIT:-0}
 
       - name: Upload Playwright report
         if: failure()
