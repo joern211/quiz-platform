@@ -75,8 +75,8 @@ jobs:
       - name: Generate Prisma Client
         run: pnpm prisma generate
 
-      - name: Install Playwright
-        run: pnpm exec playwright install --with-deps chromium
+      - name: Install Playwright browsers
+        run: pnpm --filter @quiz/web exec playwright install --with-deps chromium
 
       - name: Build all apps
         run: pnpm build
