@@ -113,25 +113,20 @@ jobs:
           E2E_BASE_URL: http://localhost:5173
           PLAYWRIGHT_REPORT_DIR: test-results
         run: |
-          echo "=== E2E TEST DIAGNOSTIC ==="
-          echo "pwd: $(pwd)"
-          echo "node: $(node --version)"
-          echo "pnpm: $(pnpm --version)"
-          which playwright 2>/dev/null || echo "playwright not in PATH"
-          ls apps/web/node_modules/.bin/playwright 2>/dev/null || echo "not in apps/web/node_modules"
-          node -e "require('@playwright/test')" 2>/dev/null || echo "@playwright/test require failed"
-          echo "==========================="
-          pnpm test:e2e || {
-            echo "=== E2E FAILED EXIT CODE: $? ==="
-            # Print test-results if they exist
-            if [ -d "test-results" ]; then
-              echo "test-results content:"
-              ls -la test-results/
-            else
-              echo "test-results directory NOT found"
-            fi
-            exit 1
-          }
+          set -exo pipefail
+          echo "NODE: $(node --version)" > /tmp/e2e-diag.txt
+          echo "PNPM: $(pnpm --version)" >> /tmp/e2e-diag.txt
+          ls apps/web/node_modules/.bin/playwright >> /tmp/e2e-diag.txt 2>&1
+          echo "@playwright/test require:" >> /tmp/e2e-diag.txt
+          node -e "require('@playwright/test')" >> /tmp/e2e-diag.txt 2>&1 || true
+          echo "test-results before:" >> /tmp/e2e-diag.txt
+          ls test-results/ >> /tmp/e2e-diag.txt 2>&1 || true
+          pnpm test:e2e 2>&1 | tee /tmp/e2e-output.txt
+          echo "EXIT_CODE: $?" >> /tmp/e2e-diag.txt
+          echo "test-results after:" >> /tmp/e2e-diag.txt
+          ls test-results/ >> /tmp/e2e-diag.txt 2>&1 || true
+          cat /tmp/e2e-diag.txt
+          cat /tmp/e2e-output.txt || true
 
       - name: Upload Playwright report
         if: failure()
