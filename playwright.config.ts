@@ -5,6 +5,7 @@ export default defineConfig({
   fullyParallel: false,
   timeout: 30000,
   reporter: [['list']],
+  outputDir: process.env.PLAYWRIGHT_REPORT_DIR ? `${process.env.PLAYWRIGHT_REPORT_DIR}/` : 'playwright-report/',
   use: {
     baseURL: 'http://localhost:5173',
     trace: 'on-first-retry',

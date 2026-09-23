@@ -113,8 +113,23 @@ jobs:
           E2E_BASE_URL: http://localhost:5173
           PLAYWRIGHT_REPORT_DIR: test-results
         run: |
+          echo "=== E2E TEST DIAGNOSTIC ==="
+          echo "pwd: $(pwd)"
+          echo "node: $(node --version)"
+          echo "pnpm: $(pnpm --version)"
+          which playwright 2>/dev/null || echo "playwright not in PATH"
+          ls apps/web/node_modules/.bin/playwright 2>/dev/null || echo "not in apps/web/node_modules"
+          node -e "require('@playwright/test')" 2>/dev/null || echo "@playwright/test require failed"
+          echo "==========================="
           pnpm test:e2e || {
             echo "=== E2E FAILED EXIT CODE: $? ==="
+            # Print test-results if they exist
+            if [ -d "test-results" ]; then
+              echo "test-results content:"
+              ls -la test-results/
+            else
+              echo "test-results directory NOT found"
+            fi
             exit 1
           }
 
