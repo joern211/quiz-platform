@@ -119,34 +119,21 @@ jobs:
           E2E_BASE_URL: http://localhost:5173
           PLAYWRIGHT_REPORT_DIR: playwright-report
         run: |
-          # ── PRE-FLIGHT (always runs, always visible in step output) ──
-          echo ""
           echo "=== E2E PRE-FLIGHT ==="
           echo "NODE=$(node --version)"
           PLAYWRIGHT_BIN=$(ls apps/web/node_modules/.bin/playwright 2>/dev/null || echo NOT_FOUND)
           echo "PLAYWRIGHT_BIN=$PLAYWRIGHT_BIN"
           echo "PW_MODULE=$(node -e "require.resolve('@playwright/test')" 2>&1 || echo FAIL)"
           echo "BACKEND=$(curl -sf http://localhost:3001/api/v1/health 2>&1 || echo DOWN)"
-          echo "SEED_USERS=$(node -e "const {PrismaClient}=require('@prisma/client');const db=new PrismaClient({datasourceUrl:'file:/tmp/test-e2e.db'});db.user.findMany({take:5}).then(u=>{console.log(JSON.stringify(u.map(x=>({id:x.id,role:x.role}))))}).catch(e=>{console.error(e.message)}).finally(()=>db.\$disconnect());" 2>&1 || echo 'DB_ERROR')"
 
           echo ""
           echo "=== RUNNING G4 E2E TESTS ==="
-
-          # Run E2E tests and capture exit code
-          pnpm test:e2e -- --project=chromium --grep="G4-" || EXIT=$?
+          pnpm test:e2e -- --project=chromium --grep="G4-"
 
           echo ""
-          echo "=== POST-RUN CHECKS ==="
+          echo "=== POST-RUN ==="
           echo "PLAYWRIGHT_REPORT=$(ls playwright-report/ 2>/dev/null || echo NONE)"
           echo "TEST_RESULTS=$(ls test-results/ 2>/dev/null || echo NONE)"
-
-          echo ""
-          echo "=== TEST OUTPUT TAIL ==="
-          tail -50 /tmp/e2e-test-out.log 2>/dev/null || true
-
-          echo ""
-          echo "=== TEST EXIT: $EXIT ==="
-          exit ${EXIT:-0}
 
       - name: Upload Playwright report
         if: failure()
