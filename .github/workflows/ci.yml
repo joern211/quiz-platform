@@ -125,15 +125,26 @@ jobs:
           echo "PLAYWRIGHT_BIN=$PLAYWRIGHT_BIN"
           echo "PW_MODULE=$(node -e "require.resolve('@playwright/test')" 2>&1 || echo FAIL)"
           echo "BACKEND=$(curl -sf http://localhost:3001/api/v1/health 2>&1 || echo DOWN)"
+          echo "DB_USERS=$(node -e "const {PrismaClient}=require('@prisma/client');const db=new PrismaClient({datasourceUrl:'file:/tmp/test-e2e.db'});db.user.findMany({take:5}).then(u=>{console.log(JSON.stringify(u.map(x=>({id:x.id,role:x.role}))))}).catch(e=>{console.error(e.message)}).finally(()=>db.\$disconnect());" 2>&1 || echo 'DB_ERR')"
 
           echo ""
           echo "=== RUNNING G4 E2E TESTS ==="
           pnpm test:e2e -- --project=chromium --grep="G4-"
+          EXIT=$?
+          echo "TEST_EXIT=$EXIT"
 
           echo ""
           echo "=== POST-RUN ==="
           echo "PLAYWRIGHT_REPORT=$(ls playwright-report/ 2>/dev/null || echo NONE)"
           echo "TEST_RESULTS=$(ls test-results/ 2>/dev/null || echo NONE)"
+
+          echo ""
+          echo "=== BACKEND LOG TAIL ==="
+          tail -30 /tmp/backend.log
+
+          echo ""
+          echo "=== EXIT: $EXIT ==="
+          exit $EXIT
 
       - name: Upload Playwright report
         if: failure()
