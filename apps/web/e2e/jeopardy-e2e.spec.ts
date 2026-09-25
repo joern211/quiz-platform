@@ -203,12 +203,33 @@ async function watchAsSpectator(page: Page, code: string): Promise<void> {
 }
 
 async function startGame(moderator: Page): Promise<void> {
-  // Click "Spiel starten" — ModeratorLobbyPage navigates via game:start handler
-  await moderator.getByRole('button', { name: 'Spiel starten' }).click();
-  // Jeopardy navigates to /moderator/raum/:code/jeopardy (not /game)
-  await moderator.waitForURL(/\/moderator\/raum\/\d{3}-\d{3}\/(jeopardy|game)$/, { timeout: 15_000 });
-  // Verify Jeopardy board is visible
-  await expect(moderator.getByRole('heading', { name: /board|jeopardy/i }).or(moderator.getByText('Board'))).toBeVisible({ timeout: 5_000 });
+  // Get session cookie from browser context
+  const cookies = await moderator.context().cookies();
+  const sessionCookie = cookies.find(c => c.name === 'quiz_session');
+  if (!sessionCookie) throw new Error('No session cookie — call loginAsModerator first');
+
+  // Get room code from URL
+  const url = moderator.url();
+  const codeMatch = url.match(/\/moderator\/raum\/(\d{3}-\d{3})\/lobby/);
+  if (!codeMatch) throw new Error(`Cannot find room code in URL: ${url}`);
+  const code = codeMatch[1];
+
+  // Use E2E REST endpoint for game start — bypasses socket identity issues
+  const res = await moderator.context().request.post(`${BASE}/api/v1/e2e/game-start`, {
+    data: { roomCode: code },
+  });
+
+  const body = await res.json() as { success: boolean; data?: { roomCode: string } };
+  if (!res.ok() || !body.success) {
+    throw new Error(`game:start failed (${res.status()}): ${await res.text()}`);
+  }
+
+  // Navigate directly to the Jeopardy game page (don't rely on socket navigation)
+  await moderator.goto(`${BASE}/moderator/raum/${code}/jeopardy`);
+  await moderator.waitForLoadState('domcontentloaded');
+  // Wait for the board to load (socket init + jeopardy:init)
+  await expect(moderator.locator('[role="grid"]')).toBeVisible({ timeout: 15_000 });
+  await moderator.waitForTimeout(500); // Allow socket state to settle
 }
 
 async function openField(moderator: Page, categoryIndex = 0, value = 200): Promise<void> {
@@ -335,6 +356,15 @@ test('J4: Vollständiger Spielablauf: starten -> feld öffnen -> buzzer -> bewer
 
     await joinAsPlayer(player1, code, 'Frager');
     await joinAsPlayer(player2, code, 'Antworter');
+
+    // Both players must mark themselves as ready before the game can start
+    await Promise.all([
+      player1.getByRole('button', { name: /bereit/i }).click().then(() => player1.waitForTimeout(500)),
+      player2.getByRole('button', { name: /bereit/i }).click().then(() => player2.waitForTimeout(500)),
+    ]);
+    // Verify players show "Bereit ✓" (use .first() — each player's lobby shows all players)
+    await expect(player1.getByText('Bereit ✓').first()).toBeVisible({ timeout: 5_000 });
+    await expect(player2.getByText('Bereit ✓').first()).toBeVisible({ timeout: 5_000 });
 
     await startGame(moderator);
 

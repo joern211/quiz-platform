@@ -135,7 +135,11 @@ export function ModeratorLobbyPage() {
     socketRef.current.emit('game:start', { roomCode }, (response) => {
       setLoading(false);
       if (response.success) {
-        navigate(`/moderator/raum/${roomCode}/spiel`);
+        const gameSlug = (response as any).gameSlug ?? '';
+        const path = gameSlug === 'jeopardy'
+          ? `/moderator/raum/${roomCode}/jeopardy`
+          : `/moderator/raum/${roomCode}/spiel`;
+        navigate(path);
       } else {
         setKickError(response.error || 'Start nicht möglich');
       }
@@ -153,7 +157,11 @@ export function ModeratorLobbyPage() {
       socketRef.current.emit('game:start', { roomCode }, (response) => {
         setLoading(false);
         if (response.success) {
-          navigate(`/moderator/raum/${roomCode}/spiel`);
+          const gameSlug = (response as any).gameSlug ?? '';
+          const path = gameSlug === 'jeopardy'
+            ? `/moderator/raum/${roomCode}/jeopardy`
+            : `/moderator/raum/${roomCode}/spiel`;
+          navigate(path);
         } else {
           setKickError(response.error || 'Start nicht möglich');
         }
