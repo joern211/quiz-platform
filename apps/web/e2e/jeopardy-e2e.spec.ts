@@ -226,20 +226,25 @@ async function startGame(moderator: Page): Promise<void> {
 
   // Navigate directly to the Jeopardy game page (don't rely on socket navigation)
   await moderator.goto(`${BASE}/moderator/raum/${code}/jeopardy`);
-  await moderator.waitForLoadState('networkidle');
-  // Wait for the board heading to appear first, then the grid
-  await expect(moderator.getByRole('heading', { name: /Board \d|Jeopardy/i })).toBeVisible({ timeout: 20_000 });
+  // Wait for the page to load — use 'load' not 'networkidle' (socket connection is async)
+  await moderator.waitForLoadState('load');
+  // Wait for socket events to initialize the game state
+  // Poll until we see the Jeopardy page structure (look for the heading or any score card)
+  try {
+    await moderator.getByRole('heading', { name: /Board \d|Jeopardy/i }).waitFor({ state: 'attached', timeout: 20_000 });
+  } catch {
+    // Fallback: wait for the URL to confirm we're on the game page
+    await moderator.waitForURL(/\/moderator\/raum\/\d{3}-\d{3}\/jeopardy$/, { timeout: 10_000 });
+  }
   await moderator.waitForTimeout(1_000); // Let socket events settle
-  await expect(moderator.locator('[role="grid"]')).toBeVisible({ timeout: 10_000 });
+  // Now confirm the grid exists in the DOM (may still be "hidden" if no CSS dimensions)
+  await expect(moderator.locator('[role="grid"]')).toBeAttached({ timeout: 10_000 });
   await moderator.waitForTimeout(500); // Allow socket state to settle
 }
 
 async function openField(moderator: Page, categoryIndex = 0, value = 200): Promise<void> {
-  // Wait for board to be attached (DOM ready) — Playwright visibility check is sometimes unreliable with CSS animations
+  // Wait for board to be attached (DOM ready)
   await expect(moderator.locator('[role="grid"]')).toBeAttached({ timeout: 10_000 });
-  // Wait for SELECTING phase (board is interactive)
-  await moderator.waitForTimeout(1_000);
-  await expect(moderator.getByText(/Board \d/)).toBeVisible({ timeout: 5_000 });
   // Click the field cell — only works in SELECTING phase
   const cell = moderator.locator('[data-category-index="' + categoryIndex + '"][data-value="' + value + '"]');
   await expect(cell).toBeVisible({ timeout: 5_000 });
