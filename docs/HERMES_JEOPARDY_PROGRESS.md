@@ -24,7 +24,7 @@
 
 - [ ] Phase 1: Baseline & Bestandsaufnahme (dieser Commit)
 - [ ] Phase 2: Wartungsarbeiten & Actions-Warnungen
-- [ ] Phase 3: Jeopardy-Vertrag & State Machine
+- [x] Phase 3: Jeopardy-Vertrag & State Machine ✅
 - [ ] Phase 4: Server-Engine & Autorisierung
 - [ ] Phase 5: Moderator-, Spieler- und Zuschauer-UI
 - [ ] Phase 6: Persistenz, Reload und Rejoin
@@ -56,6 +56,23 @@ git status && git fetch origin && git switch main && git pull --ff-only origin m
 
 **Nächster Schritt:**
 Phase 3: Jeopardy-Vertrag und State Machine implementieren
+
+### Phase 3: Jeopardy-Vertrag & State Machine ✅
+
+**Commit:** `feat(jeopardy): define state machine and shared contracts`
+
+**Erstellt:**
+- `apps/server/src/games/jeopardy/contracts.ts` – Phase-Enum, 9 Phasen (INTRO→GAME_END), alle Socket-Event-Typen, alle 4 Punktberechnungsfunktionen
+- `apps/server/src/games/jeopardy/state.ts` – JeopardyGameState, JeopardyFieldState, Immer-style Immutable Helpers, Buzzer/Steal/Board-Switch-Hilfsfunktionen
+- `apps/server/src/games/jeopardy/contracts.test.ts` – 46 Tests: Phase-Übergänge, Punkteberechnung (8 Fälle), Feld nur einmal spielbar (6 Tests), Score-Helper, Buzzer-Helper, State-Factory
+
+**Geändert:**
+- `apps/server/src/games/registry.ts` – echten `handleJeopardy` importieren
+- `apps/server/src/games/jeopardy/index.ts` – `handleJeopardy` exportieren (GameHandle-Interface)
+- `docs/HERMES_JEOPARDY_PROGRESS.md` – Phase 3 als erledigt markiert
+
+**Nächster Schritt:**
+Phase 4: Server-Engine & Autorisierung
 
 ## Geänderte Dateien (dieser Commit)
 

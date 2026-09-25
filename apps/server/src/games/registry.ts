@@ -8,9 +8,10 @@
 // ============================================================
 
 import { handleGeoGame } from './geo/index.js';
+import { handleJeopardy } from './jeopardy/index.js';
+
 // Placeholders until each game exports its handle object
 // TODO GATE-5: wire up each game's handle object
-const handleJeopardy = { name: 'jeopardy', initialize: async () => {} };
 const handleWerIstDas = { name: 'weristdas', initialize: async () => {} };
 const handleTimeline = { name: 'timeline', initialize: async () => {} };
 const handleLuegen = { name: 'luegen', initialize: async () => {} };
