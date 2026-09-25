@@ -77,6 +77,8 @@ export function JeopardyBoard({
                     : `${value} Punkte – Kategorie ${ci + 1}`
                 }
                 aria-pressed={isCurrent}
+                data-category-index={ci}
+                data-value={value}
               >
                 <span className={styles.cellValue}>{value}</span>
               </button>
