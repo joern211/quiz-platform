@@ -226,9 +226,11 @@ async function startGame(moderator: Page): Promise<void> {
 
   // Navigate directly to the Jeopardy game page (don't rely on socket navigation)
   await moderator.goto(`${BASE}/moderator/raum/${code}/jeopardy`);
-  await moderator.waitForLoadState('domcontentloaded');
-  // Wait for the board to load (socket init + jeopardy:init)
-  await expect(moderator.locator('[role="grid"]')).toBeVisible({ timeout: 15_000 });
+  await moderator.waitForLoadState('networkidle');
+  // Wait for the board heading to appear first, then the grid
+  await expect(moderator.getByRole('heading', { name: /Board \d|Jeopardy/i })).toBeVisible({ timeout: 20_000 });
+  await moderator.waitForTimeout(1_000); // Let socket events settle
+  await expect(moderator.locator('[role="grid"]')).toBeVisible({ timeout: 10_000 });
   await moderator.waitForTimeout(500); // Allow socket state to settle
 }
 
