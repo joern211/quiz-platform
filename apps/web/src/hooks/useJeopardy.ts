@@ -209,11 +209,11 @@ export function useJeopardy(roomCode: string) {
       setSecretAnswer(data.answer);
     });
 
-    socket.on('buzz:won', (data: { playerId: string; displayName: string }) => {
+    socket.on('jeopardy:buzz:won', (data: { playerId: string; playerName: string }) => {
       setGameState((prev) => ({
         ...prev,
         phase: 'BUZZ_LOCKED',
-        buzzWinner: { playerId: data.playerId, playerName: data.displayName },
+        buzzWinner: { playerId: data.playerId, playerName: data.playerName },
       }));
     });
 
@@ -236,11 +236,11 @@ export function useJeopardy(roomCode: string) {
       }));
     });
 
-    socket.on('steal:buzz:won', (data: { playerId: string; displayName: string }) => {
+    socket.on('jeopardy:steal:buzz:won', (data: { playerId: string; playerName: string }) => {
       setGameState((prev) => ({
         ...prev,
         phase: 'STEAL_LOCKED',
-        stealWinner: { playerId: data.playerId, playerName: data.displayName },
+        stealWinner: { playerId: data.playerId, playerName: data.playerName },
       }));
     });
 
@@ -386,7 +386,7 @@ export function useJeopardy(roomCode: string) {
     (toBoard: 2 | 1) => {
       if (!socketRef.current) return;
       socketRef.current.emit(
-        'jeopardy:switch:board',
+        'jeopardy:board:switch',
         { toBoard },
         (res: { success: boolean; error?: string }) => {
           if (!res.success) setError(`Board-Wechsel fehlgeschlagen: ${res.error}`);

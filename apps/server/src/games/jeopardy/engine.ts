@@ -166,7 +166,7 @@ export const handleJeopardyGame = {
   ): Promise<{ success: boolean; error?: string }> {
     const identity = getSocketDataIdentity(socket);
     if (!identity?.roomId) return { success: false, error: 'NOT_IN_ROOM' };
-    if (identity.role === 'VIEWER') return { success: false, error: 'VIEWERS_CANNOT_MODIFY' };
+    if (identity.role !== 'MODERATOR') return { success: false, error: 'MODERATOR_ONLY' };
 
     const roomId = identity.roomId;
     const participationId = identity.participationId;
@@ -329,12 +329,12 @@ export const handleJeopardyGame = {
       return { state, displayName: identity.displayName };
     });
 
-    // Broadcast buzz:won event
+    // Broadcast buzz:won event (namespaced to avoid collision with geo)
     const buzzEvent: JeopardyBuzzLockedEvent = {
       playerId: participationId,
       playerName: result.displayName ?? 'Unknown',
     };
-    io.to(roomChannel(roomId)).emit('buzz:won', buzzEvent);
+    io.to(roomChannel(roomId)).emit('jeopardy:buzz:won', buzzEvent);
 
     logger.info('Jeopardy buzz won', { roomId, participationId });
 
@@ -474,17 +474,14 @@ export const handleJeopardyGame = {
       }));
 
       io.to(roomChannel(roomId)).emit('jeopardy:reveal', {
-        answer: '••••••',
+        answer: '••••••', // P0-07: never send real answer to non-moderators
         correct,
         playerId: buzzWinnerId,
         playerName: state.playerNames[buzzWinnerId],
         fieldValue: value,
         delta,
         scores: Object.fromEntries(
-          Object.entries(state.scores).map(([pid, score]) => [
-            pid,
-            { score, playerName: state.playerNames[pid] },
-          ])
+          Object.entries(state.scores).map(([pid, score]) => [pid, score])
         ),
       });
 
@@ -558,7 +555,7 @@ export const handleJeopardyGame = {
       return { displayName: identity.displayName };
     });
 
-    io.to(roomChannel(roomId)).emit('steal:buzz:won', {
+    io.to(roomChannel(roomId)).emit('jeopardy:steal:buzz:won', {
       playerId: participationId,
       playerName: result.displayName ?? 'Unknown',
     } as JeopardyStealLockedEvent);

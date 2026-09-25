@@ -334,6 +334,7 @@ export async function handleRoomSubscription(
     viewerCount: room.viewerSessions.filter(vs => vs.connected).length,
     revision: room.revision,
     serverTime: Date.now(),
+    gameSlug: room.gameDefinition.slug,
     // Include identity for client to store
     identity: {
       participationId: identity.participationId,

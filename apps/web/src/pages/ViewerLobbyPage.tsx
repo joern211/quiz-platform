@@ -2,7 +2,7 @@
 // Viewer Lobby Page
 // ============================================================
 
-import { useParams } from 'react-router-dom';
+import { useParams, useNavigate } from 'react-router-dom';
 import { useEffect, useState } from 'react';
 import { getSocket, connectSocket, disconnectSocket } from '../lib/socket';
 import { Card, Badge } from '@quiz/ui';
@@ -10,6 +10,7 @@ import styles from './ViewerLobbyPage.module.css';
 
 export function ViewerLobbyPage() {
   const { code } = useParams<{ code: string }>();
+  const navigate = useNavigate();
   const [connected, setConnected] = useState(false);
   const [players, setPlayers] = useState<any[]>([]);
   const [roomInfo, setRoomInfo] = useState<any>(null);
@@ -28,7 +29,10 @@ export function ViewerLobbyPage() {
       setRoomInfo(data);
       setPlayers(data.players || []);
       if (data.status === 'RUNNING') {
-        window.location.href = `/zuschauen/${code}/spiel`;
+        const path = data.gameSlug === 'jeopardy'
+          ? `/jeopardy/zuschauer/${code}`
+          : `/zuschauen/${code}/spiel`;
+        navigate(path);
       }
     });
 

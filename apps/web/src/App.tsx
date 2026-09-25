@@ -72,7 +72,7 @@ export default function App() {
           <Route path="/moderator/raum/:code/lobby"                      element={<ModeratorLobbyPage />} />
           <Route path="/moderator/raum/:code/spiel"                      element={<ModeratorGamePage />} />
           <Route path="/moderator/raum/:code/ergebnis"                   element={<ModeratorResultPage />} />
-          <Route path="/moderator/jeopardy/spiel/:code"                  element={<JeopardyModeratorPage />} />
+          <Route path="/moderator/raum/:code/jeopardy"                     element={<JeopardyModeratorPage />} />
 
           {/* ── Spieler ── */}
           <Route path="/raum/:code/lobby"     element={<PlayerLobbyPage />} />
@@ -88,9 +88,8 @@ export default function App() {
           <Route path="/jeopardy/zuschauer/:code"         element={<JeopardySpectatorPage />} />
 
           {/* ── Jeopardy (Buzzer-Game) ── */}
-          <Route path="/moderator/raum/:code/jeopardy"        element={<ModeratorGamePage />} />
-          <Route path="/raum/:code/jeopardy"                  element={<PlayerGamePage />} />
-          <Route path="/zuschauen/:code/jeopardy"             element={<ViewerGamePage />} />
+          <Route path="/jeopardy/spiel/:code"            element={<JeopardyPlayerPage />} />
+          <Route path="/jeopardy/zuschauer/:code"        element={<JeopardySpectatorPage />} />
 
           {/* ── Profil / Admin ── */}
           <Route path="/spieler/profil" element={<ProfilePage />} />

@@ -66,6 +66,10 @@ export function ModeratorLobbyPage() {
       // If game already running, redirect to game page
       if (data.status === 'RUNNING') {
         setGameStarted(true);
+        const path = data.gameSlug === 'jeopardy'
+          ? `/moderator/raum/${roomCode}/jeopardy`
+          : `/moderator/raum/${roomCode}/spiel`;
+        navigate(path);
       }
     });
 
@@ -90,7 +94,10 @@ export function ModeratorLobbyPage() {
     socket.on('game:start', (data) => {
       if (data.status === 'RUNNING') {
         setGameStarted(true);
-        navigate(`/moderator/raum/${roomCode}/spiel`);
+        const path = data.gameSlug === 'jeopardy'
+          ? `/moderator/raum/${roomCode}/jeopardy`
+          : `/moderator/raum/${roomCode}/spiel`;
+        navigate(path);
       }
     });
 
@@ -114,9 +121,9 @@ export function ModeratorLobbyPage() {
   // Redirect if game already started
   useEffect(() => {
     if (gameStarted && code) {
-      navigate(`/moderator/raum/${code}/spiel`);
+      // gameSlug is set by game:start event handler above
     }
-  }, [gameStarted, code, navigate]);
+  }, [gameStarted, code]);
 
   const handleStart = () => {
     if (!socketRef.current) {

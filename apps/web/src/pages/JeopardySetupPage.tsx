@@ -76,16 +76,17 @@ export function JeopardySetupPage() {
     reader.onload = (e) => {
       try {
         const data = JSON.parse(e.target?.result as string);
-        // Simple import - just copy titles
+        // Import board JSON — accept both `title` (legacy) and `name` (engine) as category key
         if (data.board1?.categories) {
           const newBoard1 = { ...board1 };
           data.board1.categories.slice(0, 6).forEach((cat: any, i: number) => {
             if (newBoard1.categories[i]) {
-              newBoard1.categories[i].title = cat.title || '';
+              newBoard1.categories[i].title = cat.name || cat.title || '';
               cat.clues?.slice(0, 5).forEach((clue: any, j: number) => {
                 if (newBoard1.categories[i].clues[j]) {
                   newBoard1.categories[i].clues[j].question = clue.question || '';
                   newBoard1.categories[i].clues[j].answer = clue.answer || '';
+                  newBoard1.categories[i].clues[j].type = clue.type || 'text';
                 }
               });
             }
@@ -114,6 +115,14 @@ export function JeopardySetupPage() {
     URL.revokeObjectURL(url);
   };
 
+// Helper: transform board with `title` → `name` for engine compatibility
+  const toEngineBoard = (board: Board) => ({
+    categories: board.categories.map(c => ({
+      name: c.title,
+      clues: c.clues.map(({ value, question, answer, type }) => ({ value, question, answer, type })),
+    })),
+  });
+
   const handleCreateRoom = async () => {
     setSaving(true);
     try {
@@ -128,7 +137,7 @@ export function JeopardySetupPage() {
           maxPlayers: 10,
           allowViewers: true,
           isPublic: true,
-          setupSnapshotJson: { board1, board2 },
+          setupSnapshotJson: { board1: toEngineBoard(board1), board2: toEngineBoard(board2) },
         }),
       });
 

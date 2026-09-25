@@ -114,6 +114,7 @@ export const handleGameEvents = {
         roomCode: data.roomCode,
         status: 'RUNNING',
         runPhase: 'INTRO',
+        gameSlug: room.gameDefinition.slug,
       });
 
       // P0-16: Start first round after INTRO phase (with timer)
