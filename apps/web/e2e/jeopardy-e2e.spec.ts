@@ -14,6 +14,12 @@ interface PlayerSession {
 // ──────────────────────────────────────────────────────────────
 
 async function loginAsModerator(page: Page, userId = 'mod-1'): Promise<void> {
+  // Navigate to base first to establish the browser context fully
+  await page.goto(`${BASE}/`);
+  await page.waitForLoadState('domcontentloaded');
+  // Small delay to avoid racing the server
+  await page.waitForTimeout(500);
+
   const response = await page.context().request.post(`${BASE}/api/v1/auth/e2e-token`, {
     data: { userId },
   });
