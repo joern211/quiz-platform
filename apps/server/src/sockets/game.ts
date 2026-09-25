@@ -6,6 +6,7 @@ import { Server, Socket } from 'socket.io';
 import { prisma } from '../persistence/prisma.js';
 import { logger } from '../observability/logger.js';
 import { handleGeoGame } from '../games/geo/index.js';
+import { handleJeopardyGame } from '../games/jeopardy/engine.js';
 import { requireRoomRole, getSocketDataIdentity } from './auth.js';
 import { roomChannel } from './index.js';
 
@@ -104,6 +105,8 @@ export const handleGameEvents = {
       // Initialize game state based on game type
       if (room.gameDefinition.slug === 'geo') {
         await handleGeoGame.initialize(io, room, 'INTRO');
+      } else if (room.gameDefinition.slug === 'jeopardy') {
+        await handleJeopardyGame.initialize(io, room);
       }
 
       // Emit game start
