@@ -4,7 +4,6 @@
 
 import { useParams, useNavigate } from 'react-router-dom';
 import { useEffect, useState, useRef } from 'react';
-import { Socket } from 'socket.io-client';
 import { getSocket, connectSocket, disconnectSocket } from '../lib/socket';
 import { getSession, setSession } from '../lib/sessionStore';
 import { Card, Button, Badge } from '@quiz/ui';
@@ -12,14 +11,16 @@ import styles from './PlayerLobbyPage.module.css';
 
 export function PlayerLobbyPage() {
   const { code } = useParams<{ code: string }>();
+  const roomCode = code ?? '';
   const navigate = useNavigate();
-  const socketRef = useRef<Socket | null>(null);
+  const socketRef = useRef<ReturnType<typeof getSocket> | null>(null);
   const [connected, setConnected] = useState(false);
   const [players, setPlayers] = useState<any[]>([]);
   const [ready, setReady] = useState(false);
   const [chatMessages, setChatMessages] = useState<any[]>([]);
   const [chatInput, setChatInput] = useState('');
   const [kicked, setKicked] = useState(false);
+  const [actionError, setActionError] = useState('');
 
   const session = getSession();
   const rejoinToken = session.rejoinToken;
@@ -40,12 +41,16 @@ export function PlayerLobbyPage() {
     // 'connect' event won't fire — send room:subscribe immediately.
     socket.on('connect', () => {
       setConnected(true);
-      socket.emit('room:subscribe', { roomCode: code, rejoinToken: rejoinToken || undefined });
+      socket.emit('room:subscribe', { roomCode, rejoinToken: rejoinToken || undefined }, (response) => {
+        if (!response.success) setActionError(`Raumbeitritt fehlgeschlagen: ${response.error ?? 'Unbekannter Fehler'}`);
+      });
     });
 
     if (socket.connected) {
       setConnected(true);
-      socket.emit('room:subscribe', { roomCode: code, rejoinToken: rejoinToken || undefined });
+      socket.emit('room:subscribe', { roomCode, rejoinToken: rejoinToken || undefined }, (response) => {
+        if (!response.success) setActionError(`Raumbeitritt fehlgeschlagen: ${response.error ?? 'Unbekannter Fehler'}`);
+      });
     }
 
     socket.on('room:snapshot', (data) => {
@@ -58,7 +63,7 @@ export function PlayerLobbyPage() {
 
       // If game already running, go to game
       if (data.status === 'RUNNING') {
-        navigate(`/raum/${code}/spiel`);
+        navigate(`/raum/${roomCode}/spiel`);
       }
     });
 
@@ -90,7 +95,7 @@ export function PlayerLobbyPage() {
 
     socket.on('game:start', (data) => {
       if (data.status === 'RUNNING') {
-        navigate(`/raum/${code}/spiel`);
+        navigate(`/raum/${roomCode}/spiel`);
       }
     });
 
@@ -105,18 +110,24 @@ export function PlayerLobbyPage() {
     return () => {
       disconnectSocket();
     };
-  }, [code, navigate, rejoinToken, session.participationId]);
+  }, [navigate, rejoinToken, roomCode, session.participationId]);
 
   const handleToggleReady = () => {
+    if (!socketRef.current) {
+      setActionError('Socket-Verbindung ist nicht verfügbar.');
+      return;
+    }
     const newReady = !ready;
+    setActionError('');
     setReady(newReady); // Optimistic update
-    socketRef.current?.emit('player:ready:set', {
-      roomCode: code,
+    socketRef.current.emit('player:ready:set', {
+      roomCode,
       ready: newReady,
       rejoinToken: rejoinToken || undefined,
-    }, (response: any) => {
+    }, (response) => {
       if (!response.success) {
         setReady(!newReady); // Revert on failure
+        setActionError('Bereitschaft konnte nicht gespeichert werden.');
       }
     });
   };
@@ -125,9 +136,15 @@ export function PlayerLobbyPage() {
     e.preventDefault();
     if (!chatInput.trim()) return;
 
-    socketRef.current?.emit('lobby:chat:send', {
-      roomCode: code,
+    if (!socketRef.current) {
+      setActionError('Socket-Verbindung ist nicht verfügbar.');
+      return;
+    }
+    socketRef.current.emit('lobby:chat:send', {
+      roomCode,
       content: chatInput.trim(),
+    }, (response) => {
+      if (!response.success) setActionError('Nachricht konnte nicht gesendet werden.');
     });
     setChatInput('');
   };
@@ -152,6 +169,8 @@ export function PlayerLobbyPage() {
           {connected ? 'Verbunden' : 'Getrennt'}
         </Badge>
       </div>
+
+      {actionError && <p role="alert">{actionError}</p>}
 
       <div className={styles.grid}>
         <Card padding="lg">

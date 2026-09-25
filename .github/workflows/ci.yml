@@ -117,7 +117,6 @@ jobs:
       - name: Run E2E tests
         env:
           E2E_BASE_URL: http://localhost:5173
-          PLAYWRIGHT_REPORT_DIR: playwright-report
         run: |
           echo "=== E2E PRE-FLIGHT ==="
           echo "NODE=$(node --version)"

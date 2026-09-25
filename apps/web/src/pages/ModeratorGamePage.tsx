@@ -4,7 +4,6 @@
 
 import { useParams, useNavigate } from 'react-router-dom';
 import { useEffect, useState, useRef } from 'react';
-import { Socket } from 'socket.io-client';
 import { getSocket, connectSocket, disconnectSocket } from '../lib/socket';
 import { Card, Button, Badge } from '@quiz/ui';
 import { Timer } from '@quiz/ui';
@@ -12,8 +11,9 @@ import styles from './ModeratorGamePage.module.css';
 
 export function ModeratorGamePage() {
   const { code } = useParams<{ code: string }>();
+  const roomCode = code ?? '';
   const navigate = useNavigate();
-  const socketRef = useRef<Socket | null>(null);
+  const socketRef = useRef<ReturnType<typeof getSocket> | null>(null);
   const [connected, setConnected] = useState(false);
   const [question, setQuestion] = useState<any>(null);
   const [currentIndex, setCurrentIndex] = useState(0);
@@ -26,6 +26,8 @@ export function ModeratorGamePage() {
   const [revealed, setRevealed] = useState(false);
   const [scores, setScores] = useState<Record<string, number>>({});
   const [timerPaused, setTimerPaused] = useState(false);
+  const [correctOptionId, setCorrectOptionId] = useState<string | null>(null);
+  const [actionError, setActionError] = useState('');
 
   useEffect(() => {
     socketRef.current = getSocket();
@@ -36,13 +38,12 @@ export function ModeratorGamePage() {
     socket.on('connect', () => setConnected(true));
     socket.on('disconnect', () => setConnected(false));
 
-    socket.emit('room:subscribe', { roomCode: code });
+    socket.emit('room:subscribe', { roomCode }, (response) => {
+      if (!response.success) setActionError(`Raumverbindung fehlgeschlagen: ${response.error ?? 'Unbekannter Fehler'}`);
+    });
 
     socket.on('room:snapshot', (data) => {
       setPlayers(data.players || []);
-      if (data.setup?.questions) {
-        setTotalQuestions(data.setup.questions.length);
-      }
     });
 
     socket.on('geo:question', (data) => {
@@ -51,8 +52,10 @@ export function ModeratorGamePage() {
       setRevealed(false);
       setBuzzerWinner(null);
       setAnswerStats({});
+      setCorrectOptionId(null);
+      setActionError('');
       setCurrentIndex(data.roundIndex);
-      if (data.totalRounds) setTotalQuestions(data.totalRounds);
+      setTotalQuestions(data.totalQuestions);
     });
 
     socket.on('geo:answered', (data) => {
@@ -68,41 +71,68 @@ export function ModeratorGamePage() {
 
     socket.on('geo:reveal', (data) => {
       setRevealed(true);
-      setScores(data.scores || {});
+      setCorrectOptionId(data.correctOptionId ?? null);
+      setScores(Object.fromEntries(data.scores.map(entry => [entry.participationId, entry.score])));
     });
 
     socket.on('game:end', (data) => {
       if (data.status === 'ENDED') {
         setGameEnded(true);
+        navigate(`/moderator/raum/${roomCode}/ergebnis`);
       }
     });
 
     return () => {
       disconnectSocket();
     };
-  }, [code]);
+  }, [navigate, roomCode]);
 
   const handlePauseTimer = () => {
-    socketRef.current?.emit('game:pause', { roomCode: code });
-    setTimerPaused(true);
+    if (!socketRef.current) return setActionError('Socket-Verbindung ist nicht verfügbar.');
+    socketRef.current.emit('game:pause', { roomCode }, (response) => {
+      if (response.success) setTimerPaused(true);
+      else setActionError(`Pause fehlgeschlagen: ${response.error ?? 'Unbekannter Fehler'}`);
+    });
   };
 
   const handleResumeTimer = () => {
-    socketRef.current?.emit('game:resume', { roomCode: code });
-    setTimerPaused(false);
+    if (!socketRef.current) return setActionError('Socket-Verbindung ist nicht verfügbar.');
+    socketRef.current.emit('game:resume', { roomCode }, (response) => {
+      if (response.success) setTimerPaused(false);
+      else setActionError(`Fortsetzen fehlgeschlagen: ${response.error ?? 'Unbekannter Fehler'}`);
+    });
   };
 
   const handleReveal = () => {
-    socketRef.current?.emit('geo:reveal', { roomCode: code });
+    if (!socketRef.current) {
+      setActionError('Socket-Verbindung ist nicht verfügbar.');
+      return;
+    }
+    socketRef.current.emit('geo:reveal', { roomCode }, (response) => {
+      if (!response.success) setActionError(`Auflösung fehlgeschlagen: ${response.error ?? 'Unbekannter Fehler'}`);
+    });
   };
 
   const handleNextQuestion = () => {
-    socketRef.current?.emit('geo:next', { roomCode: code });
+    if (!socketRef.current) {
+      setActionError('Socket-Verbindung ist nicht verfügbar.');
+      return;
+    }
+    socketRef.current.emit('geo:next', { roomCode }, (response) => {
+      if (!response.success) setActionError(`Nächste Frage konnte nicht geladen werden: ${response.error ?? 'Unbekannter Fehler'}`);
+      if (response.ended) navigate(`/moderator/raum/${roomCode}/ergebnis`);
+    });
   };
 
   const handleEndGame = () => {
-    socketRef.current?.emit('game:end', { roomCode: code });
-    navigate(`/moderator/raum/${code}/ergebnis`);
+    if (!socketRef.current) {
+      setActionError('Socket-Verbindung ist nicht verfügbar.');
+      return;
+    }
+    socketRef.current.emit('game:end', { roomCode }, (response) => {
+      if (response.success) navigate(`/moderator/raum/${roomCode}/ergebnis`);
+      else setActionError('Spiel konnte nicht beendet werden.');
+    });
   };
 
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
@@ -135,6 +165,8 @@ export function ModeratorGamePage() {
         </Badge>
       </div>
 
+      {actionError && <p role="alert">{actionError}</p>}
+
       <Card padding="lg" className={styles.questionCard}>
         <p className={styles.category}>{question.category}</p>
         <h2 className={styles.prompt}>{question.prompt}</h2>
@@ -151,11 +183,12 @@ export function ModeratorGamePage() {
           ))}
         </div>
 
-        <div className={styles.solution}>
-          <h3>Lösung: {['A', 'B', 'C', 'D'][question.options.findIndex((o: any) => o.id === question.correctOptionId)]}</h3>
-          <p>{question.options.find((o: any) => o.id === question.correctOptionId)?.text}</p>
-          {question.explanation && <p className={styles.explanation}>{question.explanation}</p>}
-        </div>
+        {revealed && correctOptionId && (
+          <div className={styles.solution}>
+            <h3>Lösung: {['A', 'B', 'C', 'D'][question.options.findIndex((o: any) => o.id === correctOptionId)]}</h3>
+            <p>{question.options.find((o: any) => o.id === correctOptionId)?.text}</p>
+          </div>
+        )}
       </Card>
 
       <Card padding="lg" className={styles.controls}>

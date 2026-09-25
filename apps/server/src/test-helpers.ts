@@ -9,6 +9,9 @@
 // ============================================================
 
 import { createHmac } from 'crypto';
+import { execFile } from 'node:child_process';
+import { dirname, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import type { PrismaClient } from '@prisma/client';
 
 export const TEST_ADMIN = {
@@ -16,6 +19,18 @@ export const TEST_ADMIN = {
   password: 'secret',
   displayName: 'Test Admin',
 };
+
+export async function createTestDatabase(databaseUrl: string): Promise<void> {
+  const scriptPath = resolve(dirname(fileURLToPath(import.meta.url)), 'test-database.ts');
+  await new Promise<void>((done, fail) => {
+    execFile(
+      process.execPath,
+      ['--import', 'tsx', scriptPath, databaseUrl],
+      { env: { ...process.env, DATABASE_URL: databaseUrl } },
+      (error, _stdout, stderr) => error ? fail(new Error(stderr || error.message)) : done(),
+    );
+  });
+}
 
 export async function getSeedAdmin() {
   const { prisma } = await import('./persistence/prisma.js');

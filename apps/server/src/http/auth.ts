@@ -12,6 +12,7 @@ import { config } from '../config/index.js';
 import { LoginSchema, E2ETokenSchema, validateBody } from './validators.js';
 import { z } from 'zod';
 import { getSocketIdBySession } from '../sockets/index.js';
+import type { Server } from 'socket.io';
 
 export const authRouter: ReturnType<typeof Router> = Router();
 
@@ -211,7 +212,7 @@ authRouter.post('/e2e-socket-identity', async (req, res) => {
     }
 
     // Dynamic import to avoid circular dependency with sockets/index.ts
-    const theIo = (globalThis as any).__quiz_io;
+    const theIo = (globalThis as typeof globalThis & { __quiz_io?: Server }).__quiz_io;
     const socket = theIo?.sockets?.sockets?.get(socketId);
     if (socket) {
       socket.data = {
@@ -245,22 +246,18 @@ authRouter.post('/e2e-token', async (req, res) => {
     if (!parsed) return;
     const { userId } = parsed;
 
-    // E2E: Create a unique test user per call so each E2E connection gets
-    // a distinct userId. This lets the server distinguish between the room
-    // creator (hostUserId) and other players for auto-upgrade and player:join.
-    const randomId = Math.floor(1000 + Math.random() * 9000);
-    const displayName = `E2E-${userId}-${randomId}`;
-    const testUser = await prisma.user.upsert({
+    // The E2E shortcut may authenticate seeded fixtures, but it must never
+    // create arbitrary users from untrusted input.
+    const testUser = await prisma.user.findUnique({
       where: { id: userId },
-      update: { displayName, email: `e2e-${userId}@test.local` },
-      create: {
-        id: userId,
-        email: `e2e-${userId}@test.local`,
-        displayName,
-        passwordHash: '$argon2id$v=19$m=65536,t=3,p=4$dummy', // never used
-        role: 'MODERATOR',
-      },
     });
+
+    if (!testUser) {
+      return res.status(404).json({
+        success: false,
+        error: { code: 'USER_NOT_FOUND', message: 'Test user not found.' },
+      });
+    }
 
     const session = await prisma.session.create({
       data: {
@@ -272,7 +269,7 @@ authRouter.post('/e2e-token', async (req, res) => {
     const cookie = createSessionCookie(session.id, config.sessionSecret);
     res.setHeader('Set-Cookie', cookie);
 
-    logger.info('E2E token issued', { userId: testUser.id, displayName: testUser.displayName, role: testUser.role });
+    logger.info('E2E token issued', { userId: testUser.id, role: testUser.role });
 
     res.json({
       success: true,

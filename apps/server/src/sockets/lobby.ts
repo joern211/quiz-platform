@@ -7,13 +7,16 @@ import { prisma } from '../persistence/prisma.js';
 import { logger } from '../observability/logger.js';
 import { getSocketDataIdentity } from './auth.js';
 import { roomChannel } from './index.js';
+import { socketIdentityMap } from '../http/middleware/auth.js';
+
+type Acknowledgement = (result: { success: boolean; error?: string }) => void;
 
 export const handleLobbyEvents = {
   async sendChat(
     io: Server,
     socket: Socket,
     data: { roomCode: string; content: string },
-    callback?: (result: any) => void
+    callback?: Acknowledgement
   ) {
     try {
       const identity = getSocketDataIdentity(socket);
@@ -89,7 +92,7 @@ export const handleLobbyEvents = {
     io: Server,
     socket: Socket,
     data: { roomCode: string; locked: boolean },
-    callback?: (result: any) => void
+    callback?: Acknowledgement
   ) {
     try {
       const identity = getSocketDataIdentity(socket);
@@ -144,21 +147,18 @@ export async function handleDisconnect(io: Server, socket: Socket) {
   try {
     const identity = getSocketDataIdentity(socket);
 
-      logger.info('[DEBUG] handleDisconnect CALLED', {
-      socketId: socket.id,
-      identityParticipationId: identity?.participationId,
-      identityRole: identity?.role,
-      sessionId: (socket as any).sessionId,
-      userId: (socket as any).user?.id,
-    });
-
     if (!identity || !identity.participationId || !identity.roomId) {
-      // No participation data, nothing to do
+      socketIdentityMap.delete(socket.id);
       return;
     }
 
     const roomId = identity.roomId;
     const channel = roomChannel(roomId);
+    const hasReplacementSocket = [...socketIdentityMap.entries()].some(([socketId, candidate]) =>
+      socketId !== socket.id &&
+      candidate.roomId === roomId &&
+      candidate.participationId === identity.participationId
+    );
 
     // Update participation or viewer session based on type
     if (identity.participationId.startsWith('viewer:')) {
@@ -168,7 +168,7 @@ export async function handleDisconnect(io: Server, socket: Socket) {
         where: { id: viewerSessionId },
         data: { connected: false, lastSeenAt: new Date(), disconnectedAt: new Date() },
       });
-    } else {
+    } else if (!hasReplacementSocket) {
       // Regular participation - set connected=false
       await prisma.participation.update({
         where: { id: identity.participationId },
@@ -187,7 +187,7 @@ export async function handleDisconnect(io: Server, socket: Socket) {
 
     if (room) {
       // Broadcast player leave (only for actual players)
-      if (identity.role !== 'VIEWER') {
+      if (identity.role !== 'VIEWER' && !hasReplacementSocket) {
         io.to(channel).emit('player:leave', {
           playerId: identity.participationId,
         });
@@ -208,6 +208,8 @@ export async function handleDisconnect(io: Server, socket: Socket) {
         viewerCount: room.viewerSessions.filter(vs => vs.connected).length,
       });
     }
+
+    socketIdentityMap.delete(socket.id);
 
     // Clear socket data
     socket.data = {};

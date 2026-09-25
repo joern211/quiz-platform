@@ -4,7 +4,6 @@
 
 import { useParams, useNavigate } from 'react-router-dom';
 import { useEffect, useState, useRef } from 'react';
-import { Socket } from 'socket.io-client';
 import { getSocket, connectSocket, disconnectSocket } from '../lib/socket';
 import { setSession } from '../lib/sessionStore';
 import { Card, Button, Badge } from '@quiz/ui';
@@ -12,8 +11,9 @@ import styles from './ModeratorLobbyPage.module.css';
 
 export function ModeratorLobbyPage() {
   const { code } = useParams<{ code: string }>();
+  const roomCode = code ?? '';
   const navigate = useNavigate();
-  const socketRef = useRef<Socket | null>(null);
+  const socketRef = useRef<ReturnType<typeof getSocket> | null>(null);
   const [connected, setConnected] = useState(false);
   const [players, setPlayers] = useState<any[]>([]);
   const [chatEnabled, setChatEnabled] = useState(true);
@@ -43,7 +43,11 @@ export function ModeratorLobbyPage() {
     // emitted → Moderator-Socket subscription geht verloren → game:start → NOT_IN_ROOM.
     // Fix: room:subscribe direkt aufrufen wenn das Socket bereits verbunden ist.
     const doSubscribe = () => {
-      socket.emit('room:subscribe', { roomCode: code, role: 'MODERATOR' });
+      socket.emit('room:subscribe', { roomCode, role: 'MODERATOR' }, (response) => {
+        if (!response.success) {
+          setKickError(`Raumverbindung fehlgeschlagen: ${response.error ?? 'Unbekannter Fehler'}`);
+        }
+      });
     };
 
     if (socket.connected) {
@@ -52,7 +56,7 @@ export function ModeratorLobbyPage() {
 
     socket.on('connect', () => {
       setConnected(true);
-      socket.emit('room:subscribe', { roomCode: code, role: 'MODERATOR' });
+      doSubscribe();
     });
 
     socket.on('room:snapshot', (data) => {
@@ -86,7 +90,7 @@ export function ModeratorLobbyPage() {
     socket.on('game:start', (data) => {
       if (data.status === 'RUNNING') {
         setGameStarted(true);
-        navigate(`/moderator/raum/${code}/spiel`);
+        navigate(`/moderator/raum/${roomCode}/spiel`);
       }
     });
 
@@ -95,7 +99,7 @@ export function ModeratorLobbyPage() {
     });
 
     socket.on('error', (data) => {
-      console.error('Socket error:', data.message);
+      setKickError(data.message || data.code);
     });
 
     socket.on('disconnect', () => {
@@ -105,7 +109,7 @@ export function ModeratorLobbyPage() {
     return () => {
       disconnectSocket();
     };
-  }, [code, navigate]);
+  }, [navigate, roomCode]);
 
   // Redirect if game already started
   useEffect(() => {
@@ -115,13 +119,18 @@ export function ModeratorLobbyPage() {
   }, [gameStarted, code, navigate]);
 
   const handleStart = () => {
+    if (!socketRef.current) {
+      setKickError('Socket-Verbindung ist nicht verfügbar.');
+      return;
+    }
     setLoading(true);
-    socketRef.current?.emit('game:start', { roomCode: code }, (response: any) => {
+    setKickError('');
+    socketRef.current.emit('game:start', { roomCode }, (response) => {
       setLoading(false);
       if (response.success) {
-        navigate(`/moderator/raum/${code}/spiel`);
+        navigate(`/moderator/raum/${roomCode}/spiel`);
       } else {
-        alert(response.error || 'Start nicht möglich');
+        setKickError(response.error || 'Start nicht möglich');
       }
     });
   };
@@ -129,12 +138,17 @@ export function ModeratorLobbyPage() {
   const handleForceStart = () => {
     if (confirm('Wirklich ohne alle Spieler starten?')) {
       setLoading(true);
-      socketRef.current?.emit('game:start', { roomCode: code }, (response: any) => {
+      if (!socketRef.current) {
+        setLoading(false);
+        setKickError('Socket-Verbindung ist nicht verfügbar.');
+        return;
+      }
+      socketRef.current.emit('game:start', { roomCode }, (response) => {
         setLoading(false);
         if (response.success) {
-          navigate(`/moderator/raum/${code}/spiel`);
+          navigate(`/moderator/raum/${roomCode}/spiel`);
         } else {
-          alert(response.error || 'Start nicht möglich');
+          setKickError(response.error || 'Start nicht möglich');
         }
       });
     }
@@ -143,7 +157,7 @@ export function ModeratorLobbyPage() {
   const handleKick = (playerId: string, displayName: string) => {
     if (!confirm(`${displayName} wirklich aus dem Raum entfernen?`)) return;
     setKickError('');
-    socketRef.current?.emit('room:kick', { roomCode: code, playerId }, (response: any) => {
+    socketRef.current?.emit('room:kick', { roomCode, playerId }, (response) => {
       if (!response.success) {
         setKickError(response.error || 'Spieler konnte nicht entfernt werden');
       }
@@ -154,7 +168,7 @@ export function ModeratorLobbyPage() {
     if (!confirm('Raum wirklich schließen? Alle Teilnehmer werden getrennt.')) return;
 
     try {
-      await fetch(`/api/v1/rooms/${code}`, {
+      await fetch(`/api/v1/rooms/${roomCode}`, {
         method: 'DELETE',
         credentials: 'include',
       });
@@ -167,7 +181,10 @@ export function ModeratorLobbyPage() {
   };
 
   const handleLockChat = () => {
-    socketRef.current?.emit('lobby:chat:lock', { roomCode: code, locked: !chatEnabled });
+    if (!socketRef.current) return setKickError('Socket-Verbindung ist nicht verfügbar.');
+    socketRef.current.emit('lobby:chat:lock', { roomCode, locked: !chatEnabled }, (response) => {
+      if (!response.success) setKickError('Chat-Status konnte nicht geändert werden.');
+    });
   };
 
   const handleCopyCode = () => {

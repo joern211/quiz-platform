@@ -5,8 +5,30 @@
 import { Server, Socket } from 'socket.io';
 import { prisma } from '../persistence/prisma.js';
 import { logger } from '../observability/logger.js';
-import { socketIdentityMap } from '../http/middleware/auth.js';
+import { socketIdentityMap, type Role } from '../http/middleware/auth.js';
 import { roomChannel } from './index.js';
+
+type AuthenticatedSocket = Socket & {
+  user?: { id: string; displayName?: string };
+};
+
+interface RoomIdentity {
+  participationId: string;
+  roomId: string;
+  role: Role;
+  displayName: string;
+}
+
+type RoomAcknowledgement = (result: {
+  success: boolean;
+  error?: string;
+  snapshot?: unknown;
+  state?: unknown;
+}) => void;
+
+function isRole(role: string): role is Role {
+  return role === 'MODERATOR' || role === 'PLAYER' || role === 'VIEWER';
+}
 
 /**
  * Cleanup old disconnected ViewerSessions for a room
@@ -34,7 +56,7 @@ export async function handleRoomSubscription(
   io: Server,
   socket: Socket,
   data: { roomCode: string; rejoinToken?: string; pin?: string; moderatorToken?: string },
-  callback?: (result: any) => void
+  callback?: RoomAcknowledgement
 ) {
   const { roomCode, rejoinToken, pin, moderatorToken } = data;
 
@@ -54,7 +76,9 @@ export async function handleRoomSubscription(
   }
 
   // P0-04: Extract authenticated userId from HTTP session (set by socket middleware)
-  const userId = (socket as any).user?.id;
+  const authenticatedUser = (socket as AuthenticatedSocket).user;
+  const userId = authenticatedUser?.id;
+  const isAuthenticatedHost = Boolean(userId && userId === room.hostUserId);
 
   // Initialize default socket data
   socket.data = {
@@ -66,14 +90,7 @@ export async function handleRoomSubscription(
   };
 
   // Auth shortcut used in both VIEWER and auto-upgrade paths
-  const authModerator = socket as any;
-
-  let identity = {
-    participationId: '',
-    roomId: room.id,
-    role: '',
-    displayName: '',
-  };
+  let identity: RoomIdentity | null = null;
 
   // Handle rejoin token - validate against THIS room
   if (rejoinToken) {
@@ -97,14 +114,20 @@ export async function handleRoomSubscription(
     // Phase 3: Moderator Identity Validation
     // If participation is MODERATOR in DB, require moderatorToken to match
     // Token + Participation (MODERATOR role) + Host-User + Room must all align
+    if (!isRole(participation.role)) {
+      callback?.({ success: false, error: 'INVALID_PARTICIPATION_ROLE' });
+      return;
+    }
+
     if (participation.role === 'MODERATOR') {
       // A moderator MUST provide a valid moderatorToken that matches their participation
       // moderatorToken is the same as rejoinToken for the moderator's own participation
-      if (!moderatorToken || moderatorToken !== participation.rejoinToken) {
+      if (!isAuthenticatedHost || !moderatorToken || moderatorToken !== participation.rejoinToken) {
         logger.warn('Invalid moderator token', {
           socketId: socket.id,
           roomCode,
           participationId: participation.id,
+          isAuthenticatedHost,
           hasModeratorToken: !!moderatorToken,
           tokenMatches: moderatorToken === participation.rejoinToken,
         });
@@ -114,18 +137,11 @@ export async function handleRoomSubscription(
         return;
       }
 
-      // Also verify the moderator's userId matches the room's hostUserId
-      if (userId && room.hostUserId && userId !== room.hostUserId) {
-        logger.warn('Moderator token user mismatch', {
-          socketId: socket.id,
-          roomCode,
-          tokenUserId: userId,
-          hostUserId: room.hostUserId,
-        });
-        socket.emit('error', { code: 'INVALID_MODERATOR_TOKEN' });
-        socket.disconnect(true);
-        return;
-      }
+    } else if (isAuthenticatedHost) {
+      // A host session must never turn an unrelated player participation into
+      // a moderator identity. The host reconnects through its own entry below.
+      callback?.({ success: false, error: 'INVALID_REJOIN_TOKEN' });
+      return;
     }
 
     // P0-21: Targeted emit session:replaced to OLD device sockets (same participation, different socket id)
@@ -155,15 +171,6 @@ export async function handleRoomSubscription(
       displayName: participation.displayName,
     };
 
-    // P0-04: If userId matches host, auto-upgrade to MODERATOR
-    if (userId && room.hostUserId && userId === room.hostUserId) {
-      identity.role = 'MODERATOR';
-      // Update DB to reflect MODERATOR role
-      await prisma.participation.update({
-        where: { id: participation.id },
-        data: { role: 'MODERATOR' },
-      });
-    }
   } else {
     // -----------------------------------------------------------
     // VIEWER SUBSCRIPTION PATH
@@ -212,7 +219,7 @@ export async function handleRoomSubscription(
     // DON'T create a VIEWER session here — they will be auto-upgraded to
     // MODERATOR below. Creating a real VIEWER Session would leave a stale
     // connected=true entry in the DB that triggers spurious player:join events.
-    if (authModerator.user?.id && authModerator.user.id === room.hostUserId) {
+    if (isAuthenticatedHost) {
       // Set a placeholder identity — auto-upgrade will replace it below
       identity = { participationId: '', roomId: room.id, role: 'VIEWER', displayName: '' };
     } else {
@@ -229,84 +236,37 @@ export async function handleRoomSubscription(
     }
   }
 
-  // P0-SECURITY / E2E-FIX: Authenticated Host Auto-Upgrade
-  // Even without a rejoinToken, an authenticated user whose userId matches the
-  // room's hostUserId should be treated as MODERATOR (not VIEWER).
-  // This fixes the reload scenario in E2E tests where sessionStorage has no
-  // rejoinToken but the HTTP session cookie is valid.
-  //
-  // Note: identity.role is 'VIEWER' when the host connected initially without
-  // a rejoinToken (the VIEWER path above creates a placeholder identity for them).
-  // P0-SECURITY / E2E-FIX: Authenticated Host Auto-Upgrade
-  // Even without a rejoinToken, an authenticated user whose userId matches the
-  // room's hostUserId should be treated as MODERATOR (not VIEWER).
-  // This fixes the reload scenario in E2E tests where sessionStorage has no
-  // rejoinToken but the HTTP session cookie is valid.
-  if (authModerator.user?.id && authModerator.user.id === room.hostUserId) {
+  // An authenticated room host always reconnects through the original
+  // moderator participation. A reload updates connection metadata instead of
+  // creating another database row.
+  if (isAuthenticatedHost) {
     const existingModPart = await prisma.participation.findFirst({
       where: { roomId: room.id, role: 'MODERATOR' },
+      orderBy: { createdAt: 'asc' },
     });
 
     if (existingModPart) {
-      // The MODERATOR participation was found. It may be stale (connected=false from
-      // the previous socket disconnect). Fetch fresh from DB to know its real state.
-      const freshModPart = await prisma.participation.findUnique({ where: { id: existingModPart.id } });
-
-      if (freshModPart && !freshModPart.connected) {
-        // Old participation disconnected — create a fresh one for this reconnect.
-        // This prevents stale state from the previous socket session polluting the
-        // lobby snapshot with a duplicate "admin" entry.
-        const newModPart = await prisma.participation.create({
-          data: {
-            roomId: room.id,
-            displayName: authModerator.user.displayName ?? 'Host',
-            normalizedName: (authModerator.user.displayName ?? 'Host').toLowerCase().trim(),
-            role: 'MODERATOR',
-            connected: true,
-            ready: true,
-            rejoinToken: crypto.randomUUID(),
-            rejoinTokenVersion: 1,
-          },
-        });
-        identity = {
-          participationId: newModPart.id,
-          roomId: room.id,
-          role: 'MODERATOR' as const,
-          displayName: newModPart.displayName,
-        };
-        // Remove the stale MODERATOR entry and replace with the fresh one
-        room.participations = [
-          ...room.participations.filter(p => p.id !== existingModPart.id),
-          {
-            ...newModPart,
-            avatarGenerated: newModPart.avatarGenerated ?? null,
-            avatarMode: newModPart.avatarMode,
-            kickedAt: null,
-            rejoinTokenVersion: newModPart.rejoinTokenVersion ?? 1,
-          } as any,
-        ];
-      } else if (existingModPart) {
-        // Still connected — reuse the existing participation
-        identity = {
-          participationId: existingModPart.id,
-          roomId: room.id,
-          role: 'MODERATOR' as const,
-          displayName: existingModPart.displayName,
-        };
-        await prisma.participation.update({
-          where: { id: existingModPart.id },
-          data: { connected: true },
-        });
-        const modPartInRoom = room.participations.find(p => p.id === existingModPart.id);
-        if (modPartInRoom) modPartInRoom.connected = true;
-      }
+      const refreshedModerator = await prisma.participation.update({
+        where: { id: existingModPart.id },
+        data: { connected: true, ready: true, lastSeenAt: new Date() },
+      });
+      identity = {
+        participationId: refreshedModerator.id,
+        roomId: room.id,
+        role: 'MODERATOR',
+        displayName: refreshedModerator.displayName,
+      };
+      const index = room.participations.findIndex(p => p.id === refreshedModerator.id);
+      if (index >= 0) room.participations[index] = refreshedModerator;
+      else room.participations.push(refreshedModerator);
     } else {
-      // No existing participation — create one now
+      // Defensive recovery for legacy rooms that have no host participation.
+      const displayName = authenticatedUser?.displayName ?? 'Host';
       const newModPart = await prisma.participation.create({
         data: {
           roomId: room.id,
-          displayName: authModerator.user.displayName ?? 'Host',
-          normalizedName: (authModerator.user.displayName ?? 'Host').toLowerCase().trim(),
+          displayName,
+          normalizedName: displayName.toLowerCase().trim(),
           role: 'MODERATOR',
           connected: true,
           ready: true,
@@ -317,27 +277,19 @@ export async function handleRoomSubscription(
       identity = {
         participationId: newModPart.id,
         roomId: room.id,
-        role: 'MODERATOR' as const,
+        role: 'MODERATOR',
         displayName: newModPart.displayName,
       };
-      room.participations.push({
-        ...newModPart,
-        avatarGenerated: newModPart.avatarGenerated ?? null,
-        avatarMode: newModPart.avatarMode,
-        kickedAt: null,
-        rejoinTokenVersion: newModPart.rejoinTokenVersion ?? 1,
-      } as any);
+      room.participations.push(newModPart);
     }
   }
 
+  if (!identity) {
+    callback?.({ success: false, error: 'IDENTITY_NOT_ESTABLISHED' });
+    return;
+  }
+
   // Store identity in socket.data (P0-08/P0-09 fix)
-  logger.info('[DEBUG] Storing identity', {
-    socketId: socket.id,
-    role: identity.role,
-    participationId: identity.participationId,
-    roomCode: room.code,
-    players: room.participations.map(p => ({ id: p.id, role: p.role, connected: p.connected })),
-  });
   socket.data = {
     ...socket.data,
     participationId: identity.participationId,
@@ -349,8 +301,9 @@ export async function handleRoomSubscription(
   // Also update socketIdentityMap for http/middleware/auth.ts compatibility
   socketIdentityMap.set(socket.id, {
     socketId: socket.id,
+    userId,
     participationId: identity.participationId,
-    role: identity.role as any,
+    role: identity.role,
     roomId: identity.roomId,
   });
 
@@ -424,7 +377,7 @@ export async function handleKickPlayer(
   io: Server,
   socket: Socket,
   data: { roomCode: string; playerId: string },
-  callback?: (result: any) => void
+  callback?: RoomAcknowledgement
 ) {
   try {
     // Require MODERATOR role (identity check via socketIdentityMap)
@@ -520,7 +473,7 @@ export const handleRoomEvents = {
     io: Server,
     socket: Socket,
     data: { roomCode: string },
-    callback?: (result: any) => void
+    callback?: RoomAcknowledgement
   ) {
     const room = await prisma.room.findUnique({
       where: { code: data.roomCode },

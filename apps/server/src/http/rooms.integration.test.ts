@@ -12,11 +12,11 @@
 import { describe, it, expect, afterAll } from 'vitest';
 import supertest from 'supertest';
 import { rm as rmAsync } from 'node:fs/promises';
-import { resolve as pathResolve } from 'node:path';
 import {
   seedTestUserWithDb,
   getOrCreateGeoGame,
   cleanupTestDataForDb,
+  createTestDatabase,
 } from '../test-helpers.js';
 
 const ALL_TEMP_DIRS: string[] = [];
@@ -31,32 +31,8 @@ afterAll(async () => {
 // nodeBin: absolute path to the running node executable (reliable, no symlinks)
 // prismaBin: from monorepo root's node_modules (apps/ is the workspace root)
 // src/http/ → apps/server/src/ → apps/server/ → apps/ → monorepo root (4 Ebenen)
-const rootNodeModules = pathResolve(__dirname, '..', '..', '..', '..');
-const prismaBin = pathResolve(rootNodeModules, 'node_modules/.bin/prisma');
-
-// Run migration using `prisma db push` via execFile (no dynamic import needed).
-// This avoids the "ERR_MODULE_NOT_FOUND" issue that occurs when a subprocess
-// script in /tmp tries to `import('@prisma/client')` — Node can't find the
-// monorepo's node_modules from a temp directory.
-// Uses mkdtemp for unique temp dirs cleaned in afterAll.
 async function migrateDb(dbUrl: string) {
-  const { execFile } = await import('node:child_process');
-  const { mkdtemp } = await import('node:fs/promises');
-  const { join } = await import('node:path');
-  const { tmpdir } = await import('node:os');
-
-  const tmpDir = await mkdtemp(join(tmpdir(), 'quiz-migrate-'));
-  ALL_TEMP_DIRS.push(tmpDir);
-
-  const env = { ...process.env, DATABASE_URL: dbUrl };
-
-  // `prisma db push` is non-interactive with --accept-data-loss
-  await new Promise<void>((resolve, reject) => {
-    execFile(prismaBin, ['db', 'push', '--accept-data-loss', '--skip-generate'], { cwd: rootNodeModules, env }, (err, _out, stderr) => {
-      if (err) { console.error(stderr); reject(err); }
-      else resolve();
-    });
-  });
+  await createTestDatabase(dbUrl);
 }
 
 async function createTestApp() {

@@ -13,9 +13,9 @@
 import { describe, it, expect, afterAll, beforeAll } from 'vitest';
 import supertest from 'supertest';
 import { mkdtemp, rm as rmDir } from 'node:fs/promises';
-import { join, resolve as pathResolve } from 'node:path';
+import { join } from 'node:path';
 import os from 'node:os';
-import { seedTestUserWithDb, cleanupTestDataForDb } from '../test-helpers.js';
+import { seedTestUserWithDb, cleanupTestDataForDb, createTestDatabase } from '../test-helpers.js';
 
 const ALL_TEMP_DIRS: string[] = [];
 
@@ -25,30 +25,8 @@ afterAll(async () => {
   }
 });
 
-// ── Paths ────────────────────────────────────────────────────
-const rootNodeModules = pathResolve(__dirname, '..', '..', '..', '..');
-const prismaBin = pathResolve(rootNodeModules, 'node_modules/.bin/prisma');
-
-// ── Migration via prisma db push (execFile — reliable, no module path issues) ─
 async function migrateDb(dbUrl: string) {
-  const { execFile } = await import('node:child_process');
-  const { mkdtemp: mkdtempFs } = await import('node:fs/promises');
-  const { join: joinPath } = await import('node:path');
-  const { tmpdir } = await import('node:os');
-
-  const tmpDir = await mkdtempFs(joinPath(tmpdir(), 'quiz-migrate-'));
-  ALL_TEMP_DIRS.push(tmpDir);
-  const env = { ...process.env, DATABASE_URL: dbUrl };
-
-  await new Promise<void>((resolve, reject) => {
-    execFile(prismaBin, ['db', 'push', '--accept-data-loss', '--skip-generate'], {
-      cwd: rootNodeModules,
-      env,
-    }, (err, _out, stderr) => {
-      if (err) { console.error(stderr); reject(err); }
-      else resolve();
-    });
-  });
+  await createTestDatabase(dbUrl);
 }
 
 // ── Per-test app factory ─────────────────────────────────────
@@ -200,23 +178,17 @@ describe('E2E Endpoints — Development Mode', () => {
     const { request: req, prisma: db, dbUrl } = await createTestApp();
 
     const ts = Date.now();
-    const testUserId = `e2e-dev-no-${ts}`;
-
-    await seedTestUserWithDb(db, testUserId, `E2E Dev No ${ts}`, `${testUserId}@test.local`);
-
-    const sessionsBefore = await db.session.findMany({ where: { userId: testUserId } });
-    const sessionIdsBefore = new Set(sessionsBefore.map(s => s.id));
+    const unknownUserId = `e2e-dev-unknown-${ts}`;
 
     const res = await req
       .post('/api/v1/auth/e2e-token')
-      .send({ userId: 'definitely-not-a-real-user' });
+      .send({ userId: unknownUserId });
 
     expect(res.status).toBe(404);
     expect(res.body.success).toBe(false);
 
-    const sessionsAfter = await db.session.findMany({ where: { userId: testUserId } });
-    const newSessions = sessionsAfter.filter(s => !sessionIdsBefore.has(s.id));
-    expect(newSessions).toHaveLength(0);
+    expect(await db.user.findUnique({ where: { id: unknownUserId } })).toBeNull();
+    expect(await db.session.findMany({ where: { userId: unknownUserId } })).toHaveLength(0);
 
     await cleanupTestDataForDb(dbUrl);
     await db.$disconnect();
