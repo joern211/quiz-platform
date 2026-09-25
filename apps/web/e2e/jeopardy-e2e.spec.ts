@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
+import type { Board } from '../src/pages/JeopardySetupPage';
 
 const BASE = process.env.E2E_BASE_URL ?? 'http://localhost:5173';
 
@@ -23,9 +24,70 @@ async function loginAsModerator(page: Page, userId = 'mod-1'): Promise<void> {
   expect(body.data?.user?.id).toBe(userId);
 }
 
+// ──────────────────────────────────────────────────────────────
+// Sample board data (all fields filled in for room creation)
+// ──────────────────────────────────────────────────────────────
+
+const SAMPLE_CATEGORIES = [
+  'Geschichte', 'Wissenschaft', 'Geografie', 'Sport', 'Kunst', 'Musik',
+];
+
+const makeSampleBoard = (pointMultiplier: number): Board => ({
+  categories: SAMPLE_CATEGORIES.map((title, ci) => ({
+    id: `cat-${ci}`,
+    title,
+    clues: [100, 200, 300, 400, 500].map((baseValue, vi) => ({
+      id: `cat-${ci}-clue-${vi}`,
+      value: baseValue * pointMultiplier,
+      question: `Frage ${ci + 1}-${vi + 1}`,
+      answer: `Antwort ${ci + 1}-${vi + 1}`,
+      type: 'text' as const,
+    })),
+  })),
+});
+
+// ──────────────────────────────────────────────────────────────
+// Fill in a board (navigate all categories and fill clues)
+// ──────────────────────────────────────────────────────────────
+
+async function fillBoard(page: Page, board: Board): Promise<void> {
+  // Click each category tab and fill title
+  for (let ci = 0; ci < board.categories.length; ci++) {
+    await page.getByRole('button', { name: new RegExp(`^Kategorie ${ci + 1}$`) }).click();
+    await page.getByRole('button', { name: 'Titel' }).click();
+    await page.locator('textarea').first().fill(board.categories[ci].title);
+
+    // For each clue: click value in clueSelect grid, fill question and answer
+    for (let vi = 0; vi < board.categories[ci].clues.length; vi++) {
+      const clueValue = board.categories[ci].clues[vi].value;
+      // Use exact match to avoid matching board tabs like "Board 1 (100-500)"
+      await page.getByRole('button', { name: String(clueValue), exact: true }).click();
+      await page.getByRole('button', { name: 'Frage' }).click();
+      await page.locator('textarea').first().fill(board.categories[ci].clues[vi].question);
+      await page.getByRole('button', { name: 'Antwort' }).click();
+      await page.locator('textarea').first().fill(board.categories[ci].clues[vi].answer);
+    }
+  }
+}
+
 async function createJeopardyRoom(page: Page): Promise<string> {
   await page.goto(`${BASE}/moderator/vorbereitung/jeopardy`);
   await expect(page.getByRole('heading', { name: /jeopardy/i })).toBeVisible({ timeout: 15_000 });
+
+  // Fill Board 1
+  await page.getByRole('button', { name: 'Board 1 (100-500)' }).click();
+  await fillBoard(page, makeSampleBoard(1));
+
+  // Fill Board 2
+  await page.getByRole('button', { name: 'Board 2 (200-1000)' }).click();
+  await fillBoard(page, makeSampleBoard(2));
+
+  // Click back to Board 1 to reset state before creating
+  await page.getByRole('button', { name: 'Board 1 (100-500)' }).click();
+
+  // Verify no validation errors
+  const errorCount = await page.locator('[role="alert"]').count();
+  expect(errorCount, `Validation errors present before submit: ${await page.locator('[role="alert"]').textContent()}`).toBe(0);
 
   await page.getByRole('button', { name: 'Raum erstellen' }).click();
   await page.waitForURL(/\/moderator\/raum\/\d{3}-\d{3}\/lobby$/, { timeout: 20_000 });

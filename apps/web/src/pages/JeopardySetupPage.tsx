@@ -1,9 +1,10 @@
 // ============================================================
-// Geo Jeopardy Setup Page
+// Jeopardy Setup Page
 // ============================================================
 
 import { useState, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { z } from 'zod';
 import { Card, Button, Input } from '@quiz/ui';
 import styles from './JeopardySetupPage.module.css';
 
@@ -16,6 +17,33 @@ interface Category {
 interface Board {
   categories: Category[];
 }
+
+// ── Zod Validation Schema ─────────────────────────────────────
+
+const clueSchema = z.object({
+  value: z.number().positive('Punktwert muss positiv sein.'),
+  question: z.string().min(1, 'Frage darf nicht leer sein.'),
+  answer: z.string().min(1, 'Antwort darf nicht leer sein.'),
+});
+
+const categorySchema = z.object({
+  name: z.string().min(1, 'Kategoriename darf nicht leer sein.'),
+  clues: z.array(clueSchema).min(5).max(5),
+});
+
+const boardSchema = z.object({
+  categories: z.array(categorySchema).min(6).max(6),
+});
+
+export const JeopardyBoardSchema = z.object({
+  board1: boardSchema,
+  board2: boardSchema,
+});
+
+export type JeopardyValidationError = {
+  board1?: { categories?: Array<{ name?: string[]; clues?: Array<{ question?: string[]; answer?: string[] }> }> };
+  board2?: { categories?: Array<{ name?: string[]; clues?: Array<{ question?: string[]; answer?: string[] }> }> };
+};
 
 export function JeopardySetupPage() {
   const navigate = useNavigate();
@@ -52,6 +80,8 @@ export function JeopardySetupPage() {
   const [roomName, setRoomName] = useState('');
   const [pin, setPin] = useState('');
   const [saving, setSaving] = useState(false);
+  const [validationErrors, setValidationErrors] = useState<string[]>([]);
+  const [apiError, setApiError] = useState<string | null>(null);
 
   const currentBoardData = currentBoard === 1 ? board1 : board2;
   const setCurrentBoardData = currentBoard === 1 ? setBoard1 : setBoard2;
@@ -124,6 +154,19 @@ export function JeopardySetupPage() {
   });
 
   const handleCreateRoom = async () => {
+    setApiError(null);
+    setValidationErrors([]);
+
+    // Phase 2: Zod validation before room creation
+    const engineBoard1 = toEngineBoard(board1);
+    const engineBoard2 = toEngineBoard(board2);
+    const validation = JeopardyBoardSchema.safeParse({ board1: engineBoard1, board2: engineBoard2 });
+    if (!validation.success) {
+      const errors = validation.error.errors.map(e => `Board ${e.path[1] || ''} ${e.path.slice(2).join('.')}: ${e.message}`);
+      setValidationErrors(errors);
+      return;
+    }
+
     setSaving(true);
     try {
       const res = await fetch('/api/v1/rooms', {
@@ -137,18 +180,22 @@ export function JeopardySetupPage() {
           maxPlayers: 10,
           allowViewers: true,
           isPublic: true,
-          setupSnapshotJson: { board1: toEngineBoard(board1), board2: toEngineBoard(board2) },
+          setupSnapshotJson: { board1: engineBoard1, board2: engineBoard2 },
         }),
       });
 
       const json = await res.json();
+      if (!res.ok) {
+        setApiError(json.error?.message ?? `Fehler ${res.status}: Raum konnte nicht erstellt werden.`);
+        return;
+      }
       if (json.success && json.data?.code) {
         navigate(`/moderator/raum/${json.data.code}/lobby`);
       } else {
-        alert(json.error?.message ?? 'Fehler beim Erstellen');
+        setApiError(json.error?.message ?? 'Fehler beim Erstellen');
       }
-    } catch {
-      alert('Fehler beim Erstellen');
+    } catch (err) {
+      setApiError('Netzwerkfehler: Server nicht erreichbar.');
     } finally {
       setSaving(false);
     }
@@ -157,6 +204,25 @@ export function JeopardySetupPage() {
   return (
     <div className={styles.page}>
       <h1 className={styles.title}>Jeopardy einrichten</h1>
+
+      {/* Validation errors */}
+      {validationErrors.length > 0 && (
+        <div className={styles.errorBanner} role="alert">
+          <strong>Bitte fülle alle Pflichtfelder aus:</strong>
+          <ul style={{ margin: '8px 0 0 16px', padding: 0 }}>
+            {validationErrors.map((err, i) => (
+              <li key={i}>{err}</li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {/* API error */}
+      {apiError && (
+        <div className={styles.errorBanner} role="alert">
+          {apiError}
+        </div>
+      )}
 
       <div className={styles.boardTabs}>
         <button 

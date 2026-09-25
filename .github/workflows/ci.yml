@@ -114,29 +114,38 @@ jobs:
             sleep 1
           done
 
-      - name: Run E2E tests
+      - name: Pre-seed Jeopardy game definition + mod-1 user
+        run: |
+          node -e "
+          const { PrismaClient } = require('@prisma/client');
+          const argon2 = require('argon2');
+          const p = new PrismaClient();
+          (async () => {
+            await p.\$connect();
+            const pw = await argon2.hash('secret', { type: argon2.argon2id });
+            await p.user.upsert({ where:{id:'mod-1'}, create:{id:'mod-1',email:'moderator@example.com',passwordHash:pw,displayName:'admin'}, update:{} });
+            await p.gameDefinition.upsert({ where:{id:'geo-1'}, create:{id:'geo-1',slug:'geo',name:'Geo-Quiz',category:'GEO'}, update:{slug:'geo'} });
+            await p.gameDefinition.upsert({ where:{id:'jeopardy-1'}, create:{id:'jeopardy-1',slug:'jeopardy',name:'Jeopardy',category:'BUZZER'}, update:{} });
+            console.log('DB seeded');
+            await p.\$disconnect();
+          })();
+          " || true
+
+      - name: Run E2E tests (Geo G4-* and Jeopardy J1-J10)
         env:
           E2E_BASE_URL: http://localhost:5173
+          CI: 'true'
         run: |
           echo "=== E2E PRE-FLIGHT ==="
           echo "NODE=$(node --version)"
           echo "BACKEND=$(curl -sf http://localhost:3001/api/v1/health 2>&1 || echo DOWN)"
+          echo "VITE=$(curl -sf http://localhost:5173/ 2>&1 | head -1 | cut -c1-50 || echo DOWN)"
 
           echo ""
-          echo "=== RUNNING G4 E2E TESTS ==="
+          echo "=== RUNNING ALL E2E TESTS (Geo + Jeopardy) ==="
           pnpm exec playwright test \
             --config=playwright.config.ts \
-            --project=chromium \
-            --grep="G4-"
-
-          echo ""
-          echo "=== POST-RUN ==="
-          echo "PLAYWRIGHT_REPORT=$(ls playwright-report/ 2>/dev/null || echo NONE)"
-          echo "TEST_RESULTS=$(ls test-results/ 2>/dev/null || echo NONE)"
-
-          echo ""
-          echo "=== BACKEND LOG TAIL ==="
-          tail -30 /tmp/backend.log
+            --project=chromium
 
       - name: Upload Playwright report
         if: failure()

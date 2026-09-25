@@ -56,6 +56,23 @@ export async function getOrCreateGeoGame() {
   });
 }
 
+export async function getOrCreateJeopardyGame() {
+  const { prisma } = await import('./persistence/prisma.js');
+  return prisma.gameDefinition.upsert({
+    where: { slug: 'jeopardy' },
+    update: {},
+    create: {
+      id: 'jeopardy-1',
+      slug: 'jeopardy',
+      name: 'Jeopardy',
+      category: 'BUZZER',
+      status: 'AVAILABLE',
+      minPlayers: 2,
+      maxPlayers: 10,
+    },
+  });
+}
+
 // ── Session cookie factory ──────────────────────────────────
 
 function makeSessionCookie(sessionId: string, secret: string): string {
