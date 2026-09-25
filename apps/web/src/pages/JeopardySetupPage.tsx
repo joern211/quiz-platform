@@ -127,13 +127,16 @@ export function JeopardySetupPage() {
           pin: pin || undefined,
           maxPlayers: 10,
           allowViewers: true,
-          setup: { board1, board2 },
+          isPublic: true,
+          setupSnapshotJson: { board1, board2 },
         }),
       });
 
-      const data = await res.json();
-      if (res.ok) {
-        navigate(`/moderator/raum/${data.code}/lobby`);
+      const json = await res.json();
+      if (json.success && json.data?.code) {
+        navigate(`/moderator/raum/${json.data.code}/lobby`);
+      } else {
+        alert(json.error?.message ?? 'Fehler beim Erstellen');
       }
     } catch {
       alert('Fehler beim Erstellen');
