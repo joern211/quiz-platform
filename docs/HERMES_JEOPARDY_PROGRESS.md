@@ -25,7 +25,7 @@
 - [ ] Phase 1: Baseline & Bestandsaufnahme (dieser Commit)
 - [ ] Phase 2: Wartungsarbeiten & Actions-Warnungen
 - [x] Phase 3: Jeopardy-Vertrag & State Machine ✅
-- [ ] Phase 4: Server-Engine & Autorisierung
+- [x] Phase 4: Server-Engine & Autorisierung (in Bearbeitung)
 - [ ] Phase 5: Moderator-, Spieler- und Zuschauer-UI
 - [ ] Phase 6: Persistenz, Reload und Rejoin
 - [ ] Phase 7: Unit- und Integrationstests
