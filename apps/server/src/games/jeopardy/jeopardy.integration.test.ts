@@ -136,7 +136,7 @@ describe('Field open validation', () => {
   });
 
   it('field cannot be opened twice', () => {
-    const { [fieldKey(1, 2, 400)]: _, ...remaining } = state.openFields;
+    const remaining = { ...state.openFields }; delete remaining[fieldKey(1, 2, 400)];
     const updatedState = { ...state, openFields: remaining };
     const key = fieldKey(1, 2, 400);
     expect(updatedState.openFields[key]).toBeUndefined();
@@ -283,7 +283,7 @@ describe('Board completion', () => {
 
     expect(isBoardComplete(state, 1)).toBe(false);
 
-    const { [fieldKey(1, 0, 200)]: _, ...remaining } = state.openFields;
+    const remaining = { ...state.openFields }; delete remaining[fieldKey(1, 0, 200)];
     const answeredState = { ...state, openFields: remaining };
 
     expect(isBoardComplete(answeredState, 1)).toBe(true);

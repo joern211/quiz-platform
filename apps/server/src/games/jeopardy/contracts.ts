@@ -127,7 +127,8 @@ export interface JeopardyBuzzLockedEvent {
 
 /** Steal buzzer is now open. */
 export interface JeopardyStealOpenEvent {
-  // steal opens silently; winnerId sent on buzz
+  categoryIndex: number;
+  value: number;
 }
 
 /** Steal buzzer winner is locked in. */

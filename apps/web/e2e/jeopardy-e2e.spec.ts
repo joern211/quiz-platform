@@ -272,7 +272,7 @@ test('J6: Nur der erste Buzzer wird akzeptiert, spätere werden abgelehnt', asyn
     await openField(moderator, 0, 400);
 
     // Player 1 is slightly faster — both buzz immediately
-    const [r1, r2] = await Promise.all([buzz(player1), buzz(player2)]);
+    await Promise.all([buzz(player1), buzz(player2)]);
 
     // Only one buzzer should be locked — the other should see "already taken"
     const lockedOrFailed = moderator.getByText(/(Schneller|Langsamer)/).or(moderator.getByText(/buzzer/i));
@@ -301,13 +301,13 @@ test('J7: Reload und Rejoin stellen Rolle, Punktestand und Phase wieder her', as
     await loginAsModerator(moderator);
     const code = await createJeopardyRoom(moderator);
 
-    const session = await joinAsPlayer(player1, code, 'Reload-Spieler');
+    await joinAsPlayer(player1, code, 'Reload-Spieler');
     await startGame(moderator);
     await openField(moderator, 0, 200);
 
     // Capture state before reload
     await buzz(player1);
-    const stateBefore = await player1.evaluate(() => ({
+    await player1.evaluate(() => ({
       phase: sessionStorage.getItem('qp_phase'),
       score: sessionStorage.getItem('qp_score'),
     }));

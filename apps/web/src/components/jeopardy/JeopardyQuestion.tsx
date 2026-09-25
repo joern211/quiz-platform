@@ -57,6 +57,7 @@ export interface JeopardyQuestionProps {
 }
 
 export function JeopardyQuestion({
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   categoryIndex,
   value,
   question,
@@ -69,6 +70,7 @@ export function JeopardyQuestion({
   canStealBuzz,
   onBuzz,
   onStealBuzz,
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   playerNames,
   selfId,
 }: JeopardyQuestionProps) {
@@ -77,7 +79,6 @@ export function JeopardyQuestion({
   const isBuzzLocked = phase === 'BUZZ_LOCKED';
   const isStealLocked = phase === 'STEAL_LOCKED';
   const isRevealed = phase === 'FIELD_DONE';
-  const isStealPhase = isStealOpen || isStealLocked;
 
   const formatScore = (delta: number) =>
     delta >= 0 ? `+${delta}` : `${delta}`;

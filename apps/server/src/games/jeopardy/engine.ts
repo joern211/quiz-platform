@@ -30,12 +30,8 @@ import {
   createJeopardyGameState,
   fieldKey,
   registerField,
-  countOpenFields,
   isBoardComplete,
   applyScoreDelta,
-  lockBuzzer,
-  openStealBuzzer,
-  lockStealBuzzer,
   resetBuzzer,
   markFieldAnswered,
   JeopardyFieldDef,
@@ -305,7 +301,7 @@ export const handleJeopardyGame = {
       const gameStateData = await tx.roomGameState.findUnique({ where: { roomId } });
       if (!gameStateData) throw new Error('GAME_NOT_FOUND');
 
-      let state: JeopardyGameState = JSON.parse(gameStateData.stateJson);
+      const state: JeopardyGameState = JSON.parse(gameStateData.stateJson);
 
       // Phase guard
       if (state.phase !== JEOPARDY_PHASES.BUZZ_OPEN) {
@@ -373,7 +369,7 @@ export const handleJeopardyGame = {
       const gameStateData = await tx.roomGameState.findUnique({ where: { roomId } });
       if (!gameStateData) throw new Error('GAME_NOT_FOUND');
 
-      let state: JeopardyGameState = JSON.parse(gameStateData.stateJson);
+      const state: JeopardyGameState = JSON.parse(gameStateData.stateJson);
 
       // Phase guard
       if (state.phase !== JEOPARDY_PHASES.BUZZ_LOCKED) {
@@ -412,14 +408,13 @@ export const handleJeopardyGame = {
     });
 
     const { state, buzzWinnerId, delta, value, categoryIndex, correct } = result;
-    const board = state.currentBoard;
 
     if (!correct) {
       // Wrong answer → open steal phase
-      const newState = await prisma.$transaction(async (tx) => {
+      await prisma.$transaction(async (tx) => {
         const gs = await tx.roomGameState.findUnique({ where: { roomId } });
-        if (!gs) return null;
-        let st: JeopardyGameState = JSON.parse(gs.stateJson);
+        if (!gs) return;
+        const st: JeopardyGameState = JSON.parse(gs.stateJson);
         st.phase = JEOPARDY_PHASES.STEAL_OPEN;
         st.buzzWinner = null;
         st.stealOpen = true;
@@ -427,7 +422,6 @@ export const handleJeopardyGame = {
           where: { roomId },
           data: { stateJson: JSON.stringify(st), phase: JEOPARDY_PHASES.STEAL_OPEN, revision: { increment: 1 } },
         });
-        return st;
       });
 
       // Emit steal:open to all
@@ -451,18 +445,13 @@ export const handleJeopardyGame = {
       logger.info('Jeopardy judge: wrong → steal open', { roomId, buzzWinnerId, value });
     } else {
       // Correct answer → field done
-      const newState = await prisma.$transaction(async (tx) => {
+      await prisma.$transaction(async (tx) => {
         const gs = await tx.roomGameState.findUnique({ where: { roomId } });
-        if (!gs) return null;
+        if (!gs) return;
         let st: JeopardyGameState = JSON.parse(gs.stateJson);
         st = markFieldAnswered(st, categoryIndex, value, buzzWinnerId, true, delta);
         st = resetBuzzer(st);
 
-        // Check board completion
-        const setup = JSON.parse((await tx.room.findUnique({ where: { id: roomId } }))?.setupSnapshotJson ?? '{}') as {
-          board1?: { categories: Array<{ name: string; clues: Array<{ value: number }> }> };
-        };
-        const boardCategories = st.currentBoard === 1 ? setup.board1?.categories : [];
 
         if (isBoardComplete(st, st.currentBoard)) {
           st.phase = JEOPARDY_PHASES.BOARD_COMPLETE;
@@ -474,7 +463,6 @@ export const handleJeopardyGame = {
           where: { roomId },
           data: { stateJson: JSON.stringify(st), phase: st.phase, revision: { increment: 1 } },
         });
-        return st;
       });
 
       // Emit reveal to all (answer to moderator only)
@@ -545,7 +533,7 @@ export const handleJeopardyGame = {
       const gameStateData = await tx.roomGameState.findUnique({ where: { roomId } });
       if (!gameStateData) throw new Error('GAME_NOT_FOUND');
 
-      let state: JeopardyGameState = JSON.parse(gameStateData.stateJson);
+      const state: JeopardyGameState = JSON.parse(gameStateData.stateJson);
 
       if (state.phase !== JEOPARDY_PHASES.STEAL_OPEN) {
         throw new Error('PHASE_NOT_STEAL_OPEN');
@@ -625,11 +613,6 @@ export const handleJeopardyGame = {
       state = markFieldAnswered(state, categoryIndex, value, stealWinnerId, data.correct, delta);
       state = resetBuzzer(state);
 
-      // Check board completion
-      const setup = JSON.parse((await tx.room.findUnique({ where: { id: roomId } }))?.setupSnapshotJson ?? '{}') as {
-        board1?: { categories: Array<{ name: string; clues: Array<{ value: number }> }> };
-      };
-      const boardCategories = state.currentBoard === 1 ? setup.board1?.categories : [];
 
       if (isBoardComplete(state, state.currentBoard)) {
         state.phase = JEOPARDY_PHASES.BOARD_COMPLETE;
@@ -757,7 +740,7 @@ export const handleJeopardyGame = {
     const gameStateData = await prisma.roomGameState.findUnique({ where: { roomId: room.id } });
     if (!gameStateData) return { success: false, error: 'GAME_NOT_FOUND' };
 
-    let state: JeopardyGameState = JSON.parse(gameStateData.stateJson);
+    const state: JeopardyGameState = JSON.parse(gameStateData.stateJson);
 
     if (state.phase !== JEOPARDY_PHASES.BOARD_COMPLETE) {
       return { success: false, error: 'PHASE_NOT_BOARD_COMPLETE' };

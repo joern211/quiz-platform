@@ -3,7 +3,7 @@
 // Phase 7: Unit tests for engine.ts
 // ============================================================
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect } from 'vitest';
 import {
   JeopardyGameState,
   createJeopardyGameState,
@@ -213,7 +213,7 @@ describe('markFieldAnswered', () => {
   });
 
   it('clears currentField and buzzer state', () => {
-    let state = makeInitialState();
+    const state = makeInitialState();
     state.currentField = { categoryIndex: 0, value: 100, fieldDef: makeFieldDef(0, 100) };
     state.phase = 'FIELD_DONE';
     state.buzzWinner = PLAYER_A;
@@ -229,7 +229,7 @@ describe('markFieldAnswered', () => {
 
 describe('resetBuzzer', () => {
   it('resets all buzzer state', () => {
-    let state = makeInitialState();
+    const state = makeInitialState();
     state.buzzWinner = PLAYER_A;
     state.buzzOpen = true;
     state.stealWinner = PLAYER_B;
@@ -348,8 +348,6 @@ describe('Full game flow simulation', () => {
     expect(isBoardComplete(state, 1)).toBe(false);
 
     // Play all fields
-    let ci = 0;
-    let vi = 0;
     const values = [100, 200, 300, 400, 500];
 
     for (let i = 0; i < 30; i++) {

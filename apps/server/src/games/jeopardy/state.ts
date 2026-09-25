@@ -83,7 +83,8 @@ export interface JeopardyGameState {
   currentField: {
     categoryIndex: number;
     value: number;
-    fieldDef: JeopardyFieldDef;
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  fieldDef: JeopardyFieldDef;
   } | null;
 
   /** Current game phase. */
@@ -170,20 +171,12 @@ export function markFieldAnswered(
   state: JeopardyGameState,
   categoryIndex: number,
   value: number,
-  answeredBy: string,
-  correct: boolean,
-  delta: number
+  _answeredBy: string,
+  _correct: boolean,
+  _delta: number
 ): JeopardyGameState {
   const key = fieldKey(state.currentBoard, categoryIndex, value);
-  const field: JeopardyFieldState = {
-    answered: true,
-    answeredBy: correct ? answeredBy : null,
-    pointsDelta: delta,
-    stealAttempted: false,
-    stealBy: null,
-  };
-
-  // Remove from open fields
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const { [key]: _, ...remainingOpenFields } = state.openFields;
 
   return {
@@ -244,6 +237,7 @@ export function registerField(
   board: 1 | 2,
   categoryIndex: number,
   value: number,
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   fieldDef: JeopardyFieldDef
 ): JeopardyGameState {
   const key = fieldKey(board, categoryIndex, value);

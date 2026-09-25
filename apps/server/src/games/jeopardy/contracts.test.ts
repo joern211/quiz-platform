@@ -11,7 +11,6 @@ import {
   pointsForWrongFirst,
   pointsForCorrectSteal,
   pointsForWrongSteal,
-  type JeopardyPhase,
 } from './contracts.js';
 
 import {

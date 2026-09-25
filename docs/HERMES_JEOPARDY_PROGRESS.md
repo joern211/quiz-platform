@@ -26,7 +26,33 @@
 - [ ] Phase 2: Wartungsarbeiten & Actions-Warnungen
 - [x] Phase 3: Jeopardy-Vertrag & State Machine ✅
 - [x] Phase 4: Server-Engine & Autorisierung (in Bearbeitung)
-- [ ] Phase 5: Moderator-, Spieler- und Zuschauer-UI
+### Phase 5: Moderator-, Spieler- und Zuschauer-UI ✅
+
+**Commit:** `feat(jeopardy): add moderator and player interfaces`
+
+**Erstellt:**
+- `apps/web/src/hooks/useJeopardy.ts` – unified socket hook for all 3 roles; receives all Jeopardy events, sends field-open/buzz/judge/steal/next actions
+- `apps/web/src/components/jeopardy/JeopardyBoard.tsx` – interactive board with played-field tracking, current-field highlighting
+- `apps/web/src/components/jeopardy/JeopardyBoard.module.css`
+- `apps/web/src/components/jeopardy/JeopardyQuestion.tsx` – question display + buzzer buttons for players; result reveal for all
+- `apps/web/src/components/jeopardy/JeopardyQuestion.module.css`
+- `apps/web/src/pages/JeopardyModeratorPage.tsx` – full control: board interactive, secret answer visible, judge buttons, buzzer-winner display, score sidebar
+- `apps/web/src/pages/JeopardyModeratorPage.module.css`
+- `apps/web/src/pages/JeopardyPlayerPage.tsx` – board read-only, buzzer active in BUZZ_OPEN, scores, answer NEVER exposed
+- `apps/web/src/pages/JeopardyPlayerPage.module.css`
+- `apps/web/src/pages/JeopardySpectatorPage.tsx` – read-only with buzzer-winner display, no controls
+- `apps/web/src/pages/JeopardySpectatorPage.module.css`
+
+**Geändert:**
+- `apps/web/src/App.tsx` – 3 new routes: `/moderator/jeopardy/spiel/:code`, `/jeopardy/spiel/:code`, `/jeopardy/zuschauer/:code`
+- `apps/web/src/lib/socket.ts` – added Jeopardy socket event types (sibling agent)
+- `apps/server/src/sockets/game.ts` – added 7 jeopardy event handlers: jeopardyFieldOpen, jeopardyBuzz, jeopardyJudge, jeopardyStealBuzz, jeopardyStealJudge, jeopardyNext, jeopardySwitchBoard
+- `apps/server/src/sockets/index.ts` – registered all 7 Jeopardy socket events (sibling agent)
+- `apps/server/src/games/jeopardy/state.ts` – fixed duplicate `const key` declaration in `markFieldAnswered`
+
+**Sicherheitsregel:** Lösung (answer) wird NIEMALS an PLAYER oder VIEWER gesendet. Engine sendet `jeopardy:answer:secret` nur an den aufrufenden Socket (Moderator). Reveal-Events maskieren die Antwort mit `••••••` für nicht-Moderatoren.
+
+**Nächster Schritt:** Phase 6: Persistenz & Rejoin
 - [ ] Phase 6: Persistenz, Reload und Rejoin
 - [ ] Phase 7: Unit- und Integrationstests
 - [ ] Phase 8: Playwright-E2E
