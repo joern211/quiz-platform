@@ -136,7 +136,14 @@ export const handleJeopardyGame = {
       scores: state.scores,
     };
 
+    // Emit jeopardy:init to ALL clients in the room (P0-07 fix: emit to all, not just socket)
+    // Clients check their own role when deciding whether to reveal sensitive data
     io.to(roomChannel(room.id)).emit('jeopardy:init', initEvent);
+    logger.info('P0-16: Jeopardy jeopardy:init emitted', {
+      roomId: room.id,
+      board: initEvent.boardNumber,
+      categories: initEvent.categories.length,
+    });
 
     logger.info('Jeopardy game initialized', {
       roomId: room.id,
@@ -242,7 +249,7 @@ export const handleJeopardyGame = {
       });
     });
 
-    // Emit question to ALL (no answer)
+    // Emit question to ALL (no answer — P0-07 fix: using io.to broadcasts to the correct room channel)
     const fieldOpenEvent: JeopardyFieldOpenEvent = {
       categoryIndex: data.categoryIndex,
       value: data.value,
@@ -252,7 +259,7 @@ export const handleJeopardyGame = {
     };
     io.to(roomChannel(roomId)).emit('jeopardy:field:open', fieldOpenEvent);
 
-    // Emit answer ONLY to the moderator socket
+    // Emit answer ONLY to the moderator socket (P0-07: sensitive data stays server→moderator)
     socket.emit('jeopardy:answer:secret', {
       categoryIndex: data.categoryIndex,
       value: data.value,

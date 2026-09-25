@@ -55,11 +55,10 @@ function validateOrReject<T>(
   return result.data;
 }
 
-// Room channel helper - returns a Socket.IO room identifier for a specific room
+// Room channel helper - Socket.IO rooms are namespaced as `room_${roomId}`
+// (Socket.IO default room format matches the underscore convention used at socket join)
 export function roomChannel(roomId: string): string {
-  // Socket.IO uses room names to emit to specific rooms
-  // The roomId is the room UUID (not the public code)
-  return `room:${roomId}`;
+  return `room_${roomId}`;
 }
 
 // E2E helper: find socket ID by session ID

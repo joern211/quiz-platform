@@ -226,25 +226,34 @@ async function startGame(moderator: Page): Promise<void> {
 
   // Navigate directly to the Jeopardy game page (don't rely on socket navigation)
   await moderator.goto(`${BASE}/moderator/raum/${code}/jeopardy`);
-  // Wait for the page to load — use 'load' not 'networkidle' (socket connection is async)
-  await moderator.waitForLoadState('load');
-  // Wait for socket events to initialize the game state
-  // Poll until we see the Jeopardy page structure (look for the heading or any score card)
+  await moderator.waitForLoadState('networkidle'); // Wait for socket connection + jeopardy:init to arrive
+  // Poll: wait until the board shows an active game state (Nächstes Feld button visible = SELECTING phase)
+  // This is more reliable than just waiting for the grid to be attached
   try {
-    await moderator.getByRole('heading', { name: /Board \d|Jeopardy/i }).waitFor({ state: 'attached', timeout: 20_000 });
+    await expect(moderator.getByRole('button', { name: /Nächstes Feld|Spielfeld/i }).toBeVisible({ timeout: 20_000 }));
   } catch {
-    // Fallback: wait for the URL to confirm we're on the game page
-    await moderator.waitForURL(/\/moderator\/raum\/\d{3}-\d{3}\/jeopardy$/, { timeout: 10_000 });
+    // Fallback: wait for the page to be interactive by looking at the board heading
+    await expect(moderator.getByRole('heading', { name: /Board \d/i })).toBeVisible({ timeout: 10_000 });
+    await moderator.waitForTimeout(3_000); // Give the server time to emit jeopardy:init
   }
-  await moderator.waitForTimeout(1_000); // Let socket events settle
-  // Now confirm the grid exists in the DOM (may still be "hidden" if no CSS dimensions)
-  await expect(moderator.locator('[role="grid"]')).toBeAttached({ timeout: 10_000 });
   await moderator.waitForTimeout(500); // Allow socket state to settle
 }
 
 async function openField(moderator: Page, categoryIndex = 0, value = 200): Promise<void> {
-  // Wait for board to be attached (DOM ready)
+  // Wait for the grid to be in the DOM
   await expect(moderator.locator('[role="grid"]')).toBeAttached({ timeout: 10_000 });
+
+  // Wait for the board to be in SELECTING phase (cells clickable)
+  // The server transitions from INTRO → SELECTING after emitting jeopardy:init.
+  // We poll for the "Nächstes Feld" button which only appears in SELECTING or FIELD_DONE.
+  try {
+    await expect(moderator.getByRole('button', { name: /Nächstes Feld|Spielfeld öffnen| Feld öffnen/i }).toBeVisible({ timeout: 15_000 }));
+  } catch {
+    // Fallback: wait for INTRO phase to end (page should show "Board N" heading without "Verbunden" overlay)
+    await moderator.waitForTimeout(5_000);
+  }
+  await moderator.waitForTimeout(500); // Let phase settle
+
   // Click the field cell — only works in SELECTING phase
   const cell = moderator.locator('[data-category-index="' + categoryIndex + '"][data-value="' + value + '"]');
   await expect(cell).toBeVisible({ timeout: 5_000 });
