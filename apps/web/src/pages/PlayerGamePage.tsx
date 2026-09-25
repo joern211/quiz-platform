@@ -4,7 +4,6 @@
 
 import { useParams, useNavigate } from 'react-router-dom';
 import { useEffect, useState, useRef } from 'react';
-import { Socket } from 'socket.io-client';
 import { getSocket, connectSocket, disconnectSocket } from '../lib/socket';
 import { getSession } from '../lib/sessionStore';
 import { Card, Button, Badge } from '@quiz/ui';
@@ -13,8 +12,9 @@ import styles from './PlayerGamePage.module.css';
 
 export function PlayerGamePage() {
   const { code } = useParams<{ code: string }>();
+  const roomCode = code ?? '';
   const navigate = useNavigate();
-  const socketRef = useRef<Socket | null>(null);
+  const socketRef = useRef<ReturnType<typeof getSocket> | null>(null);
   const [connected, setConnected] = useState(false);
   const [, setPhase] = useState<string>('WAITING');
   const [question, setQuestion] = useState<any>(null);
@@ -30,8 +30,11 @@ export function PlayerGamePage() {
   const [eliminatedOptions, setEliminatedOptions] = useState<string[]>([]);
   const [revealed, setRevealed] = useState(false);
   const [result, setResult] = useState<any>(null);
+  const [answerSubmitted, setAnswerSubmitted] = useState(false);
+  const [actionError, setActionError] = useState('');
   const session = getSession();
   const rejoinToken = session.rejoinToken;
+  const participationId = session.participationId;
 
   useEffect(() => {
     socketRef.current = getSocket();
@@ -44,7 +47,7 @@ export function PlayerGamePage() {
 
     socket.on('game:end', (data) => {
       if (data.status === 'ENDED') {
-        navigate(`/raum/${code}/ergebnis`);
+        navigate(`/raum/${roomCode}/ergebnis`);
       }
     });
 
@@ -55,6 +58,8 @@ export function PlayerGamePage() {
       setLocked(false);
       setRevealed(false);
       setEliminatedOptions([]);
+      setAnswerSubmitted(false);
+      setActionError('');
       setPhase('INPUT_OPEN');
     });
 
@@ -80,10 +85,9 @@ export function PlayerGamePage() {
       setResult(data);
       
       // Update score from result - use session participationId
-      const myPartId = session.participationId;
-      const myResult = (data.scores as any[])?.find((s: any) => s.participationId === myPartId);
+      const myResult = data.scores.find((scoreResult) => scoreResult.participationId === participationId);
       if (myResult) {
-        setScore(myResult.totalScore);
+        setScore(myResult.score);
       }
     });
 
@@ -92,44 +96,67 @@ export function PlayerGamePage() {
     });
 
     // Subscribe to room
-    socket.emit('room:subscribe', { roomCode: code, rejoinToken });
+    socket.emit('room:subscribe', { roomCode, rejoinToken: rejoinToken ?? undefined }, (response) => {
+      if (!response.success) setActionError(`Raumverbindung fehlgeschlagen: ${response.error ?? 'Unbekannter Fehler'}`);
+    });
 
     return () => { disconnectSocket(); };
-  }, [code, navigate, rejoinToken]);
+  }, [navigate, participationId, rejoinToken, roomCode]);
 
   const handleSelectOption = (optionId: string) => {
     if (locked) return;
+    if (!socketRef.current) {
+      setActionError('Socket-Verbindung ist nicht verfügbar.');
+      return;
+    }
     
     setSelectedOption(optionId);
     setLocked(true);
     
-    socketRef.current?.emit('geo:answer', {
-      roomCode: code,
+    socketRef.current.emit('geo:answer', {
+      roomCode,
       optionId,
+    }, (response) => {
+      if (response.success) {
+        setAnswerSubmitted(true);
+      } else {
+        setSelectedOption(null);
+        setLocked(false);
+        setActionError('Antwort konnte nicht gespeichert werden.');
+      }
     });
   };
 
   const handle5050 = () => {
     if (jokers.used5050 || locked) return;
-    
-    socketRef.current?.emit('geo:joker:5050', {
-      roomCode: code,
+    if (!socketRef.current) return setActionError('Socket-Verbindung ist nicht verfügbar.');
+
+    socketRef.current.emit('geo:joker:5050', {
+      roomCode,
+    }, (response) => {
+      if (!response.success) setActionError(`50:50-Joker fehlgeschlagen: ${response.error ?? 'Unbekannter Fehler'}`);
     });
   };
 
   const handleSpy = () => {
     if (jokers.usedSpy) return;
-    
-    socketRef.current?.emit('geo:joker:spy', {
-      roomCode: code,
+    if (!socketRef.current) return setActionError('Socket-Verbindung ist nicht verfügbar.');
+
+    socketRef.current.emit('geo:joker:spy', {
+      roomCode,
+    }, (response) => {
+      if (!response.success) setActionError(`Spy-Joker fehlgeschlagen: ${response.error ?? 'Unbekannter Fehler'}`);
     });
   };
 
   const handleRisk = () => {
     if (jokers.usedRisk || locked) return;
-    
-    socketRef.current?.emit('geo:joker:risk', {
-      roomCode: code,
+    if (!socketRef.current) return setActionError('Socket-Verbindung ist nicht verfügbar.');
+
+    socketRef.current.emit('geo:joker:risk', {
+      roomCode,
+    }, (response) => {
+      if (!response.success) setActionError(`Risk-Joker fehlgeschlagen: ${response.error ?? 'Unbekannter Fehler'}`);
     });
   };
 
@@ -154,6 +181,9 @@ export function PlayerGamePage() {
           {connected ? 'Verbunden' : 'Getrennt'}
         </Badge>
       </div>
+
+      {actionError && <p role="alert">{actionError}</p>}
+      {answerSubmitted && <p role="status">Antwort gespeichert.</p>}
 
       <Card padding="lg" className={styles.questionCard}>
         <p className={styles.category}>{question.category}</p>

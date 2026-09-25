@@ -36,7 +36,10 @@ export function ModeratorLoginPage() {
       const json = await res.json();
 
       if (!res.ok || !json.success) {
-        setError(json.error || 'Anmeldung fehlgeschlagen');
+        const msg = typeof json.error === 'string'
+          ? json.error
+          : json.error?.message || 'Anmeldung fehlgeschlagen';
+        setError(msg);
         setLoading(false);
         return;
       }

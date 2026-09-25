@@ -94,6 +94,7 @@ export function ModeratorSetupPage() {
               <div className={styles.rangeWrapper}>
                 <input
                   type="range"
+                  aria-label="Maximale Spieler"
                   min="2"
                   max="10"
                   value={maxPlayers}
@@ -124,7 +125,8 @@ export function ModeratorSetupPage() {
               <div className={styles.rangeWrapper}>
                 <input
                   type="range"
-                  min="5"
+                  aria-label="Anzahl Fragen"
+                  min="1"
                   max="30"
                   value={questionCount}
                   onChange={(e) => setQuestionCount(Number(e.target.value))}
@@ -139,6 +141,7 @@ export function ModeratorSetupPage() {
               <div className={styles.rangeWrapper}>
                 <input
                   type="range"
+                  aria-label="Timer in Sekunden"
                   min="10"
                   max="60"
                   step="5"

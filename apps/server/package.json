@@ -12,7 +12,7 @@
     "db:seed": "prisma db seed",
     "db:studio": "prisma studio",
     "typecheck": "tsc --noEmit -p tsconfig.json",
-    "test": "DATABASE_URL=\"file:/tmp/quiz-server-test.db\" SESSION_SECRET=\"ci-test-secret-at-least-32-chars-long\" ../../node_modules/.bin/prisma migrate deploy --schema ../../prisma/schema.prisma && DATABASE_URL=\"file:/tmp/quiz-server-test.db\" SESSION_SECRET=\"ci-test-secret-at-least-32-chars-long\" ../../node_modules/.bin/tsx ../../prisma/seed.ts && DATABASE_URL=\"file:/tmp/quiz-server-test.db\" SESSION_SECRET=\"ci-test-secret-at-least-32-chars-long\" vitest run",
+    "test": "DATABASE_URL=\"file:/tmp/quiz-server-test.db\" node --import tsx ./src/test-database.ts \"file:/tmp/quiz-server-test.db\" && DATABASE_URL=\"file:/tmp/quiz-server-test.db\" SESSION_SECRET=\"ci-test-secret-at-least-32-chars-long\" node --import tsx ../../prisma/seed.ts && DATABASE_URL=\"file:/tmp/quiz-server-test.db\" SESSION_SECRET=\"ci-test-secret-at-least-32-chars-long\" vitest run",
     "test:watch": "vitest",
     "import:legacy": "tsx src/scripts/import-legacy.ts"
   },

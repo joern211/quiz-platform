@@ -31,6 +31,7 @@ export const CreateRoomSchema = z.object({
   viewerRequiresPin: z.boolean().default(true),
   viewerLimit: z.number().int().min(0).max(500).default(50),
   lobbyChatEnabled: z.boolean().default(true),
+  isPublic: z.boolean().default(true),
   setupSnapshotJson: z.union([z.record(z.unknown()), z.string()]).transform((v) => {
     // Accept both object and JSON-string; normalize to object for storage
     if (typeof v === 'string') {

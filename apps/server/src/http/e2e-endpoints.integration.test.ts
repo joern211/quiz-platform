@@ -1,98 +1,196 @@
 // ============================================================
-// E2E Endpoints Production Block Tests
+// E2E Endpoints Tests — Production Block + Development Mode
+//
+// STRATEGY:
+//   - prisma db push via execFile for reliable migration
+//   - per-test PrismaClient + fresh mkdtemp temp DB
+//   - globalThis.__prisma patched before createApp import
+//   - cleanupTestDataForDb in every afterEach / afterAll
+//
+// Module-level productionApp/request: guard-only tests, no DB data needed.
 // ============================================================
 
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, afterAll, beforeAll } from 'vitest';
 import supertest from 'supertest';
-import { readFileSync } from 'fs';
-import { resolve, dirname } from 'path';
-import { fileURLToPath } from 'url';
+import { mkdtemp, rm as rmDir } from 'node:fs/promises';
+import { join } from 'node:path';
+import os from 'node:os';
+import { seedTestUserWithDb, cleanupTestDataForDb, createTestDatabase } from '../test-helpers.js';
 
-// Test the app factory — pass NODE_ENV=production to test production mode
+const ALL_TEMP_DIRS: string[] = [];
+
+afterAll(async () => {
+  for (const dir of ALL_TEMP_DIRS) {
+    try { await rmDir(dir, { recursive: true, force: true }); } catch { /* ignore */ }
+  }
+});
+
+async function migrateDb(dbUrl: string) {
+  await createTestDatabase(dbUrl);
+}
+
+// ── Per-test app factory ─────────────────────────────────────
+// Creates fresh mkdtemp DB + migrated PrismaClient + patched createApp.
+// Mirrors rooms.integration.test.ts exactly.
+//
+// IMPORTANT: Set NODE_ENV to 'development' HERE so createApp() reads the
+// correct value at call-time. Vitest forks with NODE_ENV=production, so
+// we must override it inside the factory, not at module level.
+async function createTestApp() {
+  const { PrismaClient } = await import('@prisma/client');
+  const tmpDir = await mkdtemp(os.tmpdir() + '/quiz-e2e-');
+  ALL_TEMP_DIRS.push(tmpDir);
+  const dbPath = tmpDir + '/test.db';
+  const dbUrl = `file:${dbPath}`;
+
+  await migrateDb(dbUrl);
+
+  const freshPrisma = new PrismaClient({ datasourceUrl: dbUrl });
+  await freshPrisma.$connect();
+
+  // Override BEFORE patching and BEFORE importing createApp
+  // createApp() reads process.env.NODE_ENV at call-time (lazy evaluation)
+  process.env.NODE_ENV = 'development';
+
+  // Patch lazy prisma singleton BEFORE importing createApp
+  globalThis.__prisma = freshPrisma;
+
+  const { createApp } = await import('../app.js');
+  const { app } = createApp();
+  return { app, prisma: freshPrisma, request: supertest(app), dbUrl, tmpDir };
+}
+
+// ── Module-level production guard app ────────────────────────
+// Safe: no DB access needed for simple 404 guard tests.
+// Uses a temp DB so production app doesn't try to open a non-existent default path.
+const savedNodeEnv = process.env.NODE_ENV;
 process.env.NODE_ENV = 'production';
+// Must set DATABASE_URL here so the production app doesn't try to use
+// the default './storage/database/quiz.db' which doesn't exist in CI/test.
+const tmpDir = await mkdtemp(join(os.tmpdir(), 'quiz-e2e-prod-'));
+ALL_TEMP_DIRS.push(tmpDir);
+process.env.DATABASE_URL = `file:${tmpDir}/prod.db`;
 
 const { createApp } = await import('../app.js');
-const app = createApp();
-const request = supertest(app.app);
+const productionApp = createApp();
+const productionRequest = supertest(productionApp.app);
+
+// ── Production block tests ───────────────────────────────────
 
 describe('E2E Endpoints — Production Block', () => {
+  // Ensure NODE_ENV=production for all production tests.
+  // createTestApp() sets NODE_ENV=development, so production tests
+  // use productionRequest (module-level, correct NODE_ENV at creation time).
+  beforeAll(() => { process.env.NODE_ENV = 'production'; });
+  // Restore after suite so subsequent describe blocks aren't polluted.
+  afterAll(() => { process.env.NODE_ENV = savedNodeEnv; });
+
   describe('POST /api/v1/auth/e2e-token', () => {
     it('returns 404 in production', async () => {
-      const res = await request
+      process.env.NODE_ENV = 'production';
+      const res = await productionRequest
         .post('/api/v1/auth/e2e-token')
-        .send({ email: 'admin@quiz.local', password: 'secret' });
-
+        .send({ userId: 'mod-1' });
       expect(res.status).toBe(404);
-    });
-
-    it('does not create a session in production', async () => {
-      const { prisma } = await import('../persistence/prisma.js');
-
-      const beforeCount = await prisma.session.count();
-
-      await request
-        .post('/api/v1/auth/e2e-token')
-        .send({ email: 'admin@quiz.local', password: 'secret' });
-
-      const afterCount = await prisma.session.count();
-      expect(afterCount).toBe(beforeCount); // No new sessions
+      expect(res.body).not.toHaveProperty('data');
     });
   });
 
   describe('POST /api/v1/auth/e2e-socket-identity', () => {
     it('returns 404 in production', async () => {
-      const res = await request
+      process.env.NODE_ENV = 'production';
+      const res = await productionRequest
         .post('/api/v1/auth/e2e-socket-identity')
-        .send({ socketId: 'test-socket', identity: 'MODERATOR' });
-
+        .send({ roomCode: 'ABC-123', role: 'MODERATOR' });
       expect(res.status).toBe(404);
     });
   });
 
   describe('POST /api/v1/e2e/game-start', () => {
     it('returns 404 in production', async () => {
-      const res = await request
+      process.env.NODE_ENV = 'production';
+      const res = await productionRequest
         .post('/api/v1/e2e/game-start')
         .send({ roomCode: '123-456' });
-
       expect(res.status).toBe(404);
-    });
-
-    it('does not start a game in production', async () => {
-      const { prisma } = await import('../persistence/prisma.js');
-
-      // Check no ROOM is modified
-      const beforeStatus = await prisma.room.findFirst({
-        where: { status: 'RUNNING' },
-      });
-
-      await request
-        .post('/api/v1/e2e/game-start')
-        .send({ roomCode: '123-456' });
-
-      const afterStatus = await prisma.room.findFirst({
-        where: { status: 'RUNNING' },
-      });
-
-      expect(afterStatus).toEqual(beforeStatus);
     });
   });
 });
 
-describe('E2E Endpoints — Development Mode', () => {
-  // Only test if the env var override allows it
-  const originalEnv = process.env.NODE_ENV;
+// ── Development mode tests ───────────────────────────────────
 
-  afterEach(() => {
-    process.env.NODE_ENV = originalEnv;
+describe('E2E Endpoints — Development Mode', () => {
+  afterEach(async () => {
+    const { prisma } = await import('../persistence/prisma.js');
+    try {
+      await prisma.session.deleteMany({
+        where: { id: { startsWith: 'seed-sess-' }, userId: { startsWith: 'e2e-dev-' } },
+      });
+    } catch { /* ignore */ }
   });
 
-  it('e2e-token is reachable in development', async () => {
-    process.env.NODE_ENV = 'development';
-    // We can't easily recreate the app in test context, so we just
-    // verify the source code has the guard
-    const _dirname = dirname(fileURLToPath(import.meta.url));
-    const authSrc = readFileSync(resolve(_dirname, '../http/auth.ts'), 'utf8');
-    expect(authSrc).toContain("NODE_ENV === 'production'");
+  it('e2e-token is reachable in development and creates a real session', async () => {
+    const { request: req, prisma: db, dbUrl } = await createTestApp();
+
+    const ts = Date.now();
+    const userId = `e2e-dev-${ts}`;
+
+    await seedTestUserWithDb(db, userId, `E2E Dev ${ts}`, `${userId}@test.local`);
+
+    const res = await req
+      .post('/api/v1/auth/e2e-token')
+      .send({ userId });
+
+    expect(res.status).toBe(200);
+    expect(res.body.success).toBe(true);
+    expect(res.body.data.user.id).toBe(userId);
+
+    // Set-Cookie header present
+    const raw = res.headers['set-cookie'] as string | string[] | undefined;
+    const cookieArr = Array.isArray(raw) ? raw : raw ? [raw] : [];
+    const cookieStr = cookieArr.join('; ');
+    expect(cookieStr.includes('quiz_session=')).toBe(true);
+
+    const newSessionId: string = res.body.data.sessionId;
+    expect(newSessionId).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/);
+
+    // Session actually stored in DB
+    const newSession = await db.session.findUnique({ where: { id: newSessionId } });
+    expect(newSession).not.toBeNull();
+    expect(newSession?.userId).toBe(userId);
+
+    await cleanupTestDataForDb(dbUrl);
+    await db.$disconnect();
+  });
+
+  it('e2e-token returns 404 for unknown userId in development', async () => {
+    const { request: req } = await createTestApp();
+
+    const res = await req
+      .post('/api/v1/auth/e2e-token')
+      .send({ userId: 'does-not-exist' });
+
+    expect(res.status).toBe(404);
+    expect(res.body.success).toBe(false);
+  });
+
+  it('e2e-token does NOT create a session for unknown userId', async () => {
+    const { request: req, prisma: db, dbUrl } = await createTestApp();
+
+    const ts = Date.now();
+    const unknownUserId = `e2e-dev-unknown-${ts}`;
+
+    const res = await req
+      .post('/api/v1/auth/e2e-token')
+      .send({ userId: unknownUserId });
+
+    expect(res.status).toBe(404);
+    expect(res.body.success).toBe(false);
+
+    expect(await db.user.findUnique({ where: { id: unknownUserId } })).toBeNull();
+    expect(await db.session.findMany({ where: { userId: unknownUserId } })).toHaveLength(0);
+
+    await cleanupTestDataForDb(dbUrl);
+    await db.$disconnect();
   });
 });

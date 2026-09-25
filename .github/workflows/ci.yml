@@ -33,8 +33,8 @@ jobs:
 
       - name: Run database migrations
         env:
-          DATABASE_URL: file:///tmp/test-ci.db
-        run: pnpm prisma migrate deploy
+          DATABASE_URL: file:/tmp/quiz-server-test.db
+        run: pnpm prisma migrate deploy --schema=./prisma/schema.prisma
 
       - name: Type check
         run: pnpm typecheck
@@ -42,8 +42,114 @@ jobs:
       - name: Lint
         run: pnpm lint
 
-      - name: Test
-        run: pnpm test
-
       - name: Build
         run: pnpm build
+
+      - name: Server tests
+        env:
+          DATABASE_URL: file:/tmp/quiz-server-test.db
+          SESSION_SECRET: ci-test-secret-at-least-32-chars-long
+        run: pnpm --filter @quiz/server test
+
+      - name: Web tests
+        run: pnpm --filter @quiz/web test
+
+  e2e:
+    name: E2E
+    runs-on: ubuntu-latest
+    needs: ci
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+
+      - name: Enable Corepack
+        run: corepack enable
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Generate Prisma Client
+        run: pnpm prisma generate
+
+      - name: Install Playwright browsers
+        run: pnpm --filter @quiz/web exec playwright install --with-deps chromium
+
+      - name: Build all apps
+        run: pnpm build
+
+      - name: Create fresh SQLite DB and run migrations + seed
+        env:
+          DATABASE_URL: file:/tmp/test-e2e.db
+          SESSION_SECRET: test-secret-32chars-long-for-e2e
+        run: |
+          rm -f /tmp/test-e2e.db
+          DATABASE_URL=file:/tmp/test-e2e.db pnpm prisma migrate deploy
+          DATABASE_URL=file:/tmp/test-e2e.db SESSION_SECRET=test-secret-32chars-long-for-e2e pnpm db:seed
+
+      - name: Start backend server (port 3001) in background
+        run: |
+          nohup env \
+            DATABASE_URL=file:/tmp/test-e2e.db \
+            SESSION_SECRET=test-secret-32chars-long-for-e2e \
+            ALLOWED_ORIGINS=http://localhost:3001,http://localhost:5173 \
+            PUBLIC_APP_URL=http://localhost:3001 \
+            NODE_ENV=development \
+            node apps/server/dist/server.js \
+            > /tmp/backend.log 2>&1 &
+          echo "Backend PID: $!"
+          for i in $(seq 1 30); do
+            if curl -sf http://localhost:3001/api/v1/health > /dev/null 2>&1; then
+              echo "Backend ready after ${i}s"
+              break
+            fi
+            if [ $i -eq 30 ]; then
+              echo "Backend FAILED to start. Log:"
+              cat /tmp/backend.log
+              exit 1
+            fi
+            sleep 1
+          done
+
+      - name: Run E2E tests
+        env:
+          E2E_BASE_URL: http://localhost:5173
+        run: |
+          echo "=== E2E PRE-FLIGHT ==="
+          echo "NODE=$(node --version)"
+          echo "BACKEND=$(curl -sf http://localhost:3001/api/v1/health 2>&1 || echo DOWN)"
+
+          echo ""
+          echo "=== RUNNING G4 E2E TESTS ==="
+          pnpm exec playwright test \
+            --config=playwright.config.ts \
+            --project=chromium \
+            --grep="G4-"
+
+          echo ""
+          echo "=== POST-RUN ==="
+          echo "PLAYWRIGHT_REPORT=$(ls playwright-report/ 2>/dev/null || echo NONE)"
+          echo "TEST_RESULTS=$(ls test-results/ 2>/dev/null || echo NONE)"
+
+          echo ""
+          echo "=== BACKEND LOG TAIL ==="
+          tail -30 /tmp/backend.log
+
+      - name: Upload Playwright report
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-playwright-report
+          path: playwright-report/
+          retention-days: 2
+
+      - name: Upload test-results
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-test-results
+          path: test-results/
+          retention-days: 2

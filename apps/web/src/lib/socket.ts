@@ -51,29 +51,30 @@ export type ServerToClientEvents = {
   'room:player:left': (data: { participationId: string }) => void;
   'room:player:ready': (data: { participationId: string; ready: boolean }) => void;
   'player:ready:set': (data: { playerId: string; ready: boolean }) => void;
-  'room:kicked': (data: { reason?: string }) => void;
+  'room:kicked': (data: { participationId?: string; reason?: string }) => void;
   'game:start': (data: { roomCode: string; status?: string; runPhase?: string }) => void;
   'game:started': (data: GameStartPayload) => void;
-  'game:ended': (data: { roomId: string; status: string; runPhase: string; finalScores?: Array<{ participationId: string; displayName: string; score: number }> }) => void;
+  'game:end': (data: { roomCode: string; status: string; runPhase: string; finalScores?: Array<{ participationId: string; displayName: string; score: number }> }) => void;
   'geo:question': (data: {
     roundIndex: number;
     totalQuestions: number;
     question: {
       id: string;
-      text: string;
-      options: Array<{ id: string; label: string; text: string }>;
-      mediaUrl?: string;
+      prompt: string;
+      category: string;
+      options: Array<{ id: string; label: string; text: string; imageUrl?: string }>;
+      imageUrl?: string;
     };
     timerMs: number;
     timerEndMs: number;
     buzzOpen: boolean;
   }) => void;
-  'geo:reveal': (data: { correctOptionId: string; correctOptionText?: string; explanation?: string; scores: Array<{ participationId: string; totalScore: number }> }) => void;
+  'geo:reveal': (data: { correctOptionId?: string; correctOptionText?: string; explanation?: string; scores: Array<{ participationId: string; displayName: string; score: number; correct: boolean; bonus: number }> }) => void;
   'geo:timer-expired': (data: { roundIndex: number }) => void;
   'geo:buzzer': (data: { winnerId: string }) => void;
   'geo:next': (data: { nextRoundIndex?: number; roundIndex: number; totalQuestions: number }) => void;
   'geo:init': (data: { questionCount: number; phase: string }) => void;
-  'geo:answered': (data: { playerId: string; questionIndex: number }) => void;
+  'geo:answered': (data: { participantId: string; questionIndex: number; optionId: string }) => void;
   'geo:joker:5050:result': (data: { roundIndex: number; options: any[]; eliminated: string[] }) => void;
   'geo:joker:spy:result': (data: { roundIndex: number; distribution: Record<string, number> }) => void;
   'geo:joker:risk:result': (data: { roundIndex: number; active: boolean }) => void;
@@ -93,15 +94,15 @@ export type ClientToServerEvents = {
   'room:kick': (data: { roomCode: string; playerId: string }, ack: (res: { success: boolean; error?: string }) => void) => void;
   'player:ready:set': (data: { roomCode: string; ready: boolean; rejoinToken?: string }, ack: (res: { success: boolean }) => void) => void;
   'game:start': (data: { roomCode: string }, ack: (res: { success: boolean; error?: string }) => void) => void;
-  'game:pause': (data: { roomCode: string }, ack: (res: { success: boolean }) => void) => void;
-  'game:resume': (data: { roomCode: string }, ack: (res: { success: boolean }) => void) => void;
-  'game:end': (data: { roomCode: string }, ack: (res: { success: boolean }) => void) => void;
-  'geo:answer': (data: GeoAnswerPayload & { rejoinToken?: string }, ack: (res: { success: boolean }) => void) => void;
-  'geo:joker:5050': (data: GeoJokerPayload & { rejoinToken?: string }, ack: (res: { success: boolean; eliminatedOptions?: string[] }) => void) => void;
-  'geo:joker:spy': (data: GeoJokerPayload & { rejoinToken?: string }, ack: (res: { success: boolean; distribution?: Record<string, number> }) => void) => void;
-  'geo:joker:risk': (data: GeoJokerPayload & { rejoinToken?: string }, ack: (res: { success: boolean }) => void) => void;
-  'geo:reveal': (data: GeoJokerPayload, ack: (res: { success: boolean }) => void) => void;
-  'geo:next': (data: GeoJokerPayload, ack: (res: { success: boolean }) => void) => void;
+  'game:pause': (data: { roomCode: string }, ack: (res: { success: boolean; error?: string }) => void) => void;
+  'game:resume': (data: { roomCode: string }, ack: (res: { success: boolean; error?: string }) => void) => void;
+  'game:end': (data: { roomCode: string }, ack: (res: { success: boolean; error?: string }) => void) => void;
+  'geo:answer': (data: GeoAnswerPayload & { rejoinToken?: string }, ack: (res: { success: boolean; error?: string }) => void) => void;
+  'geo:joker:5050': (data: GeoJokerPayload & { rejoinToken?: string }, ack: (res: { success: boolean; error?: string; eliminatedOptions?: string[] }) => void) => void;
+  'geo:joker:spy': (data: GeoJokerPayload & { rejoinToken?: string }, ack: (res: { success: boolean; error?: string; distribution?: Record<string, number> }) => void) => void;
+  'geo:joker:risk': (data: GeoJokerPayload & { rejoinToken?: string }, ack: (res: { success: boolean; error?: string }) => void) => void;
+  'geo:reveal': (data: GeoJokerPayload, ack: (res: { success: boolean; error?: string }) => void) => void;
+  'geo:next': (data: GeoJokerPayload, ack: (res: { success: boolean; error?: string; ended?: boolean }) => void) => void;
   'buzz:press': (data: BuzzPayload & { rejoinToken?: string }, ack: (res: { success: boolean }) => void) => void;
   'lobby:chat:send': (data: { roomCode: string; content: string }, ack: (res: { success: boolean }) => void) => void;
   'lobby:chat:lock': (data: { roomCode: string; locked: boolean }, ack: (res: { success: boolean }) => void) => void;
@@ -192,19 +193,6 @@ export function connectSocket() {
 export function disconnectSocket() {
   socket?.disconnect();
   socket = null;
-}
-
-// E2E: Expose a reset function that disconnects AND nulls the singleton.
-// After page.reload(), call __resetSocket() from page.evaluate() to force a
-// FRESH Socket instance on next connect(), which fires 'connect' event
-// → room:subscribe → Moderator is in Room → game:start succeeds.
-export function resetSocket() {
-  socket?.disconnect();
-  socket = null;
-}
-
-if (typeof window !== 'undefined') {
-  (window as any).__resetSocket = resetSocket;
 }
 
 // ── Kick Player Helper ─────────────────────────────────────────

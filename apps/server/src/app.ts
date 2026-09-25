@@ -41,8 +41,9 @@ function getAppVersion(): string {
 
 export function createApp(): AppFactoryResult {
   const __dirname = path.dirname(fileURLToPath(import.meta.url));
-  // Read live — config.nodeEnv may be cached from import time
-  const isDev = process.env.NODE_ENV !== 'production';
+  // Read live so NODE_ENV can be overridden between test runs
+  const nodeEnv = process.env.NODE_ENV ?? 'development';
+  const isDev = nodeEnv !== 'production';
   const APP_VERSION = getAppVersion();
 
   const app = express();
@@ -74,7 +75,11 @@ export function createApp(): AppFactoryResult {
 
   // API Routes
   app.use('/api/v1/auth', authRouter);
-  app.use('/api/v1/e2e', e2eRouter);
+  // E2E test helpers — only mounted in development
+  // In production they must not be reachable at all (no route registration)
+  if (process.env.NODE_ENV !== 'production') {
+    app.use('/api/v1/e2e', e2eRouter);
+  }
   app.use('/api/v1/catalog', catalogRouter);
   app.use('/api/v1/rooms', roomsRouter);
   app.use('/api/v1/setups', setupRouter);
@@ -123,7 +128,6 @@ export function createApp(): AppFactoryResult {
   setupSocketHandlers(io);
 
   // Error handling
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   app.use((err: Error, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
     logger.error('Unhandled error', { error: err.message, stack: err.stack });
     res.status(500).json({

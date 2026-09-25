@@ -1,27 +1,44 @@
 // ============================================================
 // Test helpers — shared setup/teardown for integration tests
+//
+// IMPORTANT: All functions that access the DB do a DYNAMIC import of
+// persistence/prisma.js inside the function body. This ensures that if
+// globalThis.__prisma has been set by a test, the dynamic import returns
+// the replaced singleton. A top-level `import { prisma } from './...'` would
+// capture the original binding before any test can set globalThis.__prisma.
 // ============================================================
 
 import { createHmac } from 'crypto';
-import { prisma } from './persistence/prisma.js';
-import { config } from './config/index.js';
+import { execFile } from 'node:child_process';
+import { dirname, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import type { PrismaClient } from '@prisma/client';
 
-/** Fixed test admin credentials */
 export const TEST_ADMIN = {
   email: 'admin@quiz.local',
   password: 'secret',
   displayName: 'Test Admin',
 };
 
-/** Get an existing seed admin or create one */
-export async function getSeedAdmin() {
-  return prisma.user.findUniqueOrThrow({
-    where: { email: TEST_ADMIN.email },
+export async function createTestDatabase(databaseUrl: string): Promise<void> {
+  const scriptPath = resolve(dirname(fileURLToPath(import.meta.url)), 'test-database.ts');
+  await new Promise<void>((done, fail) => {
+    execFile(
+      process.execPath,
+      ['--import', 'tsx', scriptPath, databaseUrl],
+      { env: { ...process.env, DATABASE_URL: databaseUrl } },
+      (error, _stdout, stderr) => error ? fail(new Error(stderr || error.message)) : done(),
+    );
   });
 }
 
-/** Create a geo quiz game definition for integration tests */
+export async function getSeedAdmin() {
+  const { prisma } = await import('./persistence/prisma.js');
+  return prisma.user.findUniqueOrThrow({ where: { email: TEST_ADMIN.email } });
+}
+
 export async function getOrCreateGeoGame() {
+  const { prisma } = await import('./persistence/prisma.js');
   const ts = Date.now();
   const id = `geo-integration-${ts}`;
   return prisma.gameDefinition.upsert({
@@ -41,35 +58,24 @@ export async function getOrCreateGeoGame() {
 
 // ── Session cookie factory ──────────────────────────────────
 
-const COOKIE_NAME = 'quiz_session';
-
-function makeSessionCookie(sessionId: string): string {
-  const signature = createHmac('sha256', config.sessionSecret)
-    .update(sessionId)
-    .digest('base64url');
-  return `${COOKIE_NAME}=${sessionId}.${signature}; Path=/; HttpOnly`;
+function makeSessionCookie(sessionId: string, secret: string): string {
+  const signature = createHmac('sha256', secret).update(sessionId).digest('base64url');
+  return `quiz_session=${sessionId}.${signature}; Path=/; HttpOnly`;
 }
 
-/** Create a session for a user in the DB and return the signed cookie */
-export async function createTestSession(userId: string): Promise<string> {
-  const session = await prisma.session.create({
-    data: {
-      id: `test-session-${Date.now()}-${Math.random().toString(36).slice(2)}`,
-      userId,
-      expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
-    },
-  });
-  return makeSessionCookie(session.id);
-}
-
-/** Create user + session, return { user, cookie } for tests */
-export async function seedTestUser(
+/** Create user + session, return { userId, cookie } for tests.
+ * Uses the PrismaClient that is currently registered (possibly patched via
+ * globalThis.__prisma), so callers can use the SAME connection that the app
+ * will read from. */
+export async function seedTestUserWithDb(
+  db: PrismaClient,
   id: string,
   displayName: string,
   email: string,
   isAdmin = false,
 ): Promise<{ userId: string; cookie: string }> {
-  const user = await prisma.user.upsert({
+  const { config } = await import('./config/index.js');
+  const user = await db.user.upsert({
     where: { id },
     update: { displayName, email },
     create: {
@@ -81,20 +87,73 @@ export async function seedTestUser(
       role: isAdmin ? 'ADMIN' : 'MODERATOR',
     },
   });
-  const cookie = await createTestSession(user.id);
-  return { userId: user.id, cookie };
+  const session = await db.session.create({
+    data: {
+      id: `seed-sess-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+      userId: user.id,
+      expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
+    },
+  });
+  return { userId: user.id, cookie: makeSessionCookie(session.id, config.sessionSecret) };
+}
+
+/** Create user + session using the current prisma singleton. */
+export async function seedTestUser(
+  id: string,
+  displayName: string,
+  email: string,
+  isAdmin = false,
+): Promise<{ userId: string; cookie: string }> {
+  const { prisma } = await import('./persistence/prisma.js');
+  return seedTestUserWithDb(prisma, id, displayName, email, isAdmin);
 }
 
 // ── Cleanup helpers ─────────────────────────────────────────
 
 /** Clean up test rooms created during a test */
 export async function cleanupTestRoom(code: string) {
-  await prisma.room.deleteMany({ where: { code } }).catch(() => {/* ignore */});
+  try {
+    const { prisma } = await import('./persistence/prisma.js');
+    await prisma.room.deleteMany({ where: { code } });
+  } catch { /* ignore */ }
 }
 
-/** Delete all sessions that start with 'test-session-' (cleanup after test) */
+/** Delete all sessions created during integration tests.
+ * Scoped to test-specific prefixes to avoid wiping sessions created by
+ * the current test (before its own requests).
+ *
+ * IMPORTANT: Uses a fresh PrismaClient (bypassing globalThis.__prisma) so
+ * cleanup works even after a test has called $disconnect() on its own client. */
 export async function cleanupTestSessions() {
-  await prisma.session.deleteMany({
-    where: { id: { startsWith: 'test-session-' } },
-  });
+  const { PrismaClient } = await import('@prisma/client');
+  // Use DATABASE_URL directly — avoids globalThis.__prisma which may be $disconnect()ed
+  const dbUrl = process.env.DATABASE_URL ?? 'file:/tmp/quiz-server-test.db';
+  const cleanupDb = new PrismaClient({ datasourceUrl: dbUrl });
+  try {
+    await cleanupDb.$connect();
+    await cleanupDb.session.deleteMany({ where: { id: { startsWith: 'seed-sess-' } } });
+    await cleanupDb.session.deleteMany({ where: { userId: { startsWith: 'e2e-' } } });
+    await cleanupDb.session.deleteMany({ where: { userId: { startsWith: 'mod-rl-' } } });
+    await cleanupDb.session.deleteMany({ where: { userId: { startsWith: 'geo-room-' } } });
+  } finally {
+    await cleanupDb.$disconnect();
+  }
+}
+
+/** Clean up test rooms and sessions for a given temp DB file.
+ * Used at the end of each test instead of cleanupTestSessions when
+ * the test has its own isolated DB. */
+export async function cleanupTestDataForDb(dbUrl: string) {
+  const { PrismaClient } = await import('@prisma/client');
+  const cleanupDb = new PrismaClient({ datasourceUrl: dbUrl });
+  try {
+    await cleanupDb.$connect();
+    // Remove rooms created by createTestRoom (geo-room-* host user or matching timestamps)
+    await cleanupDb.room.deleteMany({
+      where: { hostUserId: { startsWith: 'mod-' }, createdAt: { lt: new Date() } },
+    });
+    await cleanupDb.session.deleteMany({ where: { id: { startsWith: 'seed-sess-' } } });
+  } finally {
+    await cleanupDb.$disconnect();
+  }
 }

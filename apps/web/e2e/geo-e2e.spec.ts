@@ -1,316 +1,222 @@
-import { test, expect, type Page } from '@playwright/test';
+import { expect, test, type Page } from '@playwright/test';
 
-// ── Browser-Console-Logger ────────────────────────────────────────
-function setupBrowserLogger(page: Page, label: string) {
-  page.on('console', msg => {
-    const text = msg.text();
-    if (text.startsWith('[SOCKET') || text.startsWith('[FORCE') || text.startsWith('[E2E')) {
-      console.log(`[${label}] ${text}`);
-    }
-  });
-  page.on('pageerror', err => console.log(`[${label}] PAGE ERROR: ${err.message}`));
+const BASE = process.env.E2E_BASE_URL ?? 'http://localhost:5173';
+
+interface PlayerSession {
+  participationId: string;
+  rejoinToken: string;
+  role: string;
 }
 
-// Gate 4: Vollständiger Geo-Vertical-Slice
-// Testet: Moderator + 2 Spieler + 1 Zuschauer, alle Spielphasen
-
-const BASE = process.env.E2E_BASE_URL || 'http://localhost:5173';
-
-// --- Hilfsfunktionen ---
-
-async function loginAsModerator(page: Page) {
-  // E2E-Shortcut: Session-Cookie direkt via API setzen (bypasst Browser-Login + Cookie-Cross-Context-Probleme)
-  // WICHTIG: page.context().request teilt den Cookie-Jar mit dem Browser-Context
+async function loginAsModerator(page: Page, userId = 'mod-1'): Promise<void> {
   const response = await page.context().request.post(`${BASE}/api/v1/auth/e2e-token`, {
-    data: { userId: 'mod-1' },
-    headers: { 'Content-Type': 'application/json' },
+    data: { userId },
   });
 
-  if (!response.ok()) {
-    throw new Error(`E2E token failed: ${response.status()} ${await response.text()}`);
-  }
+  expect(response.status(), `E2E-Login für ${userId} fehlgeschlagen: ${await response.text()}`).toBe(200);
+  const body = await response.json() as { success: boolean; data?: { user?: { id: string } } };
+  expect(body.success).toBe(true);
+  expect(body.data?.user?.id).toBe(userId);
+}
 
-  const json = await response.json();
-  if (!json.success) {
-    throw new Error(`E2E token failed: ${JSON.stringify(json)}`);
-  }
-
-  console.log(`[loginAsModerator] Session cookie gesetzt für: ${json.data.user.displayName}`);
+async function createGeoRoom(page: Page, questionCount = 1): Promise<string> {
   await page.goto(`${BASE}/moderator/vorbereitung/geo`);
-  await page.waitForTimeout(1000);
-  await expect(page.getByRole('button', { name: /Raum erstellen/ })).toBeVisible({ timeout: 10000 });
+  await expect(page.getByRole('heading', { name: 'Raum vorbereiten' })).toBeVisible();
+  await page.getByLabel('Raumname (optional)').fill('E2E Geo Test');
+  await page.getByLabel('Anzahl Fragen').fill(String(questionCount));
+
+  await page.getByRole('button', { name: 'Raum erstellen' }).click();
+  await page.waitForURL(/\/moderator\/raum\/\d{3}-\d{3}\/lobby$/, { timeout: 20_000 });
+
+  const match = page.url().match(/\/moderator\/raum\/(\d{3}-\d{3})\/lobby$/);
+  expect(match, `Raumcode fehlt in URL: ${page.url()}`).not.toBeNull();
+  return match![1];
 }
 
-async function createGeoRoom(page: Page): Promise<string> {
-  // Sicherstellen, dass wir auf der Geo-Setup-Seite sind
-  await page.goto(`${BASE}/moderator/vorbereitung/geo`);
-  await page.waitForLoadState('networkidle');
-  await page.waitForTimeout(2000);
+async function joinAsPlayer(page: Page, code: string, name: string): Promise<PlayerSession> {
+  await page.goto(`${BASE}/beitreten`);
+  await page.getByLabel('Anzeigename').fill(name);
+  await page.getByLabel('Raumcode').fill(code);
+  await page.getByRole('button', { name: 'Beitreten' }).click();
 
-  // Prüfe: Heading "Raum vorbereiten" muss sichtbar sein
-  await expect(page.getByRole('heading', { name: /Raum vorbereiten/i })).toBeVisible();
+  await page.waitForURL(new RegExp(`/raum/${code}/lobby$`), { timeout: 15_000 });
+  await expect(page.getByText('Verbunden', { exact: true }).first()).toBeVisible({ timeout: 15_000 });
 
-  // Optional: Raumnamen setzen (leer lassen = Default)
-  const roomNameInput = page.locator('input[placeholder*="Quiz"]').first();
-  if (await roomNameInput.isVisible({ timeout: 1000 }).catch(() => false)) {
-    await roomNameInput.fill('E2E Geo Test');
-  }
+  const session = await page.evaluate(() => ({
+    participationId: sessionStorage.getItem('qp_participationId'),
+    rejoinToken: sessionStorage.getItem('qp_rejoinToken'),
+    role: sessionStorage.getItem('qp_role'),
+  }));
 
-  // "Raum erstellen" Button klicken
-  const createBtn = page.locator('button:has-text("Raum erstellen")').first();
-  await expect(createBtn).toBeVisible();
-  console.log('[createGeoRoom] Clicking "Raum erstellen" button');
-  await createBtn.click();
+  expect(session.participationId, `${name}: participationId wurde nicht gespeichert`).toBeTruthy();
+  expect(session.rejoinToken, `${name}: rejoinToken wurde nicht gespeichert`).toBeTruthy();
+  expect(session.role).toBe('PLAYER');
 
-  // Netzwerk-Responses sammeln für Diagnose
-  const apiResponses: { url: string; status: number; body?: string }[] = [];
-  page.on('response', async res => {
-    if (res.url().includes('/api/v1/rooms')) {
-      const body = await res.text().catch(() => '');
-      apiResponses.push({ url: res.url(), status: res.status(), body });
-    }
-  });
-
-  // Warten auf Navigation zur Moderator-Lobby
-  // Timeout erhöht weil Socket.io/Express langsam sein kann
-  try {
-    await page.waitForURL(/\/moderator\/raum\/[A-Z0-9-]+\/lobby/, { timeout: 20000 });
-  } catch (e) {
-    console.log('[createGeoRoom] Navigation failed. URL:', page.url());
-    console.log('[createGeoRoom] API responses:', JSON.stringify(apiResponses));
-    // Check for alert dialogs
-    page.on('dialog', d => console.log('[createGeoRoom] Dialog:', d.message()));
-    throw e;
-  }
-
-  // Room Code aus URL extrahieren
-  const url = page.url();
-  const match = url.match(/\/moderator\/raum\/([A-Z0-9-]+)\/lobby/);
-  return match ? match[1] : '';
+  return session as PlayerSession;
 }
 
-async function joinAsPlayer(page: Page, code: string, name: string) {
-  // Spieler über REST API beitreten lassen (POST /api/v1/rooms/:code/join)
-  // page.context().request teilt den Cookie-Jar mit dem Browser-Context
-  const response = await page.context().request.post(`${BASE}/api/v1/rooms/${code}/join`, {
-    data: { displayName: name },
-    headers: { 'Content-Type': 'application/json' },
-  });
-
-  if (!response.ok()) {
-    const text = await response.text();
-    throw new Error(`Player join API failed: ${response.status()} ${text}`);
-  }
-
-  const json = await response.json();
-  if (!json.success) {
-    throw new Error(`Player join failed: ${JSON.stringify(json)}`);
-  }
-
-  const { rejoinToken, participationId, roomCode } = json.data;
-  console.log(`[joinAsPlayer] ${name} beigetreten: pid=${participationId}, token=${rejoinToken?.slice(0,8)}...`);
-
-  // SessionStorage im Browser-Context setzen (localStorage-Escape via page.evaluate)
-  await page.goto(`${BASE}/raum/${code}/lobby`);
-  await page.waitForLoadState('networkidle');
-
-  await page.evaluate((tokens: { rejoinToken: string; participationId: string; roomCode: string }) => {
-    sessionStorage.setItem('qp_rejoinToken', tokens.rejoinToken);
-    sessionStorage.setItem('qp_participationId', tokens.participationId);
-    sessionStorage.setItem('qp_roomCode', tokens.roomCode);
-    sessionStorage.setItem('qp_role', 'PLAYER');
-  }, { rejoinToken, participationId, roomCode });
-
-  // Seite neu laden damit React die sessionStorage liest + Socket verbindet
-  await page.reload();
-  await page.waitForLoadState('networkidle');
-
-  // Warten bis Socket-Verbindung steht + Lobby-Snapshot empfangen
-  await page.waitForTimeout(3000);
-  await page.waitForURL(RegExp(`/raum/${code}/lobby`), { timeout: 15000 });
-
-  // DEBUG: Socket-Verbindungsstatus prüfen
-  const connected = await page.locator('text=Verbunden').isVisible({ timeout: 3000 }).catch(() => false);
-  const players = await page.locator('text=Bereit').count().catch(() => 0);
-  console.log(`[joinAsPlayer] Lobby geladen. Verbunden=${connected}, Bereit-Buttons=${players}`);
+async function markReady(page: Page): Promise<void> {
+  const readyButton = page.getByRole('button', { name: 'Ich bin bereit!' });
+  await expect(readyButton).toBeVisible();
+  await readyButton.click();
+  await expect(page.getByRole('button', { name: 'Nicht mehr bereit' })).toBeVisible();
+  await expect(page.getByRole('alert')).toHaveCount(0);
 }
 
-async function joinAsViewer(page: Page, code: string) {
-  await page.goto(`${BASE}/zuschauen/${code}/lobby`);
-  await page.waitForLoadState('networkidle');
-  await page.waitForTimeout(2000);
-
-  await page.waitForURL(RegExp(`/zuschauen/${code}/(lobby|spiel)`), { timeout: 10000 }).catch(
-    async () => { await page.waitForTimeout(3000); }
-  );
-}
-
-// --- Tests ---
-
-test('G4-1: Moderator Login → Geo-Raum erstellen', async ({ page }) => {
+test('G4-1: Moderator Login -> Geo-Raum erstellen', async ({ page }) => {
   await loginAsModerator(page);
-
-  // Nach Login sollte man NICHT mehr auf der Anmeldeseite sein
-  await expect(page).not.toHaveURL(/anmelden/, { ignoreCase: true });
-
-  // Geo-Raum erstellen
   const code = await createGeoRoom(page);
-  expect(code).toMatch(/^[A-Z0-9-]+$/);
-  expect(code.length).toBeGreaterThan(0);
 
-  // Moderator-Lobby URL bestätigen
-  await expect(page).toHaveURL(/\/moderator\/raum\/[A-Z0-9-]+\/lobby/);
-
-  // Raum-Code sollte in der Lobby sichtbar sein
-  await expect(page.getByText(code).first()).toBeVisible({ timeout: 5000 });
+  expect(code).toMatch(/^\d{3}-\d{3}$/);
+  await expect(page.getByText(code, { exact: true }).first()).toBeVisible();
+  await expect(page.getByText('Verbunden', { exact: true }).first()).toBeVisible();
 });
 
-test('G4-2: Zwei Spieler treten bei → Lobby zeigt beide', async ({ browser }) => {
-  const modCtx = await browser.newContext();
-  const playerACtx = await browser.newContext();
-  const playerBCtx = await browser.newContext();
-
-  const modPage = await modCtx.newPage();
-  const playerAPage = await playerACtx.newPage();
-  const playerBPage = await playerBCtx.newPage();
+test('G4-2: Zwei echte Spieler treten bei und erscheinen in der Lobby', async ({ browser }) => {
+  const modContext = await browser.newContext();
+  const playerAContext = await browser.newContext();
+  const playerBContext = await browser.newContext();
 
   try {
-    await loginAsModerator(modPage);
-    const code = await createGeoRoom(modPage);
+    const moderator = await modContext.newPage();
+    const playerA = await playerAContext.newPage();
+    const playerB = await playerBContext.newPage();
 
-    // Player A joins (parallel mit etwas Verzögerung)
-    await joinAsPlayer(playerAPage, code, 'Spieler A');
+    await loginAsModerator(moderator);
+    const code = await createGeoRoom(moderator);
+    const [sessionA, sessionB] = await Promise.all([
+      joinAsPlayer(playerA, code, 'Spieler A'),
+      joinAsPlayer(playerB, code, 'Spieler B'),
+    ]);
 
-    // Kurz warten, dann Player B
-    await modPage.waitForTimeout(1000);
-    await joinAsPlayer(playerBPage, code, 'Spieler B');
-
-    // Moderator aktualisiert die Lobby
-    await modPage.reload();
-    await modPage.waitForTimeout(3000);
-
-    // Prüfe: Mindestens ein Spieler in der Lobby
-    const playerALoaded = await modPage.getByText('Spieler A').isVisible({ timeout: 5000 }).catch(() => false);
-    const playerBLoaded = await modPage.getByText('Spieler B').isVisible({ timeout: 5000 }).catch(() => false);
-
-    // Mindestens einer sollte sichtbar sein (Socket-Zeitfenster)
-    expect(playerALoaded || playerBLoaded).toBeTruthy();
+    expect(sessionA.participationId).not.toBe(sessionB.participationId);
+    await expect(moderator.getByText('Spieler A', { exact: true })).toBeVisible();
+    await expect(moderator.getByText('Spieler B', { exact: true })).toBeVisible();
   } finally {
-    await modCtx.close();
-    await playerACtx.close();
-    await playerBCtx.close();
+    await Promise.all([modContext.close(), playerAContext.close(), playerBContext.close()]);
   }
 });
 
-test('G4-3: Zuschauer kann Lobby beitreten ohne Login', async ({ browser }) => {
-  const ctx = await browser.newContext();
-  const page = await ctx.newPage();
+test('G4-3: Zuschauer kann einer öffentlichen Lobby ohne Login beitreten', async ({ browser }) => {
+  const moderatorContext = await browser.newContext();
+  const viewerContext = await browser.newContext();
 
   try {
-    // Moderator erstellt Raum
-    const modCtx = await browser.newContext();
-    const modPage = await modCtx.newPage();
-    await loginAsModerator(modPage);
-    const code = await createGeoRoom(modPage);
-    await modCtx.close();
+    const moderator = await moderatorContext.newPage();
+    const viewer = await viewerContext.newPage();
+    await loginAsModerator(moderator);
+    const code = await createGeoRoom(moderator);
 
-    // Zuschauer tritt bei — kein Login nötig
-    await joinAsViewer(page, code);
-
-    // Zuschauer-Lobby prüfen
-    await expect(page).toHaveURL(RegExp(`/zuschauen/${code}/(lobby|spiel)`), { timeout: 5000 });
+    await viewer.goto(`${BASE}/zuschauen/${code}/lobby`);
+    await expect(viewer).toHaveURL(new RegExp(`/zuschauen/${code}/lobby$`));
+    await expect(viewer.getByText('Verbunden', { exact: true }).first()).toBeVisible({ timeout: 15_000 });
   } finally {
-    await ctx.close();
+    await Promise.all([moderatorContext.close(), viewerContext.close()]);
   }
 });
 
-test('G4-4: Vollständiger Spielablauf (Moderator startet, 1 Spieler antwortet)', async ({ browser }) => {
-  const modCtx = await browser.newContext();
-  const playerCtx = await browser.newContext();
-
-  const modPage = await modCtx.newPage();
-  const playerPage = await playerCtx.newPage();
-  setupBrowserLogger(modPage, 'modPage');
-  setupBrowserLogger(playerPage, 'playerPage');
+test('G4-5: Privater Raum ist nur für den Host abrufbar', async ({ browser }) => {
+  const hostContext = await browser.newContext();
+  const anonymousContext = await browser.newContext();
+  const otherUserContext = await browser.newContext();
 
   try {
-    await loginAsModerator(modPage);
-    const code = await createGeoRoom(modPage);
+    const host = await hostContext.newPage();
+    const anonymous = await anonymousContext.newPage();
+    const otherUser = await otherUserContext.newPage();
+    await loginAsModerator(host, 'mod-1');
+    await loginAsModerator(otherUser, 'admin-1');
 
-    // Spieler tritt bei und markiert sich als bereit
-    await joinAsPlayer(playerPage, code, 'Quiz Champion');
-
-    // Spieler: "Ich bin bereit" klicken
-    const readyBtn = playerPage.locator('button:has-text("bereit")').first();
-    if (await readyBtn.isVisible({ timeout: 3000 }).catch(() => false)) {
-      await readyBtn.click();
-      await playerPage.waitForTimeout(1000);
-    }
-
-    // WICHTIG: Nach jedem page.reload() muss das Socket-Singleton zurückgesetzt werden.
-    // Problem: socket.io-client Singleton → nach reload wird kein 'connect'-Event mehr
-    // gefeuert → room:subscribe wird nicht emitted → game:start → NOT_IN_ROOM.
-    // Fix: Vor dem reload __resetSocket() aufrufen (nullt das Singleton).
-    // Nach dem Reload erstellt getSocket() ein FRISCHES Socket → connect-Event →
-    // room:subscribe → Moderator ist im Room → game:start funktioniert.
-    await modPage.evaluate(() => {
-      const win = window as any;
-      if (win.__resetSocket) {
-        console.log('[E2E] Calling __resetSocket() before reload');
-        win.__resetSocket();
-      } else {
-        console.log('[E2E] __resetSocket not found — may not be in bundle yet');
-      }
+    const createResponse = await host.context().request.post(`${BASE}/api/v1/rooms`, {
+      data: {
+        gameSlug: 'geo',
+        roomName: 'E2E Privater Test',
+        isPublic: false,
+        setupSnapshotJson: { questionCount: 1, timerDuration: 20 },
+      },
     });
-    await modPage.waitForTimeout(300);
-    await modPage.reload();
+    expect(createResponse.status(), await createResponse.text()).toBe(201);
+    const createBody = await createResponse.json() as { data: { code: string } };
+    const privateCode = createBody.data.code;
 
-    // NEUES Socket wird nach Reload erstellt (autoConnect=true).
-    // Das "Verbunden"-Element im DOM erscheint NACHdem das Socket
-    // room:subscribe gesendet hat → damit ist Subscription implizit bestätigt.
+    const publicResponse = await host.context().request.get(`${BASE}/api/v1/rooms/public`);
+    expect(publicResponse.status()).toBe(200);
+    const publicBody = await publicResponse.json() as { data: Array<{ code: string }> };
+    expect(publicBody.data.map(room => room.code)).not.toContain(privateCode);
 
-    // Warten auf "Verbunden" (erscheint NACH room:snapshot im DOM)
-    await modPage.waitForSelector('text=Verbunden', { timeout: 15000 });
-    await modPage.waitForTimeout(3000);
+    const anonymousResponse = await anonymous.context().request.get(`${BASE}/api/v1/rooms/${privateCode}`);
+    expect(anonymousResponse.status()).toBe(404);
 
-    // E2E-Socket-Identity-Fix: Nach page.reload() hat das neue Socket bereits
-    // room:subscribe gesendet aber role war möglicherweise falsch (VIEWER statt MODERATOR).
-    // Das Kernproblem: mod-1 ist nicht der Raum-Host (Raum wurde von admin erstellt).
-    // Lösung: REST /api/v1/e2e/game-start statt Socket.IO für game:start.
-    const roomCode = code;
+    const otherUserResponse = await otherUser.context().request.get(`${BASE}/api/v1/rooms/${privateCode}`);
+    expect(otherUserResponse.status()).toBe(404);
 
-    const pageContent = await modPage.locator('body').innerText();
-    console.log(`[modPage reload] URL=${await modPage.url()}`);
-    console.log(`[modPage reload] Players: ${pageContent.slice(0, 500)}`);
-
-    const playerVisible = await modPage.getByText('Quiz Champion').isVisible({ timeout: 3000 }).catch(() => false);
-    const adminVisible = await modPage.getByText('admin').isVisible({ timeout: 3000 }).catch(() => false);
-    console.log(`[modPage] admin sichtbar: ${adminVisible}, Quiz Champion sichtbar: ${playerVisible}`);
-
-    // ── Block 4: Spiel starten via REST ─────────────────────────────
-    // Problem: game:start via Socket.IO schlägt fehl weil die Moderator-Rolle
-    // nicht korrekt im Socket gesetzt ist (Session-Cookie-Problem bei E2E).
-    // Lösung: POST /api/v1/e2e/game-start startet das Spiel direkt via REST.
-    // Prüft: game-start-Logik, minPlayers, Fragen laden, RUNNING-Status, game:start emit.
-    console.log('[Block 4] Starte Spiel via REST /api/v1/e2e/game-start');
-    const startResult = await modPage.context().request.post(`${BASE}/api/v1/e2e/game-start`, {
-      data: { roomCode, gameType: 'GEO' },
-    });
-    const startData = await startResult.json();
-    console.log('[Block 4] game-start result:', JSON.stringify(startData));
-    expect(startResult.ok(), `game-start failed: ${JSON.stringify(startData)}`).toBeTruthy();
-
-    // e2e/game-start hat room.status = 'RUNNING' gesetzt und game:start emitted.
-    // pushState + popstate triggert React Router NICHT → direkter page.goto.
-    // Das funktioniert weil der Moderator ein gültiges Session-Cookie hat.
-    const gameUrl = `${BASE}/moderator/raum/${code}/spiel`;
-    console.log(`[Block 4] Navigiere direkt zu Spiel-Seite: ${gameUrl}`);
-    await modPage.goto(gameUrl, { waitUntil: 'load' });
-    console.log(`[Block 4] Spiel-Seite URL: ${modPage.url()}`);
-    expect(modPage.url()).toContain('/spiel');
-    console.log('[Block 4] Spiel-Seite erreicht!');
+    const hostResponse = await host.context().request.get(`${BASE}/api/v1/rooms/${privateCode}`);
+    expect(hostResponse.status()).toBe(200);
+    const hostBody = await hostResponse.json() as { success: boolean; data: { code: string } };
+    expect(hostBody.success).toBe(true);
+    expect(hostBody.data.code).toBe(privateCode);
   } finally {
-    await modCtx.close();
-    await playerCtx.close();
+    await Promise.all([hostContext.close(), anonymousContext.close(), otherUserContext.close()]);
+  }
+});
+
+test('G4-4: Vollständiger Geo-UI-Ablauf mit zwei Spielern', async ({ browser }) => {
+  test.setTimeout(90_000);
+  const moderatorContext = await browser.newContext();
+  const playerAContext = await browser.newContext();
+  const playerBContext = await browser.newContext();
+
+  try {
+    const moderator = await moderatorContext.newPage();
+    const playerA = await playerAContext.newPage();
+    const playerB = await playerBContext.newPage();
+
+    await loginAsModerator(moderator);
+    const code = await createGeoRoom(moderator, 1);
+    await Promise.all([
+      joinAsPlayer(playerA, code, 'Quiz Champion'),
+      joinAsPlayer(playerB, code, 'Spieler B'),
+    ]);
+    await Promise.all([markReady(playerA), markReady(playerB)]);
+
+    await expect(moderator.getByText('Quiz Champion', { exact: true })).toBeVisible();
+    await expect(moderator.getByText('Spieler B', { exact: true })).toBeVisible();
+    const startButton = moderator.getByRole('button', { name: 'Spiel starten' });
+    await expect(startButton).toBeEnabled();
+
+    await Promise.all([
+      moderator.waitForURL(new RegExp(`/moderator/raum/${code}/spiel$`), { timeout: 20_000 }),
+      playerA.waitForURL(new RegExp(`/raum/${code}/spiel$`), { timeout: 20_000 }),
+      playerB.waitForURL(new RegExp(`/raum/${code}/spiel$`), { timeout: 20_000 }),
+      startButton.click(),
+    ]);
+
+    const answerOptions = playerA.locator('button[class*="option"]');
+    await expect(answerOptions.first()).toBeVisible({ timeout: 15_000 });
+    await expect(playerA.getByRole('heading', { level: 2 })).toBeVisible();
+    await answerOptions.first().click();
+    await expect(playerA.getByRole('status')).toHaveText('Antwort gespeichert.');
+
+    const revealButton = moderator.getByRole('button', { name: /Auflösen/ });
+    await expect(revealButton).toBeVisible();
+    await revealButton.click();
+    await expect(moderator.getByRole('heading', { name: /Lösung:/ })).toBeVisible();
+
+    const nextButton = moderator.getByRole('button', { name: /Nächste Frage/ });
+    await expect(nextButton).toBeVisible();
+    await Promise.all([
+      moderator.waitForURL(new RegExp(`/moderator/raum/${code}/ergebnis$`), { timeout: 15_000 }),
+      playerA.waitForURL(new RegExp(`/raum/${code}/ergebnis$`), { timeout: 15_000 }),
+      playerB.waitForURL(new RegExp(`/raum/${code}/ergebnis$`), { timeout: 15_000 }),
+      nextButton.click(),
+    ]);
+
+    await expect(playerA.getByRole('heading', { name: /gewonnen|Top 3|Spiel beendet/ })).toBeVisible();
+    await expect(playerA.getByText('Quiz Champion', { exact: false })).toBeVisible();
+    await expect(playerA.getByText(/\d+ pts/).first()).toBeVisible();
+    await expect(playerB.getByText(/\d+ pts/).first()).toBeVisible();
+    await expect(moderator.getByRole('heading', { name: 'Ergebnis' })).toBeVisible();
+  } finally {
+    await Promise.all([moderatorContext.close(), playerAContext.close(), playerBContext.close()]);
   }
 });

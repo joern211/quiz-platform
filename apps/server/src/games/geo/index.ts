@@ -307,11 +307,12 @@ export const handleGeoGame = {
     // P0-16: Include timerEndMs in geo:question event
     const roundState = state.roundStates[state.currentRoundIndex];
     io.to(roomChannelName).emit('geo:question', {
-      roundNumber: state.currentRoundIndex + 1,
-      totalRounds: state.questions.length,
+      roundIndex: state.currentRoundIndex,
+      totalQuestions: state.questions.length,
       question: {
         id: question.id,
-        text: question.prompt,
+        prompt: question.prompt,
+        category: question.category,
         imageUrl: question.imageUrl || undefined,
         options: options.map((o: any) => ({ 
           id: o.id, 
@@ -321,7 +322,9 @@ export const handleGeoGame = {
         })),
         timerEndMs,
       },
+      timerMs: timerDuration,
       timerEndMs,
+      buzzOpen: false,
       yourJokers: roundState.playerStates['']?.jokers || {
         used5050: false,
         usedSpy: false,
