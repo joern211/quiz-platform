@@ -577,4 +577,96 @@ export const handleGameEvents = {
       callback?.({ success: false, error: 'INTERNAL_ERROR' });
     }
   },
+
+  // ============================================================
+  // Jeopardy Events
+  // ============================================================
+
+  async jeopardyFieldOpen(
+    io: Server,
+    socket: Socket,
+    data: { boardIndex: 1 | 2; categoryIndex: number; value: number },
+    callback?: (result: any) => void
+  ) {
+    const result = await handleJeopardyGame.handleFieldOpen(io, socket, data);
+    callback?.(result);
+  },
+
+  async jeopardyBuzz(
+    io: Server,
+    socket: Socket,
+    data: Record<string, never>,
+    callback?: (result: any) => void
+  ) {
+    const result = await handleJeopardyGame.handleBuzz(io, socket, data);
+    callback?.(result);
+  },
+
+  async jeopardyJudge(
+    io: Server,
+    socket: Socket,
+    data: { correct: boolean },
+    callback?: (result: any) => void
+  ) {
+    const result = await handleJeopardyGame.handleJudge(io, socket, data);
+    callback?.(result);
+  },
+
+  async jeopardyStealBuzz(
+    io: Server,
+    socket: Socket,
+    data: Record<string, never>,
+    callback?: (result: any) => void
+  ) {
+    const result = await handleJeopardyGame.handleStealBuzz(io, socket, data);
+    callback?.(result);
+  },
+
+  async jeopardyStealJudge(
+    io: Server,
+    socket: Socket,
+    data: { correct: boolean },
+    callback?: (result: any) => void
+  ) {
+    const result = await handleJeopardyGame.handleStealJudge(io, socket, data);
+    callback?.(result);
+  },
+
+  async jeopardyNext(
+    io: Server,
+    socket: Socket,
+    data: Record<string, never>,
+    callback?: (result: any) => void
+  ) {
+    const result = await handleJeopardyGame.handleNext(io, socket, data);
+    callback?.(result);
+  },
+
+  async jeopardySwitchBoard(
+    io: Server,
+    socket: Socket,
+    data: { toBoard: 2 | 1 },
+    callback?: (result: any) => void
+  ) {
+    const identity = getSocketDataIdentity(socket);
+    if (!identity?.roomId) {
+      callback?.({ success: false, error: 'NOT_IN_ROOM' });
+      return;
+    }
+    if (identity.role !== 'MODERATOR') {
+      callback?.({ success: false, error: 'UNAUTHORIZED' });
+      return;
+    }
+
+    const room = await prisma.room.findUnique({
+      where: { id: identity.roomId },
+    });
+    if (!room) {
+      callback?.({ success: false, error: 'ROOM_NOT_FOUND' });
+      return;
+    }
+
+    const result = await handleJeopardyGame.handleBoardSwitch(io, room);
+    callback?.(result);
+  },
 };

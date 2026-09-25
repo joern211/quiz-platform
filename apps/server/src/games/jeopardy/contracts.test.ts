@@ -6,7 +6,6 @@
 import { describe, it, expect } from 'vitest';
 import {
   JEOPARDY_PHASES,
-  JEOPARDY_PHASE_TRANSITIONS,
   isValidPhaseTransition,
   pointsForCorrect,
   pointsForWrongFirst,
@@ -32,7 +31,6 @@ import {
   resetBuzzer,
   openStealBuzzer,
   lockStealBuzzer,
-  JEOPARDY_PHASES as STATE_PHASES,
 } from './state.js';
 
 // ============================================================
@@ -133,7 +131,20 @@ describe('phase transitions', () => {
   });
 
   it('GAME_END has no valid transitions', () => {
-    expect(JEOPARDY_PHASE_TRANSITIONS[JEOPARDY_PHASES.GAME_END]).toHaveLength(0);
+    // GAME_END → any phase should all be invalid
+    const validTargets = [
+      JEOPARDY_PHASES.INTRO,
+      JEOPARDY_PHASES.SELECTING,
+      JEOPARDY_PHASES.BUZZ_OPEN,
+      JEOPARDY_PHASES.BUZZ_LOCKED,
+      JEOPARDY_PHASES.STEAL_OPEN,
+      JEOPARDY_PHASES.STEAL_LOCKED,
+      JEOPARDY_PHASES.FIELD_DONE,
+      JEOPARDY_PHASES.BOARD_COMPLETE,
+      JEOPARDY_PHASES.GAME_END,
+    ];
+    const valid = validTargets.filter((t) => isValidPhaseTransition(JEOPARDY_PHASES.GAME_END, t));
+    expect(valid).toHaveLength(0);
   });
 
   it('invalid backward transition throws', () => {

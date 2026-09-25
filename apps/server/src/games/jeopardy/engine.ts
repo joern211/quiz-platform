@@ -211,7 +211,9 @@ export const handleJeopardyGame = {
     if (!board) return { success: false, error: 'BOARD_NOT_FOUND' };
     const category = board.categories[data.categoryIndex];
     if (!category) return { success: false, error: 'CATEGORY_NOT_FOUND' };
-    const clue = category.clues.find((c) => c.value === data.value);
+    const clue = category.clues.find(
+      (c) => c.value === data.value
+    ) as { value: number; question: string; answer: string; mediaType?: string; mediaAssetId?: string };
     if (!clue) return { success: false, error: 'CLUE_NOT_FOUND' };
 
     // Update state
@@ -711,7 +713,7 @@ export const handleJeopardyGame = {
       let state: JeopardyGameState = JSON.parse(gameStateData.stateJson);
 
       // Valid phases: FIELD_DONE, BOARD_COMPLETE, GAME_END
-      const validPhases = [JEOPARDY_PHASES.FIELD_DONE, JEOPARDY_PHASES.BOARD_COMPLETE];
+      const validPhases: JeopardyPhase[] = [JEOPARDY_PHASES.FIELD_DONE, JEOPARDY_PHASES.BOARD_COMPLETE];
       if (!validPhases.includes(state.phase)) {
         throw new Error('PHASE_NOT_FIELD_DONE');
       }
@@ -807,12 +809,12 @@ export const handleJeopardyGame = {
       );
 
       io.to(roomChannel(room.id)).emit('jeopardy:board:switch', {
-        fromBoard: 1,
-        toBoard: 2,
+        fromBoard: 1 as 1 | 2,
+        toBoard: 2 as 1 | 2,
         categories,
         values,
         scores: newState.scores,
-      } as JeopardyBoardCompleteEvent & { categories: Array<{ name: string; clueCount: number }>; values: number[]; scores: Record<string, number> });
+      } as unknown as JeopardyBoardCompleteEvent & { categories: Array<{ name: string; clueCount: number }>; values: number[]; scores: Record<string, number> });
 
       logger.info('Jeopardy board switch', { roomId: room.id, from: 1, to: 2 });
     } else {

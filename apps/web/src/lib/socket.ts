@@ -78,6 +78,18 @@ export type ServerToClientEvents = {
   'geo:joker:5050:result': (data: { roundIndex: number; options: any[]; eliminated: string[] }) => void;
   'geo:joker:spy:result': (data: { roundIndex: number; distribution: Record<string, number> }) => void;
   'geo:joker:risk:result': (data: { roundIndex: number; active: boolean }) => void;
+  // ── Jeopardy ────────────────────────────────────────────────
+  'jeopardy:init': (data: { boardNumber: 1 | 2; categories: Array<{ name: string; clueCount: number }>; values: number[]; scores: Record<string, number>; playerNames?: Record<string, string> }) => void;
+  'jeopardy:field:open': (data: { categoryIndex: number; value: number; question: string; mediaType?: string; mediaAssetId?: string }) => void;
+  'jeopardy:answer:secret': (data: { answer: string }) => void; // Moderator only
+  'jeopardy:reveal': (data: { answer: string; correct: boolean; playerId: string; playerName: string; fieldValue: number; delta: number; scores: Record<string, number> }) => void;
+  'jeopardy:steal:open': (data: { categoryIndex: number; value: number }) => void;
+  'steal:buzz:won': (data: { playerId: string; displayName: string }) => void;
+  'jeopardy:steal:close': (data: { answer: string; thiefCorrect: boolean; thiefDelta: number; scores: Record<string, number> }) => void;
+  'jeopardy:field:done': (data: { categoryIndex: number; value: number }) => void;
+  'jeopardy:next': () => void;
+  'jeopardy:board:switch': (data: { fromBoard: 1 | 2; toBoard: 2 | 1; categories: Array<{ name: string; clueCount: number }>; values: number[]; scores: Record<string, number> }) => void;
+  'jeopardy:game:end': (data: { finalScores: Array<{ playerId: string; playerName: string; score: number }>; winnerIds: string[] }) => void;
   'buzz:won': (data: { playerId: string; displayName: string }) => void;
   'buzz:press': (data: BuzzPayload) => void;
   'game:pause': (data: { roomCode: string }) => void;
@@ -90,7 +102,7 @@ export type ServerToClientEvents = {
 
 export type ClientToServerEvents = {
   'room:subscribe': (data: { roomCode: string; rejoinToken?: string; pin?: string; role?: PlayerRole }, ack: (res: { success: boolean; error?: string; snapshot?: RoomState }) => void) => void;
-  'room:resync': (data: { roomCode: string }, ack: (res: { success: boolean; state?: RoomState }) => void) => void;
+  'room:resync': (data: { roomCode: string; rejoinToken?: string }, ack: (res: { success: boolean; state?: RoomState }) => void) => void;
   'room:kick': (data: { roomCode: string; playerId: string }, ack: (res: { success: boolean; error?: string }) => void) => void;
   'player:ready:set': (data: { roomCode: string; ready: boolean; rejoinToken?: string }, ack: (res: { success: boolean }) => void) => void;
   'game:start': (data: { roomCode: string }, ack: (res: { success: boolean; error?: string }) => void) => void;
@@ -104,6 +116,14 @@ export type ClientToServerEvents = {
   'geo:reveal': (data: GeoJokerPayload, ack: (res: { success: boolean; error?: string }) => void) => void;
   'geo:next': (data: GeoJokerPayload, ack: (res: { success: boolean; error?: string; ended?: boolean }) => void) => void;
   'buzz:press': (data: BuzzPayload & { rejoinToken?: string }, ack: (res: { success: boolean }) => void) => void;
+  // ── Jeopardy ────────────────────────────────────────────────
+  'jeopardy:field:open': (data: { boardIndex: 1 | 2; categoryIndex: number; value: number; rejoinToken?: string }, ack: (res: { success: boolean; error?: string }) => void) => void;
+  'jeopardy:buzz': (data: { rejoinToken?: string }, ack: (res: { success: boolean; error?: string }) => void) => void;
+  'jeopardy:judge': (data: { correct: boolean; rejoinToken?: string }, ack: (res: { success: boolean; error?: string }) => void) => void;
+  'jeopardy:steal:buzz': (data: { rejoinToken?: string }, ack: (res: { success: boolean; error?: string }) => void) => void;
+  'jeopardy:steal:judge': (data: { correct: boolean; rejoinToken?: string }, ack: (res: { success: boolean; error?: string }) => void) => void;
+  'jeopardy:next': (data: { rejoinToken?: string }, ack: (res: { success: boolean; error?: string }) => void) => void;
+  'jeopardy:switch:board': (data: { toBoard: 2 | 1; rejoinToken?: string }, ack: (res: { success: boolean; error?: string }) => void) => void;
   'lobby:chat:send': (data: { roomCode: string; content: string }, ack: (res: { success: boolean }) => void) => void;
   'lobby:chat:lock': (data: { roomCode: string; locked: boolean }, ack: (res: { success: boolean }) => void) => void;
 };

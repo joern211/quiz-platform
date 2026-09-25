@@ -45,7 +45,7 @@ export interface JeopardyFieldState {
 export interface JeopardyBoard {
   categories: Array<{
     name: string;
-    clues: Array<{ value: number; question: string; answer: string }>;
+    clues: Array<{ value: number; question: string; answer: string; mediaType?: string; mediaAssetId?: string }>;
   }>;
 }
 
@@ -373,12 +373,8 @@ export function lockStealBuzzer(state: JeopardyGameState, winnerId: string): Jeo
 export function switchToBoard(state: JeopardyGameState, newBoard: 1 | 2): JeopardyGameState {
   return {
     ...state,
+    ...resetBuzzer({} as JeopardyGameState),
     currentBoard: newBoard,
     currentField: null,
-    ...resetBuzzer({} as JeopardyGameState), // keep buzzer reset
-    buzzOpen: false,
-    buzzWinner: null,
-    stealOpen: false,
-    stealWinner: null,
   };
 }
