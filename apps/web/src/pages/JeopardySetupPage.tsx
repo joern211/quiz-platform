@@ -27,7 +27,7 @@ const clueSchema = z.object({
 });
 
 const categorySchema = z.object({
-  name: z.string().min(1, 'Kategoriename darf nicht leer sein.'),
+  title: z.string().min(1, 'Kategoriename darf nicht leer sein.'),
   clues: z.array(clueSchema).min(5).max(5),
 });
 
@@ -39,6 +39,9 @@ export const JeopardyBoardSchema = z.object({
   board1: boardSchema,
   board2: boardSchema,
 });
+
+// Re-export Board type from JeopardySetupPage
+export type { Board as JeopardyBoard };
 
 export type JeopardyValidationError = {
   board1?: { categories?: Array<{ name?: string[]; clues?: Array<{ question?: string[]; answer?: string[] }> }> };
@@ -162,7 +165,17 @@ export function JeopardySetupPage() {
     const engineBoard2 = toEngineBoard(board2);
     const validation = JeopardyBoardSchema.safeParse({ board1: engineBoard1, board2: engineBoard2 });
     if (!validation.success) {
-      const errors = validation.error.errors.map(e => `Board ${e.path[1] || ''} ${e.path.slice(2).join('.')}: ${e.message}`);
+      const errors = validation.error.errors.map(e => {
+        const path0 = String(e.path[0] ?? '');
+        // Category index is e.path[1] — could be 0 (valid) or undefined (root error)
+        const catIdx = e.path.length > 1 && e.path[1] !== undefined
+          ? Number(e.path[1])
+          : null;
+        const field = e.path.length > 2 ? String(e.path[2]) : '';
+        const boardLabel = path0 === 'board1' ? 'Board 1' : path0 === 'board2' ? 'Board 2' : path0;
+        const catLabel = catIdx !== null ? `Kategorie ${catIdx + 1}` : '';
+        return `${boardLabel} ${catLabel} ${field}: ${e.message}`.trim();
+      });
       setValidationErrors(errors);
       return;
     }

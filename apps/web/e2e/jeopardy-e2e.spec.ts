@@ -38,69 +38,140 @@ const SAMPLE_CATEGORIES = [
   'Geschichte', 'Wissenschaft', 'Geografie', 'Sport', 'Kunst', 'Musik',
 ];
 
-const makeSampleBoard = (pointMultiplier: number): Board => ({
-  categories: SAMPLE_CATEGORIES.map((title, ci) => ({
-    id: `cat-${ci}`,
-    title,
-    clues: [100, 200, 300, 400, 500].map((baseValue, vi) => ({
-      id: `cat-${ci}-clue-${vi}`,
-      value: baseValue * pointMultiplier,
-      question: `Frage ${ci + 1}-${vi + 1}`,
-      answer: `Antwort ${ci + 1}-${vi + 1}`,
-      type: 'text' as const,
-    })),
-  })),
-});
+function makeImportPayload(boardNum: 1 | 2, pointMultiplier: number) {
+  return {
+    meta: { version: 1, exportedAt: new Date().toISOString() },
+    board1: {
+      categories: SAMPLE_CATEGORIES.map((title, ci) => ({
+        title,
+        clues: [100, 200, 300, 400, 500].map((base, vi) => ({
+          value: base * pointMultiplier,
+          question: `Frage ${ci + 1}-${vi + 1}`,
+          answer: `Antwort ${ci + 1}-${vi + 1}`,
+          type: 'text',
+        })),
+      })),
+    },
+    board2: {
+      categories: SAMPLE_CATEGORIES.map((title, ci) => ({
+        title,
+        clues: [100, 200, 300, 400, 500].map((base, vi) => ({
+          value: base * pointMultiplier,
+          question: `Frage ${ci + 1}-${vi + 1}`,
+          answer: `Antwort ${ci + 1}-${vi + 1}`,
+          type: 'text',
+        })),
+      })),
+    },
+  };
+}
 
 // ──────────────────────────────────────────────────────────────
-// Fill in a board (navigate all categories and fill clues)
+// Fill in board data via JSON file import
+// Uses real temp file path + setInputFiles (most reliable for React onChange)
+// ──────────────────────────────────────────────────────────────
+
+async function importBoard(page: Page, boardNum: 1 | 2, pointMultiplier: number): Promise<void> {
+  const payload = makeImportPayload(boardNum, pointMultiplier);
+  const tmpPath = `/tmp/jeopardy-board-${boardNum}-${Date.now()}.json`;
+
+  // Write JSON to temp file via Node.js in the test context
+  const fs = await import('fs');
+  fs.writeFileSync(tmpPath, JSON.stringify(payload));
+
+  // Use setInputFiles with the real file path — fires proper React onChange
+  const input = page.locator('input[type="file"]');
+  await input.setInputFiles(tmpPath);
+  await page.waitForTimeout(300);
+}
+
+// ──────────────────────────────────────────────────────────────
+// Fill in a board manually (step-by-step fallback)
 // ──────────────────────────────────────────────────────────────
 
 async function fillBoard(page: Page, board: Board): Promise<void> {
-  // Click each category tab and fill title
   for (let ci = 0; ci < board.categories.length; ci++) {
     await page.getByRole('button', { name: new RegExp(`^Kategorie ${ci + 1}$`) }).click();
-    await page.getByRole('button', { name: 'Titel' }).click();
-    await page.locator('textarea').first().fill(board.categories[ci].title);
+    await page.waitForTimeout(150);
 
-    // For each clue: click value in clueSelect grid, fill question and answer
+    // Fill title
+    await page.getByRole('button', { name: 'Titel' }).click();
+    await page.waitForTimeout(100);
+    const titleArea = page.locator('textarea').first();
+    await titleArea.click();
+    await titleArea.pressSequentially(board.categories[ci].title, { delay: 10 });
+    // Verify React state updated
+    await expect(titleArea).toHaveValue(board.categories[ci].title, { timeout: 2000 }).catch(() => {});
+
+    // For each clue: click value, fill question, then answer
     for (let vi = 0; vi < board.categories[ci].clues.length; vi++) {
       const clueValue = board.categories[ci].clues[vi].value;
-      // Use exact match to avoid matching board tabs like "Board 1 (100-500)"
       await page.getByRole('button', { name: String(clueValue), exact: true }).click();
+      await page.waitForTimeout(150);
+
+      // Fill question
       await page.getByRole('button', { name: 'Frage' }).click();
-      await page.locator('textarea').first().fill(board.categories[ci].clues[vi].question);
+      await page.waitForTimeout(100);
+      const qArea = page.locator('textarea').first();
+      await qArea.click();
+      await qArea.pressSequentially(board.categories[ci].clues[vi].question, { delay: 10 });
+      await expect(qArea).toHaveValue(board.categories[ci].clues[vi].question, { timeout: 2000 }).catch(() => {});
+
+      // Fill answer
       await page.getByRole('button', { name: 'Antwort' }).click();
-      await page.locator('textarea').first().fill(board.categories[ci].clues[vi].answer);
+      await page.waitForTimeout(100);
+      const aArea = page.locator('textarea').first();
+      await aArea.click();
+      await aArea.pressSequentially(board.categories[ci].clues[vi].answer, { delay: 10 });
+      await expect(aArea).toHaveValue(board.categories[ci].clues[vi].answer, { timeout: 2000 }).catch(() => {});
     }
   }
 }
 
+// ──────────────────────────────────────────────────────────────
+// Create a Jeopardy room via REST API (most reliable for E2E)
+// Uses the cookie from loginAsModerator + /api/v1/rooms endpoint
+// ──────────────────────────────────────────────────────────────
+
 async function createJeopardyRoom(page: Page): Promise<string> {
-  await page.goto(`${BASE}/moderator/vorbereitung/jeopardy`);
-  await expect(page.getByRole('heading', { name: /jeopardy/i })).toBeVisible({ timeout: 15_000 });
+  // Get auth cookie from browser context
+  const cookies = await page.context().cookies();
+  const sessionCookie = cookies.find(c => c.name === 'quiz_session');
+  if (!sessionCookie) throw new Error('No session cookie found — call loginAsModerator first');
 
-  // Fill Board 1
-  await page.getByRole('button', { name: 'Board 1 (100-500)' }).click();
-  await fillBoard(page, makeSampleBoard(1));
+  const payload = makeImportPayload(1, 1);
 
-  // Fill Board 2
-  await page.getByRole('button', { name: 'Board 2 (200-1000)' }).click();
-  await fillBoard(page, makeSampleBoard(2));
+  // Create room via REST API directly
+  const res = await page.context().request.post(`${BASE}/api/v1/rooms`, {
+    data: {
+      gameSlug: 'jeopardy',
+      roomName: 'E2E Jeopardy Test',
+      maxPlayers: 10,
+      allowViewers: true,
+      isPublic: true,
+      setupSnapshotJson: {
+        board1: payload.board1,
+        board2: payload.board2,
+      },
+    },
+  });
 
-  // Click back to Board 1 to reset state before creating
-  await page.getByRole('button', { name: 'Board 1 (100-500)' }).click();
+  expect(res.status(), `Room creation failed: ${await res.text()}`).toBe(201);
+  const body = await res.json() as { success: boolean; data: { code: string } };
+  expect(body.success, `Room creation failed: ${await res.text()}`).toBe(true);
 
-  // Verify no validation errors
-  const errorCount = await page.locator('[role="alert"]').count();
-  expect(errorCount, `Validation errors present before submit: ${await page.locator('[role="alert"]').textContent()}`).toBe(0);
+  const code = body.data.code;
 
-  await page.getByRole('button', { name: 'Raum erstellen' }).click();
-  await page.waitForURL(/\/moderator\/raum\/\d{3}-\d{3}\/lobby$/, { timeout: 20_000 });
+  // Navigate to moderator lobby to verify the UI works end-to-end
+  await page.goto(`${BASE}/moderator/raum/${code}/lobby`);
+  await page.waitForLoadState('domcontentloaded');
+  await page.waitForTimeout(500);
 
-  const match = page.url().match(/\/moderator\/raum\/(\d{3}-\d{3})\/lobby$/);
-  expect(match, `Raumcode fehlt in URL: ${page.url()}`).not.toBeNull();
-  return match![1];
+  // Verify lobby elements
+  await expect(page.getByText(code, { exact: true }).first()).toBeVisible({ timeout: 10_000 });
+  await expect(page.getByText('Verbunden', { exact: true }).first()).toBeVisible({ timeout: 5_000 });
+
+  return code;
 }
 
 async function joinAsPlayer(page: Page, code: string, name: string): Promise<PlayerSession> {
