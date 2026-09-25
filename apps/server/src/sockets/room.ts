@@ -65,6 +65,9 @@ export async function handleRoomSubscription(
     userId: userId ?? undefined,
   };
 
+  // Auth shortcut used in both VIEWER and auto-upgrade paths
+  const authModerator = socket as any;
+
   let identity = {
     participationId: '',
     roomId: room.id,
@@ -205,24 +208,136 @@ export async function handleRoomSubscription(
       }
     }
 
-    // Create new ViewerSession
-    const viewerSession = await prisma.viewerSession.create({
-      data: {
+    // P0-SECURITY / E2E-FIX: If the authenticated user is the room host,
+    // DON'T create a VIEWER session here — they will be auto-upgraded to
+    // MODERATOR below. Creating a real VIEWER Session would leave a stale
+    // connected=true entry in the DB that triggers spurious player:join events.
+    if (authModerator.user?.id && authModerator.user.id === room.hostUserId) {
+      // Set a placeholder identity — auto-upgrade will replace it below
+      identity = { participationId: '', roomId: room.id, role: 'VIEWER', displayName: '' };
+    } else {
+      // Create new ViewerSession
+      const viewerSession = await prisma.viewerSession.create({
+        data: { roomId: room.id, connected: true, lastSeenAt: new Date() },
+      });
+      identity = {
+        participationId: `viewer:${viewerSession.id}`,
         roomId: room.id,
-        connected: true,
-        lastSeenAt: new Date(),
-      },
+        role: 'VIEWER',
+        displayName: 'Zuschauer',
+      };
+    }
+  }
+
+  // P0-SECURITY / E2E-FIX: Authenticated Host Auto-Upgrade
+  // Even without a rejoinToken, an authenticated user whose userId matches the
+  // room's hostUserId should be treated as MODERATOR (not VIEWER).
+  // This fixes the reload scenario in E2E tests where sessionStorage has no
+  // rejoinToken but the HTTP session cookie is valid.
+  //
+  // Note: identity.role is 'VIEWER' when the host connected initially without
+  // a rejoinToken (the VIEWER path above creates a placeholder identity for them).
+  // P0-SECURITY / E2E-FIX: Authenticated Host Auto-Upgrade
+  // Even without a rejoinToken, an authenticated user whose userId matches the
+  // room's hostUserId should be treated as MODERATOR (not VIEWER).
+  // This fixes the reload scenario in E2E tests where sessionStorage has no
+  // rejoinToken but the HTTP session cookie is valid.
+  if (authModerator.user?.id && authModerator.user.id === room.hostUserId) {
+    const existingModPart = await prisma.participation.findFirst({
+      where: { roomId: room.id, role: 'MODERATOR' },
     });
 
-    identity = {
-      participationId: `viewer:${viewerSession.id}`,
-      roomId: room.id,
-      role: 'VIEWER',
-      displayName: 'Zuschauer',
-    };
+    if (existingModPart) {
+      // The MODERATOR participation was found. It may be stale (connected=false from
+      // the previous socket disconnect). Fetch fresh from DB to know its real state.
+      const freshModPart = await prisma.participation.findUnique({ where: { id: existingModPart.id } });
+
+      if (freshModPart && !freshModPart.connected) {
+        // Old participation disconnected — create a fresh one for this reconnect.
+        // This prevents stale state from the previous socket session polluting the
+        // lobby snapshot with a duplicate "admin" entry.
+        const newModPart = await prisma.participation.create({
+          data: {
+            roomId: room.id,
+            displayName: authModerator.user.displayName ?? 'Host',
+            normalizedName: (authModerator.user.displayName ?? 'Host').toLowerCase().trim(),
+            role: 'MODERATOR',
+            connected: true,
+            ready: true,
+            rejoinToken: crypto.randomUUID(),
+            rejoinTokenVersion: 1,
+          },
+        });
+        identity = {
+          participationId: newModPart.id,
+          roomId: room.id,
+          role: 'MODERATOR' as const,
+          displayName: newModPart.displayName,
+        };
+        // Remove the stale MODERATOR entry and replace with the fresh one
+        room.participations = [
+          ...room.participations.filter(p => p.id !== existingModPart.id),
+          {
+            ...newModPart,
+            avatarGenerated: newModPart.avatarGenerated ?? null,
+            avatarMode: newModPart.avatarMode,
+            kickedAt: null,
+            rejoinTokenVersion: newModPart.rejoinTokenVersion ?? 1,
+          } as any,
+        ];
+      } else if (existingModPart) {
+        // Still connected — reuse the existing participation
+        identity = {
+          participationId: existingModPart.id,
+          roomId: room.id,
+          role: 'MODERATOR' as const,
+          displayName: existingModPart.displayName,
+        };
+        await prisma.participation.update({
+          where: { id: existingModPart.id },
+          data: { connected: true },
+        });
+        const modPartInRoom = room.participations.find(p => p.id === existingModPart.id);
+        if (modPartInRoom) modPartInRoom.connected = true;
+      }
+    } else {
+      // No existing participation — create one now
+      const newModPart = await prisma.participation.create({
+        data: {
+          roomId: room.id,
+          displayName: authModerator.user.displayName ?? 'Host',
+          normalizedName: (authModerator.user.displayName ?? 'Host').toLowerCase().trim(),
+          role: 'MODERATOR',
+          connected: true,
+          ready: true,
+          rejoinToken: crypto.randomUUID(),
+          rejoinTokenVersion: 1,
+        },
+      });
+      identity = {
+        participationId: newModPart.id,
+        roomId: room.id,
+        role: 'MODERATOR' as const,
+        displayName: newModPart.displayName,
+      };
+      room.participations.push({
+        ...newModPart,
+        avatarGenerated: newModPart.avatarGenerated ?? null,
+        avatarMode: newModPart.avatarMode,
+        kickedAt: null,
+        rejoinTokenVersion: newModPart.rejoinTokenVersion ?? 1,
+      } as any);
+    }
   }
 
   // Store identity in socket.data (P0-08/P0-09 fix)
+  logger.info('[DEBUG] Storing identity', {
+    socketId: socket.id,
+    role: identity.role,
+    participationId: identity.participationId,
+    roomCode: room.code,
+    players: room.participations.map(p => ({ id: p.id, role: p.role, connected: p.connected })),
+  });
   socket.data = {
     ...socket.data,
     participationId: identity.participationId,

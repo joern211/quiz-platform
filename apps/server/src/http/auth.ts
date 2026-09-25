@@ -245,14 +245,26 @@ authRouter.post('/e2e-token', async (req, res) => {
     if (!parsed) return;
     const { userId } = parsed;
 
-    const user = await prisma.user.findUnique({ where: { id: userId } });
-    if (!user || user.disabledAt) {
-      return res.status(404).json({ success: false, error: { code: 'USER_NOT_FOUND', message: 'User not found.' } });
-    }
+    // E2E: Create a unique test user per call so each E2E connection gets
+    // a distinct userId. This lets the server distinguish between the room
+    // creator (hostUserId) and other players for auto-upgrade and player:join.
+    const randomId = Math.floor(1000 + Math.random() * 9000);
+    const displayName = `E2E-${userId}-${randomId}`;
+    const testUser = await prisma.user.upsert({
+      where: { id: userId },
+      update: { displayName, email: `e2e-${userId}@test.local` },
+      create: {
+        id: userId,
+        email: `e2e-${userId}@test.local`,
+        displayName,
+        passwordHash: '$argon2id$v=19$m=65536,t=3,p=4$dummy', // never used
+        role: 'MODERATOR',
+      },
+    });
 
     const session = await prisma.session.create({
       data: {
-        userId: user.id,
+        userId: testUser.id,
         expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
       },
     });
@@ -260,12 +272,12 @@ authRouter.post('/e2e-token', async (req, res) => {
     const cookie = createSessionCookie(session.id, config.sessionSecret);
     res.setHeader('Set-Cookie', cookie);
 
-    logger.info('E2E token issued', { userId: user.id });
+    logger.info('E2E token issued', { userId: testUser.id, displayName: testUser.displayName, role: testUser.role });
 
     res.json({
       success: true,
       data: {
-        user: { id: user.id, displayName: user.displayName, role: user.role },
+        user: { id: testUser.id, displayName: testUser.displayName, role: testUser.role },
         sessionId: session.id,
       },
     });

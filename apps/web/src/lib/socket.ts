@@ -203,8 +203,13 @@ export function resetSocket() {
   socket = null;
 }
 
+// ── DEBUG: expose internals ──────────────────────────────────
 if (typeof window !== 'undefined') {
   (window as any).__resetSocket = resetSocket;
+  (window as any).__getSocketState = () => ({
+    connected: socket?.connected ?? false,
+    id: socket?.id ?? null,
+  });
 }
 
 // ── Kick Player Helper ─────────────────────────────────────────

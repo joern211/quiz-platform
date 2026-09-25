@@ -144,6 +144,14 @@ export async function handleDisconnect(io: Server, socket: Socket) {
   try {
     const identity = getSocketDataIdentity(socket);
 
+      logger.info('[DEBUG] handleDisconnect CALLED', {
+      socketId: socket.id,
+      identityParticipationId: identity?.participationId,
+      identityRole: identity?.role,
+      sessionId: (socket as any).sessionId,
+      userId: (socket as any).user?.id,
+    });
+
     if (!identity || !identity.participationId || !identity.roomId) {
       // No participation data, nothing to do
       return;

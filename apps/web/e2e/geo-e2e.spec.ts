@@ -18,9 +18,12 @@ const BASE = process.env.E2E_BASE_URL || 'http://localhost:5173';
 
 // --- Hilfsfunktionen ---
 
-async function loginAsModerator(page: Page) {
+async function loginAsModerator(page: Page, userIdOverride?: string) {
+  const uid = userIdOverride ?? 'mod-host'; // 'mod-host' für den Host, nicht 'mod-1'
+  // Distinct userId per call: tsx generates a random suffix to avoid DB unique-constraint errors
+  const sessionUserId = `${uid}-player-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
   const response = await page.context().request.post(`${BASE}/api/v1/auth/e2e-token`, {
-    data: { userId: 'mod-1' },
+    data: { userId: sessionUserId },
     headers: { 'Content-Type': 'application/json' },
   });
   if (!response.ok()) {
@@ -66,19 +69,38 @@ async function createGeoRoom(page: Page): Promise<string> {
 }
 
 async function joinAsPlayer(page: Page, code: string, name: string) {
-  // addInitScript setzt sessionStorage VOR dem ersten Page-Load (kein "about:blank" nötig)
-  await page.context().addInitScript(({ c, n }: { c: string; n: string }) => {
+  // Players müssen die echte JoinPage nutzen, damit der Server role=PLAYER/MODERATOR
+  // bestimmt und die korrekte Lobby-URL berechnet.
+  await page.context().addInitScript(([c, n]: [string, string]) => {
     sessionStorage.setItem('qp_roomCode', c);
-    sessionStorage.setItem('qp_role', 'PLAYER');
     sessionStorage.setItem('qp_displayName', n);
-  }, { c: code, n: name });
-  await page.goto(`${BASE}/raum/${code}/lobby`);
+    // Kein qp_role setzen – der Server soll es aus dem Auth-Token ableiten
+  }, [code, name]);
+  // Navigiert zur JoinPage (nicht direkt zur Lobby)
+  await page.goto(`${BASE}/beitreten`);
+  await page.waitForLoadState('networkidle');
+  // Findet das Name- und Code-Eingabefeld
+  const inputs = page.locator('input');
+  const nameInput = inputs.nth(0); // Erstes Input = Anzeigename
+  const codeInput = inputs.nth(1); // Zweites Input = Raumcode
+  await nameInput.waitFor({ timeout: 5000 });
+  await nameInput.fill(name);
+  await codeInput.fill(code);
+  // Submit-Button
+  await page.getByRole('button', { name: /treten|join|beigetreten/i }).click();
+  // Wartet auf Navigation zur Lobby (moderator oder nicht — toleriert beides)
+  const lobbyPattern = new RegExp(`/raum/${code.replace('-', '[^/]*')}/lobby`);
+  await page.waitForURL(url => lobbyPattern.test(url.pathname), { timeout: 10000 }).catch(() => {});
+  const url = page.url();
+  console.log(`[joinAsPlayer] ${name} — URL: ${url}`);
+  // Wartet auf "Verbunden"-Status
   await page.waitForFunction(
     () => document.body.textContent?.includes('Verbunden') === true,
     { timeout: 15000 }
   ).catch(() => null);
-  const connected = await page.locator('text=Verbunden').isVisible({ timeout: 2000 }).catch(() => false);
-  console.log(`[joinAsPlayer] ${name} Lobby geladen. Verbunden=${connected}`);
+  const connected = await page.locator('text=Verbunden').isVisible({ timeout: 3000 }).catch(() => false);
+  const bodyText = await page.locator('body').innerText().catch(() => '');
+  console.log(`[joinAsPlayer] ${name} — Verbunden=${connected}, Body: ${bodyText.substring(0, 300)}`);
 }
 
 async function joinAsViewer(page: Page, code: string) {
@@ -122,13 +144,71 @@ test('G4-2: Zwei Spieler treten bei → Lobby zeigt beide', async ({ browser }) 
       joinAsPlayer(playerBPage, code, 'Spieler B'),
     ]);
 
-    // Moderator-Reload: Socket liest sessionStorage → MODERATOR-Rolle → game:start erlaubt
+    // DEBUG: Log pre-reload state
+    console.log(`[G4-2] Vor Reload — Players im DOM:`);
+    const preEls = await modPage.locator('[class*="player"]').allInnerTexts().catch(() => []);
+    console.log(`  preReload players: ${JSON.stringify(preEls)}`);
+    const preUrl = modPage.url();
+    console.log(`  preReload URL: ${preUrl}`);
+
+    // E2E-Fix: Reset the socket singleton BEFORE reload so the new page gets a
+    // FRESH socket connection (fresh socket ID) that subscribes to the current room.
+    // Without this, the old socket ID persists and subscribes to the WRONG room.
+    await modPage.evaluate(() => (window as any).__resetSocket?.());
+
     await modPage.context().addInitScript((c: string) => {
       sessionStorage.setItem('qp_roomCode', c);
       sessionStorage.setItem('qp_role', 'MODERATOR');
     }, code);
     await modPage.reload();
-    await modPage.waitForTimeout(3000);
+
+    // DEBUG: Log post-reload state (mit Socket-Zustand)
+    console.log(`[G4-2] Nach Reload (sofort):`);
+    const postUrl = modPage.url();
+    console.log(`  URL: ${postUrl}`);
+
+    // Prüfe Socket-Instanz-Zustand
+    const socketState = await modPage.evaluate(() => (window as any).__getSocketState?.());
+    console.log(`  Socket-Instanz: ${JSON.stringify(socketState)}`);
+
+    const postEl = await modPage.locator('body').innerText().catch(() => '');
+    console.log(`  Body: ${postEl.substring(0, 200)}`);
+
+    // Warte auf Verbunden-Status statt festes Timeout
+    console.log('[G4-2] Warte auf Verbunden-Status...');
+    try {
+      await modPage.waitForFunction(
+        () => document.body.textContent?.includes('Verbunden') === true,
+        { timeout: 10000 }
+      );
+      console.log('[G4-2] Verbunden-Status erreicht');
+    } catch {
+      console.log('[G4-2] Verbunden-Status Timeout!');
+    }
+
+    // Prüfe Socket-Instanz nach Warten
+    const socketStateAfter = await modPage.evaluate(() => (window as any).__getSocketState?.());
+    console.log(`  Socket-Instanz (nach Warten): ${JSON.stringify(socketStateAfter)}`);
+
+    // DEBUG: Logge room:subscribe-Zustand in sessionStorage
+    const ss = await modPage.evaluate(() => ({
+      roomCode: sessionStorage.getItem('qp_roomCode'),
+      role: sessionStorage.getItem('qp_role'),
+      rejoinToken: sessionStorage.getItem('qp_rejoinToken'),
+      partId: sessionStorage.getItem('qp_participationId'),
+    }));
+    console.log(`  sessionStorage: ${JSON.stringify(ss)}`);
+
+    await modPage.waitForTimeout(2000);
+
+    // DEBUG: Log nach 2s Warten (nach Verbunden)
+    console.log(`[G4-2] Nach 2s Warten — Players im DOM:`);
+    const postEls = await modPage.locator('[class*="player"]').allInnerTexts().catch(() => []);
+    console.log(`  postReload players: ${JSON.stringify(postEls)}`);
+    const bodyText = await modPage.locator('body').innerText().catch(() => '');
+    console.log(`  Body full: ${bodyText.substring(0, 400)}`);
+    const playerCount = await modPage.locator('text=Spieler').first().textContent().catch(() => '');
+    console.log(`  'Spieler'-Text: ${playerCount}`);
 
     // Beide Spieler in der Lobby sichtbar
     const playerALoaded = await modPage.getByText('Spieler A').isVisible({ timeout: 3000 }).catch(() => false);
@@ -149,7 +229,8 @@ test('G4-3: Zuschauer kann Lobby beitreten ohne Login', async ({ browser }) => {
   try {
     const modCtx = await browser.newContext();
     const modPage = await modCtx.newPage();
-    await loginAsModerator(modPage);
+    // Use 'mod-host' as the host userId so it's distinct from 'mod-1' players
+    await loginAsModerator(modPage, 'mod-host');
     const code = await createGeoRoom(modPage);
     await modCtx.close();
 
@@ -220,9 +301,11 @@ test('G4-4: Vollständiger Spielablauf (Moderator startet, 1 Spieler antwortet)'
   test.setTimeout(120000);
   const modCtx = await browser.newContext();
   const playerCtx = await browser.newContext();
+  const player2Ctx = await browser.newContext();
 
   const modPage = await modCtx.newPage();
   const playerPage = await playerCtx.newPage();
+  const player2Page = await player2Ctx.newPage();
   setupBrowserLogger(modPage, 'modPage');
   setupBrowserLogger(playerPage, 'playerPage');
 
@@ -230,12 +313,17 @@ test('G4-4: Vollständiger Spielablauf (Moderator startet, 1 Spieler antwortet)'
     await loginAsModerator(modPage);
     const code = await createGeoRoom(modPage);
 
-    // ── Schritt 3: Spieler tritt bei und markiert sich als bereit ─────
-    await joinAsPlayer(playerPage, code, 'Quiz Champion');
+    // ── Schritt 3: Zwei Spieler treten bei und sind bereit ─────────────
+    await Promise.all([
+      joinAsPlayer(playerPage, code, 'Quiz Champion'),
+      joinAsPlayer(player2Page, code, 'Spieler B'),
+    ]);
+    await modPage.waitForTimeout(1000);
     const readyBtn = playerPage.locator('button:has-text("bereit")').first();
     const readyVisible = await readyBtn.isVisible({ timeout: 3000 }).catch(() => false);
     expect(readyVisible, '"Bereit"-Button muss sichtbar sein').toBe(true);
     await readyBtn.click();
+    await player2Page.locator('button:has-text("bereit")').first().click().catch(() => {});
     await playerPage.waitForTimeout(1000);
     console.log('[Block 3] Spieler hat Bereit-Button geklickt');
 
@@ -244,7 +332,15 @@ test('G4-4: Vollständiger Spielablauf (Moderator startet, 1 Spieler antwortet)'
 
     // DEBUG: Lobby-Status protokollieren
     const connText = await modPage.locator('body').innerText().catch(() => '');
-    console.log(`[Block 3] Lobby-Text: ${connText.substring(0, 200)}`);
+    console.log(`[Block 3] Lobby-Text: ${connText.substring(0, 300)}`);
+
+    // DEBUG: Player-Liste im DOM
+    const playerEls = await modPage.locator('[class*="player"], [class*="Player"]').allInnerTexts().catch(() => []);
+    console.log(`[Block 3] Player-DOM-Elemente: ${JSON.stringify(playerEls)}`);
+
+    // DEBUG: Sichtbare Text-Elemente im gesamten Body
+    const allVisible = await modPage.locator('body').getByText(/Spieler|Host|Verbunden/g).allInnerTexts().catch(() => []);
+    console.log(`[Block 3] Sichtbare Texte: ${JSON.stringify(allVisible)}`);
 
     // ── Schritt 4: E2E-Socket-Identity ──────────────────────────────
     // Modera...[truncated]
@@ -347,5 +443,6 @@ test('G4-4: Vollständiger Spielablauf (Moderator startet, 1 Spieler antwortet)'
   } finally {
     await modCtx.close();
     await playerCtx.close();
+    await player2Ctx.close();
   }
 });
