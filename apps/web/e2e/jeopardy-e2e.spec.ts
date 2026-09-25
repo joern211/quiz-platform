@@ -235,8 +235,11 @@ async function startGame(moderator: Page): Promise<void> {
 }
 
 async function openField(moderator: Page, categoryIndex = 0, value = 200): Promise<void> {
-  // Wait for board to be interactive (SELECTING phase)
-  await expect(moderator.locator('[role="grid"]')).toBeVisible({ timeout: 10_000 });
+  // Wait for board to be attached (DOM ready) — Playwright visibility check is sometimes unreliable with CSS animations
+  await expect(moderator.locator('[role="grid"]')).toBeAttached({ timeout: 10_000 });
+  // Wait for SELECTING phase (board is interactive)
+  await moderator.waitForTimeout(1_000);
+  await expect(moderator.getByText(/Board \d/)).toBeVisible({ timeout: 5_000 });
   // Click the field cell — only works in SELECTING phase
   const cell = moderator.locator('[data-category-index="' + categoryIndex + '"][data-value="' + value + '"]');
   await expect(cell).toBeVisible({ timeout: 5_000 });
