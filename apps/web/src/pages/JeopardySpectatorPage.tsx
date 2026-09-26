@@ -137,6 +137,7 @@ export function JeopardySpectatorPage() {
               }
               canBuzz={false}
               canStealBuzz={false}
+              showBuzzControls={false}
               onBuzz={() => {}}
               onStealBuzz={() => {}}
               playerNames={gameState.playerNames}

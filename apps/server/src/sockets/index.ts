@@ -15,6 +15,9 @@ import { handleGameEvents } from './game.js';
 import { handleJeopardyGame } from '../games/jeopardy/engine.js';
 import { JeopardyGameState } from '../games/jeopardy/state.js';
 import { getSocketDataIdentity } from './auth.js';
+import { roomChannel } from './channel.js';
+
+export { roomChannel } from './channel.js';
 
 // ── Jeopardy Runtime Payload Validation ──────────────────────
 const JeopardyFieldOpenSchema = z.object({
@@ -53,12 +56,6 @@ function validateOrReject<T>(
     return null;
   }
   return result.data;
-}
-
-// Room channel helper - Socket.IO rooms are namespaced as `room_${roomId}`
-// (Socket.IO default room format matches the underscore convention used at socket join)
-export function roomChannel(roomId: string): string {
-  return `room_${roomId}`;
 }
 
 // E2E helper: find socket ID by session ID

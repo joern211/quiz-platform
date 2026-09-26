@@ -46,6 +46,8 @@ export interface JeopardyQuestionProps {
   canBuzz: boolean;
   /** Is this client's steal-buzz button active? */
   canStealBuzz: boolean;
+  /** Whether this role can see the buzzer controls at all. */
+  showBuzzControls?: boolean;
   /** Callback when player buzzes */
   onBuzz: () => void;
   /** Callback when player steals buzz */
@@ -68,6 +70,7 @@ export function JeopardyQuestion({
   stealResult,
   canBuzz,
   canStealBuzz,
+  showBuzzControls = true,
   onBuzz,
   onStealBuzz,
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
@@ -110,7 +113,7 @@ export function JeopardyQuestion({
       </blockquote>
 
       {/* Buzzer (main round) */}
-      {isBuzzOpen && !reveal && (
+      {showBuzzControls && isBuzzOpen && !reveal && (
         <div className={styles.buzzerSection}>
           <Button
             size="lg"
@@ -130,7 +133,7 @@ export function JeopardyQuestion({
       )}
 
       {/* Steal buzzer */}
-      {isStealOpen && !reveal && (
+      {showBuzzControls && isStealOpen && !reveal && (
         <div className={styles.buzzerSection}>
           <Button
             size="lg"
