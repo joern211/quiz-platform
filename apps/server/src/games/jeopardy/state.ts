@@ -83,6 +83,7 @@ export interface JeopardyGameState {
   currentField: {
     categoryIndex: number;
     value: number;
+    firstResponderId?: string;
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
   fieldDef: JeopardyFieldDef;
   } | null;

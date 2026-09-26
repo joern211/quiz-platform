@@ -135,7 +135,7 @@ export function ModeratorLobbyPage() {
     socketRef.current.emit('game:start', { roomCode }, (response) => {
       setLoading(false);
       if (response.success) {
-        const gameSlug = (response as any).gameSlug ?? '';
+        const gameSlug = response.gameSlug ?? '';
         const path = gameSlug === 'jeopardy'
           ? `/moderator/raum/${roomCode}/jeopardy`
           : `/moderator/raum/${roomCode}/spiel`;
@@ -157,7 +157,7 @@ export function ModeratorLobbyPage() {
       socketRef.current.emit('game:start', { roomCode }, (response) => {
         setLoading(false);
         if (response.success) {
-          const gameSlug = (response as any).gameSlug ?? '';
+          const gameSlug = response.gameSlug ?? '';
           const path = gameSlug === 'jeopardy'
             ? `/moderator/raum/${roomCode}/jeopardy`
             : `/moderator/raum/${roomCode}/spiel`;

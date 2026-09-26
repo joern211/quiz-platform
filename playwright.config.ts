@@ -18,22 +18,22 @@ export default defineConfig({
   // Server must be started BEFORE Vite since Vite proxies to :3001
   webServer: [
     {
-      command: 'cd /Users/joern.r/quiz-platform && pnpm --filter @quiz/server start',
+      command: 'pnpm --filter @quiz/server start',
       port: 3001,
-      reuseExistingServer: !process.env.CI,
+      reuseExistingServer: false,
       timeout: 30000,
       env: {
-        DATABASE_URL: process.env.DATABASE_URL ?? 'file:../prisma/dev.db',
-        SESSION_SECRET: 'test-secret-32chars-long-for-e2e',
+        DATABASE_URL: process.env.DATABASE_URL ?? 'file:/tmp/quiz-e2e.db',
+        SESSION_SECRET: process.env.SESSION_SECRET ?? 'test-secret-32chars-long-for-e2e',
         ALLOWED_ORIGINS: 'http://localhost:3001,http://localhost:5173',
         PUBLIC_APP_URL: 'http://localhost:3001',
         NODE_ENV: 'development',
       },
     },
     {
-      command: 'cd /Users/joern.r/quiz-platform && pnpm --filter @quiz/web -- --host',
+      command: 'pnpm --filter @quiz/web dev --host 127.0.0.1',
       url: 'http://localhost:5173',
-      reuseExistingServer: !process.env.CI,
+      reuseExistingServer: false,
       timeout: 30000,
       env: {
         VITE_API_URL: 'http://localhost:3001',

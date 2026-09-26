@@ -19,7 +19,7 @@ export function JeopardyPlayerPage() {
   const selfId = session.participationId ?? undefined;
 
   const { connected, gameState, error, clearError, actions } =
-    useJeopardy(roomCode);
+    useJeopardy(roomCode, 'PLAYER');
 
   const handleBuzz = () => {
     actions.buzz();

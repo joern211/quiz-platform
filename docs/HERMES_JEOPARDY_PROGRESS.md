@@ -1,5 +1,12 @@
 # Jeopardy MVP – Fortschrittsdokument (Stand: 2026-09-25)
 
+> Audit-Korrektur (2026-09-26): Die früheren Häkchen in diesem Dokument sind historische
+> Implementierungsbehauptungen, keine aktuelle Freigabe. Maßgeblich ist
+> `docs/CODEX_JEOPARDY_COMPLETION_PROGRESS.md`. Dort stehen lokale Prüfungen und
+> die blockierten Nachweise. Insbesondere waren die alten „Integrationstests“
+> nur Unit-Tests, die frühere Transaktion keine wirksame Revisionssperre,
+> und J1–J10 waren nie erfolgreich in Chromium nachgewiesen. CI/PR sind offen.
+
 ## Ziel und Nicht-Ziele
 
 **Ziel:** Jeopardy als vollständig spielbares Multiplayer-Spiel implementieren.
@@ -19,7 +26,7 @@
 2. **Persistenz über RoomGameState** – kein neues Prisma-Modell nötig
 3. **Socket-Typisierung** – konsistent mit bestehender Geo-Architektur
 4. **Rollenprüfung** – MODERATOR_ONLY für alle mutierenden Jeopardy-Events (P0-07)
-5. **Buzzer-Logik** – atomar via Prisma-Transaction mit revision-Feld (P0-10)
+5. **Buzzer-Logik** – Revisionsvergleich in `updateMany` innerhalb einer Prisma-Transaktion; echter konkurrierender Socket-Test ergänzt (P0-10)
 6. **Punkteberechnung** – serverseitig mit Math.round (50% = Math.round(value/2))
 7. **Dual-Board** – Board 1 normal, Board 2 doppelte Punkte
 8. **Zod-Validierung** – alle Jeopardy-Payloads zur Laufzeit geprüft (P0-08)
@@ -41,12 +48,12 @@
 | P0-07 | Lösungs-Leak schließen | ✅ | MODERATOR_ONLY in allen Handlern, '••••••' für Nicht-Moderatoren |
 | P0-08 | Runtime-Validierung (Zod) | ✅ | JeopardyFieldOpenSchema + JeopardyBuzzSchema + JeopardyJudgSchema |
 | P0-09 | Fehlerbehandlung | ✅ | try/catch + einmaliges ACK + logger.error in jedem Handler |
-| P0-10 | Atomarität/Idempotenz | ✅ | revision-Feld in handleJudge/handleBuzzer für optimistic locking |
-| P0-11 | Vollständiger Jeopardy-Resync | ✅ | jeopardy:resync Handler mit rollenbasierter Bereinigung |
+| P0-10 | Atomarität/Idempotenz | 🔄 | Revisionsvergleich und Socket-Race-Test grün; weitere Cross-Room/Reload-Fälle offen |
+| P0-11 | Vollständiger Jeopardy-Resync | 🔄 | Client-Hydrierung und Lösungsfilter ergänzt; Browser-Reload noch nicht nachgewiesen |
 | P0-12 | Alte/neue Engine zusammenführen | ✅ | handleJeopardyGame aus engine.ts ist die einzige Implementierung |
-| P0-13 | Integrationstests verbessern | 🔄 | Echte Tests mit e2eToken (nicht vollständig mock) |
-| P0-14 | Playwright-Tests reparieren | 🔄 | J1-J10 in Entwicklung, J4 zeigt Route/Navigation-Fixes |
-| P0-15 | CI korrigieren | ✅ | `--grep` entfernt, server+Vite in playwright.config.ts webServer |
+| P0-13 | Integrationstests verbessern | 🔄 | Echte Socket.IO/SQLite-Suite ergänzt, weitere Fälle offen |
+| P0-14 | Playwright-Tests reparieren | 🔄 | J1–J10 nicht lokal ausgeführt (Chromium fehlt) |
+| P0-15 | CI korrigieren | 🔄 | Doppelte Server-Startverantwortung beseitigt; GitHub Actions nicht ausgeführt |
 | — | Dokumentation | 🔄 | Dieses Dokument |
 
 ## Geänderte Dateien
@@ -76,36 +83,17 @@
 | `apps/web/e2e/jeopardy-e2e.spec.ts` | REST room creation, loginAsModerator fix, startGame URL fix |
 | `apps/web/vite.config.ts` | `host: true` für `pnpm --filter @quiz/web -- --host` |
 
-## Abschlussprüfung
+## Aktueller Prüfstand (2026-09-26)
 
-| Befehl | Ergebnis |
-|--------|----------|
-| pnpm install --frozen-lockfile | ✅ exit 0 |
-| pnpm db:generate | ✅ exit 0 |
-| pnpm db:migrate:deploy | ✅ exit 0 ("No pending migrations") |
-| pnpm typecheck | ✅ exit 0 (0 TS errors) |
-| pnpm lint | ✅ exit 1 (0 errors, 127 warnings — nicht-jeopardy) |
-| pnpm build | ✅ exit 0 |
-| pnpm --filter @quiz/server test | ✅ (157 tests) |
-| pnpm --filter @quiz/web test | ✅ (51 tests) |
-| pnpm exec playwright test | 🔄 J1-J10 in Entwicklung |
+| Prüfung | Lokales Ergebnis |
+|---|---|
+| Frozen Install, Prisma Client, Migrationen | erfolgreich (Migration auf temporärer E2E-Datenbank) |
+| Typecheck und Build | erfolgreich unter Node 24; `.nvmrc` fordert Node 22 |
+| Lint | erfolgreich, 0 Fehler und 126 vorhandene Warnungen |
+| Servertests | 118/118, einschließlich eines tatsächlichen Socket.IO/SQLite-Ablaufs |
+| Webtests | 51/51 |
+| Playwright J1–J10 und Geo | **nicht nachgewiesen**: Chromium konnte in dieser Umgebung nicht installiert werden |
+| GitHub Actions und Pull Request | **nicht nachgewiesen**: Push wurde vom automatischen Freigabecheck blockiert |
 
-## Verbleibende Einschränkungen
-
-1. **E2E-Tests (J1-J10):** Noch nicht alle vollständig bestanden. Route-Navigation funktioniert nach den letzten Fixes. J4 (voller Buzzer-Ablauf) zeigt die Architektur ist korrekt. Subagent hat weitere Fixes in Bearbeitung.
-2. **127 ESLint-Warnungen:** Nicht-Jeopardy-Code, nicht im Scope dieses PRs.
-3. **Lösung: Spieler/Zuschauer** erhalten `'••••••'`, niemals die echte Antwort.
-4. **gh CLI:** Nicht authentifiziert — PR muss manuell erstellt werden.
-5. **Revision-basiertes Locking:** Funktioniert für einzelne Rating-Aufrufe. Zwei parallele Ratings desselben Felds werden korrekt abgelehnt (revision check), aber das Prisma-Update nutzt `updateMany` statt `update` mit `where` — muss ggf. verifiziert werden.
-
-## Fortsetzungsprompt
-
-```
-Lies docs/HERMES_JEOPARDY_PROGRESS.md und git status.
-Alle Audit-P0-Punkte sind adressiert.
-Letzter Commit: 7ce81db.
-E2E-Tests (J1-J10) noch in Bearbeitung.
-Führe die verbleibenden Fixes durch, dann:
-  git push origin feature/jeopardy-mvp
-  GitHub: PR erstellen (gh nicht auth)
-```
+Der aktuelle lokale Stand ist noch nicht mergefertig. Fortsetzung und SHA des letzten
+gepushten Commits stehen in `docs/CODEX_JEOPARDY_COMPLETION_PROGRESS.md`.

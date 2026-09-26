@@ -17,7 +17,7 @@ export function JeopardyModeratorPage() {
   const roomCode = code ?? '';
   const navigate = useNavigate();
   const { connected, gameState, secretAnswer, error, clearError, actions } =
-    useJeopardy(roomCode);
+    useJeopardy(roomCode, 'MODERATOR');
 
   // Redirect to lobby if game not started
   useEffect(() => {
@@ -228,7 +228,7 @@ export function JeopardyModeratorPage() {
           )}
 
           {/* Board-switch or next button */}
-          {isFieldDone && (
+          {(isFieldDone || isBoardComplete) && (
             <div className={styles.nextControls}>
               {isBoardComplete ? (
                 <Button

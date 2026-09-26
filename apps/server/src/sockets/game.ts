@@ -37,7 +37,7 @@ export const handleGameEvents = {
       // P0-17: Use socket identity for authorization
       const identity = getSocketDataIdentity(socket);
       logger.info('game:start identity check', { identity, socketId: socket.id });
-      if (!identity || !identity.roomId) {
+      if (!identity || identity.roomId !== room.id) {
         callback?.({ success: false, error: 'NOT_IN_ROOM' });
         return;
       }
@@ -53,6 +53,11 @@ export const handleGameEvents = {
       const channel = roomChannel(room.id);
       if (!socket.rooms.has(channel)) {
         callback?.({ success: false, error: 'WRONG_ROOM' });
+        return;
+      }
+
+      if (room.status !== 'LOBBY') {
+        callback?.({ success: false, error: 'GAME_ALREADY_STARTED' });
         return;
       }
 
@@ -92,8 +97,8 @@ export const handleGameEvents = {
       }
 
       // Update room status
-      await prisma.room.update({
-        where: { id: room.id },
+      const started = await prisma.room.updateMany({
+        where: { id: room.id, status: 'LOBBY', revision: room.revision },
         data: {
           status: 'RUNNING',
           runPhase: 'INTRO',
@@ -101,6 +106,10 @@ export const handleGameEvents = {
           revision: { increment: 1 },
         },
       });
+      if (started.count !== 1) {
+        callback?.({ success: false, error: 'GAME_ALREADY_STARTED' });
+        return;
+      }
 
       // Initialize game state based on game type
       if (room.gameDefinition.slug === 'geo') {
@@ -125,7 +134,7 @@ export const handleGameEvents = {
         }, 3000); // 3 second intro delay
       }
 
-      callback?.({ success: true });
+      callback?.({ success: true, gameSlug: room.gameDefinition.slug });
     } catch (error) {
       logger.error('Game start error', { error });
       callback?.({ success: false, error: 'INTERNAL_ERROR' });

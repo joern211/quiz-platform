@@ -4,8 +4,7 @@
 // ============================================================
 
 import { useEffect, useRef, useState, useCallback } from 'react';
-import { getSocket, connectSocket, disconnectSocket, getSessionData } from '../lib/socket';
-import { useNavigate } from 'react-router-dom';
+import { getSocket, connectSocket, disconnectSocket, getSessionData, type PlayerRole, type JeopardyResyncResponse } from '../lib/socket';
 
 // ── Event payload types ────────────────────────────────────────
 
@@ -43,6 +42,7 @@ export interface JeopardyRevealPayload {
 export interface JeopardyStealOpenPayload {
   categoryIndex: number;
   value: number;
+  scores?: Record<string, number>;
 }
 
 export interface JeopardyStealClosePayload {
@@ -105,10 +105,9 @@ export interface JeopardyGameState {
 
 // ── Hook ───────────────────────────────────────────────────────
 
-export function useJeopardy(roomCode: string) {
+export function useJeopardy(roomCode: string, role: PlayerRole) {
   const socketRef = useRef<ReturnType<typeof getSocket> | null>(null);
-  const navigate = useNavigate();
-  const session = getSessionData();
+  const rejoinToken = getSessionData().rejoinToken;
 
   const [connected, setConnected] = useState(false);
   const [gameState, setGameState] = useState<JeopardyGameState>({
@@ -135,25 +134,49 @@ export function useJeopardy(roomCode: string) {
     socketRef.current = getSocket();
     const socket = socketRef.current;
 
-    connectSocket();
-
-    socket.on('connect', () => {
+    const subscribe = () => {
       setConnected(true);
       socket.emit(
         'room:subscribe',
-        { roomCode, rejoinToken: session.rejoinToken ?? undefined },
+        { roomCode, role, rejoinToken: rejoinToken ?? undefined },
         (response) => {
-          if (!response.success) setError(`Raumverbindung fehlgeschlagen: ${response.error}`);
+          if (!response.success) {
+            setError(`Raumverbindung fehlgeschlagen: ${response.error}`);
+            return;
+          }
+          socket.emit('jeopardy:resync', {}, (res: JeopardyResyncResponse) => {
+            if (!res.success || !res.currentBoard || !res.phase) {
+              setError(`Spielstand konnte nicht geladen werden: ${res.error ?? 'Ungültige Antwort'}`);
+              return;
+            }
+            const scores = Object.fromEntries((res.scores ?? []).map((entry) => [entry.playerId, entry.score]));
+            const playerNames = res.playerNames ?? Object.fromEntries((res.scores ?? []).map((entry) => [entry.playerId, entry.playerName]));
+            setSecretAnswer(role === 'MODERATOR' ? res.currentField?.answer ?? null : null);
+            setGameState((prev) => ({
+              ...prev,
+              boardNumber: res.currentBoard!,
+              categories: res.currentBoard === 1 ? res.board1Categories ?? [] : res.board2Categories ?? [],
+              values: res.currentBoard === 1 ? res.board1Values ?? [] : res.board2Values ?? [],
+              scores,
+              playerNames,
+              phase: res.phase!,
+              currentField: res.currentField ? { categoryIndex: res.currentField.categoryIndex, value: res.currentField.value, question: res.currentField.question } : null,
+              buzzWinner: res.buzzWinnerId ? { playerId: res.buzzWinnerId, playerName: playerNames[res.buzzWinnerId] ?? '' } : null,
+              stealWinner: res.stealWinnerId ? { playerId: res.stealWinnerId, playerName: playerNames[res.stealWinnerId] ?? '' } : null,
+              playedFields: (res.playedFields ?? []).filter((key) => key.startsWith(`${res.currentBoard}-`)).map((key) => key.slice(2)),
+              gameEnd: res.phase === 'GAME_END' && res.finalScores ? { finalScores: res.finalScores, winnerIds: res.finalScores.filter((entry) => entry.score === res.finalScores![0]?.score).map((entry) => entry.playerId) } : null,
+            }));
+          });
         }
       );
-    });
+    };
+
+    socket.on('connect', subscribe);
+    if (socket.connected) subscribe();
+    connectSocket();
 
     socket.on('disconnect', () => {
       setConnected(false);
-      // Attempt reconnection after short delay
-      setTimeout(() => {
-        socket.emit('room:subscribe', { roomCode, rejoinToken: session.rejoinToken ?? undefined }, () => {});
-      }, 1500);
     });
 
     socket.on('game:start', (data) => {
@@ -162,10 +185,8 @@ export function useJeopardy(roomCode: string) {
       }
     });
 
-    socket.on('game:end', (data) => {
-      if (data.status === 'ENDED') {
-        navigate(`/jeopardy/ergebnis/${roomCode}`);
-      }
+    socket.on('jeopardy:board:complete', () => {
+      setGameState((prev) => ({ ...prev, phase: 'BOARD_COMPLETE' }));
     });
 
     // ── Jeopardy events ──────────────────────────────────────
@@ -189,6 +210,7 @@ export function useJeopardy(roomCode: string) {
     });
 
     socket.on('jeopardy:field:open', (data: JeopardyFieldOpenPayload) => {
+      setSecretAnswer(null);
       setGameState((prev) => ({
         ...prev,
         phase: 'BUZZ_OPEN',
@@ -227,10 +249,11 @@ export function useJeopardy(roomCode: string) {
       }));
     });
 
-    socket.on('jeopardy:steal:open', (_data: JeopardyStealOpenPayload) => {
+    socket.on('jeopardy:steal:open', (data: JeopardyStealOpenPayload) => {
       setGameState((prev) => ({
         ...prev,
         phase: 'STEAL_OPEN',
+        scores: data.scores ?? prev.scores,
         stealWinner: null,
         reveal: null,
       }));
@@ -277,6 +300,7 @@ export function useJeopardy(roomCode: string) {
     });
 
     socket.on('jeopardy:board:switch', (data: JeopardyBoardSwitchPayload) => {
+      setSecretAnswer(null);
       setGameState((prev) => ({
         ...prev,
         boardNumber: data.toBoard,
@@ -289,11 +313,12 @@ export function useJeopardy(roomCode: string) {
         reveal: null,
         stealWinner: null,
         stealResult: null,
-        playedFields: [], // Reset for new board
+        playedFields: [],
       }));
     });
 
     socket.on('jeopardy:game:end', (data: JeopardyGameEndPayload) => {
+      setSecretAnswer(null);
       setGameState((prev) => ({
         ...prev,
         phase: 'GAME_END',
@@ -307,7 +332,7 @@ export function useJeopardy(roomCode: string) {
     return () => {
       disconnectSocket();
     };
-  }, [roomCode, session.rejoinToken, navigate]);
+  }, [roomCode, role, rejoinToken]);
 
   // ── Actions ─────────────────────────────────────────────────
 

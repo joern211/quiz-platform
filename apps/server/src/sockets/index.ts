@@ -304,6 +304,12 @@ export function setupSocketHandlers(io: Server) {
         }
         const room = await prisma.room.findUnique({ where: { id: identity.roomId } });
         if (!room) { callback?.({ success: false, error: 'ROOM_NOT_FOUND' }); return; }
+        const gameStateRow = await prisma.roomGameState.findUnique({ where: { roomId: room.id } });
+        if (!gameStateRow) { callback?.({ success: false, error: 'GAME_NOT_FOUND' }); return; }
+        const currentBoard = (JSON.parse(gameStateRow.stateJson) as JeopardyGameState).currentBoard;
+        if (valid.toBoard !== (currentBoard === 1 ? 2 : 1)) {
+          callback?.({ success: false, error: 'WRONG_BOARD' }); return;
+        }
         const result = await handleJeopardyGame.handleBoardSwitch(io, room);
         callback?.(result);
       } catch (err) {
@@ -316,13 +322,18 @@ export function setupSocketHandlers(io: Server) {
     socket.on('jeopardy:resync', async (_data, callback) => {
       try {
         const identity = getSocketDataIdentity(socket);
-        if (!identity?.roomId) { callback?.({ success: false, error: 'NOT_IN_ROOM' }); return; }
+        if (!identity?.roomId || !socket.rooms.has(roomChannel(identity.roomId))) {
+          callback?.({ success: false, error: 'NOT_IN_ROOM' }); return;
+        }
 
         const room = await prisma.room.findUnique({
           where: { id: identity.roomId },
-          include: { participations: true },
-        }) as any;
+          include: { participations: true, gameDefinition: true },
+        });
         if (!room) { callback?.({ success: false, error: 'ROOM_NOT_FOUND' }); return; }
+        if (room.gameDefinition.slug !== 'jeopardy') {
+          callback?.({ success: false, error: 'WRONG_GAME' }); return;
+        }
 
         const gameStateData = await prisma.roomGameState.findUnique({
           where: { roomId: identity.roomId },
@@ -338,7 +349,7 @@ export function setupSocketHandlers(io: Server) {
         // Build player scores from state
         const scores: Array<{ playerId: string; playerName: string; score: number }> = [];
         for (const [pId, score] of Object.entries(state.scores)) {
-          const part = room.participations.find((p: any) => p.id === pId);
+          const part = room.participations.find((p) => p.id === pId);
           scores.push({ playerId: pId, playerName: part?.displayName ?? pId, score });
         }
 
@@ -380,7 +391,16 @@ export function setupSocketHandlers(io: Server) {
         }
 
         // Get played fields (for board rendering)
-        const playedFields: string[] = Object.keys(state.openFields);
+        const playedFields: string[] = [];
+        for (const boardNumber of [1, 2] as const) {
+          const board = boardNumber === 1 ? setup.board1 : setup.board2;
+          board?.categories.forEach((category, categoryIndex) => {
+            category.clues.forEach((clue) => {
+              const key = `${boardNumber}-${categoryIndex}-${clue.value}`;
+              if (!state.openFields[key]) playedFields.push(key);
+            });
+          });
+        }
 
         // Get board categories
         const getBoardCategories = (board: typeof setup.board1) =>
@@ -401,7 +421,11 @@ export function setupSocketHandlers(io: Server) {
           board2Categories: board2Cats,
           board1Values: (setup.board1?.categories[0]?.clues.map((c) => c.value) ?? []).sort((a, b) => a - b),
           board2Values: (setup.board2?.categories[0]?.clues.map((c) => c.value) ?? []).sort((a, b) => a - b),
-          gameEnded: (state.phase as unknown as string) === 'GAME_OVER',
+          gameEnded: state.phase === 'GAME_END',
+          buzzWinnerId: state.buzzWinner,
+          stealWinnerId: state.stealWinner,
+          playerNames: state.playerNames,
+          finalScores: state.phase === 'GAME_END' ? scores.sort((a, b) => b.score - a.score) : undefined,
         });
       } catch (err) {
         logger.error('jeopardy:resync threw', { err });
@@ -414,4 +438,3 @@ export function setupSocketHandlers(io: Server) {
     });
   });
 }
-

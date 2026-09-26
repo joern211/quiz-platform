@@ -16,7 +16,7 @@ export function JeopardySpectatorPage() {
   const roomCode = code ?? '';
 
   const { connected, gameState, error, clearError } =
-    useJeopardy(roomCode);
+    useJeopardy(roomCode, 'VIEWER');
 
   const playerScoreList = Object.entries(gameState.scores).map(
     ([id, score]) => ({

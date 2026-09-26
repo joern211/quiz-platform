@@ -36,6 +36,14 @@ export function ViewerLobbyPage() {
       }
     });
 
+    socket.on('game:start', (data) => {
+      if (data.status === 'RUNNING') {
+        navigate(data.gameSlug === 'jeopardy'
+          ? `/jeopardy/zuschauer/${code}`
+          : `/zuschauen/${code}/spiel`);
+      }
+    });
+
     socket.on('room:updated', (data) => {
       setPlayers(data.players || []);
     });

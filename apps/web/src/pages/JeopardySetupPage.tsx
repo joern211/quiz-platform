@@ -27,7 +27,7 @@ const clueSchema = z.object({
 });
 
 const categorySchema = z.object({
-  title: z.string().min(1, 'Kategoriename darf nicht leer sein.'),
+  name: z.string().min(1, 'Kategoriename darf nicht leer sein.'),
   clues: z.array(clueSchema).min(5).max(5),
 });
 
@@ -110,22 +110,26 @@ export function JeopardySetupPage() {
       try {
         const data = JSON.parse(e.target?.result as string);
         // Import board JSON — accept both `title` (legacy) and `name` (engine) as category key
-        if (data.board1?.categories) {
-          const newBoard1 = { ...board1 };
-          data.board1.categories.slice(0, 6).forEach((cat: any, i: number) => {
-            if (newBoard1.categories[i]) {
-              newBoard1.categories[i].title = cat.name || cat.title || '';
-              cat.clues?.slice(0, 5).forEach((clue: any, j: number) => {
-                if (newBoard1.categories[i].clues[j]) {
-                  newBoard1.categories[i].clues[j].question = clue.question || '';
-                  newBoard1.categories[i].clues[j].answer = clue.answer || '';
-                  newBoard1.categories[i].clues[j].type = clue.type || 'text';
-                }
-              });
-            }
-          });
-          setBoard1(newBoard1);
-        }
+        const importedBoard = (source: Board | undefined, current: Board): Board | null => {
+          if (!source?.categories) return null;
+          return { categories: current.categories.map((category, i) => {
+            const imported = source.categories[i];
+            return imported ? {
+              ...category,
+              title: imported.title || (imported as Category & { name?: string }).name || '',
+              clues: category.clues.map((clue, j) => ({
+                ...clue,
+                question: imported.clues?.[j]?.question || '',
+                answer: imported.clues?.[j]?.answer || '',
+                type: imported.clues?.[j]?.type || 'text',
+              })),
+            } : category;
+          }) };
+        };
+        const nextBoard1 = importedBoard(data.board1, board1);
+        const nextBoard2 = importedBoard(data.board2, board2);
+        if (nextBoard1) setBoard1(nextBoard1);
+        if (nextBoard2) setBoard2(nextBoard2);
       } catch {
         alert('Ungültiges Dateiformat');
       }

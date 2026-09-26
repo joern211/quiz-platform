@@ -87,14 +87,14 @@ export type ServerToClientEvents = {
   'jeopardy:field:open': (data: { categoryIndex: number; value: number; question: string; mediaType?: string; mediaAssetId?: string }) => void;
   'jeopardy:answer:secret': (data: { answer: string }) => void; // Moderator only
   'jeopardy:reveal': (data: { answer: string; correct: boolean; playerId: string; playerName: string; fieldValue: number; delta: number; scores: Record<string, number> }) => void;
-  'jeopardy:steal:open': (data: { categoryIndex: number; value: number }) => void;
+  'jeopardy:steal:open': (data: { categoryIndex: number; value: number; scores?: Record<string, number> }) => void;
   'jeopardy:steal:close': (data: { answer: string; thiefCorrect: boolean; thiefDelta: number; scores: Record<string, number> }) => void;
   'jeopardy:field:done': (data: { categoryIndex: number; value: number }) => void;
   'jeopardy:next': () => void;
   'jeopardy:buzz:won': (data: { playerId: string; playerName: string }) => void;
   'jeopardy:steal:buzz:won': (data: { playerId: string; playerName: string }) => void;
   'jeopardy:board:switch': (data: { fromBoard: 1 | 2; toBoard: 2 | 1; categories: Array<{ name: string; clueCount: number }>; values: number[]; scores: Record<string, number> }) => void;
-  'jeopardy:resync': (data: Record<string, never>, callback: (res: { success: boolean; error?: string }) => void) => void;
+  'jeopardy:board:complete': (data: { boardNumber: 1 | 2; nextBoard: 2 | null }) => void;
   'jeopardy:game:end': (data: { finalScores: Array<{ playerId: string; playerName: string; score: number }>; winnerIds: string[] }) => void;
   'buzz:won': (data: { playerId: string; displayName: string }) => void;
   'buzz:press': (data: BuzzPayload) => void;
@@ -111,7 +111,7 @@ export type ClientToServerEvents = {
   'room:resync': (data: { roomCode: string; rejoinToken?: string }, ack: (res: { success: boolean; state?: RoomState }) => void) => void;
   'room:kick': (data: { roomCode: string; playerId: string }, ack: (res: { success: boolean; error?: string }) => void) => void;
   'player:ready:set': (data: { roomCode: string; ready: boolean; rejoinToken?: string }, ack: (res: { success: boolean }) => void) => void;
-  'game:start': (data: { roomCode: string }, ack: (res: { success: boolean; error?: string }) => void) => void;
+  'game:start': (data: { roomCode: string }, ack: (res: { success: boolean; error?: string; gameSlug?: string }) => void) => void;
   'game:pause': (data: { roomCode: string }, ack: (res: { success: boolean; error?: string }) => void) => void;
   'game:resume': (data: { roomCode: string }, ack: (res: { success: boolean; error?: string }) => void) => void;
   'game:end': (data: { roomCode: string }, ack: (res: { success: boolean; error?: string }) => void) => void;
@@ -130,9 +130,28 @@ export type ClientToServerEvents = {
   'jeopardy:steal:judge': (data: { correct: boolean; rejoinToken?: string }, ack: (res: { success: boolean; error?: string }) => void) => void;
   'jeopardy:next': (data: { rejoinToken?: string }, ack: (res: { success: boolean; error?: string }) => void) => void;
   'jeopardy:board:switch': (data: { toBoard: 2 | 1; rejoinToken?: string }, ack: (res: { success: boolean; error?: string }) => void) => void;
+  'jeopardy:resync': (data: Record<string, never>, ack: (res: JeopardyResyncResponse) => void) => void;
   'lobby:chat:send': (data: { roomCode: string; content: string }, ack: (res: { success: boolean }) => void) => void;
   'lobby:chat:lock': (data: { roomCode: string; locked: boolean }, ack: (res: { success: boolean }) => void) => void;
 };
+
+export interface JeopardyResyncResponse {
+  success: boolean;
+  error?: string;
+  currentBoard?: 1 | 2;
+  phase?: 'INTRO' | 'SELECTING' | 'BUZZ_OPEN' | 'BUZZ_LOCKED' | 'STEAL_OPEN' | 'STEAL_LOCKED' | 'FIELD_DONE' | 'BOARD_COMPLETE' | 'GAME_END';
+  scores?: Array<{ playerId: string; playerName: string; score: number }>;
+  playerNames?: Record<string, string>;
+  currentField?: { categoryIndex: number; value: number; question: string; answer?: string; buzzWinnerId?: string | null; buzzWinnerName?: string | null } | null;
+  playedFields?: string[];
+  board1Categories?: Array<{ name: string; clueCount: number }>;
+  board2Categories?: Array<{ name: string; clueCount: number }>;
+  board1Values?: number[];
+  board2Values?: number[];
+  buzzWinnerId?: string | null;
+  stealWinnerId?: string | null;
+  finalScores?: Array<{ playerId: string; playerName: string; score: number }>;
+}
 
 // ── Session storage helpers ───────────────────────────────────
 

@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
+import { io, type Socket } from 'socket.io-client';
 
 const BASE = process.env.E2E_BASE_URL ?? 'http://localhost:5173';
 
@@ -13,11 +14,9 @@ interface PlayerSession {
 // ──────────────────────────────────────────────────────────────
 
 async function loginAsModerator(page: Page, userId = 'mod-1'): Promise<void> {
-  // Navigate to base first to establish the browser context fully
+  // Establish browser context before obtaining the protected test session.
   await page.goto(`${BASE}/`);
   await page.waitForLoadState('domcontentloaded');
-  // Small delay to avoid racing the server
-  await page.waitForTimeout(500);
 
   const response = await page.context().request.post(`${BASE}/api/v1/auth/e2e-token`, {
     data: { userId },
@@ -71,44 +70,23 @@ function makeImportPayload(boardNum: 1 | 2, pointMultiplier: number) {
 // ──────────────────────────────────────────────────────────────
 
 async function createJeopardyRoom(page: Page): Promise<string> {
-  // Get auth cookie from browser context
-  const cookies = await page.context().cookies();
-  const sessionCookie = cookies.find(c => c.name === 'quiz_session');
-  if (!sessionCookie) throw new Error('No session cookie found — call loginAsModerator first');
-
+  await page.goto(`${BASE}/moderator/vorbereitung/jeopardy`);
+  await expect(page.getByRole('heading', { name: 'Jeopardy einrichten' })).toBeVisible();
   const payload = makeImportPayload(1, 1);
-
-  // Create room via REST API directly
-  const res = await page.context().request.post(`${BASE}/api/v1/rooms`, {
-    data: {
-      gameSlug: 'jeopardy',
-      roomName: 'E2E Jeopardy Test',
-      maxPlayers: 10,
-      allowViewers: true,
-      isPublic: true,
-      setupSnapshotJson: {
-        board1: payload.board1,
-        board2: payload.board2,
-      },
-    },
+  payload.board2.categories.forEach((category) => {
+    category.clues.forEach((clue) => { clue.value *= 2; });
   });
-
-  expect(res.status(), `Room creation failed: ${await res.text()}`).toBe(201);
-  const body = await res.json() as { success: boolean; data: { code: string } };
-  expect(body.success, `Room creation failed: ${await res.text()}`).toBe(true);
-
-  const code = body.data.code;
-
-  // Navigate to moderator lobby to verify the UI works end-to-end
-  await page.goto(`${BASE}/moderator/raum/${code}/lobby`);
-  await page.waitForLoadState('domcontentloaded');
-  await page.waitForTimeout(500);
-
-  // Verify lobby elements
-  await expect(page.getByText(code, { exact: true }).first()).toBeVisible({ timeout: 10_000 });
-  await expect(page.getByText('Verbunden', { exact: true }).first()).toBeVisible({ timeout: 5_000 });
-
-  return code;
+  await page.locator('input[type="file"]').setInputFiles({
+    name: 'jeopardy-e2e.json', mimeType: 'application/json',
+    buffer: Buffer.from(JSON.stringify(payload)),
+  });
+  await expect(page.getByRole('button', { name: 'Geschichte' })).toBeVisible();
+  await page.getByRole('button', { name: 'Raum erstellen' }).click();
+  await page.waitForURL(/\/moderator\/raum\/\d{3}-\d{3}\/lobby$/, { timeout: 20_000 });
+  const code = page.url().match(/\/moderator\/raum\/(\d{3}-\d{3})\/lobby$/)?.[1];
+  expect(code).toBeTruthy();
+  await expect(page.getByText('Verbunden', { exact: true }).first()).toBeVisible();
+  return code!;
 }
 
 async function joinAsPlayer(page: Page, code: string, name: string): Promise<PlayerSession> {
@@ -140,72 +118,38 @@ async function watchAsSpectator(page: Page, code: string): Promise<void> {
 }
 
 async function startGame(moderator: Page): Promise<void> {
-  // Get session cookie from browser context
-  const cookies = await moderator.context().cookies();
-  const sessionCookie = cookies.find(c => c.name === 'quiz_session');
-  if (!sessionCookie) throw new Error('No session cookie — call loginAsModerator first');
+  await moderator.getByRole('button', { name: 'Spiel starten' }).click();
+  await moderator.waitForURL(/\/moderator\/raum\/\d{3}-\d{3}\/jeopardy$/, { timeout: 20_000 });
+  await expect(moderator.getByRole('gridcell', { name: /100 Punkte/ }).first()).toBeEnabled();
+}
 
-  // Get room code from URL
-  const url = moderator.url();
-  const codeMatch = url.match(/\/moderator\/raum\/(\d{3}-\d{3})\/lobby/);
-  if (!codeMatch) throw new Error(`Cannot find room code in URL: ${url}`);
-  const code = codeMatch[1];
+async function readyPlayer(page: Page): Promise<void> {
+  await page.getByRole('button', { name: /bereit/i }).click();
+  await expect(page.getByText('Bereit ✓').first()).toBeVisible();
+}
 
-  // Use E2E REST endpoint for game start — bypasses socket identity issues
-  const res = await moderator.context().request.post(`${BASE}/api/v1/e2e/game-start`, {
-    data: { roomCode: code },
+async function probeSocket(code: string, rejoinToken?: string): Promise<Socket> {
+  const socket = io(BASE, { transports: ['websocket'], forceNew: true });
+  await new Promise<void>((resolve, reject) => {
+    socket.once('connect', resolve);
+    socket.once('connect_error', reject);
   });
-
-  const body = await res.json() as { success: boolean; data?: { roomCode: string } };
-  if (!res.ok() || !body.success) {
-    throw new Error(`game:start failed (${res.status()}): ${await res.text()}`);
-  }
-
-  // Navigate directly to the Jeopardy game page (don't rely on socket navigation)
-  await moderator.goto(`${BASE}/moderator/raum/${code}/jeopardy`);
-  await moderator.waitForLoadState('networkidle'); // Wait for socket connection + jeopardy:init to arrive
-  // Poll: wait until the board shows an active game state (Nächstes Feld button visible = SELECTING phase)
-  // This is more reliable than just waiting for the grid to be attached
-  try {
-    await expect(moderator.getByRole('button', { name: /Nächstes Feld|Spielfeld/i }).toBeVisible({ timeout: 20_000 }));
-  } catch {
-    // Fallback: wait for the page to be interactive by looking at the board heading
-    await expect(moderator.getByRole('heading', { name: /Board \d/i })).toBeVisible({ timeout: 10_000 });
-    await moderator.waitForTimeout(3_000); // Give the server time to emit jeopardy:init
-  }
-  await moderator.waitForTimeout(500); // Allow socket state to settle
+  const subscription = await socket.timeout(5000).emitWithAck('room:subscribe', { roomCode: code, rejoinToken });
+  expect(subscription.success).toBe(true);
+  return socket;
 }
 
 async function openField(moderator: Page, categoryIndex = 0, value = 200): Promise<void> {
-  // Wait for the grid to be in the DOM
-  await expect(moderator.locator('[role="grid"]')).toBeAttached({ timeout: 10_000 });
-
-  // Wait for the board to be in SELECTING phase (cells clickable)
-  // The server transitions from INTRO → SELECTING after emitting jeopardy:init.
-  // We poll for the "Nächstes Feld" button which only appears in SELECTING or FIELD_DONE.
-  try {
-    await expect(moderator.getByRole('button', { name: /Nächstes Feld|Spielfeld öffnen| Feld öffnen/i }).toBeVisible({ timeout: 15_000 }));
-  } catch {
-    // Fallback: wait for INTRO phase to end (page should show "Board N" heading without "Verbunden" overlay)
-    await moderator.waitForTimeout(5_000);
-  }
-  await moderator.waitForTimeout(500); // Let phase settle
-
-  // Click the field cell — only works in SELECTING phase
-  const cell = moderator.locator('[data-category-index="' + categoryIndex + '"][data-value="' + value + '"]');
-  await expect(cell).toBeVisible({ timeout: 5_000 });
+  const cell = moderator.locator(`[data-category-index="${categoryIndex}"][data-value="${value}"]`);
+  await expect(cell).toBeEnabled();
   await cell.click();
+  await expect(moderator.getByText(`Frage ${categoryIndex + 1}-${value / 100}`, { exact: true }).first()).toBeVisible();
 }
 
 async function buzz(page: Page): Promise<void> {
-  // Wait for BUZZ_OPEN phase — buzzer button must be visible
-  const buzzer = page.getByRole('button', { name: /JETZT BUZZEN|BUZZ/i });
-  // Only buzz if buzzer is actually visible (race condition: first player already won)
-  if (await buzzer.isVisible({ timeout: 2_000 }).catch(() => false)) {
-    await buzzer.click();
-    // Wait for buzzer to disappear (BUZZ_LOCKED — someone won)
-    await expect(buzzer).not.toBeVisible({ timeout: 10_000 }).catch(() => {});
-  }
+  const buzzer = page.getByRole('button', { name: /JETZT BUZZEN|BUZZ/i }).first();
+  await expect(buzzer).toBeVisible();
+  await buzzer.click();
 }
 
 async function judgeCorrect(moderator: Page): Promise<void> {
@@ -213,8 +157,7 @@ async function judgeCorrect(moderator: Page): Promise<void> {
   const correctBtn = moderator.getByRole('button', { name: /RICHTIG/i });
   await expect(correctBtn).toBeVisible({ timeout: 15_000 });
   await correctBtn.click();
-  // Wait for judgment result (FIELD_DONE phase — reveal shown)
-  await moderator.waitForTimeout(1_000);
+  await expect(moderator.getByRole('button', { name: /Nächste Frage|Board 2/i })).toBeVisible();
 }
 
 async function judgeWrong(moderator: Page): Promise<void> {
@@ -314,10 +257,7 @@ test('J4: Vollständiger Spielablauf: starten -> feld öffnen -> buzzer -> bewer
     await joinAsPlayer(player2, code, 'Antworter');
 
     // Both players must mark themselves as ready before the game can start
-    await Promise.all([
-      player1.getByRole('button', { name: /bereit/i }).click().then(() => player1.waitForTimeout(500)),
-      player2.getByRole('button', { name: /bereit/i }).click().then(() => player2.waitForTimeout(500)),
-    ]);
+    await Promise.all([readyPlayer(player1), readyPlayer(player2)]);
     // Verify players show "Bereit ✓" (use .first() — each player's lobby shows all players)
     await expect(player1.getByText('Bereit ✓').first()).toBeVisible({ timeout: 5_000 });
     await expect(player2.getByText('Bereit ✓').first()).toBeVisible({ timeout: 5_000 });
@@ -332,7 +272,8 @@ test('J4: Vollständiger Spielablauf: starten -> feld öffnen -> buzzer -> bewer
     await expect(player2.getByText(/punkte/i).or(player2.getByText(/\d{3}/))).toBeVisible({ timeout: 5_000 });
 
     // Both players buzz (one should win — don't fail on timeout)
-    await Promise.all([buzz(player1), buzz(player2)]).catch(() => {});
+    await buzz(player1);
+    await expect(player2.getByRole('button', { name: /JETZT BUZZEN|BUZZ/i })).not.toBeVisible();
 
     // Moderator judges correct
     await judgeCorrect(moderator);
@@ -364,6 +305,7 @@ test('J5: Falsche Hauptantwort -> Abstauber-Buzzer wird geöffnet', async ({ bro
 
     await joinAsPlayer(player1, code, 'Frager');
     await joinAsPlayer(player2, code, 'Antworter');
+    await Promise.all([readyPlayer(player1), readyPlayer(player2)]);
 
     await startGame(moderator);
     await openField(moderator, 0, 200);
@@ -408,16 +350,14 @@ test('J6: Nur der erste Buzzer wird akzeptiert, spätere werden abgelehnt', asyn
 
     await joinAsPlayer(player1, code, 'Schneller');
     await joinAsPlayer(player2, code, 'Langsamer');
+    await Promise.all([readyPlayer(player1), readyPlayer(player2)]);
 
     await startGame(moderator);
     await openField(moderator, 0, 400);
 
-    // Player 1 is slightly faster — both buzz immediately
-    await Promise.all([buzz(player1), buzz(player2)]);
-
-    // Only one buzzer should be locked — the other should see "already taken"
-    const lockedOrFailed = moderator.getByText(/(Schneller|Langsamer)/).or(moderator.getByText(/buzzer/i));
-    await expect(lockedOrFailed).toBeVisible({ timeout: 5_000 });
+    await buzz(player1);
+    await expect(player2.getByRole('button', { name: /JETZT BUZZEN|BUZZ/i })).not.toBeVisible();
+    await expect(moderator.getByText('Schneller', { exact: true }).first()).toBeVisible();
 
     // After judging, scores update atomically
     await judgeCorrect(moderator);
@@ -443,22 +383,22 @@ test('J7: Reload und Rejoin stellen Rolle, Punktestand und Phase wieder her', as
     const code = await createJeopardyRoom(moderator);
 
     await joinAsPlayer(player1, code, 'Reload-Spieler');
+    const otherContext = await browser.newContext();
+    const other = await otherContext.newPage();
+    await joinAsPlayer(other, code, 'Zweiter Spieler');
+    await Promise.all([readyPlayer(player1), readyPlayer(other)]);
     await startGame(moderator);
     await openField(moderator, 0, 200);
 
     // Capture state before reload
     await buzz(player1);
-    await player1.evaluate(() => ({
-      phase: sessionStorage.getItem('qp_phase'),
-      score: sessionStorage.getItem('qp_score'),
-    }));
-
     // Reload player page
     await player1.reload();
     await expect(player1.getByText('Reload-Spieler', { exact: true })).toBeVisible({ timeout: 10_000 });
 
     // After reconnect, socket re-syncs and shows the question state
-    await expect(player1.getByText(/verbunden/i).or(player1.getByText('Reload-Spieler'))).toBeVisible({ timeout: 10_000 });
+    await expect(player1.getByText('Frage 1-2', { exact: true }).first()).toBeVisible({ timeout: 10_000 });
+    await otherContext.close();
   } finally {
     await Promise.all([modCtx.close(), p1Ctx.close()]);
   }
@@ -479,13 +419,24 @@ test('J8: Spieler kann kein Feld öffnen oder bewerten (nur Moderator)', async (
     await loginAsModerator(moderator);
     const code = await createJeopardyRoom(moderator);
 
-    await joinAsPlayer(player1, code, 'Gesperrter Spieler');
-
+    const player = await joinAsPlayer(player1, code, 'Gesperrter Spieler');
+    const otherContext = await browser.newContext();
+    const other = await otherContext.newPage();
+    await joinAsPlayer(other, code, 'Zweiter Spieler');
+    await Promise.all([readyPlayer(player1), readyPlayer(other)]);
     await startGame(moderator);
 
     // Player page should NOT have a field-opening button for other players
     const fieldButtons = player1.getByRole('button', { name: /\d{3}/ });
-    await expect(fieldButtons.first()).not.toBeVisible({ timeout: 5_000 });
+    await expect(fieldButtons.first()).toBeDisabled();
+    const probe = await probeSocket(code, player.rejoinToken);
+    try {
+      expect((await probe.timeout(5000).emitWithAck('jeopardy:field:open', { boardIndex: 1, categoryIndex: 0, value: 100 })).success).toBe(false);
+      expect((await probe.timeout(5000).emitWithAck('jeopardy:judge', { correct: true })).success).toBe(false);
+    } finally {
+      probe.disconnect();
+    }
+    await otherContext.close();
   } finally {
     await Promise.all([modCtx.close(), p1Ctx.close()]);
   }
@@ -502,11 +453,19 @@ test('J9: Lösung ist nicht im DOM oder Netzwerk-Payload von Spielern enthalten'
   try {
     const moderator = await modCtx.newPage();
     const player1 = await p1Ctx.newPage();
+    const received: string[] = [];
+    player1.on('websocket', (socket) => {
+      socket.on('framereceived', ({ payload }) => received.push(payload));
+    });
 
     await loginAsModerator(moderator);
     const code = await createJeopardyRoom(moderator);
 
     await joinAsPlayer(player1, code, 'Kein Leak');
+    const otherContext = await browser.newContext();
+    const other = await otherContext.newPage();
+    await joinAsPlayer(other, code, 'Zweiter Spieler');
+    await Promise.all([readyPlayer(player1), readyPlayer(other)]);
     await startGame(moderator);
     await openField(moderator, 0, 200);
 
@@ -517,7 +476,9 @@ test('J9: Lösung ist nicht im DOM oder Netzwerk-Payload von Spielern enthalten'
     // (This is a proxy check — the server doesn't emit answer to player sockets)
     const pageText = await player1.evaluate(() => document.body.innerText);
     // Answer should not appear in player page
-    expect(pageText).not.toMatch(/antwort:\s*\w{4,}/i);
+    expect(pageText).not.toContain('Antwort 1-2');
+    expect(received.join(' ')).not.toContain('Antwort 1-2');
+    await otherContext.close();
   } finally {
     await Promise.all([modCtx.close(), p1Ctx.close()]);
   }
@@ -538,6 +499,13 @@ test('J10: Zuschauer hat nur Lesezugriff, keine Aktions-Buttons', async ({ brows
     await loginAsModerator(moderator);
     const code = await createJeopardyRoom(moderator);
     await watchAsSpectator(viewer, code);
+    const firstContext = await browser.newContext();
+    const secondContext = await browser.newContext();
+    const first = await firstContext.newPage();
+    const second = await secondContext.newPage();
+    await joinAsPlayer(first, code, 'Erster Spieler');
+    await joinAsPlayer(second, code, 'Zweiter Spieler');
+    await Promise.all([readyPlayer(first), readyPlayer(second)]);
 
     await startGame(moderator);
     await openField(moderator, 0, 200);
@@ -552,6 +520,14 @@ test('J10: Zuschauer hat nur Lesezugriff, keine Aktions-Buttons', async ({ brows
     // No score buttons for spectators
     const judgeBtn = viewer.getByRole('button', { name: /richtig|falsch/i });
     await expect(judgeBtn).not.toBeVisible();
+    const probe = await probeSocket(code);
+    try {
+      expect((await probe.timeout(5000).emitWithAck('jeopardy:buzz', {})).success).toBe(false);
+      expect((await probe.timeout(5000).emitWithAck('jeopardy:board:switch', { toBoard: 2 })).success).toBe(false);
+    } finally {
+      probe.disconnect();
+    }
+    await Promise.all([firstContext.close(), secondContext.close()]);
   } finally {
     await Promise.all([modCtx.close(), viewCtx.close()]);
   }

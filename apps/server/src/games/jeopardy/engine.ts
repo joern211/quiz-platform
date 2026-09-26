@@ -4,12 +4,12 @@
 // ============================================================
 
 import { Server, Socket } from 'socket.io';
+import type { Prisma } from '@prisma/client';
 import { prisma } from '../../persistence/prisma.js';
 import { logger } from '../../observability/logger.js';
 import { roomChannel } from '../../sockets/index.js';
 import { getSocketDataIdentity } from '../../sockets/auth.js';
 import {
-  JeopardyPhase,
   JEOPARDY_PHASES,
   pointsForCorrect,
   pointsForWrongFirst,
@@ -18,7 +18,6 @@ import {
   JeopardyInitEvent,
   JeopardyFieldOpenEvent,
   JeopardyBuzzLockedEvent,
-  JeopardyStealOpenEvent,
   JeopardyStealLockedEvent,
   JeopardyRevealEvent,
   JeopardyFieldDoneEvent,
@@ -36,6 +35,14 @@ import {
   markFieldAnswered,
   JeopardyFieldDef,
 } from './state.js';
+
+async function saveIfUnchanged(tx: Prisma.TransactionClient, roomId: string, revision: number, state: JeopardyGameState): Promise<void> {
+  const result = await tx.roomGameState.updateMany({
+    where: { roomId, revision },
+    data: { stateJson: JSON.stringify(state), phase: state.phase, revision: { increment: 1 } },
+  });
+  if (result.count !== 1) throw new Error('STATE_CONFLICT');
+}
 
 // ============================================================
 // Entry point: initialize a Jeopardy game in a room
@@ -238,16 +245,7 @@ export const handleJeopardyGame = {
     };
 
     // Persist atomically
-    await prisma.$transaction(async (tx) => {
-      await tx.roomGameState.update({
-        where: { roomId },
-        data: {
-          stateJson: JSON.stringify(state),
-          phase: JEOPARDY_PHASES.BUZZ_OPEN,
-          revision: { increment: 1 },
-        },
-      });
-    });
+    await prisma.$transaction(async (tx) => saveIfUnchanged(tx, roomId, gameStateData.revision, state));
 
     // Emit question to ALL (no answer — P0-07 fix: using io.to broadcasts to the correct room channel)
     const fieldOpenEvent: JeopardyFieldOpenEvent = {
@@ -297,7 +295,7 @@ export const handleJeopardyGame = {
   ): Promise<{ success: boolean; error?: string }> {
     const identity = getSocketDataIdentity(socket);
     if (!identity?.roomId) return { success: false, error: 'NOT_IN_ROOM' };
-    if (identity.role === 'VIEWER') return { success: false, error: 'VIEWERS_CANNOT_MODIFY' };
+    if (identity.role !== 'PLAYER') return { success: false, error: 'PLAYER_ONLY' };
 
     const roomId = identity.roomId;
     const participationId = identity.participationId;
@@ -324,14 +322,8 @@ export const handleJeopardyGame = {
       state.buzzWinner = participationId;
       state.phase = JEOPARDY_PHASES.BUZZ_LOCKED;
 
-      await tx.roomGameState.update({
-        where: { roomId },
-        data: {
-          stateJson: JSON.stringify(state),
-          phase: JEOPARDY_PHASES.BUZZ_LOCKED,
-          revision: { increment: 1 },
-        },
-      });
+      if (!Object.hasOwn(state.scores, participationId)) throw new Error('PLAYER_NOT_IN_GAME');
+      await saveIfUnchanged(tx, roomId, gameStateData.revision, state);
 
       return { state, displayName: identity.displayName };
     });
@@ -369,147 +361,53 @@ export const handleJeopardyGame = {
     const identity = getSocketDataIdentity(socket);
     if (!identity?.roomId) return { success: false, error: 'NOT_IN_ROOM' };
     if (identity.role !== 'MODERATOR') return { success: false, error: 'UNAUTHORIZED' };
-
     const roomId = identity.roomId;
 
     const result = await prisma.$transaction(async (tx) => {
-      const gameStateData = await tx.roomGameState.findUnique({ where: { roomId } });
-      if (!gameStateData) throw new Error('GAME_NOT_FOUND');
-
-      const state: JeopardyGameState = JSON.parse(gameStateData.stateJson);
-
-      // Phase guard
-      if (state.phase !== JEOPARDY_PHASES.BUZZ_LOCKED) {
+      const row = await tx.roomGameState.findUnique({ where: { roomId } });
+      if (!row) throw new Error('GAME_NOT_FOUND');
+      let state: JeopardyGameState = JSON.parse(row.stateJson);
+      if (state.phase !== JEOPARDY_PHASES.BUZZ_LOCKED || !state.buzzWinner || !state.currentField) {
         throw new Error('PHASE_NOT_BUZZ_LOCKED');
       }
-
-      // Idempotency: check if already judged
-      if (!state.buzzWinner) {
-        throw new Error('NO_BUZZ_WINNER');
-      }
-
-      const buzzWinnerId = state.buzzWinner;
-      const value = state.currentField?.value ?? 0;
-      const categoryIndex = state.currentField?.categoryIndex ?? 0;
-
-      // Calculate score delta
+      const playerId = state.buzzWinner;
+      const { categoryIndex, value, fieldDef } = state.currentField;
       const delta = data.correct ? pointsForCorrect(value) : pointsForWrongFirst(value);
-      state.scores = applyScoreDelta(state.scores, buzzWinnerId, delta);
-
-      // Persist state
-      await tx.roomGameState.update({
-        where: { roomId },
-        data: {
-          stateJson: JSON.stringify(state),
-          revision: { increment: 1 },
-        },
-      });
-
-      // Update participation score in DB
-      await tx.participation.update({
-        where: { id: buzzWinnerId },
-        data: { score: state.scores[buzzWinnerId] },
-      });
-
-      return { state, buzzWinnerId, delta, value, categoryIndex, correct: data.correct };
+      state.scores = applyScoreDelta(state.scores, playerId, delta);
+      if (data.correct) {
+        state = resetBuzzer(markFieldAnswered(state, categoryIndex, value, playerId, true, delta));
+        state.phase = isBoardComplete(state, state.currentBoard) ? JEOPARDY_PHASES.BOARD_COMPLETE : JEOPARDY_PHASES.FIELD_DONE;
+      } else {
+        state.phase = JEOPARDY_PHASES.STEAL_OPEN;
+        state.currentField!.firstResponderId = playerId;
+        state.buzzWinner = null;
+        state.buzzOpen = false;
+        state.stealOpen = true;
+      }
+      await saveIfUnchanged(tx, roomId, row.revision, state);
+      await tx.participation.update({ where: { id: playerId }, data: { score: state.scores[playerId] } });
+      return { state, playerId, delta, categoryIndex, value, answer: fieldDef.answer };
     });
 
-    const { state, buzzWinnerId, delta, value, categoryIndex, correct } = result;
-
-    if (!correct) {
-      // Wrong answer → open steal phase
-      await prisma.$transaction(async (tx) => {
-        const gs = await tx.roomGameState.findUnique({ where: { roomId } });
-        if (!gs) return;
-        const st: JeopardyGameState = JSON.parse(gs.stateJson);
-        st.phase = JEOPARDY_PHASES.STEAL_OPEN;
-        st.buzzWinner = null;
-        st.stealOpen = true;
-        await tx.roomGameState.update({
-          where: { roomId },
-          data: { stateJson: JSON.stringify(st), phase: JEOPARDY_PHASES.STEAL_OPEN, revision: { increment: 1 } },
-        });
-      });
-
-      // Emit steal:open to all
-      io.to(roomChannel(roomId)).emit('jeopardy:steal:open', {
-        categoryIndex,
-        value,
-      } as JeopardyStealOpenEvent);
-
-      // Emit answer to moderator only
-      const answer = state.currentField?.fieldDef.answer ?? '';
-      socket.emit('jeopardy:reveal', {
-        answer,
-        correct,
-        playerId: buzzWinnerId,
-        playerName: state.playerNames[buzzWinnerId],
-        fieldValue: value,
-        delta,
-        scores: state.scores,
-      } as JeopardyRevealEvent);
-
-      logger.info('Jeopardy judge: wrong → steal open', { roomId, buzzWinnerId, value });
+    const { state, playerId, delta, categoryIndex, value, answer } = result;
+    if (!data.correct) {
+      io.to(roomChannel(roomId)).emit('jeopardy:steal:open', { categoryIndex, value, scores: state.scores });
     } else {
-      // Correct answer → field done
-      await prisma.$transaction(async (tx) => {
-        const gs = await tx.roomGameState.findUnique({ where: { roomId } });
-        if (!gs) return;
-        let st: JeopardyGameState = JSON.parse(gs.stateJson);
-        st = markFieldAnswered(st, categoryIndex, value, buzzWinnerId, true, delta);
-        st = resetBuzzer(st);
-
-
-        if (isBoardComplete(st, st.currentBoard)) {
-          st.phase = JEOPARDY_PHASES.BOARD_COMPLETE;
-        } else {
-          st.phase = JEOPARDY_PHASES.FIELD_DONE;
-        }
-
-        await tx.roomGameState.update({
-          where: { roomId },
-          data: { stateJson: JSON.stringify(st), phase: st.phase, revision: { increment: 1 } },
-        });
-      });
-
-      // Emit reveal to all (answer to moderator only)
-      const answer = state.currentField?.fieldDef.answer ?? '';
-      const allScores = Object.entries(state.scores).map(([pid, score]) => ({
-        playerId: pid,
-        playerName: state.playerNames[pid] ?? 'Unknown',
-        score,
-      }));
-
       io.to(roomChannel(roomId)).emit('jeopardy:reveal', {
-        answer: '••••••', // P0-07: never send real answer to non-moderators
-        correct,
-        playerId: buzzWinnerId,
-        playerName: state.playerNames[buzzWinnerId],
-        fieldValue: value,
-        delta,
-        scores: Object.fromEntries(
-          Object.entries(state.scores).map(([pid, score]) => [pid, score])
-        ),
+        answer: '••••••', correct: true, playerId,
+        playerName: state.playerNames[playerId], fieldValue: value, delta, scores: state.scores,
       });
-
       socket.emit('jeopardy:reveal', {
-        answer,
-        correct,
-        playerId: buzzWinnerId,
-        playerName: state.playerNames[buzzWinnerId],
-        fieldValue: value,
-        delta,
-        scores: allScores.reduce((acc, s) => ({ ...acc, [s.playerId]: s.score }), {}),
+        answer, correct: true, playerId,
+        playerName: state.playerNames[playerId], fieldValue: value, delta, scores: state.scores,
       } as JeopardyRevealEvent);
-
-      io.to(roomChannel(roomId)).emit('jeopardy:field:done', {
-        categoryIndex,
-        value,
-      } as JeopardyFieldDoneEvent);
-
-      logger.info('Jeopardy judge: correct', { roomId, buzzWinnerId, value, delta });
+      io.to(roomChannel(roomId)).emit('jeopardy:field:done', { categoryIndex, value } as JeopardyFieldDoneEvent);
+      if (state.phase === JEOPARDY_PHASES.BOARD_COMPLETE) {
+        io.to(roomChannel(roomId)).emit('jeopardy:board:complete', {
+          boardNumber: state.currentBoard, nextBoard: state.currentBoard === 1 ? 2 : null,
+        } as JeopardyBoardCompleteEvent);
+      }
     }
-
     return { success: true };
   },
 
@@ -527,7 +425,7 @@ export const handleJeopardyGame = {
   ): Promise<{ success: boolean; error?: string }> {
     const identity = getSocketDataIdentity(socket);
     if (!identity?.roomId) return { success: false, error: 'NOT_IN_ROOM' };
-    if (identity.role === 'VIEWER') return { success: false, error: 'VIEWERS_CANNOT_MODIFY' };
+    if (identity.role !== 'PLAYER') return { success: false, error: 'PLAYER_ONLY' };
 
     const roomId = identity.roomId;
     const participationId = identity.participationId;
@@ -547,17 +445,16 @@ export const handleJeopardyGame = {
         throw new Error('STEAL_ALREADY_WON');
       }
 
+      if (state.currentField?.firstResponderId === participationId) {
+        throw new Error('ALREADY_ANSWERED');
+      }
+
+      if (!Object.hasOwn(state.scores, participationId)) throw new Error('PLAYER_NOT_IN_GAME');
+
       state.stealWinner = participationId;
       state.phase = JEOPARDY_PHASES.STEAL_LOCKED;
 
-      await tx.roomGameState.update({
-        where: { roomId },
-        data: {
-          stateJson: JSON.stringify(state),
-          phase: JEOPARDY_PHASES.STEAL_LOCKED,
-          revision: { increment: 1 },
-        },
-      });
+      await saveIfUnchanged(tx, roomId, gameStateData.revision, state);
 
       return { displayName: identity.displayName };
     });
@@ -607,6 +504,7 @@ export const handleJeopardyGame = {
       }
 
       const stealWinnerId = state.stealWinner;
+      const answer = state.currentField?.fieldDef.answer ?? '';
       const value = state.currentField?.value ?? 0;
       const categoryIndex = state.currentField?.categoryIndex ?? 0;
 
@@ -624,25 +522,18 @@ export const handleJeopardyGame = {
         state.phase = JEOPARDY_PHASES.FIELD_DONE;
       }
 
-      await tx.roomGameState.update({
-        where: { roomId },
-        data: {
-          stateJson: JSON.stringify(state),
-          phase: state.phase,
-          revision: { increment: 1 },
-        },
-      });
+      await saveIfUnchanged(tx, roomId, gameStateData.revision, state);
 
       await tx.participation.update({
         where: { id: stealWinnerId },
         data: { score: state.scores[stealWinnerId] },
       });
 
-      return { state, stealWinnerId, delta, value, categoryIndex, correct: data.correct };
+      return { state, stealWinnerId, delta, value, categoryIndex, correct: data.correct, answer };
     });
 
     const { state, stealWinnerId, delta, value, categoryIndex } = result;
-    const answer = state.currentField?.fieldDef.answer ?? '';
+    const answer = result.answer;
     const allScores = Object.entries(state.scores).map(([pid, score]) => ({
       playerId: pid,
       playerName: state.playerNames[pid] ?? 'Unknown',
@@ -668,6 +559,12 @@ export const handleJeopardyGame = {
       categoryIndex,
       value,
     } as JeopardyFieldDoneEvent);
+
+    if (state.phase === JEOPARDY_PHASES.BOARD_COMPLETE) {
+      io.to(roomChannel(roomId)).emit('jeopardy:board:complete', {
+        boardNumber: state.currentBoard, nextBoard: state.currentBoard === 1 ? 2 : null,
+      } as JeopardyBoardCompleteEvent);
+    }
 
     logger.info('Jeopardy steal judged', { roomId, stealWinnerId, value, delta, correct: result.correct });
 
@@ -699,9 +596,7 @@ export const handleJeopardyGame = {
 
       let state: JeopardyGameState = JSON.parse(gameStateData.stateJson);
 
-      // Valid phases: FIELD_DONE, BOARD_COMPLETE, GAME_END
-      const validPhases: JeopardyPhase[] = [JEOPARDY_PHASES.FIELD_DONE, JEOPARDY_PHASES.BOARD_COMPLETE];
-      if (!validPhases.includes(state.phase)) {
+      if (state.phase !== JEOPARDY_PHASES.FIELD_DONE) {
         throw new Error('PHASE_NOT_FIELD_DONE');
       }
 
@@ -712,14 +607,7 @@ export const handleJeopardyGame = {
       };
       state = resetBuzzer(state);
 
-      await tx.roomGameState.update({
-        where: { roomId },
-        data: {
-          stateJson: JSON.stringify(state),
-          phase: JEOPARDY_PHASES.SELECTING,
-          revision: { increment: 1 },
-        },
-      });
+      await saveIfUnchanged(tx, roomId, gameStateData.revision, state);
     });
 
     io.to(roomChannel(roomId)).emit('jeopardy:next', { phase: JEOPARDY_PHASES.SELECTING });
@@ -761,31 +649,10 @@ export const handleJeopardyGame = {
         return this.handleGameEnd(io, room, state);
       }
 
-      // Register board 2 fields
-      let newState = { ...state, currentBoard: 2 as 1 | 2 };
-      for (let ci = 0; ci < setup.board2.categories.length; ci++) {
-        for (const clue of setup.board2.categories[ci].clues) {
-          const fieldDef: JeopardyFieldDef = {
-            categoryIndex: ci,
-            value: clue.value,
-            question: clue.question,
-            answer: clue.answer,
-          };
-          newState = registerField(newState, 2, ci, clue.value, fieldDef);
-        }
-      }
-
-      newState = resetBuzzer(newState);
+      // Board 2 fields were registered at initialization; never reinsert played fields.
+      const newState = resetBuzzer({ ...state, currentBoard: 2 as const, currentField: null });
       newState.phase = JEOPARDY_PHASES.SELECTING;
-
-      await prisma.roomGameState.update({
-        where: { roomId: room.id },
-        data: {
-          stateJson: JSON.stringify(newState),
-          phase: JEOPARDY_PHASES.SELECTING,
-          revision: { increment: 1 },
-        },
-      });
+      await prisma.$transaction(async (tx) => saveIfUnchanged(tx, room.id, gameStateData.revision, newState));
 
       const categories = setup.board2.categories.map((cat) => ({
         name: cat.name,
@@ -822,7 +689,9 @@ export const handleJeopardyGame = {
     _state?: JeopardyGameState
   ): Promise<{ success: boolean; error?: string }> {
     const gameStateData = await prisma.roomGameState.findUnique({ where: { roomId: room.id } });
-    const state = gameStateData ? (JSON.parse(gameStateData.stateJson) as JeopardyGameState) : null;
+    if (!gameStateData) return { success: false, error: 'GAME_NOT_FOUND' };
+    const state = JSON.parse(gameStateData.stateJson) as JeopardyGameState;
+    if (state.phase !== JEOPARDY_PHASES.BOARD_COMPLETE) return { success: false, error: 'PHASE_NOT_BOARD_COMPLETE' };
 
     await prisma.$transaction(async (tx) => {
       await tx.room.update({
@@ -834,10 +703,7 @@ export const handleJeopardyGame = {
         },
       });
 
-      await tx.roomGameState.update({
-        where: { roomId: room.id },
-        data: { phase: JEOPARDY_PHASES.GAME_END },
-      });
+      await saveIfUnchanged(tx, room.id, gameStateData.revision, { ...state, phase: JEOPARDY_PHASES.GAME_END });
     });
 
     const scores = state?.scores ?? {};
