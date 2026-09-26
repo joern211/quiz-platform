@@ -33,6 +33,12 @@ import { ProfilePage }     from './pages/ProfilePage';
 import { AdminPage }       from './pages/AdminPage';
 import { NotFoundPage }    from './pages/NotFoundPage';
 
+// Jeopardy pages
+import { JeopardyModeratorPage } from './pages/JeopardyModeratorPage';
+import { JeopardyPlayerPage }    from './pages/JeopardyPlayerPage';
+import { JeopardySpectatorPage } from './pages/JeopardySpectatorPage';
+import { JeopardySetupPage }     from './pages/JeopardySetupPage';
+
 export default function App() {
   const { theme } = useTheme();
   const location = useLocation();
@@ -62,22 +68,27 @@ export default function App() {
 
           {/* ── Moderator ── */}
           <Route path="/moderator/anmelden"                              element={<ModeratorLoginPage />} />
-          <Route path="/moderator/vorbereitung/:gameSlug"                element={<ModeratorSetupPage />} />
+          <Route path="/moderator/vorbereitung/jeopardy"         element={<JeopardySetupPage />} />
+          <Route path="/moderator/vorbereitung/:gameSlug"         element={<ModeratorSetupPage />} />
           <Route path="/moderator/raeume"                                element={<RoomsPage />} />
           <Route path="/moderator/raum/:code/lobby"                      element={<ModeratorLobbyPage />} />
           <Route path="/moderator/raum/:code/spiel"                      element={<ModeratorGamePage />} />
           <Route path="/moderator/raum/:code/ergebnis"                   element={<ModeratorResultPage />} />
+          <Route path="/moderator/raum/:code/jeopardy"                     element={<JeopardyModeratorPage />} />
 
           {/* ── Spieler ── */}
           <Route path="/raum/:code/lobby"     element={<PlayerLobbyPage />} />
           <Route path="/raum/:code/spiel"     element={<PlayerGamePage />} />
           <Route path="/raum/:code/ergebnis"  element={<PlayerResultPage />} />
+          <Route path="/jeopardy/spiel/:code" element={<JeopardyPlayerPage />} />
 
           {/* ── Zuschauer ── */}
           <Route path="/zuschauen"                        element={<ViewerPage />} />
           <Route path="/zuschauen/:code/lobby"            element={<ViewerLobbyPage />} />
           <Route path="/zuschauen/:code/spiel"            element={<ViewerGamePage />} />
-          <Route path="/zuschauen/:code/ergebnis"         element={<ViewerResultPage />} />
+          <Route path="/zuschauen/:code/ergebnis"          element={<ViewerResultPage />} />
+          {/* ── Jeopardy (Buzzer-Game) ── */}
+          <Route path="/jeopardy/zuschauer/:code"         element={<JeopardySpectatorPage />} />
 
           {/* ── Profil / Admin ── */}
           <Route path="/spieler/profil" element={<ProfilePage />} />

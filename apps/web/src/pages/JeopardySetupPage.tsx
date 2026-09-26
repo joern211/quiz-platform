@@ -1,9 +1,10 @@
 // ============================================================
-// Geo Jeopardy Setup Page
+// Jeopardy Setup Page
 // ============================================================
 
 import { useState, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { z } from 'zod';
 import { Card, Button, Input } from '@quiz/ui';
 import styles from './JeopardySetupPage.module.css';
 
@@ -16,6 +17,36 @@ interface Category {
 interface Board {
   categories: Category[];
 }
+
+// ── Zod Validation Schema ─────────────────────────────────────
+
+const clueSchema = z.object({
+  value: z.number().positive('Punktwert muss positiv sein.'),
+  question: z.string().min(1, 'Frage darf nicht leer sein.'),
+  answer: z.string().min(1, 'Antwort darf nicht leer sein.'),
+});
+
+const categorySchema = z.object({
+  name: z.string().min(1, 'Kategoriename darf nicht leer sein.'),
+  clues: z.array(clueSchema).min(5).max(5),
+});
+
+const boardSchema = z.object({
+  categories: z.array(categorySchema).min(6).max(6),
+});
+
+export const JeopardyBoardSchema = z.object({
+  board1: boardSchema,
+  board2: boardSchema,
+});
+
+// Re-export Board type from JeopardySetupPage
+export type { Board as JeopardyBoard };
+
+export type JeopardyValidationError = {
+  board1?: { categories?: Array<{ name?: string[]; clues?: Array<{ question?: string[]; answer?: string[] }> }> };
+  board2?: { categories?: Array<{ name?: string[]; clues?: Array<{ question?: string[]; answer?: string[] }> }> };
+};
 
 export function JeopardySetupPage() {
   const navigate = useNavigate();
@@ -52,6 +83,8 @@ export function JeopardySetupPage() {
   const [roomName, setRoomName] = useState('');
   const [pin, setPin] = useState('');
   const [saving, setSaving] = useState(false);
+  const [validationErrors, setValidationErrors] = useState<string[]>([]);
+  const [apiError, setApiError] = useState<string | null>(null);
 
   const currentBoardData = currentBoard === 1 ? board1 : board2;
   const setCurrentBoardData = currentBoard === 1 ? setBoard1 : setBoard2;
@@ -76,22 +109,27 @@ export function JeopardySetupPage() {
     reader.onload = (e) => {
       try {
         const data = JSON.parse(e.target?.result as string);
-        // Simple import - just copy titles
-        if (data.board1?.categories) {
-          const newBoard1 = { ...board1 };
-          data.board1.categories.slice(0, 6).forEach((cat: any, i: number) => {
-            if (newBoard1.categories[i]) {
-              newBoard1.categories[i].title = cat.title || '';
-              cat.clues?.slice(0, 5).forEach((clue: any, j: number) => {
-                if (newBoard1.categories[i].clues[j]) {
-                  newBoard1.categories[i].clues[j].question = clue.question || '';
-                  newBoard1.categories[i].clues[j].answer = clue.answer || '';
-                }
-              });
-            }
-          });
-          setBoard1(newBoard1);
-        }
+        // Import board JSON — accept both `title` (legacy) and `name` (engine) as category key
+        const importedBoard = (source: Board | undefined, current: Board): Board | null => {
+          if (!source?.categories) return null;
+          return { categories: current.categories.map((category, i) => {
+            const imported = source.categories[i];
+            return imported ? {
+              ...category,
+              title: imported.title || (imported as Category & { name?: string }).name || '',
+              clues: category.clues.map((clue, j) => ({
+                ...clue,
+                question: imported.clues?.[j]?.question || '',
+                answer: imported.clues?.[j]?.answer || '',
+                type: imported.clues?.[j]?.type || 'text',
+              })),
+            } : category;
+          }) };
+        };
+        const nextBoard1 = importedBoard(data.board1, board1);
+        const nextBoard2 = importedBoard(data.board2, board2);
+        if (nextBoard1) setBoard1(nextBoard1);
+        if (nextBoard2) setBoard2(nextBoard2);
       } catch {
         alert('Ungültiges Dateiformat');
       }
@@ -114,7 +152,38 @@ export function JeopardySetupPage() {
     URL.revokeObjectURL(url);
   };
 
+// Helper: transform board with `title` → `name` for engine compatibility
+  const toEngineBoard = (board: Board) => ({
+    categories: board.categories.map(c => ({
+      name: c.title,
+      clues: c.clues.map(({ value, question, answer, type }) => ({ value, question, answer, type })),
+    })),
+  });
+
   const handleCreateRoom = async () => {
+    setApiError(null);
+    setValidationErrors([]);
+
+    // Phase 2: Zod validation before room creation
+    const engineBoard1 = toEngineBoard(board1);
+    const engineBoard2 = toEngineBoard(board2);
+    const validation = JeopardyBoardSchema.safeParse({ board1: engineBoard1, board2: engineBoard2 });
+    if (!validation.success) {
+      const errors = validation.error.errors.map(e => {
+        const path0 = String(e.path[0] ?? '');
+        // Category index is e.path[1] — could be 0 (valid) or undefined (root error)
+        const catIdx = e.path.length > 1 && e.path[1] !== undefined
+          ? Number(e.path[1])
+          : null;
+        const field = e.path.length > 2 ? String(e.path[2]) : '';
+        const boardLabel = path0 === 'board1' ? 'Board 1' : path0 === 'board2' ? 'Board 2' : path0;
+        const catLabel = catIdx !== null ? `Kategorie ${catIdx + 1}` : '';
+        return `${boardLabel} ${catLabel} ${field}: ${e.message}`.trim();
+      });
+      setValidationErrors(errors);
+      return;
+    }
+
     setSaving(true);
     try {
       const res = await fetch('/api/v1/rooms', {
@@ -127,16 +196,23 @@ export function JeopardySetupPage() {
           pin: pin || undefined,
           maxPlayers: 10,
           allowViewers: true,
-          setup: { board1, board2 },
+          isPublic: true,
+          setupSnapshotJson: { board1: engineBoard1, board2: engineBoard2 },
         }),
       });
 
-      const data = await res.json();
-      if (res.ok) {
-        navigate(`/moderator/raum/${data.code}/lobby`);
+      const json = await res.json();
+      if (!res.ok) {
+        setApiError(json.error?.message ?? `Fehler ${res.status}: Raum konnte nicht erstellt werden.`);
+        return;
+      }
+      if (json.success && json.data?.code) {
+        navigate(`/moderator/raum/${json.data.code}/lobby`);
+      } else {
+        setApiError(json.error?.message ?? 'Fehler beim Erstellen');
       }
     } catch {
-      alert('Fehler beim Erstellen');
+      setApiError('Netzwerkfehler: Server nicht erreichbar.');
     } finally {
       setSaving(false);
     }
@@ -145,6 +221,25 @@ export function JeopardySetupPage() {
   return (
     <div className={styles.page}>
       <h1 className={styles.title}>Jeopardy einrichten</h1>
+
+      {/* Validation errors */}
+      {validationErrors.length > 0 && (
+        <div className={styles.errorBanner} role="alert">
+          <strong>Bitte fülle alle Pflichtfelder aus:</strong>
+          <ul style={{ margin: '8px 0 0 16px', padding: 0 }}>
+            {validationErrors.map((err, i) => (
+              <li key={i}>{err}</li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {/* API error */}
+      {apiError && (
+        <div className={styles.errorBanner} role="alert">
+          {apiError}
+        </div>
+      )}
 
       <div className={styles.boardTabs}>
         <button 

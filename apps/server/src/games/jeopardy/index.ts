@@ -184,3 +184,29 @@ export function createJeopardyState(): JeopardyState {
 export function initJeopardyState(roomCode: string) {
   states.set(roomCode, createJeopardyState());
 }
+
+// ============================================================
+// GameHandle (matches registry contract)
+// ============================================================
+
+export const handleJeopardy = {
+  name: 'jeopardy',
+  /**
+   * Initialize Jeopardy game for a room.
+   * Called by game.ts when the moderator starts the game.
+   */
+  async initialize(io: Server, room: any) {
+    // TODO Phase 4: implement full initialization
+    // - Parse setupSnapshotJson for board1/board2
+    // - Create JeopardyGameState
+    // - Persist to roomGameState
+    // - Emit jeopardy:init to room
+    logger.info('Jeopardy game handle.initialize called (Phase 3 scaffold)', {
+      roomId: room.id,
+      roomCode: room.code,
+    });
+
+    // Placeholder: set up in-memory state
+    initJeopardyState(room.code);
+  },
+};

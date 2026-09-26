@@ -90,53 +90,16 @@ jobs:
           DATABASE_URL=file:/tmp/test-e2e.db pnpm prisma migrate deploy
           DATABASE_URL=file:/tmp/test-e2e.db SESSION_SECRET=test-secret-32chars-long-for-e2e pnpm db:seed
 
-      - name: Start backend server (port 3001) in background
-        run: |
-          nohup env \
-            DATABASE_URL=file:/tmp/test-e2e.db \
-            SESSION_SECRET=test-secret-32chars-long-for-e2e \
-            ALLOWED_ORIGINS=http://localhost:3001,http://localhost:5173 \
-            PUBLIC_APP_URL=http://localhost:3001 \
-            NODE_ENV=development \
-            node apps/server/dist/server.js \
-            > /tmp/backend.log 2>&1 &
-          echo "Backend PID: $!"
-          for i in $(seq 1 30); do
-            if curl -sf http://localhost:3001/api/v1/health > /dev/null 2>&1; then
-              echo "Backend ready after ${i}s"
-              break
-            fi
-            if [ $i -eq 30 ]; then
-              echo "Backend FAILED to start. Log:"
-              cat /tmp/backend.log
-              exit 1
-            fi
-            sleep 1
-          done
-
-      - name: Run E2E tests
+      - name: Run E2E tests (Geo G4-* and Jeopardy J1-J10)
         env:
           E2E_BASE_URL: http://localhost:5173
+          DATABASE_URL: file:/tmp/test-e2e.db
+          SESSION_SECRET: test-secret-32chars-long-for-e2e
+          CI: 'true'
         run: |
-          echo "=== E2E PRE-FLIGHT ==="
-          echo "NODE=$(node --version)"
-          echo "BACKEND=$(curl -sf http://localhost:3001/api/v1/health 2>&1 || echo DOWN)"
-
-          echo ""
-          echo "=== RUNNING G4 E2E TESTS ==="
           pnpm exec playwright test \
             --config=playwright.config.ts \
-            --project=chromium \
-            --grep="G4-"
-
-          echo ""
-          echo "=== POST-RUN ==="
-          echo "PLAYWRIGHT_REPORT=$(ls playwright-report/ 2>/dev/null || echo NONE)"
-          echo "TEST_RESULTS=$(ls test-results/ 2>/dev/null || echo NONE)"
-
-          echo ""
-          echo "=== BACKEND LOG TAIL ==="
-          tail -30 /tmp/backend.log
+            --project=chromium
 
       - name: Upload Playwright report
         if: failure()

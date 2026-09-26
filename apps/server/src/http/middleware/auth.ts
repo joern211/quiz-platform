@@ -7,6 +7,7 @@ import type { Socket } from 'socket.io';
 import { z } from 'zod';
 import { prisma } from '../../persistence/prisma.js';
 import { logger } from '../../observability/logger.js';
+import { roomChannel } from '../../sockets/channel.js';
 
 export type Role = 'MODERATOR' | 'PLAYER' | 'VIEWER';
 
@@ -108,12 +109,12 @@ export function checkIdentityRoom(identity: SocketIdentity, roomId: string): Aut
 
 /**
  * P3: Socket ist im internen Raumkanal (socket.rooms check)
- * Prüft ob der Socket dem internen Kanal `room:<roomId>` beigetreten ist.
+ * Prüft ob der Socket dem internen Raumkanal beigetreten ist.
  * Das ist die Raumkanal-Isolation: nur authentifizierte Sockets,
  * die auch socket.join(roomChannel(roomId)) aufgerufen haben, sind im Kanal.
  */
 export function checkRoomChannel(socket: Socket, roomId: string): AuthCheckResult {
-  const channelName = `room:${roomId}`;
+  const channelName = roomChannel(roomId);
   if (!socket.rooms.has(channelName)) {
     logger.warn('[AUTH P3] Socket nicht im Raumkanal', {
       socketId: socket.id,

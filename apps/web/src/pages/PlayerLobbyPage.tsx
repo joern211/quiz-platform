@@ -63,7 +63,10 @@ export function PlayerLobbyPage() {
 
       // If game already running, go to game
       if (data.status === 'RUNNING') {
-        navigate(`/raum/${roomCode}/spiel`);
+        const path = data.gameSlug === 'jeopardy'
+          ? `/jeopardy/spiel/${roomCode}`
+          : `/raum/${roomCode}/spiel`;
+        navigate(path);
       }
     });
 
@@ -95,7 +98,10 @@ export function PlayerLobbyPage() {
 
     socket.on('game:start', (data) => {
       if (data.status === 'RUNNING') {
-        navigate(`/raum/${roomCode}/spiel`);
+        const path = data.gameSlug === 'jeopardy'
+          ? `/jeopardy/spiel/${roomCode}`
+          : `/raum/${roomCode}/spiel`;
+        navigate(path);
       }
     });
 

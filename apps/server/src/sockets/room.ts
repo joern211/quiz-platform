@@ -307,6 +307,13 @@ export async function handleRoomSubscription(
     roomId: identity.roomId,
   });
 
+  // A socket may belong to one quiz room at a time. Leaving the old channel
+  // prevents a valid re-subscription from continuing to receive another room's events.
+  for (const joinedRoom of socket.rooms) {
+    if (joinedRoom.startsWith('room_') && joinedRoom !== roomChannel(room.id)) {
+      await socket.leave(joinedRoom);
+    }
+  }
   // ONLY AFTER identity validated: socket.join(roomChannel(room.id)) (P0-07 fix)
   await socket.join(roomChannel(room.id));
 
@@ -334,6 +341,7 @@ export async function handleRoomSubscription(
     viewerCount: room.viewerSessions.filter(vs => vs.connected).length,
     revision: room.revision,
     serverTime: Date.now(),
+    gameSlug: room.gameDefinition.slug,
     // Include identity for client to store
     identity: {
       participationId: identity.participationId,

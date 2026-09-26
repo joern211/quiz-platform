@@ -15,6 +15,20 @@
   margin-bottom: var(--space-4);
 }
 
+.errorBanner {
+  background: color-mix(in srgb, var(--danger) 15%, transparent);
+  border: 1px solid var(--danger);
+  border-radius: var(--radius);
+  padding: var(--space-3) var(--space-4);
+  color: var(--danger);
+  margin-bottom: var(--space-4);
+  font-size: 0.875rem;
+}
+
+.errorBanner strong {
+  font-weight: 600;
+}
+
 .boardTabs {
   display: flex;
   gap: var(--space-2);
