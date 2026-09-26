@@ -207,7 +207,7 @@ export function JeopardySetupPage() {
       } else {
         setApiError(json.error?.message ?? 'Fehler beim Erstellen');
       }
-    } catch (err) {
+    } catch {
       setApiError('Netzwerkfehler: Server nicht erreichbar.');
     } finally {
       setSaving(false);

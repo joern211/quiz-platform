@@ -1,5 +1,4 @@
 import { expect, test, type Page } from '@playwright/test';
-import type { Board } from '../src/pages/JeopardySetupPage';
 
 const BASE = process.env.E2E_BASE_URL ?? 'http://localhost:5173';
 
@@ -64,68 +63,6 @@ function makeImportPayload(boardNum: 1 | 2, pointMultiplier: number) {
       })),
     },
   };
-}
-
-// ──────────────────────────────────────────────────────────────
-// Fill in board data via JSON file import
-// Uses real temp file path + setInputFiles (most reliable for React onChange)
-// ──────────────────────────────────────────────────────────────
-
-async function importBoard(page: Page, boardNum: 1 | 2, pointMultiplier: number): Promise<void> {
-  const payload = makeImportPayload(boardNum, pointMultiplier);
-  const tmpPath = `/tmp/jeopardy-board-${boardNum}-${Date.now()}.json`;
-
-  // Write JSON to temp file via Node.js in the test context
-  const fs = await import('fs');
-  fs.writeFileSync(tmpPath, JSON.stringify(payload));
-
-  // Use setInputFiles with the real file path — fires proper React onChange
-  const input = page.locator('input[type="file"]');
-  await input.setInputFiles(tmpPath);
-  await page.waitForTimeout(300);
-}
-
-// ──────────────────────────────────────────────────────────────
-// Fill in a board manually (step-by-step fallback)
-// ──────────────────────────────────────────────────────────────
-
-async function fillBoard(page: Page, board: Board): Promise<void> {
-  for (let ci = 0; ci < board.categories.length; ci++) {
-    await page.getByRole('button', { name: new RegExp(`^Kategorie ${ci + 1}$`) }).click();
-    await page.waitForTimeout(150);
-
-    // Fill title
-    await page.getByRole('button', { name: 'Titel' }).click();
-    await page.waitForTimeout(100);
-    const titleArea = page.locator('textarea').first();
-    await titleArea.click();
-    await titleArea.pressSequentially(board.categories[ci].title, { delay: 10 });
-    // Verify React state updated
-    await expect(titleArea).toHaveValue(board.categories[ci].title, { timeout: 2000 }).catch(() => {});
-
-    // For each clue: click value, fill question, then answer
-    for (let vi = 0; vi < board.categories[ci].clues.length; vi++) {
-      const clueValue = board.categories[ci].clues[vi].value;
-      await page.getByRole('button', { name: String(clueValue), exact: true }).click();
-      await page.waitForTimeout(150);
-
-      // Fill question
-      await page.getByRole('button', { name: 'Frage' }).click();
-      await page.waitForTimeout(100);
-      const qArea = page.locator('textarea').first();
-      await qArea.click();
-      await qArea.pressSequentially(board.categories[ci].clues[vi].question, { delay: 10 });
-      await expect(qArea).toHaveValue(board.categories[ci].clues[vi].question, { timeout: 2000 }).catch(() => {});
-
-      // Fill answer
-      await page.getByRole('button', { name: 'Antwort' }).click();
-      await page.waitForTimeout(100);
-      const aArea = page.locator('textarea').first();
-      await aArea.click();
-      await aArea.pressSequentially(board.categories[ci].clues[vi].answer, { delay: 10 });
-      await expect(aArea).toHaveValue(board.categories[ci].clues[vi].answer, { timeout: 2000 }).catch(() => {});
-    }
-  }
 }
 
 // ──────────────────────────────────────────────────────────────

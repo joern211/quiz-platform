@@ -86,8 +86,8 @@ export default function App() {
           <Route path="/zuschauen"                        element={<ViewerPage />} />
           <Route path="/zuschauen/:code/lobby"            element={<ViewerLobbyPage />} />
           <Route path="/zuschauen/:code/spiel"            element={<ViewerGamePage />} />
+          <Route path="/zuschauen/:code/ergebnis"          element={<ViewerResultPage />} />
           {/* ── Jeopardy (Buzzer-Game) ── */}
-          <Route path="/jeopardy/spiel/:code"            element={<JeopardyPlayerPage />} />
           <Route path="/jeopardy/zuschauer/:code"         element={<JeopardySpectatorPage />} />
 
           {/* ── Profil / Admin ── */}
