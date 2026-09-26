@@ -391,7 +391,7 @@ export const handleJeopardyGame = {
 
     const { state, playerId, delta, categoryIndex, value, answer } = result;
     if (!data.correct) {
-      io.to(roomChannel(roomId)).emit('jeopardy:steal:open', { categoryIndex, value, scores: state.scores });
+      io.to(roomChannel(roomId)).emit('jeopardy:steal:open', { categoryIndex, value, scores: state.scores, excludedPlayerId: playerId });
     } else {
       io.to(roomChannel(roomId)).emit('jeopardy:reveal', {
         answer: '••••••', correct: true, playerId,

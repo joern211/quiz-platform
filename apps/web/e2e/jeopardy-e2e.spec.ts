@@ -36,14 +36,14 @@ const SAMPLE_CATEGORIES = [
   'Geschichte', 'Wissenschaft', 'Geografie', 'Sport', 'Kunst', 'Musik',
 ];
 
-function makeImportPayload(boardNum: 1 | 2, pointMultiplier: number) {
+function makeImportPayload() {
   return {
     meta: { version: 1, exportedAt: new Date().toISOString() },
     board1: {
       categories: SAMPLE_CATEGORIES.map((title, ci) => ({
         title,
         clues: [100, 200, 300, 400, 500].map((base, vi) => ({
-          value: base * pointMultiplier,
+          value: base,
           question: `Frage ${ci + 1}-${vi + 1}`,
           answer: `Antwort ${ci + 1}-${vi + 1}`,
           type: 'text',
@@ -54,7 +54,7 @@ function makeImportPayload(boardNum: 1 | 2, pointMultiplier: number) {
       categories: SAMPLE_CATEGORIES.map((title, ci) => ({
         title,
         clues: [100, 200, 300, 400, 500].map((base, vi) => ({
-          value: base * pointMultiplier,
+          value: base * 2,
           question: `Frage ${ci + 1}-${vi + 1}`,
           answer: `Antwort ${ci + 1}-${vi + 1}`,
           type: 'text',
@@ -65,17 +65,13 @@ function makeImportPayload(boardNum: 1 | 2, pointMultiplier: number) {
 }
 
 // ──────────────────────────────────────────────────────────────
-// Create a Jeopardy room via REST API (most reliable for E2E)
-// Uses the cookie from loginAsModerator + /api/v1/rooms endpoint
+// Create a Jeopardy room through the visible setup editor and import control.
 // ──────────────────────────────────────────────────────────────
 
 async function createJeopardyRoom(page: Page): Promise<string> {
   await page.goto(`${BASE}/moderator/vorbereitung/jeopardy`);
   await expect(page.getByRole('heading', { name: 'Jeopardy einrichten' })).toBeVisible();
-  const payload = makeImportPayload(1, 1);
-  payload.board2.categories.forEach((category) => {
-    category.clues.forEach((clue) => { clue.value *= 2; });
-  });
+  const payload = makeImportPayload();
   await page.locator('input[type="file"]').setInputFiles({
     name: 'jeopardy-e2e.json', mimeType: 'application/json',
     buffer: Buffer.from(JSON.stringify(payload)),
@@ -271,7 +267,7 @@ test('J4: Vollständiger Spielablauf: starten -> feld öffnen -> buzzer -> bewer
     await expect(player1.getByText(/punkte/i).or(player1.getByText(/\d{3}/))).toBeVisible({ timeout: 10_000 });
     await expect(player2.getByText(/punkte/i).or(player2.getByText(/\d{3}/))).toBeVisible({ timeout: 5_000 });
 
-    // Both players buzz (one should win — don't fail on timeout)
+    // The first player wins; the second sees a locked buzzer.
     await buzz(player1);
     await expect(player2.getByRole('button', { name: /JETZT BUZZEN|BUZZ/i })).not.toBeVisible();
 
@@ -390,7 +386,6 @@ test('J7: Reload und Rejoin stellen Rolle, Punktestand und Phase wieder her', as
     await startGame(moderator);
     await openField(moderator, 0, 200);
 
-    // Capture state before reload
     await buzz(player1);
     // Reload player page
     await player1.reload();
@@ -472,10 +467,8 @@ test('J9: Lösung ist nicht im DOM oder Netzwerk-Payload von Spielern enthalten'
     // Wait for question to appear
     await expect(player1.getByText(/punkte/i).or(player1.getByText(/\d{3}/))).toBeVisible({ timeout: 10_000 });
 
-    // The page HTML should NOT contain the word "antwort" (solution)
-    // (This is a proxy check — the server doesn't emit answer to player sockets)
+    // Check both rendered content and received WebSocket frames.
     const pageText = await player1.evaluate(() => document.body.innerText);
-    // Answer should not appear in player page
     expect(pageText).not.toContain('Antwort 1-2');
     expect(received.join(' ')).not.toContain('Antwort 1-2');
     await otherContext.close();
@@ -522,6 +515,8 @@ test('J10: Zuschauer hat nur Lesezugriff, keine Aktions-Buttons', async ({ brows
     await expect(judgeBtn).not.toBeVisible();
     const probe = await probeSocket(code);
     try {
+      const snapshot = await probe.timeout(5000).emitWithAck('jeopardy:resync', {});
+      expect(JSON.stringify(snapshot)).not.toContain('Antwort 1-2');
       expect((await probe.timeout(5000).emitWithAck('jeopardy:buzz', {})).success).toBe(false);
       expect((await probe.timeout(5000).emitWithAck('jeopardy:board:switch', { toBoard: 2 })).success).toBe(false);
     } finally {

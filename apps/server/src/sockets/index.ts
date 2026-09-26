@@ -363,6 +363,7 @@ export function setupSocketHandlers(io: Server) {
           answer?: string; // moderator only
           buzzWinnerId?: string | null;
           buzzWinnerName?: string | null;
+          firstResponderId?: string;
           phase: string;
         } | null = null;
 
@@ -381,6 +382,7 @@ export function setupSocketHandlers(io: Server) {
             mediaAssetId: clue?.mediaAssetId,
             buzzWinnerId: state.buzzWinner,
             buzzWinnerName: state.buzzWinner ? state.playerNames[state.buzzWinner] : null,
+            firstResponderId: state.currentField.firstResponderId,
             phase: state.phase,
           };
 

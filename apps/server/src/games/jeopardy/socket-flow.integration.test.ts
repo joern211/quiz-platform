@@ -104,7 +104,10 @@ describe('Jeopardy multiplayer socket integration', () => {
     expect((await ack(viewer, 'jeopardy:resync')).phase).toBe('SELECTING');
     expect((await ack(viewer, 'jeopardy:field:open', { boardIndex: 1, categoryIndex: 0, value: 100 })).success).toBe(false);
     expect((await ack(alice, 'jeopardy:field:open', { boardIndex: 1, categoryIndex: 0, value: 100 })).success).toBe(false);
+    expect((await ack(moderator, 'jeopardy:field:open', { boardIndex: 1, categoryIndex: -1, value: 100 })).success).toBe(false);
     expect((await ack(moderator, 'jeopardy:field:open', { boardIndex: 1, categoryIndex: 0, value: 100 })).success).toBe(true);
+    expect(JSON.stringify(await ack(moderator, 'jeopardy:resync'))).toContain(secret);
+    expect(JSON.stringify(await ack(viewer, 'jeopardy:resync'))).not.toContain(secret);
     expect((await ack(viewer, 'jeopardy:buzz')).success).toBe(false);
     expect((await ack(moderator, 'jeopardy:buzz')).success).toBe(false);
 

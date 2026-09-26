@@ -43,6 +43,7 @@ export interface JeopardyStealOpenPayload {
   categoryIndex: number;
   value: number;
   scores?: Record<string, number>;
+  excludedPlayerId?: string;
 }
 
 export interface JeopardyStealClosePayload {
@@ -98,6 +99,7 @@ export interface JeopardyGameState {
   buzzWinner: JeopardyBuzzWonPayload | null;
   reveal: JeopardyRevealPayload | null;
   stealWinner: JeopardyBuzzWonPayload | null;
+  stealExcludedId: string | null;
   stealResult: JeopardyStealClosePayload | null;
   playedFields: string[]; // "categoryIndex-value" keys
   gameEnd: JeopardyGameEndPayload | null;
@@ -121,6 +123,7 @@ export function useJeopardy(roomCode: string, role: PlayerRole) {
     buzzWinner: null,
     reveal: null,
     stealWinner: null,
+    stealExcludedId: null,
     stealResult: null,
     playedFields: [],
     gameEnd: null,
@@ -163,6 +166,7 @@ export function useJeopardy(roomCode: string, role: PlayerRole) {
               currentField: res.currentField ? { categoryIndex: res.currentField.categoryIndex, value: res.currentField.value, question: res.currentField.question } : null,
               buzzWinner: res.buzzWinnerId ? { playerId: res.buzzWinnerId, playerName: playerNames[res.buzzWinnerId] ?? '' } : null,
               stealWinner: res.stealWinnerId ? { playerId: res.stealWinnerId, playerName: playerNames[res.stealWinnerId] ?? '' } : null,
+              stealExcludedId: res.currentField?.firstResponderId ?? null,
               playedFields: (res.playedFields ?? []).filter((key) => key.startsWith(`${res.currentBoard}-`)).map((key) => key.slice(2)),
               gameEnd: res.phase === 'GAME_END' && res.finalScores ? { finalScores: res.finalScores, winnerIds: res.finalScores.filter((entry) => entry.score === res.finalScores![0]?.score).map((entry) => entry.playerId) } : null,
             }));
@@ -204,6 +208,7 @@ export function useJeopardy(roomCode: string, role: PlayerRole) {
         buzzWinner: null,
         reveal: null,
         stealWinner: null,
+        stealExcludedId: null,
         stealResult: null,
         playedFields: [],
       }));
@@ -222,6 +227,7 @@ export function useJeopardy(roomCode: string, role: PlayerRole) {
         buzzWinner: null,
         reveal: null,
         stealWinner: null,
+        stealExcludedId: null,
         stealResult: null,
       }));
     });
@@ -255,6 +261,7 @@ export function useJeopardy(roomCode: string, role: PlayerRole) {
         phase: 'STEAL_OPEN',
         scores: data.scores ?? prev.scores,
         stealWinner: null,
+        stealExcludedId: data.excludedPlayerId ?? null,
         reveal: null,
       }));
     });
@@ -274,6 +281,7 @@ export function useJeopardy(roomCode: string, role: PlayerRole) {
         stealResult: data,
         scores: data.scores,
         stealWinner: null,
+        stealExcludedId: null,
         buzzWinner: null,
       }));
     });

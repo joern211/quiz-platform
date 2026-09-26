@@ -87,7 +87,7 @@ export type ServerToClientEvents = {
   'jeopardy:field:open': (data: { categoryIndex: number; value: number; question: string; mediaType?: string; mediaAssetId?: string }) => void;
   'jeopardy:answer:secret': (data: { answer: string }) => void; // Moderator only
   'jeopardy:reveal': (data: { answer: string; correct: boolean; playerId: string; playerName: string; fieldValue: number; delta: number; scores: Record<string, number> }) => void;
-  'jeopardy:steal:open': (data: { categoryIndex: number; value: number; scores?: Record<string, number> }) => void;
+  'jeopardy:steal:open': (data: { categoryIndex: number; value: number; scores?: Record<string, number>; excludedPlayerId?: string }) => void;
   'jeopardy:steal:close': (data: { answer: string; thiefCorrect: boolean; thiefDelta: number; scores: Record<string, number> }) => void;
   'jeopardy:field:done': (data: { categoryIndex: number; value: number }) => void;
   'jeopardy:next': () => void;
@@ -142,7 +142,7 @@ export interface JeopardyResyncResponse {
   phase?: 'INTRO' | 'SELECTING' | 'BUZZ_OPEN' | 'BUZZ_LOCKED' | 'STEAL_OPEN' | 'STEAL_LOCKED' | 'FIELD_DONE' | 'BOARD_COMPLETE' | 'GAME_END';
   scores?: Array<{ playerId: string; playerName: string; score: number }>;
   playerNames?: Record<string, string>;
-  currentField?: { categoryIndex: number; value: number; question: string; answer?: string; buzzWinnerId?: string | null; buzzWinnerName?: string | null } | null;
+  currentField?: { categoryIndex: number; value: number; question: string; answer?: string; buzzWinnerId?: string | null; buzzWinnerName?: string | null; firstResponderId?: string } | null;
   playedFields?: string[];
   board1Categories?: Array<{ name: string; clueCount: number }>;
   board2Categories?: Array<{ name: string; clueCount: number }>;

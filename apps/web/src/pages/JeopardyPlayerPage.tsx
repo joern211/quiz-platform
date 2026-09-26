@@ -45,7 +45,7 @@ export function JeopardyPlayerPage() {
 
   // I can buzz if I'm in BUZZ_OPEN phase
   const canBuzz = isBuzzOpen;
-  const canStealBuzz = isStealOpen;
+  const canStealBuzz = isStealOpen && selfId !== gameState.stealExcludedId;
 
   const myScore = selfId ? gameState.scores[selfId] ?? 0 : 0;
 
