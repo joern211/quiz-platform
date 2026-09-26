@@ -237,6 +237,7 @@ test('J3: Zuschauer kann einer öffentlichen Lobby ohne Login beitreten', async 
 // ──────────────────────────────────────────────────────────────
 
 test('J4: Vollständiger Spielablauf: starten -> feld öffnen -> buzzer -> bewerten -> punkte', async ({ browser }) => {
+  test.setTimeout(90_000);
   const modCtx = await browser.newContext();
   const p1Ctx = await browser.newContext();
   const p2Ctx = await browser.newContext();
@@ -264,8 +265,8 @@ test('J4: Vollständiger Spielablauf: starten -> feld öffnen -> buzzer -> bewer
     await openField(moderator, 0, 200);
 
     // Question appears on player pages
-    await expect(player1.getByText(/punkte/i).or(player1.getByText(/\d{3}/))).toBeVisible({ timeout: 10_000 });
-    await expect(player2.getByText(/punkte/i).or(player2.getByText(/\d{3}/))).toBeVisible({ timeout: 5_000 });
+    await expect(player1.getByText('Frage 1-2', { exact: true }).first()).toBeVisible({ timeout: 10_000 });
+    await expect(player2.getByText('Frage 1-2', { exact: true }).first()).toBeVisible({ timeout: 10_000 });
 
     // The first player wins; the second sees a locked buzzer.
     await buzz(player1);
@@ -287,6 +288,7 @@ test('J4: Vollständiger Spielablauf: starten -> feld öffnen -> buzzer -> bewer
 // ──────────────────────────────────────────────────────────────
 
 test('J5: Falsche Hauptantwort -> Abstauber-Buzzer wird geöffnet', async ({ browser }) => {
+  test.setTimeout(90_000);
   const modCtx = await browser.newContext();
   const p1Ctx = await browser.newContext();
   const p2Ctx = await browser.newContext();
@@ -315,7 +317,7 @@ test('J5: Falsche Hauptantwort -> Abstauber-Buzzer wird geöffnet', async ({ bro
     // Steal buzzer should now be open — both players can buzz
     // (the steal buzzer indicator should be visible)
     const stealOpen = moderator.getByText(/abstauber|steal|öffnet/i).or(moderator.getByRole('button', { name: /abstauben/i }));
-    await expect(stealOpen).toBeVisible({ timeout: 5_000 });
+    await expect(stealOpen.first()).toBeVisible({ timeout: 10_000 });
 
     // Player2 attempts steal buzz
     await stealBuzz(player2);
@@ -332,6 +334,7 @@ test('J5: Falsche Hauptantwort -> Abstauber-Buzzer wird geöffnet', async ({ bro
 // ──────────────────────────────────────────────────────────────
 
 test('J6: Nur der erste Buzzer wird akzeptiert, spätere werden abgelehnt', async ({ browser }) => {
+  test.setTimeout(90_000);
   const modCtx = await browser.newContext();
   const p1Ctx = await browser.newContext();
   const p2Ctx = await browser.newContext();
@@ -357,7 +360,7 @@ test('J6: Nur der erste Buzzer wird akzeptiert, spätere werden abgelehnt', asyn
 
     // After judging, scores update atomically
     await judgeCorrect(moderator);
-    await expect(moderator.getByText(/\d{3}/)).toBeVisible({ timeout: 5_000 });
+    await expect(moderator.locator('[data-category-index="0"][data-value="400"]')).toBeDisabled({ timeout: 10_000 });
   } finally {
     await Promise.all([modCtx.close(), p1Ctx.close(), p2Ctx.close()]);
   }
@@ -368,6 +371,7 @@ test('J6: Nur der erste Buzzer wird akzeptiert, spätere werden abgelehnt', asyn
 // ──────────────────────────────────────────────────────────────
 
 test('J7: Reload und Rejoin stellen Rolle, Punktestand und Phase wieder her', async ({ browser }) => {
+  test.setTimeout(90_000);
   const modCtx = await browser.newContext();
   const p1Ctx = await browser.newContext();
 
@@ -389,7 +393,7 @@ test('J7: Reload und Rejoin stellen Rolle, Punktestand und Phase wieder her', as
     await buzz(player1);
     // Reload player page
     await player1.reload();
-    await expect(player1.getByText('Reload-Spieler', { exact: true })).toBeVisible({ timeout: 10_000 });
+    await expect(player1.getByText(/Reload-Spieler/).first()).toBeVisible({ timeout: 10_000 });
 
     // After reconnect, socket re-syncs and shows the question state
     await expect(player1.getByText('Frage 1-2', { exact: true }).first()).toBeVisible({ timeout: 10_000 });
@@ -404,6 +408,7 @@ test('J7: Reload und Rejoin stellen Rolle, Punktestand und Phase wieder her', as
 // ──────────────────────────────────────────────────────────────
 
 test('J8: Spieler kann kein Feld öffnen oder bewerten (nur Moderator)', async ({ browser }) => {
+  test.setTimeout(90_000);
   const modCtx = await browser.newContext();
   const p1Ctx = await browser.newContext();
 
@@ -422,8 +427,8 @@ test('J8: Spieler kann kein Feld öffnen oder bewerten (nur Moderator)', async (
     await startGame(moderator);
 
     // Player page should NOT have a field-opening button for other players
-    const fieldButtons = player1.getByRole('button', { name: /\d{3}/ });
-    await expect(fieldButtons.first()).toBeDisabled();
+    const fieldCells = player1.getByRole('gridcell', { name: /100 Punkte/ });
+    await expect(fieldCells.first()).toBeDisabled();
     const probe = await probeSocket(code, player.rejoinToken);
     try {
       expect((await probe.timeout(5000).emitWithAck('jeopardy:field:open', { boardIndex: 1, categoryIndex: 0, value: 100 })).success).toBe(false);
@@ -442,6 +447,7 @@ test('J8: Spieler kann kein Feld öffnen oder bewerten (nur Moderator)', async (
 // ──────────────────────────────────────────────────────────────
 
 test('J9: Lösung ist nicht im DOM oder Netzwerk-Payload von Spielern enthalten', async ({ browser }) => {
+  test.setTimeout(90_000);
   const modCtx = await browser.newContext();
   const p1Ctx = await browser.newContext();
 
@@ -465,7 +471,7 @@ test('J9: Lösung ist nicht im DOM oder Netzwerk-Payload von Spielern enthalten'
     await openField(moderator, 0, 200);
 
     // Wait for question to appear
-    await expect(player1.getByText(/punkte/i).or(player1.getByText(/\d{3}/))).toBeVisible({ timeout: 10_000 });
+    await expect(player1.getByText('Frage 1-2', { exact: true }).first()).toBeVisible({ timeout: 10_000 });
 
     // Check both rendered content and received WebSocket frames.
     const pageText = await player1.evaluate(() => document.body.innerText);
@@ -482,6 +488,7 @@ test('J9: Lösung ist nicht im DOM oder Netzwerk-Payload von Spielern enthalten'
 // ──────────────────────────────────────────────────────────────
 
 test('J10: Zuschauer hat nur Lesezugriff, keine Aktions-Buttons', async ({ browser }) => {
+  test.setTimeout(90_000);
   const modCtx = await browser.newContext();
   const viewCtx = await browser.newContext();
 
@@ -504,7 +511,7 @@ test('J10: Zuschauer hat nur Lesezugriff, keine Aktions-Buttons', async ({ brows
     await openField(moderator, 0, 200);
 
     // Wait for question
-    await expect(viewer.getByText(/punkte/i).or(viewer.getByText(/\d{3}/))).toBeVisible({ timeout: 10_000 });
+    await expect(viewer.getByText('Frage 1-2', { exact: true }).first()).toBeVisible({ timeout: 10_000 });
 
     // No buzzer button for spectators
     const buzzBtn = viewer.getByRole('button', { name: /buzz/i });

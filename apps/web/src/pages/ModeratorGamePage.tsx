@@ -33,14 +33,22 @@ export function ModeratorGamePage() {
     socketRef.current = getSocket();
     const socket = socketRef.current;
 
-    connectSocket();
+    const subscribe = () => {
+      socket.emit('room:subscribe', { roomCode, role: 'MODERATOR' }, (response) => {
+        if (!response.success) setActionError(`Raumverbindung fehlgeschlagen: ${response.error ?? 'Unbekannter Fehler'}`);
+      });
+    };
 
-    socket.on('connect', () => setConnected(true));
-    socket.on('disconnect', () => setConnected(false));
-
-    socket.emit('room:subscribe', { roomCode }, (response) => {
-      if (!response.success) setActionError(`Raumverbindung fehlgeschlagen: ${response.error ?? 'Unbekannter Fehler'}`);
+    socket.on('connect', () => {
+      setConnected(true);
+      subscribe();
     });
+    socket.on('disconnect', () => setConnected(false));
+    if (socket.connected) {
+      setConnected(true);
+      subscribe();
+    }
+    connectSocket();
 
     socket.on('room:snapshot', (data) => {
       setPlayers(data.players || []);
