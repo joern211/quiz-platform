@@ -4,8 +4,8 @@
 // ============================================================
 
 import { Server, Socket } from 'socket.io';
-import type { Prisma } from '@prisma/client';
 import { prisma } from '../../persistence/prisma.js';
+import { saveGameStateIfRevision, upsertGameState } from '../core/state.js';
 import { logger } from '../../observability/logger.js';
 import { roomChannel } from '../../sockets/index.js';
 import { getSocketDataIdentity } from '../../sockets/auth.js';
@@ -35,14 +35,6 @@ import {
   markFieldAnswered,
   JeopardyFieldDef,
 } from './state.js';
-
-async function saveIfUnchanged(tx: Prisma.TransactionClient, roomId: string, revision: number, state: JeopardyGameState): Promise<void> {
-  const result = await tx.roomGameState.updateMany({
-    where: { roomId, revision },
-    data: { stateJson: JSON.stringify(state), phase: state.phase, revision: { increment: 1 } },
-  });
-  if (result.count !== 1) throw new Error('STATE_CONFLICT');
-}
 
 // ============================================================
 // Entry point: initialize a Jeopardy game in a room
@@ -110,21 +102,12 @@ export const handleJeopardyGame = {
 
     state.phase = JEOPARDY_PHASES.SELECTING;
 
-    // Persist to RoomGameState
-    await prisma.roomGameState.upsert({
-      where: { roomId: room.id },
-      create: {
-        roomId: room.id,
-        engineVersion: 1,
-        phase: JEOPARDY_PHASES.SELECTING,
-        stateJson: JSON.stringify(state),
-        revision: 1,
-      },
-      update: {
-        phase: JEOPARDY_PHASES.SELECTING,
-        stateJson: JSON.stringify(state),
-        revision: { increment: 1 },
-      },
+    // Persist through the shared game-state core.
+    await upsertGameState({
+      roomId: room.id,
+      engineVersion: 1,
+      phase: JEOPARDY_PHASES.SELECTING,
+      state,
     });
 
     // Build init payload
@@ -245,7 +228,7 @@ export const handleJeopardyGame = {
     };
 
     // Persist atomically
-    await prisma.$transaction(async (tx) => saveIfUnchanged(tx, roomId, gameStateData.revision, state));
+    await prisma.$transaction(async (tx) => saveGameStateIfRevision(tx, { roomId, expectedRevision: gameStateData.revision, state, phase: state.phase }));
 
     // Emit question to ALL (no answer — P0-07 fix: using io.to broadcasts to the correct room channel)
     const fieldOpenEvent: JeopardyFieldOpenEvent = {
@@ -323,7 +306,7 @@ export const handleJeopardyGame = {
       state.phase = JEOPARDY_PHASES.BUZZ_LOCKED;
 
       if (!Object.hasOwn(state.scores, participationId)) throw new Error('PLAYER_NOT_IN_GAME');
-      await saveIfUnchanged(tx, roomId, gameStateData.revision, state);
+      await saveGameStateIfRevision(tx, { roomId, expectedRevision: gameStateData.revision, state, phase: state.phase });
 
       return { state, displayName: identity.displayName };
     });
@@ -384,7 +367,7 @@ export const handleJeopardyGame = {
         state.buzzOpen = false;
         state.stealOpen = true;
       }
-      await saveIfUnchanged(tx, roomId, row.revision, state);
+      await saveGameStateIfRevision(tx, { roomId, expectedRevision: row.revision, state, phase: state.phase });
       await tx.participation.update({ where: { id: playerId }, data: { score: state.scores[playerId] } });
       return { state, playerId, delta, categoryIndex, value, answer: fieldDef.answer };
     });
@@ -454,7 +437,7 @@ export const handleJeopardyGame = {
       state.stealWinner = participationId;
       state.phase = JEOPARDY_PHASES.STEAL_LOCKED;
 
-      await saveIfUnchanged(tx, roomId, gameStateData.revision, state);
+      await saveGameStateIfRevision(tx, { roomId, expectedRevision: gameStateData.revision, state, phase: state.phase });
 
       return { displayName: identity.displayName };
     });
@@ -522,7 +505,7 @@ export const handleJeopardyGame = {
         state.phase = JEOPARDY_PHASES.FIELD_DONE;
       }
 
-      await saveIfUnchanged(tx, roomId, gameStateData.revision, state);
+      await saveGameStateIfRevision(tx, { roomId, expectedRevision: gameStateData.revision, state, phase: state.phase });
 
       await tx.participation.update({
         where: { id: stealWinnerId },
@@ -607,7 +590,7 @@ export const handleJeopardyGame = {
       };
       state = resetBuzzer(state);
 
-      await saveIfUnchanged(tx, roomId, gameStateData.revision, state);
+      await saveGameStateIfRevision(tx, { roomId, expectedRevision: gameStateData.revision, state, phase: state.phase });
     });
 
     io.to(roomChannel(roomId)).emit('jeopardy:next', { phase: JEOPARDY_PHASES.SELECTING });
@@ -652,7 +635,7 @@ export const handleJeopardyGame = {
       // Board 2 fields were registered at initialization; never reinsert played fields.
       const newState = resetBuzzer({ ...state, currentBoard: 2 as const, currentField: null });
       newState.phase = JEOPARDY_PHASES.SELECTING;
-      await prisma.$transaction(async (tx) => saveIfUnchanged(tx, room.id, gameStateData.revision, newState));
+      await prisma.$transaction(async (tx) => saveGameStateIfRevision(tx, { roomId: room.id, expectedRevision: gameStateData.revision, state: newState, phase: newState.phase }));
 
       const categories = setup.board2.categories.map((cat) => ({
         name: cat.name,
@@ -703,7 +686,7 @@ export const handleJeopardyGame = {
         },
       });
 
-      await saveIfUnchanged(tx, room.id, gameStateData.revision, { ...state, phase: JEOPARDY_PHASES.GAME_END });
+      await saveGameStateIfRevision(tx, { roomId: room.id, expectedRevision: gameStateData.revision, state: { ...state, phase: JEOPARDY_PHASES.GAME_END }, phase: JEOPARDY_PHASES.GAME_END });
     });
 
     const scores = state?.scores ?? {};
