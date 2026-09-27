@@ -132,7 +132,9 @@ mediaRouter.get('/:id', async (req, res) => {
 
     // Set headers and send file
     res.setHeader('Content-Type', asset.mimeType);
-    res.setHeader('Content-Disposition', `inline; filename="${asset.originalName}"`);
+    // Public image URLs are shown before a quiz reveal. An upload name can contain
+    // the answer, so never expose the original filename in response headers.
+    res.setHeader('Content-Disposition', 'inline');
     res.setHeader('Cache-Control', 'public, max-age=31536000'); // 1 year cache
     
     res.sendFile(path.resolve(asset.storagePath));

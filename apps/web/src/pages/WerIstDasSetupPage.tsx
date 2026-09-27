@@ -55,7 +55,7 @@ export function WerIstDasSetupPage() {
     <label>Spieler-PIN (optional) <input value={pin} onChange={event => setPin(event.target.value)} /></label>
     {rounds.map((round, index) => <fieldset key={round.id} className={styles.round}>
       <legend>Runde {index + 1}</legend>
-      <label>Bild <input type="file" accept="image/jpeg,image/png,image/webp,image/gif" onChange={event => void upload(index, event.target.files?.[0])} /></label>
+      <label>Bild <input type="file" accept="image/jpeg,image/png,image/webp" onChange={event => void upload(index, event.target.files?.[0])} /></label>
       {round.fileName && <p>Hochgeladen: {round.fileName}</p>}
       <label>Person 1 <input value={round.person1} onChange={event => update(index, { person1: event.target.value })} /></label>
       <label>Person 2 <input value={round.person2} onChange={event => update(index, { person2: event.target.value })} /></label>

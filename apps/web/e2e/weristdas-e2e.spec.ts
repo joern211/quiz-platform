@@ -33,9 +33,10 @@ test('W1-W10: setup, image, private solution, buzzer, scores, reconnect, viewer 
     await moderator.getByRole('button', { name: 'Runde hinzufügen' }).click();
     for (let index = 0; index < 2; index++) {
       await moderator.locator('input[type="file"]').nth(index).setInputFiles({
-        name: `image-${index}.png`, mimeType: 'image/png', buffer: Buffer.from(images[index], 'base64'),
+        name: index === 0 ? `${secret}.png` : `image-${index}.png`,
+        mimeType: 'image/png', buffer: Buffer.from(images[index], 'base64'),
       });
-      await expect(moderator.getByText(`Hochgeladen: image-${index}.png`)).toBeVisible();
+      await expect(moderator.getByText(`Hochgeladen: ${index === 0 ? secret : `image-${index}`}.png`)).toBeVisible();
     }
     await moderator.getByLabel('Person 1').nth(0).fill(secret);
     await moderator.getByLabel('Person 2').nth(0).fill('Andere Person');
@@ -61,6 +62,10 @@ test('W1-W10: setup, image, private solution, buzzer, scores, reconnect, viewer 
       await expect(page.getByRole('img', { name: 'Errate die beiden Personen' })).toBeVisible();
       await expect.poll(() => page.getByRole('img', { name: 'Errate die beiden Personen' })
         .evaluate((element: HTMLImageElement) => element.naturalWidth)).toBeGreaterThan(0);
+      const imageUrl = await page.getByRole('img', { name: 'Errate die beiden Personen' }).getAttribute('src');
+      const imageResponse = await page.request.get(`${BASE}${imageUrl}`);
+      expect(imageResponse.status()).toBe(200);
+      expect(JSON.stringify(imageResponse.headers())).not.toContain(secret);
     }
     await alice.reload();
     await expect(alice.getByRole('img', { name: 'Errate die beiden Personen' })).toBeVisible();
