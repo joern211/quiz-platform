@@ -96,7 +96,15 @@ export const handleGameEvents = {
         return;
       }
 
-      // Update room status
+      // Resolve the lifecycle before mutating room state. Unsupported games
+      // must never transiently enter RUNNING.
+      const gameHandler = getGameHandler(room.gameDefinition.slug);
+      if (!gameHandler) {
+        callback?.({ success: false, error: 'GAME_NOT_IMPLEMENTED' });
+        return;
+      }
+
+      // Update room status atomically from the lobby revision.
       const started = await prisma.room.updateMany({
         where: { id: room.id, status: 'LOBBY', revision: room.revision },
         data: {
@@ -108,23 +116,6 @@ export const handleGameEvents = {
       });
       if (started.count !== 1) {
         callback?.({ success: false, error: 'GAME_ALREADY_STARTED' });
-        return;
-      }
-
-      // Resolve the game lifecycle through the central registry. Unsupported
-      // games fail explicitly instead of entering RUNNING without game state.
-      const gameHandler = getGameHandler(room.gameDefinition.slug);
-      if (!gameHandler) {
-        await prisma.room.update({
-          where: { id: room.id },
-          data: {
-            status: 'LOBBY',
-            runPhase: 'LOBBY',
-            startedAt: null,
-            revision: { increment: 1 },
-          },
-        });
-        callback?.({ success: false, error: 'GAME_NOT_IMPLEMENTED' });
         return;
       }
 
