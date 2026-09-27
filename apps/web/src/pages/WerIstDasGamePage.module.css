@@ -1,0 +1,13 @@
+.layout { display: grid; grid-template-columns: minmax(0, 2fr) minmax(12rem, 1fr); gap: 1.5rem; width: 100%; }
+.main { min-width: 0; }
+.image { display: block; width: 100%; max-height: 65vh; object-fit: contain; border-radius: 1rem; background: #172035; }
+.scores, .solution, .controls { padding: 1rem; border-radius: 1rem; background: var(--color-surface, #252b38); margin-top: 1rem; }
+.hint, .turn { font-weight: 700; padding: 1rem; border-radius: .6rem; background: #544118; color: white; }
+.controls, .judges { display: flex; flex-wrap: wrap; align-items: center; gap: .75rem; }
+.controls h2, .judges p { flex-basis: 100%; margin: 0; }
+.controls button { min-height: 3rem; padding: .6rem 1rem; cursor: pointer; }
+.buzz { display: block; width: 100%; min-height: 7rem; font-size: clamp(1.5rem, 6vw, 3rem); font-weight: 800; border-radius: 1rem; background: #e35429; color: white; touch-action: manipulation; }
+.buzz:disabled { background: #687078; cursor: not-allowed; }
+.scores ol { padding-left: 1.6rem; }
+.scores li { margin: .75rem 0; }
+@media (max-width: 700px) { .layout { grid-template-columns: 1fr; } .scores { order: -1; } .image { max-height: 48vh; } }

@@ -3,6 +3,7 @@
 // ============================================================
 
 import { useParams, useNavigate } from 'react-router-dom';
+import { gamePath } from '../lib/gamePaths';
 import { useEffect, useState, useRef } from 'react';
 import { getSocket, connectSocket, disconnectSocket } from '../lib/socket';
 import { getSession, setSession } from '../lib/sessionStore';
@@ -63,9 +64,7 @@ export function PlayerLobbyPage() {
 
       // If game already running, go to game
       if (data.status === 'RUNNING') {
-        const path = data.gameSlug === 'jeopardy'
-          ? `/jeopardy/spiel/${roomCode}`
-          : `/raum/${roomCode}/spiel`;
+        const path = gamePath(data.gameSlug, 'PLAYER', roomCode);
         navigate(path);
       }
     });
@@ -98,9 +97,7 @@ export function PlayerLobbyPage() {
 
     socket.on('game:start', (data) => {
       if (data.status === 'RUNNING') {
-        const path = data.gameSlug === 'jeopardy'
-          ? `/jeopardy/spiel/${roomCode}`
-          : `/raum/${roomCode}/spiel`;
+        const path = gamePath(data.gameSlug, 'PLAYER', roomCode);
         navigate(path);
       }
     });
