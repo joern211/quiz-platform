@@ -10,6 +10,7 @@ export function WerIstDasGamePage({ role }: { role: PlayerRole }) {
   const self = getSessionData().participationId;
   const scores = Object.entries(state?.scores ?? {}).sort((a, b) => b[1] - a[1]);
   const canBuzz = role === 'PLAYER' && state?.buzzerOpen && !state.excluded;
+  const everyoneExcluded = state && Object.keys(state.playerNames).every(id => state.excludedPlayerIds?.includes(id));
 
   return <GameShell role={role.toLowerCase() as 'moderator' | 'player' | 'viewer'}
     roomCode={code} phase={state?.phase} connected={connected} error={error}>
@@ -43,7 +44,8 @@ export function WerIstDasGamePage({ role }: { role: PlayerRole }) {
           {role === 'MODERATOR' && state.phase !== 'GAME_END' && <div className={styles.controls}>
             <h2>Moderation</h2>
             {state.excludedPlayerIds?.length ? <p>Ausgeschlossen: {state.excludedPlayerIds.map(id => state.playerNames[id]).join(', ')}</p> : null}
-            {state.phase === 'ROUND_READY' && <button onClick={() => act('weristdas:buzzer:open')}>Buzzer öffnen</button>}
+            {state.phase === 'ROUND_READY' && <button disabled={Boolean(everyoneExcluded)} onClick={() => act('weristdas:buzzer:open')}>Buzzer öffnen</button>}
+            {state.phase === 'ROUND_READY' && everyoneExcluded && <p>Alle Spieler ausgeschlossen. Löse die Runde auf.</p>}
             {['ROUND_READY', 'BUZZ_OPEN', 'ANSWERING'].includes(state.phase) && !state.hintActive &&
               <button onClick={() => act('weristdas:hint')}>Hinweis aktivieren</button>}
             {state.phase === 'ANSWERING' && <div className={styles.judges}>

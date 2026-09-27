@@ -39,7 +39,7 @@ const gamesByCategory: Record<string, any[]> = {
   ],
   'buzzer-reaktion': [
     {
-      slug: 'wer-ist-das',
+      slug: 'weristdas',
       name: 'Wer ist das?',
       category: 'Buzzer & Reaktion',
       shortRules: 'Errate welche zwei Personen auf dem verschmolzenen Bild zu sehen sind. Erster Buzzer gewinnt!',

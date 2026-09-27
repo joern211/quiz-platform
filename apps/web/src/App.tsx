@@ -72,6 +72,7 @@ export default function App() {
           <Route path="/moderator/anmelden"                              element={<ModeratorLoginPage />} />
           <Route path="/moderator/vorbereitung/jeopardy"         element={<JeopardySetupPage />} />
           <Route path="/moderator/vorbereitung/weristdas" element={<WerIstDasSetupPage />} />
+          <Route path="/moderator/vorbereitung/wer-ist-das" element={<WerIstDasSetupPage />} />
           <Route path="/moderator/vorbereitung/:gameSlug"         element={<ModeratorSetupPage />} />
           <Route path="/moderator/raeume"                                element={<RoomsPage />} />
           <Route path="/moderator/raum/:code/lobby"                      element={<ModeratorLobbyPage />} />

@@ -148,4 +148,50 @@ describe('Wer ist das? real multiplayer sockets', () => {
     expect((await prisma.room.findUniqueOrThrow({ where: { id: other.id } })).status).toBe('LOBBY');
     expect(await prisma.roomGameState.findUnique({ where: { roomId: other.id } })).toBeNull();
   });
+
+  it('isolates concurrent rooms and keeps manual end idempotent without revealing secrets', async () => {
+    const game = await prisma.gameDefinition.findUniqueOrThrow({ where: { slug: 'weristdas' } });
+    const session = await prisma.session.findFirstOrThrow({ where: { userId: 'mod-1' } });
+    const setup = JSON.stringify({ rounds: [{ id: 'shared', imageAssetId: imageId,
+      person1: secret, person2: 'Hidden person' }] });
+    const rooms = await Promise.all([0, 1].map(async index => {
+      const room = await prisma.room.create({ data: {
+        code: String(Math.floor(100000 + Math.random() * 900000)).replace(/(\d{3})(\d{3})/, '$1-$2'),
+        roomName: `Isolation ${index}`, gameDefinitionId: game.id, hostUserId: 'mod-1',
+        status: 'LOBBY', runPhase: 'LOBBY', viewerRequiresPin: false, setupSnapshotJson: setup,
+      } });
+      otherRooms.push(room.id);
+      const players = await Promise.all(['One', 'Two'].map(displayName => prisma.participation.create({ data: {
+        roomId: room.id, role: 'PLAYER', displayName: `${displayName}${index}`,
+        normalizedName: `${displayName.toLowerCase()}${index}`,
+        rejoinToken: randomUUID(), connected: true, ready: true,
+      } })));
+      return { room, players };
+    }));
+    const [hostA, hostB, viewerA, playerA, playerB] = await Promise.all([
+      connect(createSessionCookie(session.id, config.sessionSecret)),
+      connect(createSessionCookie(session.id, config.sessionSecret)), connect(), connect(), connect(),
+    ]);
+    expect((await ack(hostA, 'room:subscribe', { roomCode: rooms[0].room.code })).success).toBe(true);
+    expect((await ack(hostB, 'room:subscribe', { roomCode: rooms[1].room.code })).success).toBe(true);
+    expect((await ack(viewerA, 'room:subscribe', { roomCode: rooms[0].room.code })).success).toBe(true);
+    expect((await ack(playerA, 'room:subscribe', { roomCode: rooms[0].room.code, rejoinToken: rooms[0].players[0].rejoinToken })).success).toBe(true);
+    expect((await ack(playerB, 'room:subscribe', { roomCode: rooms[1].room.code, rejoinToken: rooms[1].players[0].rejoinToken })).success).toBe(true);
+    expect((await ack(hostA, 'game:start', { roomCode: rooms[0].room.code })).success).toBe(true);
+    expect((await ack(hostB, 'game:start', { roomCode: rooms[1].room.code })).success).toBe(true);
+    const roomAUpdates: string[] = [];
+    viewerA.on('weristdas:update', state => roomAUpdates.push(state.phase));
+    expect((await ack(hostB, 'weristdas:buzzer:open')).success).toBe(true);
+    expect((await ack(playerB, 'weristdas:buzz')).success).toBe(true);
+    expect((await ack(viewerA, 'weristdas:resync')).state).toMatchObject({ phase: 'ROUND_READY', winnerId: null });
+    expect(roomAUpdates).toEqual([]);
+    expect((await ack(playerA, 'weristdas:buzz')).success).toBe(false);
+    expect((await ack(hostA, 'game:end', { roomCode: rooms[1].room.code })).success).toBe(false);
+    expect((await ack(hostA, 'game:end', { roomCode: rooms[0].room.code })).success).toBe(true);
+    expect((await ack(hostA, 'game:end', { roomCode: rooms[0].room.code })).success).toBe(true);
+    expect((await ack(viewerA, 'weristdas:resync')).state).toMatchObject({ phase: 'GAME_END', revealed: false });
+    expect(JSON.stringify(await ack(viewerA, 'weristdas:resync'))).not.toContain(secret);
+    expect((await ack(playerB, 'weristdas:resync')).state).toMatchObject({ phase: 'ANSWERING', winnerId: rooms[1].players[0].id });
+    expect(roomAUpdates).toEqual(['GAME_END']);
+  }, 20000);
 });

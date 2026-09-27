@@ -52,8 +52,8 @@ Ablauf:
     hasAudio: false,
     status: 'AVAILABLE',
   },
-  'wer-ist-das': {
-    slug: 'wer-ist-das',
+  weristdas: {
+    slug: 'weristdas',
     name: 'Wer ist das?',
     category: 'Buzzer & Reaktion',
     shortRules: 'Errate zwei verschmolzene Personen. Erster Buzzer gewinnt!',
@@ -63,7 +63,7 @@ Ablauf:
 1. Buzzer öffnet
 2. Erster Spieler buzzert und antwortet
 3. Moderator bewertet: beide richtig +3, falsch -1
-4. Hinweis "1 Person reicht" senkt auf +1 pro Person`,
+4. Nach Hinweis reicht eine richtige Person für +1 Punkt; beide richtig bleiben +3`,
     playerCount: { min: 2, max: 10 },
     duration: '20-30 Min',
     hasBuzzer: true,
@@ -142,7 +142,7 @@ export function GamePage() {
   const [game, setGame] = useState<any>(null);
 
   useEffect(() => {
-    const gameData = games[gameSlug || ''];
+    const gameData = games[gameSlug === 'wer-ist-das' ? 'weristdas' : gameSlug || ''];
     if (gameData) {
       setGame(gameData);
     }
