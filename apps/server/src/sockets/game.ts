@@ -6,7 +6,7 @@ import { Server, Socket } from 'socket.io';
 import { prisma } from '../persistence/prisma.js';
 import { logger } from '../observability/logger.js';
 import { handleGeoGame } from '../games/geo/index.js';
-import { handleJeopardyGame } from '../games/jeopardy/engine.js';
+import { getGameHandler } from '../games/registry.js';
 import { requireRoomRole, getSocketDataIdentity } from './auth.js';
 import { roomChannel } from './index.js';
 
@@ -111,12 +111,28 @@ export const handleGameEvents = {
         return;
       }
 
-      // Initialize game state based on game type
-      if (room.gameDefinition.slug === 'geo') {
-        await handleGeoGame.initialize(io, room, 'INTRO');
-      } else if (room.gameDefinition.slug === 'jeopardy') {
-        await handleJeopardyGame.initialize(io, room);
+      // Resolve the game lifecycle through the central registry. Unsupported
+      // games fail explicitly instead of entering RUNNING without game state.
+      const gameHandler = getGameHandler(room.gameDefinition.slug);
+      if (!gameHandler) {
+        await prisma.room.update({
+          where: { id: room.id },
+          data: {
+            status: 'LOBBY',
+            runPhase: 'LOBBY',
+            startedAt: null,
+            revision: { increment: 1 },
+          },
+        });
+        callback?.({ success: false, error: 'GAME_NOT_IMPLEMENTED' });
+        return;
       }
+
+      await gameHandler.initialize({
+        io,
+        room,
+        initialPhase: 'INTRO',
+      });
 
       // Emit game start
       io.to(channel).emit('game:start', {
@@ -126,13 +142,13 @@ export const handleGameEvents = {
         gameSlug: room.gameDefinition.slug,
       });
 
-      // P0-16: Start first round after INTRO phase (with timer)
-      if (room.gameDefinition.slug === 'geo') {
-        // Small delay then start the round
-        setTimeout(async () => {
-          await handleGeoGame.startRound(io, data.roomCode);
-        }, 3000); // 3 second intro delay
-      }
+      // Optional game-specific post-start lifecycle (for example Geo's
+      // intro-to-first-round transition).
+      await gameHandler.afterStart?.({
+        io,
+        room,
+        initialPhase: 'INTRO',
+      });
 
       callback?.({ success: true, gameSlug: room.gameDefinition.slug });
     } catch (error) {
