@@ -53,10 +53,12 @@ export function PlayerGamePage() {
           if (res.question) setQuestion(res.question);
           setEndsAt(res.timerEndMs ?? 0);
           setRevealed(res.revealed ?? false);
+          setResult(res.revealed ? { correctOptionId: res.question?.correctOptionId } : null);
           setSelectedOption(res.ownAnswer ?? null);
           setLocked(res.ownAnswered ?? false);
           setAnswerSubmitted(res.ownAnswered ?? false);
           if (res.ownJokers) setJokers(res.ownJokers);
+          setEliminatedOptions(res.ownEliminatedOptions ?? []);
           if (participationId && res.scores) setScore(res.scores[participationId] ?? 0);
         });
       });

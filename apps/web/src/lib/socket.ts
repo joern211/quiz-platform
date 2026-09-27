@@ -63,6 +63,7 @@ export interface GeoResyncResponse {
   ownAnswer?: string | null;
   ownAnswered?: boolean;
   ownJokers?: { used5050: boolean; usedSpy: boolean; usedRisk: boolean } | null;
+  ownEliminatedOptions?: string[];
 }
 
 export type ServerToClientEvents = {

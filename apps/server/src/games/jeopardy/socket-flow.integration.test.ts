@@ -2,11 +2,12 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { createServer, type Server as HttpServer } from 'node:http';
 import { randomUUID } from 'node:crypto';
 import { Server } from 'socket.io';
-import { io as clientIo, type Socket as ClientSocket } from 'socket.io-client';
+import type { Socket as ClientSocket } from 'socket.io-client';
 import { prisma } from '../../persistence/prisma.js';
 import { setupSocketHandlers } from '../../sockets/index.js';
 import { createSessionCookie } from '../../auth/session.js';
 import { config } from '../../config/index.js';
+import { connectGameClient, gameAck } from '../../test-socket-harness.js';
 
 // Runs against the freshly migrated, seeded SQLite test database from the server test command.
 // The actions below go through real Socket.IO connections and production event handlers.
@@ -26,21 +27,11 @@ describe('Jeopardy multiplayer socket integration', () => {
   let aliceId: string;
   let bobId: string;
 
-  async function ack(socket: ClientSocket, event: string, data: object = {}): Promise<Record<string, unknown>> {
-    return socket.timeout(6000).emitWithAck(event, data) as Promise<Record<string, unknown>>;
-  }
+  const ack = gameAck;
 
   async function connect(cookie?: string): Promise<ClientSocket> {
-    const socket = clientIo(origin, {
-      transports: ['websocket'],
-      forceNew: true,
-      extraHeaders: cookie ? { Cookie: cookie } : undefined,
-    });
+    const socket = await connectGameClient(origin, cookie);
     sockets.push(socket);
-    await new Promise<void>((resolve, reject) => {
-      socket.once('connect', resolve);
-      socket.once('connect_error', reject);
-    });
     return socket;
   }
 
@@ -244,6 +235,7 @@ describe('Jeopardy multiplayer socket integration', () => {
       expect((await ack(host, 'game:start', { roomCode: geoRoom.code })).success).toBe(true);
       expect((await ack(first, 'jeopardy:buzz')).error).toBe('WRONG_GAME');
       expect((await ack(host, 'jeopardy:judge', { correct: true })).error).toBe('WRONG_GAME');
+      expect((await ack(first, 'geo:answer', { optionId: 17 })).error).toBe('INVALID_PAYLOAD');
       await new Promise((resolve) => setTimeout(resolve, 3200));
       const publicState = await ack(first, 'geo:resync');
       const publicQuestion = publicState.question as Record<string, unknown>;
@@ -268,6 +260,9 @@ describe('Jeopardy multiplayer socket integration', () => {
       expect(players[parts[1].id].jokers.usedRisk).toBe(false);
       expect(((await ack(first, 'geo:resync')).ownJokers as Record<string, unknown>).usedRisk).toBe(true);
       expect(((await ack(second, 'geo:resync')).ownJokers as Record<string, unknown>).usedRisk).toBe(false);
+      expect((await ack(first, 'geo:joker:5050', { roomCode: geoRoom.code })).success).toBe(true);
+      expect((await ack(first, 'geo:resync')).ownEliminatedOptions).toHaveLength(2);
+      expect((await ack(second, 'geo:resync')).ownEliminatedOptions).toEqual([]);
       expect((await ack(second, 'geo:joker:risk', { roomCode: code, rejoinToken: parts[1].rejoinToken })).success).toBe(false);
       expect((await ack(host, 'game:pause', { roomCode: geoRoom.code })).success).toBe(true);
       expect((await prisma.room.findUniqueOrThrow({ where: { id: geoRoom.id } })).runPhase).toBe('PAUSED');
@@ -280,6 +275,8 @@ describe('Jeopardy multiplayer socket integration', () => {
       expect(resumed.phase).toBe('INPUT_OPEN');
       expect(resumed.roundStates[resumed.currentRoundIndex].timerEndMs).toBeGreaterThan(Date.now());
       expect(resumed.roundStates[resumed.currentRoundIndex].pauseRemainingMs).toBeNull();
+      expect((await ack(host, 'geo:reveal', { roomCode: geoRoom.code })).success).toBe(true);
+      expect(((await ack(spectator, 'geo:resync')).question as Record<string, unknown>).correctOptionId).toBe(question.correctOptionId);
       expect((await ack(host, 'game:end', { roomCode: geoRoom.code })).success).toBe(true);
     } finally {
       temporaryRoomIds.push(geoRoom.id);

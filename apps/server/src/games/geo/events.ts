@@ -1,5 +1,6 @@
 // Geo-specific socket action adapters. Generic room lifecycle lives in sockets/game.ts.
 import { Server, Socket } from 'socket.io';
+import { z } from 'zod';
 import { prisma } from '../../persistence/prisma.js';
 import { logger } from '../../observability/logger.js';
 import { handleGeoGame } from './index.js';
@@ -7,6 +8,55 @@ import { saveGameStateIfRevision } from '../core/state.js';
 import { gameErrorCode } from '../core/errors.js';
 import { requireRoomRole, getSocketDataIdentity } from '../../sockets/auth.js';
 import { roomChannel } from '../../sockets/channel.js';
+import { registerGeoResync } from './resync.js';
+
+const roomAction = z.object({
+  roomCode: z.string().regex(/^\d{3}-\d{3}$/),
+  rejoinToken: z.string().optional(),
+});
+const answerAction = z.object({
+  optionId: z.string().min(1),
+  questionIndex: z.number().int().nonnegative().optional(),
+});
+
+function validate<T>(schema: z.ZodType<T>, data: unknown, callback?: (result: { success: boolean; error: string }) => void): T | null {
+  const parsed = schema.safeParse(data);
+  if (parsed.success) return parsed.data;
+  callback?.({ success: false, error: 'INVALID_PAYLOAD' });
+  return null;
+}
+
+export function registerGeoEvents(io: Server, socket: Socket): void {
+  socket.on('geo:answer', (data, callback) => {
+    const valid = validate(answerAction, data, callback);
+    if (valid) void handleGeoEvents.geoAnswer(io, socket, valid, callback);
+  });
+  socket.on('geo:joker:5050', (data, callback) => {
+    const valid = validate(roomAction, data, callback);
+    if (valid) void handleGeoEvents.geoJoker5050(io, socket, valid, callback);
+  });
+  socket.on('geo:joker:spy', (data, callback) => {
+    const valid = validate(roomAction, data, callback);
+    if (valid) void handleGeoEvents.geoJokerSpy(io, socket, valid, callback);
+  });
+  socket.on('geo:joker:risk', (data, callback) => {
+    const valid = validate(roomAction, data, callback);
+    if (valid) void handleGeoEvents.geoJokerRisk(io, socket, valid, callback);
+  });
+  socket.on('geo:reveal', (data, callback) => {
+    const valid = validate(roomAction, data, callback);
+    if (valid) void handleGeoEvents.geoReveal(io, socket, valid, callback);
+  });
+  socket.on('geo:next', (data, callback) => {
+    const valid = validate(roomAction, data, callback);
+    if (valid) void handleGeoEvents.geoNext(io, socket, valid, callback);
+  });
+  socket.on('buzz:press', (data, callback) => {
+    const valid = validate(roomAction, data, callback);
+    if (valid) void handleGeoEvents.buzzPress(io, socket, valid, callback);
+  });
+  registerGeoResync(io, socket);
+}
 
 export const handleGeoEvents = {
   // ============================================================

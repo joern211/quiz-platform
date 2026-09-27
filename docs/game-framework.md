@@ -16,6 +16,7 @@ Verfügbare Hooks:
 - `afterStart(context)`: optionaler Hook nach `game:start`, z. B. für Geo INTRO → erste Runde.
 - `pause(context)`, `resume(context)`: optionale Fähigkeiten mit eigenem Timerverhalten.
 - `cleanup(roomId)`: optionale Freigabe spielspezifischer Ressourcen beim Ende.
+- `registerEvents(io, socket)`: optionale Registrierung der spielspezifischen Aktionen und Resync-Events. `sockets/index.ts` ruft ausschließlich `registerGameSocketHandlers()` auf.
 
 Vor `initialize` wird der Raum atomar von LOBBY auf RUNNING gesetzt. Schlägt die Initialisierung fehl, wird genau diese Revision wieder auf LOBBY gesetzt und ein partieller Game-State entfernt. Ein konkurrierend veränderter Raum wird dabei nicht blind überschrieben.
 
@@ -79,9 +80,11 @@ Jeopardy verwendet `claimBuzzer()` im Haupt- und Steal-Buzz. Persistenz und Phas
 
 `room:resync` prüft die serverseitige Socket-Identität, Raumzugehörigkeit und den tatsächlichen Socket.IO-Kanal. Der mitgesendete Raumcode dient nur als Plausibilitätsprüfung.
 
-Jeopardy registriert seine Events und seine rollenabhängige Projektion in `games/jeopardy/events.ts`. Geo registriert `geo:resync` in `games/geo/resync.ts`; `projectGeoStateForClient()` gibt öffentliche Frage und Punktestand aus. Spieler erhalten nur eigene Antwort und Joker, Zuschauer keine eigenen Aktionsdaten. Die richtige Option ist vor der Auflösung nur für Moderatoren enthalten. `questions[]` aus dem persistierten State wird niemals als Ganzes übertragen.
+Jeopardy registriert seine Events und seine rollenabhängige Projektion in `games/jeopardy/events.ts`. Geo registriert `geo:resync` in `games/geo/resync.ts`; `projectGeoStateForClient()` gibt öffentliche Frage und Punktestand aus. Spieler erhalten nur eigene Antwort, Joker und 50:50-Auswahl, Zuschauer keine eigenen Aktionsdaten. Die richtige Option ist vor der Auflösung nur für Moderatoren enthalten; nach dem persistierten REVEAL wird sie allen angezeigt. `questions[]` aus dem persistierten State wird niemals als Ganzes übertragen.
 
 Die Webansichten von Geo abonnieren den Raum nach Reconnect erneut und rufen danach `geo:resync` auf. Neue Spiele müssen ebenso eine rollenabhängige Projektion aus dem persistierten State bereitstellen; der Client darf kein vollständiges State-JSON erhalten.
+
+Geo und Jeopardy validieren ihre Spielaktionen in den jeweiligen `events.ts`-Modulen mit Zod. Ein ungültiger Geo-Payload liefert `INVALID_PAYLOAD`; Jeopardy behält für bisherige Clients seinen `VALIDATION_ERROR`-ACK.
 
 ### Timer und Frontend
 
@@ -137,7 +140,7 @@ Die Engine implementiert mindestens eine Initialisierung, die:
 
 ### 4. Engine registrieren
 
-In `games/registry.ts` einen echten `GameHandle` ergänzen.
+In `games/registry.ts` einen echten `GameHandle` mit `initialize` und `registerEvents` ergänzen. Optional `pause`, `resume`, `afterStart` und `cleanup` nur bei Bedarf implementieren. Die Socket-Schicht muss für ein neues Spiel nicht verändert werden.
 
 Keine Platzhalter registrieren.
 
@@ -208,6 +211,7 @@ Mindestens:
 - E2E-Hauptfluss
 
 Bestehende Geo- und Jeopardy-Tests dienen als Referenz.
+`apps/server/src/test-socket-harness.ts` stellt `connectGameClient()` und `gameAck()` für echte Socket.IO-Integrationstests bereit. Die jeweilige Testsuite erzeugt selbst ihre fachlichen Raum- und Spielfixtures.
 
 ## Architekturregel
 

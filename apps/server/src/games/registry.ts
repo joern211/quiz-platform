@@ -6,6 +6,8 @@
 import type { Server, Socket } from 'socket.io';
 import { handleGeoGame, cancelGeoTimer } from './geo/index.js';
 import { handleJeopardyGame } from './jeopardy/engine.js';
+import { registerGeoEvents } from './geo/events.js';
+import { registerJeopardyEvents } from './jeopardy/events.js';
 import { logger } from '../observability/logger.js';
 
 export interface GameRoom {
@@ -27,6 +29,7 @@ export interface GameHandle {
   pause?(context: GameActionContext): Promise<void>;
   resume?(context: GameActionContext): Promise<void>;
   cleanup?(roomId: string): void;
+  registerEvents?(io: Server, socket: Socket): void;
 }
 
 export interface GameActionContext {
@@ -57,10 +60,12 @@ const geoHandle: GameHandle = {
     await handleGeoGame.handleResume(io, socket, { roomCode }, callback);
   },
   cleanup(roomId) { cancelGeoTimer(roomId); },
+  registerEvents: registerGeoEvents,
 };
 
 const jeopardyHandle: GameHandle = {
   slug: 'jeopardy',
+  registerEvents: registerJeopardyEvents,
   async initialize({ io, room }) {
     await handleJeopardyGame.initialize(io, room);
   },
@@ -80,4 +85,8 @@ export function getGameHandler(slug: string): GameHandle | null {
 
 export function listGames(): string[] {
   return [...gameRegistry.keys()];
+}
+
+export function registerGameSocketHandlers(io: Server, socket: Socket): void {
+  for (const handle of gameRegistry.values()) handle.registerEvents?.(io, socket);
 }
