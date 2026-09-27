@@ -6,6 +6,7 @@ import { Server, Socket } from 'socket.io';
 import { prisma } from '../persistence/prisma.js';
 import { logger } from '../observability/logger.js';
 import { handleGeoGame } from '../games/geo/index.js';
+import { handleJeopardyGame } from '../games/jeopardy/engine.js';
 import { getGameHandler } from '../games/registry.js';
 import { requireRoomRole, getSocketDataIdentity } from './auth.js';
 import { roomChannel } from './index.js';
