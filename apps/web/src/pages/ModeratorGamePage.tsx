@@ -35,7 +35,21 @@ export function ModeratorGamePage() {
 
     const subscribe = () => {
       socket.emit('room:subscribe', { roomCode, role: 'MODERATOR' }, (response) => {
-        if (!response.success) setActionError(`Raumverbindung fehlgeschlagen: ${response.error ?? 'Unbekannter Fehler'}`);
+        if (!response.success) {
+          setActionError(`Raumverbindung fehlgeschlagen: ${response.error ?? 'Unbekannter Fehler'}`);
+          return;
+        }
+        socket.emit('geo:resync', {}, (res) => {
+          if (!res.success) return;
+          if (res.question) setQuestion(res.question);
+          setEndsAt(res.timerEndMs ?? 0);
+          setRevealed(res.revealed ?? false);
+          setTimerPaused(res.phase === 'PAUSED');
+          setCurrentIndex(res.roundIndex ?? 0);
+          setTotalQuestions(res.totalQuestions ?? 0);
+          setScores(res.scores ?? {});
+          setCorrectOptionId(res.question?.correctOptionId ?? null);
+        });
       });
     };
 
@@ -81,6 +95,11 @@ export function ModeratorGamePage() {
       setRevealed(true);
       setCorrectOptionId(data.correctOptionId ?? null);
       setScores(Object.fromEntries(data.scores.map(entry => [entry.participationId, entry.score])));
+    });
+    socket.on('geo:paused', () => setTimerPaused(true));
+    socket.on('geo:resumed', (data: { timerEndMs: number }) => {
+      setTimerPaused(false);
+      setEndsAt(data.timerEndMs);
     });
 
     socket.on('game:end', (data) => {

@@ -22,10 +22,25 @@ export function ViewerGamePage() {
   useEffect(() => {
     const socket = io(window.location.origin, { withCredentials: true });
     
-    socket.on('connect', () => setConnected(true));
+    const subscribe = () => {
+      socket.emit('room:subscribe', { roomCode: code, role: 'VIEWER' }, (response: { success: boolean }) => {
+        if (!response.success) return;
+        socket.emit('geo:resync', {}, (res: {
+          success: boolean; question?: typeof question; timerEndMs?: number | null;
+          revealed?: boolean; phase?: string; scores?: Record<string, number>;
+        }) => {
+          if (!res.success) return;
+          setQuestion(res.question ?? null);
+          setTimerEndMs(res.timerEndMs ?? 0);
+          setRevealed(res.revealed ?? false);
+          setPhase(res.phase ?? 'WAITING');
+          setScores(res.scores ?? {});
+        });
+      });
+    };
+    socket.on('connect', () => { setConnected(true); subscribe(); });
     socket.on('disconnect', () => setConnected(false));
-    
-    socket.emit('room:subscribe', { roomCode: code, role: 'VIEWER' });
+    if (socket.connected) subscribe();
     
     socket.on('room:snapshot', (data) => {
       setPlayers(data.players || []);

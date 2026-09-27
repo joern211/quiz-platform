@@ -8,6 +8,7 @@ import { logger } from '../observability/logger.js';
 import { handleGeoGame } from '../games/geo/index.js';
 import { handleJeopardyGame } from '../games/jeopardy/engine.js';
 import { getGameHandler } from '../games/registry.js';
+import { saveGameStateIfRevision } from '../games/core/state.js';
 import { requireRoomRole, getSocketDataIdentity } from './auth.js';
 import { roomChannel } from './index.js';
 
@@ -120,11 +121,22 @@ export const handleGameEvents = {
         return;
       }
 
-      await gameHandler.initialize({
-        io,
-        room,
-        initialPhase: 'INTRO',
-      });
+      try {
+        await gameHandler.initialize({ io, room, initialPhase: 'INTRO' });
+      } catch (error) {
+        // Only undo the transition we own. Do not reset a room that another
+        // action has already advanced, and remove partial initialization.
+        await prisma.$transaction(async (tx) => {
+          const reverted = await tx.room.updateMany({
+            where: { id: room.id, status: 'RUNNING', revision: room.revision + 1 },
+            data: { status: 'LOBBY', runPhase: 'LOBBY', startedAt: null, revision: { increment: 1 } },
+          });
+          if (reverted.count === 1) {
+            await tx.roomGameState.deleteMany({ where: { roomId: room.id } });
+          }
+        });
+        throw error;
+      }
 
       // Emit game start
       io.to(channel).emit('game:start', {
@@ -168,7 +180,7 @@ export const handleGameEvents = {
 
       // P0-17: Use socket identity for authorization
       const identity = getSocketDataIdentity(socket);
-      if (!identity || !identity.roomId) {
+      if (!identity.roomId || identity.roomId !== room.id) {
         callback?.({ success: false, error: 'NOT_IN_ROOM' });
         return;
       }
@@ -186,9 +198,9 @@ export const handleGameEvents = {
         return;
       }
 
-      // P0-20: Delegate to geo engine for proper pause handling
-      if (room.gameDefinition?.slug === 'geo') {
-        return handleGeoGame.handlePause(io, socket, data, callback);
+      const gameHandler = getGameHandler(room.gameDefinition.slug);
+      if (gameHandler?.pause) {
+        return gameHandler.pause({ io, socket, roomCode: room.code, callback });
       }
 
       await prisma.room.update({
@@ -223,7 +235,7 @@ export const handleGameEvents = {
 
       // P0-17: Use socket identity for authorization
       const identity = getSocketDataIdentity(socket);
-      if (!identity || !identity.roomId) {
+      if (!identity.roomId || identity.roomId !== room.id) {
         callback?.({ success: false, error: 'NOT_IN_ROOM' });
         return;
       }
@@ -241,9 +253,9 @@ export const handleGameEvents = {
         return;
       }
 
-      // P0-20: Delegate to geo engine for proper resume handling
-      if (room.gameDefinition?.slug === 'geo') {
-        return handleGeoGame.handleResume(io, socket, data, callback);
+      const gameHandler = getGameHandler(room.gameDefinition.slug);
+      if (gameHandler?.resume) {
+        return gameHandler.resume({ io, socket, roomCode: room.code, callback });
       }
 
       await prisma.room.update({
@@ -277,7 +289,7 @@ export const handleGameEvents = {
 
       // P0-17: Use socket identity for authorization
       const identity = getSocketDataIdentity(socket);
-      if (!identity || !identity.roomId) {
+      if (!identity.roomId || identity.roomId !== room.id) {
         callback?.({ success: false, error: 'NOT_IN_ROOM' });
         return;
       }
@@ -304,6 +316,8 @@ export const handleGameEvents = {
           revision: { increment: 1 },
         },
       });
+      const gameDefinition = await prisma.gameDefinition.findUnique({ where: { id: room.gameDefinitionId } });
+      if (gameDefinition) getGameHandler(gameDefinition.slug)?.cleanup?.(room.id);
 
       io.to(channel).emit('game:end', {
         roomCode: data.roomCode,
@@ -493,7 +507,7 @@ export const handleGameEvents = {
         callback?.({ success: false, error: 'NOT_IN_ROOM' });
         return;
       }
-      if (identity.role === 'VIEWER') {
+      if (identity.role !== 'PLAYER') {
         callback?.({ success: false, error: 'VIEWERS_CANNOT_MODIFY' });
         return;
       }
@@ -508,13 +522,13 @@ export const handleGameEvents = {
       }
 
       const channel = roomChannel(room.id);
-      if (!socket.rooms.has(channel)) {
+      if (identity.roomId !== room.id || !socket.rooms.has(channel)) {
         callback?.({ success: false, error: 'NOT_IN_ROOM' });
         return;
       }
 
       // Reuse identity from above (already validated as non-VIEWER)
-      const participationId = identity?.participationId || data.rejoinToken;
+      const participationId = identity.participationId;
       
       if (!participationId) {
         callback?.({ success: false, error: 'TOKEN_REQUIRED' });
@@ -522,12 +536,7 @@ export const handleGameEvents = {
       }
 
       const participation = await prisma.participation.findFirst({
-        where: {
-          OR: [
-            { id: participationId },
-            { rejoinToken: participationId },
-          ],
-        },
+        where: { id: participationId, roomId: room.id, role: 'PLAYER' },
       });
 
       if (!participation) {
@@ -541,41 +550,21 @@ export const handleGameEvents = {
         return;
       }
 
-      // Get room game state
-      const gameState = await prisma.roomGameState.findUnique({
-        where: { roomId: room.id },
+      // The claim and revision update share one transaction. A concurrent
+      // claim cannot overwrite the winner and will fail the revision check.
+      const claimed = await prisma.$transaction(async (tx) => {
+        const gameState = await tx.roomGameState.findUnique({ where: { roomId: room.id } });
+        if (!gameState || gameState.phase !== 'BUZZ_OPEN') return false;
+        const state = JSON.parse(gameState.stateJson);
+        if (!state.buzzOpen || state.buzzWinnerId) return false;
+        state.buzzWinnerId = participation.id;
+        state.buzzOpen = false;
+        await saveGameStateIfRevision(tx, {
+          roomId: room.id, expectedRevision: gameState.revision, state, phase: 'JUDGING',
+        });
+        return true;
       });
-
-      if (!gameState || gameState.phase !== 'BUZZ_OPEN') {
-        callback?.({ success: false, error: 'BUZZ_CLOSED' });
-        return;
-      }
-
-      // Parse state and check if buzz is open
-      const state = JSON.parse(gameState.stateJson);
-      if (!state.buzzOpen) {
-        callback?.({ success: false, error: 'BUZZ_CLOSED' });
-        return;
-      }
-
-      // Check if already has winner
-      if (state.buzzWinnerId) {
-        callback?.({ success: false, error: 'BUZZ_CLOSED' });
-        return;
-      }
-
-      // Update game state - set winner
-      state.buzzWinnerId = participation.id;
-      state.buzzOpen = false;
-
-      await prisma.roomGameState.update({
-        where: { roomId: room.id },
-        data: {
-          stateJson: JSON.stringify(state),
-          phase: 'JUDGING',
-          revision: { increment: 1 },
-        },
-      });
+      if (!claimed) { callback?.({ success: false, error: 'BUZZ_CLOSED' }); return; }
 
       // Broadcast buzz winner
       io.to(channel).emit('buzz:won', {

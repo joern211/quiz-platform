@@ -3,8 +3,8 @@
 // Single entry point for game lifecycle integration.
 // ============================================================
 
-import type { Server } from 'socket.io';
-import { handleGeoGame } from './geo/index.js';
+import type { Server, Socket } from 'socket.io';
+import { handleGeoGame, cancelGeoTimer } from './geo/index.js';
 import { handleJeopardyGame } from './jeopardy/engine.js';
 
 export interface GameRoom {
@@ -23,6 +23,16 @@ export interface GameHandle {
   slug: string;
   initialize(context: GameInitializeContext): Promise<void>;
   afterStart?(context: GameInitializeContext): Promise<void> | void;
+  pause?(context: GameActionContext): Promise<void>;
+  resume?(context: GameActionContext): Promise<void>;
+  cleanup?(roomId: string): void;
+}
+
+export interface GameActionContext {
+  io: Server;
+  socket: Socket;
+  roomCode: string;
+  callback?: (result: { success: boolean; error?: string }) => void;
 }
 
 const geoHandle: GameHandle = {
@@ -37,6 +47,13 @@ const geoHandle: GameHandle = {
       void handleGeoGame.startRound(io, room.code);
     }, 3000);
   },
+  async pause({ io, socket, roomCode, callback }) {
+    await handleGeoGame.handlePause(io, socket, { roomCode }, callback);
+  },
+  async resume({ io, socket, roomCode, callback }) {
+    await handleGeoGame.handleResume(io, socket, { roomCode }, callback);
+  },
+  cleanup(roomId) { cancelGeoTimer(roomId); },
 };
 
 const jeopardyHandle: GameHandle = {

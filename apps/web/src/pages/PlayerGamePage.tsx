@@ -42,8 +42,28 @@ export function PlayerGamePage() {
 
     connectSocket();
 
-    socket.on('connect', () => setConnected(true));
+    const subscribe = () => {
+      socket.emit('room:subscribe', { roomCode, rejoinToken: rejoinToken ?? undefined }, (response) => {
+        if (!response.success) {
+          setActionError(`Raumverbindung fehlgeschlagen: ${response.error ?? 'Unbekannter Fehler'}`);
+          return;
+        }
+        socket.emit('geo:resync', {}, (res) => {
+          if (!res.success) return;
+          if (res.question) setQuestion(res.question);
+          setEndsAt(res.timerEndMs ?? 0);
+          setRevealed(res.revealed ?? false);
+          setSelectedOption(res.ownAnswer ?? null);
+          setLocked(res.ownAnswered ?? false);
+          setAnswerSubmitted(res.ownAnswered ?? false);
+          if (res.ownJokers) setJokers(res.ownJokers);
+          if (participationId && res.scores) setScore(res.scores[participationId] ?? 0);
+        });
+      });
+    };
+    socket.on('connect', () => { setConnected(true); subscribe(); });
     socket.on('disconnect', () => setConnected(false));
+    if (socket.connected) subscribe();
 
     socket.on('game:end', (data) => {
       if (data.status === 'ENDED') {
@@ -93,11 +113,6 @@ export function PlayerGamePage() {
 
     socket.on('buzz:won', (_data) => {
       // Someone buzzed - only relevant if this client buzzed
-    });
-
-    // Subscribe to room
-    socket.emit('room:subscribe', { roomCode, rejoinToken: rejoinToken ?? undefined }, (response) => {
-      if (!response.success) setActionError(`Raumverbindung fehlgeschlagen: ${response.error ?? 'Unbekannter Fehler'}`);
     });
 
     return () => { disconnectSocket(); };

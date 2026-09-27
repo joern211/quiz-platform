@@ -45,6 +45,26 @@ export interface BuzzPayload {
   roomCode: string;
 }
 
+export interface GeoResyncResponse {
+  success: boolean;
+  error?: string;
+  phase?: string;
+  roundIndex?: number;
+  totalQuestions?: number;
+  question?: {
+    id: string; prompt: string; category: string;
+    options: Array<{ id: string; label: string; text: string; imageUrl?: string }>;
+    correctOptionId?: string;
+  } | null;
+  timerEndMs?: number | null;
+  pauseRemainingMs?: number | null;
+  revealed?: boolean;
+  scores?: Record<string, number>;
+  ownAnswer?: string | null;
+  ownAnswered?: boolean;
+  ownJokers?: { used5050: boolean; usedSpy: boolean; usedRisk: boolean } | null;
+}
+
 export type ServerToClientEvents = {
   'room:snapshot': (state: RoomState & { identity?: { participationId: string; role: PlayerRole } }) => void;
   'room:update': (state: RoomState) => void;
@@ -75,6 +95,8 @@ export type ServerToClientEvents = {
   }) => void;
   'geo:reveal': (data: { correctOptionId?: string; correctOptionText?: string; explanation?: string; scores: Array<{ participationId: string; displayName: string; score: number; correct: boolean; bonus: number }> }) => void;
   'geo:timer-expired': (data: { roundIndex: number }) => void;
+  'geo:paused': (data: { roundIndex: number; remainingMs: number }) => void;
+  'geo:resumed': (data: { timerEndMs: number }) => void;
   'geo:buzzer': (data: { winnerId: string }) => void;
   'geo:next': (data: { nextRoundIndex?: number; roundIndex: number; totalQuestions: number }) => void;
   'geo:init': (data: { questionCount: number; phase: string }) => void;
@@ -119,6 +141,7 @@ export type ClientToServerEvents = {
   'geo:joker:5050': (data: GeoJokerPayload & { rejoinToken?: string }, ack: (res: { success: boolean; error?: string; eliminatedOptions?: string[] }) => void) => void;
   'geo:joker:spy': (data: GeoJokerPayload & { rejoinToken?: string }, ack: (res: { success: boolean; error?: string; distribution?: Record<string, number> }) => void) => void;
   'geo:joker:risk': (data: GeoJokerPayload & { rejoinToken?: string }, ack: (res: { success: boolean; error?: string }) => void) => void;
+  'geo:resync': (data: Record<string, never>, ack: (res: GeoResyncResponse) => void) => void;
   'geo:reveal': (data: GeoJokerPayload, ack: (res: { success: boolean; error?: string }) => void) => void;
   'geo:next': (data: GeoJokerPayload, ack: (res: { success: boolean; error?: string; ended?: boolean }) => void) => void;
   'buzz:press': (data: BuzzPayload & { rejoinToken?: string }, ack: (res: { success: boolean }) => void) => void;

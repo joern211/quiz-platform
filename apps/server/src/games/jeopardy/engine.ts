@@ -9,6 +9,8 @@ import { saveGameStateIfRevision, upsertGameState } from '../core/state.js';
 import { logger } from '../../observability/logger.js';
 import { roomChannel } from '../../sockets/index.js';
 import { authorizeGameAction } from '../core/access.js';
+import { claimBuzzer } from '../core/buzzer.js';
+import { recordScoreMutation } from '../core/score.js';
 import {
   JEOPARDY_PHASES,
   pointsForCorrect,
@@ -296,16 +298,15 @@ export const handleJeopardyGame = {
         throw new Error('PHASE_NOT_BUZZ_OPEN');
       }
 
-      // Already has a winner guard
-      if (state.buzzWinner !== null) {
-        throw new Error('BUZZER_ALREADY_WON');
-      }
-
-      // Mark buzz winner
-      state.buzzWinner = participationId;
-      state.phase = JEOPARDY_PHASES.BUZZ_LOCKED;
-
       if (!Object.hasOwn(state.scores, participationId)) throw new Error('PLAYER_NOT_IN_GAME');
+      const claim = claimBuzzer(
+        { open: state.buzzOpen, winnerId: state.buzzWinner, excludedPlayerIds: [] },
+        participationId
+      );
+      if (!claim.accepted) throw new Error(claim.error);
+      state.buzzOpen = claim.state.open;
+      state.buzzWinner = claim.state.winnerId;
+      state.phase = JEOPARDY_PHASES.BUZZ_LOCKED;
       await saveGameStateIfRevision(tx, { roomId, expectedRevision: gameStateData.revision, state, phase: state.phase });
 
       return { state, displayName: auth.actor.displayName };
@@ -369,7 +370,11 @@ export const handleJeopardyGame = {
         state.stealOpen = true;
       }
       await saveGameStateIfRevision(tx, { roomId, expectedRevision: row.revision, state, phase: state.phase });
-      await tx.participation.update({ where: { id: playerId }, data: { score: state.scores[playerId] } });
+      await recordScoreMutation(tx, {
+        roomId, participationId: playerId, score: state.scores[playerId], delta,
+        reason: data.correct ? 'JEOPARDY_CORRECT' : 'JEOPARDY_WRONG_FIRST',
+        roundIndex: state.currentBoard - 1,
+      });
       return { state, playerId, delta, categoryIndex, value, answer: fieldDef.answer };
     });
 
@@ -425,17 +430,18 @@ export const handleJeopardyGame = {
         throw new Error('PHASE_NOT_STEAL_OPEN');
       }
 
-      if (state.stealWinner !== null) {
-        throw new Error('STEAL_ALREADY_WON');
-      }
-
-      if (state.currentField?.firstResponderId === participationId) {
-        throw new Error('ALREADY_ANSWERED');
-      }
-
       if (!Object.hasOwn(state.scores, participationId)) throw new Error('PLAYER_NOT_IN_GAME');
-
-      state.stealWinner = participationId;
+      const claim = claimBuzzer(
+        {
+          open: state.stealOpen,
+          winnerId: state.stealWinner,
+          excludedPlayerIds: state.currentField?.firstResponderId ? [state.currentField.firstResponderId] : [],
+        },
+        participationId
+      );
+      if (!claim.accepted) throw new Error(claim.error);
+      state.stealOpen = claim.state.open;
+      state.stealWinner = claim.state.winnerId;
       state.phase = JEOPARDY_PHASES.STEAL_LOCKED;
 
       await saveGameStateIfRevision(tx, { roomId, expectedRevision: gameStateData.revision, state, phase: state.phase });
@@ -509,9 +515,10 @@ export const handleJeopardyGame = {
 
       await saveGameStateIfRevision(tx, { roomId, expectedRevision: gameStateData.revision, state, phase: state.phase });
 
-      await tx.participation.update({
-        where: { id: stealWinnerId },
-        data: { score: state.scores[stealWinnerId] },
+      await recordScoreMutation(tx, {
+        roomId, participationId: stealWinnerId, score: state.scores[stealWinnerId], delta,
+        reason: data.correct ? 'JEOPARDY_CORRECT_STEAL' : 'JEOPARDY_WRONG_STEAL',
+        roundIndex: state.currentBoard - 1,
       });
 
       return { state, stealWinnerId, delta, value, categoryIndex, correct: data.correct, answer };

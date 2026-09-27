@@ -170,8 +170,8 @@ export async function handleDisconnect(io: Server, socket: Socket) {
       });
     } else if (!hasReplacementSocket) {
       // Regular participation - set connected=false
-      await prisma.participation.update({
-        where: { id: identity.participationId },
+      await prisma.participation.updateMany({
+        where: { id: identity.participationId, roomId },
         data: { connected: false, lastSeenAt: new Date() },
       });
     }
