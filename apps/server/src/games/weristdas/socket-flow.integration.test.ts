@@ -101,6 +101,8 @@ describe('Wer ist das? real multiplayer sockets', () => {
     expect((await ack(loser, 'weristdas:buzz')).success).toBe(true);
     expect((await ack(moderator, 'weristdas:judge', { result: 'ONE_CORRECT' })).error).toBe('HINT_REQUIRED');
     expect((await ack(moderator, 'weristdas:hint')).success).toBe(true);
+    expect(JSON.stringify(await ack(viewer, 'weristdas:resync'))).not.toContain(secret);
+    expect(received.join(' ')).not.toContain(secret);
     expect((await ack(moderator, 'weristdas:judge', { result: 'ONE_CORRECT' })).success).toBe(true);
     expect((await ack(moderator, 'weristdas:judge', { result: 'ONE_CORRECT' })).success).toBe(false);
     const reveal = await ack(viewer, 'weristdas:resync');
@@ -122,6 +124,7 @@ describe('Wer ist das? real multiplayer sockets', () => {
     expect((await ack(moderator, 'weristdas:judge', { result: 'BOTH_CORRECT' })).success).toBe(true);
     expect((await ack(moderator, 'weristdas:next')).success).toBe(true);
     expect((await prisma.room.findUniqueOrThrow({ where: { id: roomId } })).runPhase).toBe('RESULTS');
+    expect(JSON.parse((await prisma.roomGameState.findUniqueOrThrow({ where: { roomId } })).stateJson).playedRoundIds).toEqual(['one', 'two']);
     expect((await ack(viewer, 'weristdas:resync')).state).toMatchObject({ phase: 'GAME_END' });
     const rejoined = await connect();
     expect((await ack(rejoined, 'room:subscribe', { roomCode: code, rejoinToken: aliceToken })).success).toBe(true);

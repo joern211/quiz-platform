@@ -95,11 +95,14 @@ export const werIstDasGame = {
   },
 
   async end(io: Server, room: { id: string; code: string; setupSnapshotJson: string | null }) {
+    const setup = WerIstDasSetupSchema.parse(JSON.parse(room.setupSnapshotJson ?? '{}'));
     const result = await finishRunningGame<WerIstDasState>({
-      roomId: room.id, nextState: state => ({ ...state, buzzer: { ...state.buzzer, open: false } }),
+      roomId: room.id, nextState: state => ({ ...state, buzzer: { ...state.buzzer, open: false },
+        playedRoundIds: state.revealed
+          ? [...state.playedRoundIds, setup.rounds[state.roundIndex].id]
+          : state.playedRoundIds }),
     });
     if (result.ended) {
-      const setup = WerIstDasSetupSchema.parse(JSON.parse(room.setupSnapshotJson ?? '{}'));
       await sendProjections(io, room.id, result.state, setup);
       io.to(roomChannel(room.id)).emit('game:end', { roomCode: room.code, status: 'ENDED', runPhase: 'RESULTS' });
     }

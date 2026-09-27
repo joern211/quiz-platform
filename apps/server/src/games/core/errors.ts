@@ -7,14 +7,12 @@ const PUBLIC_CODES = new Set([
   'PHASE_NOT_BUZZ_OPEN', 'PHASE_NOT_FIELD_DONE', 'PHASE_NOT_STEAL_LOCKED',
   'PHASE_NOT_STEAL_OPEN', 'PLAYER_NOT_IN_GAME', 'STATE_CONFLICT',
   'TIME_EXPIRED',
-  'INVALID_PHASE', 'HINT_REQUIRED', 'NO_ELIGIBLE_PLAYERS', 'LAST_ROUND',
-  'PLAYER_EXCLUDED', 'PLAYER_NOT_IN_GAME', 'INVALID_SETUP',
+  'INVALID_SETUP',
 ]);
 
 export function gameErrorCode(error: unknown): string {
   if (error instanceof GameStateConflictError) return 'STATE_CONFLICT';
   if (!(error instanceof Error)) return 'INTERNAL_ERROR';
-  if (error.name === 'InvalidGameAction') return error.message;
   if (error.message === 'ALREADY_CLAIMED') return 'BUZZER_ALREADY_WON';
   if (error.message === 'PLAYER_EXCLUDED') return 'ALREADY_ANSWERED';
   return PUBLIC_CODES.has(error.message) ? error.message : 'INTERNAL_ERROR';

@@ -4,9 +4,11 @@ import { logger } from '../../observability/logger.js';
 import { gameErrorCode } from '../core/errors.js';
 import { WerIstDasJudgeSchema, WER_IST_DAS_EVENTS } from './contracts.js';
 import { werIstDasGame } from './engine.js';
+import { InvalidGameAction } from './state.js';
 
 type Ack = (result: { success: boolean; error?: string; state?: unknown }) => void;
 const empty = z.object({}).strict();
+const publicError = (error: unknown) => error instanceof InvalidGameAction ? error.code : gameErrorCode(error);
 
 export function registerWerIstDasEvents(io: Server, socket: Socket) {
   const actions = [
@@ -25,7 +27,7 @@ export function registerWerIstDasEvents(io: Server, socket: Socket) {
         callback?.(await werIstDasGame.act(io, socket, action, action === 'judge' ? parsed.data : undefined));
       } catch (error) {
         logger.error(`${event} failed`, { error });
-        callback?.({ success: false, error: gameErrorCode(error) });
+        callback?.({ success: false, error: publicError(error) });
       }
     });
   }
@@ -34,7 +36,7 @@ export function registerWerIstDasEvents(io: Server, socket: Socket) {
     try { callback?.(await werIstDasGame.resync(socket)); }
     catch (error) {
       logger.error('weristdas:resync failed', { error });
-      callback?.({ success: false, error: gameErrorCode(error) });
+      callback?.({ success: false, error: publicError(error) });
     }
   });
 }
