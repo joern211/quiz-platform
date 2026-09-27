@@ -4,7 +4,7 @@
 
 import { Server, Socket } from 'socket.io';
 import { prisma } from '../../persistence/prisma.js';
-import { saveGameStateIfRevision, upsertGameState } from '../core/state.js';
+import { finishRunningGame, saveGameStateIfRevision, upsertGameState } from '../core/state.js';
 import { authorizeGameContext } from '../core/access.js';
 import { gameErrorCode } from '../core/errors.js';
 import { applyScoreDelta, recordScoreMutation } from '../core/score.js';
@@ -17,6 +17,7 @@ interface GeoPlayerState {
   locked: boolean;
   score: number;
   eliminatedOptions: string[];
+  spyDistribution?: Record<string, number> | null;
   jokers: {
     used5050: boolean;
     usedSpy: boolean;
@@ -32,7 +33,6 @@ interface GeoRoundState {
   timerEndMs: number | null;
   pauseRemainingMs: number | null;
   playerStates: Record<string, GeoPlayerState>;
-  spyDistribution: Record<string, number> | null;
   // P0-17: Store answers keyed by participationId for score updates
   answers: Record<string, { selectedOptionId: string; correct: boolean; bonus: number }>;
 }
@@ -57,9 +57,8 @@ export function cancelGeoTimer(roomId: string): void {
 // P0-16: Rekonstruiere aktive Timer nach Server-Restart aus der DB
 export async function restoreActiveTimers(io: Server): Promise<void> {
   try {
-    // Finde alle Räume mit aktiver Runde
     const roomsWithActiveRound = await prisma.room.findMany({
-      where: { runPhase: 'ROUND_ACTIVE' },
+      where: { status: 'RUNNING', runPhase: 'ROUND_ACTIVE', gameDefinition: { slug: 'geo' } },
       include: {
         gameState: true,
       },
@@ -68,27 +67,32 @@ export async function restoreActiveTimers(io: Server): Promise<void> {
     logger.info('P0-16: Restauriere aktive Timer', { count: roomsWithActiveRound.length });
 
     for (const room of roomsWithActiveRound) {
-      if (!room.gameState) continue;
+      try {
+        if (!room.gameState) continue;
+        const state: GeoGameState = JSON.parse(room.gameState.stateJson);
+        if (state.phase !== 'INPUT_OPEN' || !state.roundStates || !Number.isInteger(state.currentRoundIndex)) continue;
+        const roundState = state.roundStates[state.currentRoundIndex];
+        if (!roundState || typeof roundState.timerEndMs !== 'number' || !Number.isFinite(roundState.timerEndMs)) continue;
 
-      const state: GeoGameState = JSON.parse(room.gameState.stateJson);
-      const roundState = state.roundStates[state.currentRoundIndex];
-      if (!roundState || !roundState.timerEndMs) continue;
+        const remaining = roundState.timerEndMs - Date.now();
+        if (remaining <= 0) {
+          logger.info('P0-16: Timer bereits abgelaufen, beende Runde', { roomId: room.id });
+          await handleGeoGame.handleTimerExpired(io, room);
+          continue;
+        }
 
-      const remaining = roundState.timerEndMs - Date.now();
-      if (remaining <= 0) {
-        // Timer bereits abgelaufen → Runde beenden
-        logger.info('P0-16: Timer bereits abgelaufen, beende Runde', { roomId: room.id });
-        await handleGeoGame.handleTimerExpired(io, room);
-        continue;
+        cancelGeoTimer(room.id);
+        const timer = setTimeout(() => {
+          activeTimers.delete(room.id);
+          void handleGeoGame.handleTimerExpired(io, room).catch((error) => {
+            logger.error('P0-16: Fehler beim Ablauf des restaurierten Timers', { roomId: room.id, error });
+          });
+        }, remaining);
+        activeTimers.set(room.id, timer);
+        logger.info('P0-16: Timer restauriert', { roomId: room.id, remainingMs: remaining });
+      } catch (error) {
+        logger.error('P0-16: Fehler beim Restaurieren eines Raum-Timers', { roomId: room.id, error });
       }
-
-      const timer = setTimeout(async () => {
-        activeTimers.delete(room.id);
-        await handleGeoGame.handleTimerExpired(io, room);
-      }, remaining);
-
-      activeTimers.set(room.id, timer);
-      logger.info('P0-16: Timer restauriert', { roomId: room.id, remainingMs: remaining });
     }
   } catch (error) {
     logger.error('P0-16: Fehler beim Restaurieren der Timer', { error });
@@ -250,8 +254,10 @@ export const handleGeoGame = {
     const question = state.questions[state.currentRoundIndex];
 
     if (!question) {
-      // No more questions - end game
-      io.to(roomChannelName).emit('game:end', { reason: 'NO_MORE_QUESTIONS' });
+      const ended = await finishRunningGame<GeoGameState>({
+        roomId: roomRecord.id, expectedRevision: gameStateData.revision,
+      });
+      if (ended.ended) await this.handleGameEnd(io, roomRecord, ended.state);
       return;
     }
 
@@ -294,7 +300,6 @@ export const handleGeoGame = {
       timerEndMs,
       pauseRemainingMs: null,
       playerStates,
-      spyDistribution: null,
       answers: {},
     };
 
@@ -314,7 +319,6 @@ export const handleGeoGame = {
 
     // P0-04/P0-17: Emit 'geo:question' with correct structure (NO correctOptionId!)
     // P0-16: Include timerEndMs in geo:question event
-    const roundState = state.roundStates[state.currentRoundIndex];
     io.to(roomChannelName).emit('geo:question', {
       roundIndex: state.currentRoundIndex,
       totalQuestions: state.questions.length,
@@ -333,11 +337,6 @@ export const handleGeoGame = {
       },
       timerMs: timerDuration,
       timerEndMs,
-      yourJokers: roundState.playerStates['']?.jokers || {
-        used5050: false,
-        usedSpy: false,
-        usedRisk: false,
-      },
     });
 
     // P0-16: Set server-side timeout to auto-close answers and reveal
@@ -469,12 +468,22 @@ export const handleGeoGame = {
 
       const { roundIndex } = gameStateData;
 
-      // P0-04: Broadcast using correct event name 'geo:answered'
+      // All room members may know who has answered, but only moderators may
+      // see the selected option before reveal. In particular, this must not
+      // bypass the player-private Spy joker.
       io.to(roomChannel(room.id)).emit('geo:answered', {
         questionIndex: roundIndex,
         participantId: participationId,
-        optionId: data.optionId,
+        answered: true,
       });
+      const roomSockets = await io.in(roomChannel(room.id)).fetchSockets();
+      for (const moderator of roomSockets) {
+        if (moderator.data.role === 'MODERATOR' && moderator.data.roomId === room.id) {
+          moderator.emit('geo:answered:moderator', {
+            questionIndex: roundIndex, participantId: participationId, optionId: data.optionId,
+          });
+        }
+      }
 
       callback?.({ success: true });
     } catch (error: any) {
@@ -677,7 +686,7 @@ export const handleGeoGame = {
         }
       }
 
-      roundState.spyDistribution = distribution;
+      playerState.spyDistribution = distribution;
 
       await prisma.$transaction(async (tx) => saveGameStateIfRevision(tx, {
         roomId: room.id, expectedRevision: gameStateData.revision, state, phase: state.phase,
@@ -980,21 +989,11 @@ export const handleGeoGame = {
 
       // Check if game ended
       if (state.currentRoundIndex >= state.questions.length) {
-        state.phase = 'GAME_END';
-        await prisma.$transaction(async (tx) => {
-          await saveGameStateIfRevision(tx, {
-            roomId: room.id, expectedRevision: gameStateData.revision, state, phase: 'GAME_END',
-          });
-          const ended = await tx.room.updateMany({
-            where: { id: room.id, status: 'RUNNING' },
-            data: {
-              status: 'ENDED', runPhase: 'RESULTS', endedAt: new Date(),
-              revision: { increment: 1 },
-            },
-          });
-          if (ended.count !== 1) throw new Error('GAME_NOT_RUNNING');
+        const ended = await finishRunningGame<GeoGameState>({
+          roomId: room.id, expectedRevision: gameStateData.revision, requiredPhase: 'REVEAL',
+          nextState: (current) => ({ ...current, currentRoundIndex: current.currentRoundIndex + 1 }),
         });
-        await this.handleGameEnd(io, room, state);
+        if (ended.ended) await this.handleGameEnd(io, room, ended.state);
         callback?.({ success: true, ended: true });
         return;
       }
@@ -1179,6 +1178,12 @@ export const handleGeoGame = {
   // ============================================================
   // End Game
   // ============================================================
+
+  async end(io: Server, room: { id: string; code: string }): Promise<{ ended: boolean }> {
+    const result = await finishRunningGame<GeoGameState>({ roomId: room.id });
+    if (result.ended) await this.handleGameEnd(io, room, result.state);
+    return { ended: result.ended };
+  },
 
   async handleGameEnd(io: Server, room: any, _state: GeoGameState) {
     cancelGeoTimer(room.id);

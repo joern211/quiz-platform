@@ -5,7 +5,7 @@
 
 import { Server, Socket } from 'socket.io';
 import { prisma } from '../../persistence/prisma.js';
-import { saveGameStateIfRevision, upsertGameState } from '../core/state.js';
+import { finishRunningGame, saveGameStateIfRevision, upsertGameState } from '../core/state.js';
 import { logger } from '../../observability/logger.js';
 import { roomChannel } from '../../sockets/index.js';
 import { authorizeGameContext } from '../core/access.js';
@@ -679,25 +679,15 @@ export const handleJeopardyGame = {
   async handleGameEnd(
     io: Server,
     room: { id: string; code: string },
-    _state?: JeopardyGameState
-  ): Promise<{ success: boolean; error?: string }> {
-    const gameStateData = await prisma.roomGameState.findUnique({ where: { roomId: room.id } });
-    if (!gameStateData) return { success: false, error: 'GAME_NOT_FOUND' };
-    const state = JSON.parse(gameStateData.stateJson) as JeopardyGameState;
-    if (state.phase !== JEOPARDY_PHASES.BOARD_COMPLETE) return { success: false, error: 'PHASE_NOT_BOARD_COMPLETE' };
-
-    await prisma.$transaction(async (tx) => {
-      await tx.room.update({
-        where: { id: room.id },
-        data: {
-          status: 'ENDED',
-          runPhase: 'RESULTS',
-          endedAt: new Date(),
-        },
-      });
-
-      await saveGameStateIfRevision(tx, { roomId: room.id, expectedRevision: gameStateData.revision, state: { ...state, phase: JEOPARDY_PHASES.GAME_END }, phase: JEOPARDY_PHASES.GAME_END });
+    _state?: JeopardyGameState,
+    manual = false
+  ): Promise<{ success: boolean; error?: string; ended?: boolean }> {
+    const result = await finishRunningGame<JeopardyGameState>({
+      roomId: room.id,
+      ...(!manual ? { requiredPhase: JEOPARDY_PHASES.BOARD_COMPLETE } : {}),
     });
+    if (!result.ended) return { success: true, ended: false };
+    const state = result.state;
 
     const scores = state?.scores ?? {};
     const finalScores = Object.entries(scores)
@@ -717,9 +707,12 @@ export const handleJeopardyGame = {
     };
 
     io.to(roomChannel(room.id)).emit('jeopardy:game:end', endEvent);
+    io.to(roomChannel(room.id)).emit('game:end', {
+      roomCode: room.code, status: 'ENDED', runPhase: 'RESULTS',
+    });
 
     logger.info('Jeopardy game ended', { roomId: room.id, finalScores });
 
-    return { success: true };
+    return { success: true, ended: true };
   },
 };

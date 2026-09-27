@@ -12,6 +12,7 @@ type GeoRound = {
   playerStates: Record<string, {
     answered: boolean; selectedOptionId: string | null;
     eliminatedOptions?: string[];
+    spyDistribution?: Record<string, number> | null;
     jokers: { used5050: boolean; usedSpy: boolean; usedRisk: boolean };
   }>;
 };
@@ -48,6 +49,7 @@ export function projectGeoStateForClient(state: GeoState, actor: GameActor) {
     ownAnswered: own?.answered ?? false,
     ownJokers: own?.jokers ?? null,
     ownEliminatedOptions: own?.eliminatedOptions ?? [],
+    ownSpyDistribution: own?.spyDistribution ?? null,
   };
 }
 

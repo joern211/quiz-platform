@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { createServer, type Server as HttpServer } from 'node:http';
 import { randomUUID } from 'node:crypto';
 import { Server } from 'socket.io';
@@ -8,6 +8,7 @@ import { setupSocketHandlers } from '../../sockets/index.js';
 import { createSessionCookie } from '../../auth/session.js';
 import { config } from '../../config/index.js';
 import { connectGameClient, gameAck } from '../../test-socket-harness.js';
+import { cancelGeoTimer, handleGeoGame, restoreActiveTimers } from '../geo/index.js';
 
 // Runs against the freshly migrated, seeded SQLite test database from the server test command.
 // The actions below go through real Socket.IO connections and production event handlers.
@@ -139,6 +140,8 @@ describe('Jeopardy multiplayer socket integration', () => {
     expect((await ack(moderator, 'jeopardy:board:switch', { toBoard: 1 })).success).toBe(true);
     const ended = await ack(alice, 'jeopardy:resync');
     expect(ended.phase).toBe('GAME_END');
+    expect((await prisma.room.findUniqueOrThrow({ where: { id: roomId } })).status).toBe('ENDED');
+    expect((await prisma.roomGameState.findUniqueOrThrow({ where: { roomId } })).phase).toBe('GAME_END');
     expect(ended.finalScores).toHaveLength(2);
     const scoreEvents = await prisma.scoreEvent.findMany({ where: { roomId } });
     expect(scoreEvents.map((event) => event.delta).sort((a, b) => a - b)).toEqual([-100, 100, 100]);
@@ -206,6 +209,81 @@ describe('Jeopardy multiplayer socket integration', () => {
     }
   });
 
+  it('ends Jeopardy during a running round once and persists the terminal state', async () => {
+    const original = await prisma.room.findUniqueOrThrow({ where: { id: roomId } });
+    const gameRoom = await prisma.room.create({ data: {
+      code: String(Math.floor(100000 + Math.random() * 900000)).replace(/(\d{3})(\d{3})/, '$1-$2'),
+      roomName: 'Manual Jeopardy end', gameDefinitionId: original.gameDefinitionId,
+      hostUserId: 'mod-1', status: 'LOBBY', runPhase: 'LOBBY', setupSnapshotJson: original.setupSnapshotJson,
+    } });
+    temporaryRoomIds.push(gameRoom.id);
+    await Promise.all(['First', 'Second'].map((name) => prisma.participation.create({ data: {
+      roomId: gameRoom.id, role: 'PLAYER', displayName: name,
+      normalizedName: name.toLowerCase(), rejoinToken: randomUUID(), connected: true, ready: true,
+    } })));
+    const host = await connect(createSessionCookie(
+      (await prisma.session.findFirstOrThrow({ where: { userId: 'mod-1' } })).id, config.sessionSecret
+    ));
+    const spectator = await connect();
+    expect((await ack(host, 'room:subscribe', { roomCode: gameRoom.code })).success).toBe(true);
+    expect((await ack(spectator, 'room:subscribe', { roomCode: gameRoom.code })).success).toBe(true);
+    expect((await ack(host, 'game:start', { roomCode: gameRoom.code })).success).toBe(true);
+    expect((await ack(spectator, 'jeopardy:resync')).phase).toBe('SELECTING');
+    const endEvents: unknown[] = [];
+    spectator.on('jeopardy:game:end', payload => endEvents.push(payload));
+    expect((await ack(spectator, 'game:end', { roomCode: gameRoom.code })).success).toBe(false);
+    expect((await ack(host, 'game:end', { roomCode: gameRoom.code })).success).toBe(true);
+    expect((await ack(host, 'game:end', { roomCode: gameRoom.code })).success).toBe(true);
+    const room = await prisma.room.findUniqueOrThrow({ where: { id: gameRoom.id } });
+    const state = await prisma.roomGameState.findUniqueOrThrow({ where: { roomId: gameRoom.id } });
+    expect(room.status).toBe('ENDED');
+    expect(room.runPhase).toBe('RESULTS');
+    expect(state.phase).toBe('GAME_END');
+    expect(JSON.parse(state.stateJson).phase).toBe('GAME_END');
+    expect((await ack(spectator, 'jeopardy:resync')).phase).toBe('GAME_END');
+    expect(endEvents).toHaveLength(1);
+  });
+
+  it('restores only active Geo timers and continues after malformed state', async () => {
+    const geo = await prisma.gameDefinition.findUniqueOrThrow({ where: { slug: 'geo' } });
+    const jeopardy = await prisma.gameDefinition.findUniqueOrThrow({ where: { slug: 'jeopardy' } });
+    const createRoom = async (slug: 'geo' | 'jeopardy', json: string, status = 'RUNNING', runPhase = 'ROUND_ACTIVE') => {
+      const room = await prisma.room.create({ data: {
+        code: String(Math.floor(100000 + Math.random() * 900000)).replace(/(\d{3})(\d{3})/, '$1-$2'),
+        roomName: 'Timer restore', gameDefinitionId: slug === 'geo' ? geo.id : jeopardy.id,
+        hostUserId: 'mod-1', status, runPhase,
+      } });
+      temporaryRoomIds.push(room.id);
+      await prisma.roomGameState.create({ data: {
+        roomId: room.id, phase: 'INPUT_OPEN', stateJson: json,
+      } });
+      return room;
+    };
+    const expired = JSON.stringify({ phase: 'INPUT_OPEN', currentRoundIndex: 0,
+      roundStates: { 0: { timerEndMs: Date.now() - 1000 } } });
+    await createRoom('geo', '{invalid-json');
+    await createRoom('jeopardy', expired);
+    await createRoom('geo', expired, 'RUNNING', 'PAUSED');
+    await createRoom('geo', expired, 'ENDED');
+    await createRoom('geo', JSON.stringify({ phase: 'REVEAL', currentRoundIndex: 0,
+      roundStates: { 0: { timerEndMs: Date.now() - 1000 } } }));
+    const valid = await createRoom('geo', expired);
+    const future = await createRoom('geo', JSON.stringify({ phase: 'INPUT_OPEN', currentRoundIndex: 0,
+      roundStates: { 0: { timerEndMs: Date.now() + 60000 } } }));
+    const expire = vi.spyOn(handleGeoGame, 'handleTimerExpired').mockResolvedValue(undefined);
+    const schedule = vi.spyOn(globalThis, 'setTimeout');
+    try {
+      await restoreActiveTimers(io);
+      expect(expire).toHaveBeenCalledTimes(1);
+      expect(expire.mock.calls[0][1].id).toBe(valid.id);
+      expect(schedule.mock.calls.some(([, milliseconds]) => typeof milliseconds === 'number' && milliseconds > 59000)).toBe(true);
+    } finally {
+      cancelGeoTimer(future.id);
+      schedule.mockRestore();
+      expire.mockRestore();
+    }
+  });
+
   it('binds Geo joker actions to the subscribed player even with another player token', async () => {
     const geo = await prisma.gameDefinition.findUniqueOrThrow({ where: { slug: 'geo' } });
     const question = await prisma.geoQuestion.findFirstOrThrow({ where: { enabled: true } });
@@ -263,6 +341,42 @@ describe('Jeopardy multiplayer socket integration', () => {
       expect((await ack(first, 'geo:joker:5050', { roomCode: geoRoom.code })).success).toBe(true);
       expect((await ack(first, 'geo:resync')).ownEliminatedOptions).toHaveLength(2);
       expect((await ack(second, 'geo:resync')).ownEliminatedOptions).toEqual([]);
+      const options = JSON.parse(question.options) as Array<{ id: string }>;
+      const firstAnswer = options[0].id;
+      const secondAnswer = options[1].id;
+      const secondEvent = new Promise<Record<string, unknown>>(resolve => second.once('geo:answered', resolve));
+      const viewerEvent = new Promise<Record<string, unknown>>(resolve => spectator.once('geo:answered', resolve));
+      const moderatorEvent = new Promise<Record<string, unknown>>(resolve => host.once('geo:answered:moderator', resolve));
+      expect((await ack(first, 'geo:answer', { optionId: firstAnswer })).success).toBe(true);
+      expect(await secondEvent).toEqual({ questionIndex: 0, participantId: parts[0].id, answered: true });
+      expect(await viewerEvent).toEqual({ questionIndex: 0, participantId: parts[0].id, answered: true });
+      expect(await moderatorEvent).toMatchObject({ participantId: parts[0].id, optionId: firstAnswer });
+      expect((await ack(second, 'geo:resync')).ownAnswer).toBeNull();
+      expect((await ack(spectator, 'geo:resync')).ownAnswer).toBeNull();
+      expect(JSON.stringify(await ack(second, 'geo:resync'))).not.toContain('selectedOptionId');
+      expect(JSON.stringify(await ack(spectator, 'geo:resync'))).not.toContain('spyDistribution');
+      const roomSnapshot = new Promise<Record<string, unknown>>(resolve => spectator.once('room:snapshot', resolve));
+      expect((await ack(spectator, 'room:resync', { roomCode: geoRoom.code })).success).toBe(true);
+      const snapshot = await roomSnapshot;
+      expect(JSON.stringify(snapshot)).not.toContain('selectedOptionId');
+      expect(JSON.stringify(snapshot)).not.toContain('correctOptionId');
+      expect(JSON.stringify(snapshot)).not.toContain('spyDistribution');
+      const spyEvent = new Promise<Record<string, unknown>>(resolve => second.once('geo:joker:spy:result', resolve));
+      expect((await ack(second, 'geo:joker:spy', { roomCode: geoRoom.code })).success).toBe(true);
+      expect((await spyEvent).distribution).toEqual({ [firstAnswer]: 100 });
+      expect((await ack(second, 'geo:resync')).ownSpyDistribution).toEqual({ [firstAnswer]: 100 });
+      expect((await ack(first, 'geo:resync')).ownSpyDistribution).toBeNull();
+      expect((await ack(spectator, 'geo:resync')).ownSpyDistribution).toBeNull();
+      expect((await ack(second, 'geo:answer', { optionId: secondAnswer })).success).toBe(true);
+      expect((await ack(first, 'geo:joker:spy', { roomCode: geoRoom.code })).success).toBe(true);
+      expect((await ack(first, 'geo:resync')).ownSpyDistribution).toEqual({ [secondAnswer]: 100 });
+      expect((await ack(second, 'geo:resync')).ownSpyDistribution).toEqual({ [firstAnswer]: 100 });
+      const rejoinedSecond = await connect();
+      expect((await ack(rejoinedSecond, 'room:subscribe', {
+        roomCode: geoRoom.code, rejoinToken: parts[1].rejoinToken,
+      })).success).toBe(true);
+      expect((await ack(rejoinedSecond, 'geo:resync')).ownSpyDistribution).toEqual({ [firstAnswer]: 100 });
+      expect((await ack(rejoinedSecond, 'geo:resync')).ownAnswer).toBe(secondAnswer);
       expect((await ack(second, 'geo:joker:risk', { roomCode: code, rejoinToken: parts[1].rejoinToken })).success).toBe(false);
       expect((await ack(host, 'game:pause', { roomCode: geoRoom.code })).success).toBe(true);
       expect((await prisma.room.findUniqueOrThrow({ where: { id: geoRoom.id } })).runPhase).toBe('PAUSED');
@@ -277,11 +391,63 @@ describe('Jeopardy multiplayer socket integration', () => {
       expect(resumed.roundStates[resumed.currentRoundIndex].pauseRemainingMs).toBeNull();
       expect((await ack(host, 'geo:reveal', { roomCode: geoRoom.code })).success).toBe(true);
       expect(((await ack(spectator, 'geo:resync')).question as Record<string, unknown>).correctOptionId).toBe(question.correctOptionId);
+      expect((await ack(host, 'geo:next', { roomCode: geoRoom.code })).ended).toBe(true);
       expect((await ack(host, 'game:end', { roomCode: geoRoom.code })).success).toBe(true);
+      expect((await prisma.room.findUniqueOrThrow({ where: { id: geoRoom.id } })).status).toBe('ENDED');
+      const endedGeoState = await prisma.roomGameState.findUniqueOrThrow({ where: { roomId: geoRoom.id } });
+      expect(endedGeoState.phase).toBe('GAME_END');
+      expect((await ack(first, 'geo:resync')).phase).toBe('GAME_END');
     } finally {
       temporaryRoomIds.push(geoRoom.id);
     }
   }, 15000);
+
+  it('ends Geo during INPUT_OPEN and PAUSED without restarting either timer', async () => {
+    const geo = await prisma.gameDefinition.findUniqueOrThrow({ where: { slug: 'geo' } });
+    const question = await prisma.geoQuestion.findFirstOrThrow({ where: { enabled: true } });
+    for (const pauseBeforeEnd of [false, true]) {
+      const room = await prisma.room.create({ data: {
+        code: String(Math.floor(100000 + Math.random() * 900000)).replace(/(\d{3})(\d{3})/, '$1-$2'),
+        roomName: 'Geo manual end', gameDefinitionId: geo.id, hostUserId: 'mod-1',
+        status: 'LOBBY', setupSnapshotJson: JSON.stringify({ selectedQuestionIds: [question.id], timerDuration: 30 }),
+      } });
+      temporaryRoomIds.push(room.id);
+      const player = await prisma.participation.create({ data: {
+        roomId: room.id, role: 'PLAYER', displayName: 'Player', normalizedName: 'player',
+        rejoinToken: randomUUID(), connected: true, ready: true,
+      } });
+      await prisma.participation.create({ data: {
+        roomId: room.id, role: 'PLAYER', displayName: 'Second', normalizedName: 'second',
+        rejoinToken: randomUUID(), connected: true, ready: true,
+      } });
+      const host = await connect(createSessionCookie(
+        (await prisma.session.findFirstOrThrow({ where: { userId: 'mod-1' } })).id, config.sessionSecret
+      ));
+      const client = await connect();
+      expect((await ack(host, 'room:subscribe', { roomCode: room.code })).success).toBe(true);
+      expect((await ack(client, 'room:subscribe', { roomCode: room.code, rejoinToken: player.rejoinToken })).success).toBe(true);
+      expect((await ack(host, 'game:start', { roomCode: room.code })).success).toBe(true);
+      await new Promise(resolve => setTimeout(resolve, 3200));
+      expect((await ack(client, 'geo:resync')).phase).toBe('INPUT_OPEN');
+      if (pauseBeforeEnd) {
+        expect((await ack(host, 'game:pause', { roomCode: room.code })).success).toBe(true);
+        expect((await ack(client, 'geo:resync')).phase).toBe('PAUSED');
+      }
+      const endEvents: unknown[] = [];
+      client.on('game:end', payload => endEvents.push(payload));
+      expect((await ack(host, 'game:end', { roomCode: room.code })).success).toBe(true);
+      expect((await ack(host, 'game:end', { roomCode: room.code })).success).toBe(true);
+      expect(endEvents).toHaveLength(1);
+      const endedRoom = await prisma.room.findUniqueOrThrow({ where: { id: room.id } });
+      const gameState = await prisma.roomGameState.findUniqueOrThrow({ where: { roomId: room.id } });
+      expect(endedRoom.status).toBe('ENDED');
+      expect(endedRoom.runPhase).toBe('RESULTS');
+      expect(gameState.phase).toBe('GAME_END');
+      expect(JSON.parse(gameState.stateJson).phase).toBe('GAME_END');
+      expect((await ack(client, 'geo:resync')).phase).toBe('GAME_END');
+      expect((await ack(host, 'game:resume', { roomCode: room.code })).success).toBe(false);
+    }
+  }, 20000);
 
   it('keeps two simultaneous Jeopardy rooms and their buzzer winners isolated', async () => {
     const game = await prisma.gameDefinition.findUniqueOrThrow({ where: { slug: 'jeopardy' } });

@@ -291,23 +291,11 @@ export const handleGameEvents = {
         return;
       }
 
-      await prisma.room.update({
-        where: { id: room.id },
-        data: {
-          status: 'ENDED',
-          runPhase: 'RESULTS',
-          endedAt: new Date(),
-          revision: { increment: 1 },
-        },
-      });
       const gameDefinition = await prisma.gameDefinition.findUnique({ where: { id: room.gameDefinitionId } });
-      if (gameDefinition) getGameHandler(gameDefinition.slug)?.cleanup?.(room.id);
-
-      io.to(channel).emit('game:end', {
-        roomCode: data.roomCode,
-        status: 'ENDED',
-        runPhase: 'RESULTS',
-      });
+      const handler = gameDefinition && getGameHandler(gameDefinition.slug);
+      if (!handler) { callback?.({ success: false, error: 'UNSUPPORTED_GAME' }); return; }
+      const result = await handler.end({ io, room });
+      if (result.ended) handler.cleanup?.(room.id);
       callback?.({ success: true });
     } catch (error) {
       logger.error('Game end error', { error });

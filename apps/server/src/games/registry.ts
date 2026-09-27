@@ -28,6 +28,7 @@ export interface GameHandle {
   afterStart?(context: GameInitializeContext): Promise<void> | void;
   pause?(context: GameActionContext): Promise<void>;
   resume?(context: GameActionContext): Promise<void>;
+  end(context: { io: Server; room: GameRoom }): Promise<{ ended: boolean }>;
   cleanup?(roomId: string): void;
   registerEvents?(io: Server, socket: Socket): void;
 }
@@ -59,6 +60,7 @@ const geoHandle: GameHandle = {
   async resume({ io, socket, roomCode, callback }) {
     await handleGeoGame.handleResume(io, socket, { roomCode }, callback);
   },
+  async end({ io, room }) { return handleGeoGame.end(io, room); },
   cleanup(roomId) { cancelGeoTimer(roomId); },
   registerEvents: registerGeoEvents,
 };
@@ -68,6 +70,11 @@ const jeopardyHandle: GameHandle = {
   registerEvents: registerJeopardyEvents,
   async initialize({ io, room }) {
     await handleJeopardyGame.initialize(io, room);
+  },
+  async end({ io, room }) {
+    const result = await handleJeopardyGame.handleGameEnd(io, room, undefined, true);
+    if (!result.success) throw new Error(result.error ?? 'GAME_NOT_FOUND');
+    return { ended: result.ended ?? false };
   },
 };
 

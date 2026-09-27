@@ -91,3 +91,38 @@ export async function saveGameStateIfRevision<TState>(
     throw new GameStateConflictError(roomId);
   }
 }
+
+/** End a running room and its engine state in one optimistic transaction. */
+export async function finishRunningGame<TState extends { phase: string }>(params: {
+  roomId: string;
+  expectedRevision?: number;
+  requiredPhase?: string;
+  nextState?: (state: TState) => TState;
+}): Promise<{ ended: boolean; state: TState }> {
+  return prisma.$transaction(async (tx) => {
+    const room = await tx.room.findUniqueOrThrow({ where: { id: params.roomId } });
+    const row = await tx.roomGameState.findUnique({ where: { roomId: params.roomId } });
+    if (!row) throw new Error('GAME_NOT_FOUND');
+    const state = JSON.parse(row.stateJson) as TState;
+    if (room.status === 'ENDED' && row.phase === 'GAME_END' && state.phase === 'GAME_END') {
+      return { ended: false, state };
+    }
+    if (room.status !== 'RUNNING') throw new GameStateConflictError(params.roomId);
+    if (params.expectedRevision !== undefined && row.revision !== params.expectedRevision) {
+      throw new GameStateConflictError(params.roomId);
+    }
+    if (params.requiredPhase && state.phase !== params.requiredPhase) {
+      throw new GameStateConflictError(params.roomId);
+    }
+    const endedState = { ...(params.nextState?.(state) ?? state), phase: 'GAME_END' } as TState;
+    await saveGameStateIfRevision(tx, {
+      roomId: params.roomId, expectedRevision: row.revision, state: endedState, phase: 'GAME_END',
+    });
+    const updated = await tx.room.updateMany({
+      where: { id: params.roomId, status: 'RUNNING', revision: room.revision },
+      data: { status: 'ENDED', runPhase: 'RESULTS', endedAt: new Date(), revision: { increment: 1 } },
+    });
+    if (updated.count !== 1) throw new GameStateConflictError(params.roomId);
+    return { ended: true, state: endedState };
+  });
+}
