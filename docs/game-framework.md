@@ -207,6 +207,8 @@ Reload/Rejoin darf nicht dazu führen, dass Antworten oder Moderator-Secrets gel
 
 Bei Geo enthält `geo:answered` für alle Raumteilnehmer nur den Antwortstatus. Die gewählte Option erhält ausschließlich ein Moderator-Socket über `geo:answered:moderator`. 50:50 und Spy werden nur an den handelnden Spieler geschickt und beim Resync aus dessen eigenem Player-State projiziert. `room:snapshot` enthält keinen Engine-State. Geo-Timer werden nach einem Neustart nur für laufende Geo-Räume mit offener Eingabephase restauriert; fehlerhafte Räume werden einzeln übersprungen.
 
+Geo-Resync liefert nach `GAME_END` ausdrücklich keine letzte Frage und keinen Timer mehr; alle drei Rollen wechseln bei einem solchen Resync zur jeweiligen Ergebnisseite. Zuschauer reagieren zusätzlich live auf `game:end`. Während einer laufenden Runde erhält nur der Moderator aggregierte `answerStats` aus dem persistierten Player-State; Spieler und Zuschauer sehen diese Statistik nicht. Die Moderatoransicht übernimmt sie beim Rejoin und zählt nachfolgende private Antwort-Events weiter.
+
 ### 9. Tests
 
 Mindestens:
