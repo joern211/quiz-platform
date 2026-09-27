@@ -167,6 +167,7 @@ describe('Jeopardy multiplayer socket integration', () => {
     expect(restored.phase).toBe('GAME_END');
     expect(restored.playedFields).toEqual(expect.arrayContaining(['1-0-100', '2-0-200']));
     expect(JSON.stringify(restored)).not.toContain(secret);
+    expect((await ack(alice, 'jeopardy:resync')).success).toBe(false);
 
     const otherRoom = await prisma.room.create({
       data: { code: String(Math.floor(100000 + Math.random() * 900000)).replace(/(\d{3})(\d{3})/, '$1-$2'),
@@ -235,16 +236,24 @@ describe('Jeopardy multiplayer socket integration', () => {
       ));
       const first = await connect();
       const second = await connect();
+      const spectator = await connect();
       expect((await ack(host, 'room:subscribe', { roomCode: geoRoom.code })).success).toBe(true);
       expect((await ack(first, 'room:subscribe', { roomCode: geoRoom.code, rejoinToken: parts[0].rejoinToken })).success).toBe(true);
       expect((await ack(second, 'room:subscribe', { roomCode: geoRoom.code, rejoinToken: parts[1].rejoinToken })).success).toBe(true);
+      expect((await ack(spectator, 'room:subscribe', { roomCode: geoRoom.code })).success).toBe(true);
       expect((await ack(host, 'game:start', { roomCode: geoRoom.code })).success).toBe(true);
+      expect((await ack(first, 'jeopardy:buzz')).error).toBe('WRONG_GAME');
+      expect((await ack(host, 'jeopardy:judge', { correct: true })).error).toBe('WRONG_GAME');
       await new Promise((resolve) => setTimeout(resolve, 3200));
       const publicState = await ack(first, 'geo:resync');
       const publicQuestion = publicState.question as Record<string, unknown>;
       expect(publicState.phase).toBe('INPUT_OPEN');
       expect(publicQuestion.correctOptionId).toBeUndefined();
       expect(publicState.questions).toBeUndefined();
+      const spectatorState = await ack(spectator, 'geo:resync');
+      expect((spectatorState.question as Record<string, unknown>).correctOptionId).toBeUndefined();
+      expect(spectatorState.ownJokers).toBeNull();
+      expect((await ack(spectator, 'geo:joker:risk', { roomCode: geoRoom.code, rejoinToken: parts[0].rejoinToken })).success).toBe(false);
       expect(((await ack(host, 'geo:resync')).question as Record<string, unknown>).correctOptionId).toBe(question.correctOptionId);
       expect((await ack(first, 'geo:joker:risk', {
         roomCode: geoRoom.code, rejoinToken: parts[1].rejoinToken,
@@ -275,5 +284,52 @@ describe('Jeopardy multiplayer socket integration', () => {
     } finally {
       temporaryRoomIds.push(geoRoom.id);
     }
+  }, 15000);
+
+  it('keeps two simultaneous Jeopardy rooms and their buzzer winners isolated', async () => {
+    const game = await prisma.gameDefinition.findUniqueOrThrow({ where: { slug: 'jeopardy' } });
+    const session = await prisma.session.findFirstOrThrow({ where: { userId: 'mod-1' } });
+    const rooms = [];
+    const clients = [];
+    for (const label of ['Parallel A', 'Parallel B']) {
+      const parallel = await prisma.room.create({
+        data: {
+          code: String(Math.floor(100000 + Math.random() * 900000)).replace(/(\d{3})(\d{3})/, '$1-$2'),
+          roomName: label, gameDefinitionId: game.id, hostUserId: 'mod-1', status: 'LOBBY',
+          setupSnapshotJson: JSON.stringify({
+            board1: { categories: [{ name: label, clues: [{ value: 100, question: `${label}?`, answer: `${label} SECRET` }] }] },
+          }),
+        },
+      });
+      temporaryRoomIds.push(parallel.id);
+      const players = await Promise.all([0, 1].map((index) => prisma.participation.create({
+        data: {
+          roomId: parallel.id, role: 'PLAYER', displayName: `${label} ${index}`,
+          normalizedName: `${label.toLowerCase()} ${index}`, rejoinToken: randomUUID(),
+          connected: true, ready: true,
+        },
+      })));
+      const host = await connect(createSessionCookie(session.id, config.sessionSecret));
+      const player = await connect();
+      const other = await connect();
+      expect((await ack(host, 'room:subscribe', { roomCode: parallel.code })).success).toBe(true);
+      expect((await ack(player, 'room:subscribe', { roomCode: parallel.code, rejoinToken: players[0].rejoinToken })).success).toBe(true);
+      expect((await ack(other, 'room:subscribe', { roomCode: parallel.code, rejoinToken: players[1].rejoinToken })).success).toBe(true);
+      rooms.push(parallel);
+      clients.push({ host, player, other, playerId: players[0].id });
+    }
+    expect((await ack(clients[0].host, 'game:start', { roomCode: rooms[0].code })).success).toBe(true);
+    expect((await ack(clients[1].host, 'game:start', { roomCode: rooms[1].code })).success).toBe(true);
+    expect((await ack(clients[0].host, 'jeopardy:field:open', { boardIndex: 1, categoryIndex: 0, value: 100 })).success).toBe(true);
+    expect((await ack(clients[1].host, 'jeopardy:field:open', { boardIndex: 1, categoryIndex: 0, value: 100 })).success).toBe(true);
+    expect((await ack(clients[0].player, 'jeopardy:buzz')).success).toBe(true);
+    expect((await ack(clients[1].player, 'jeopardy:buzz')).success).toBe(true);
+    expect((await ack(clients[0].other, 'jeopardy:buzz')).success).toBe(false);
+    expect((await ack(clients[1].other, 'jeopardy:buzz')).success).toBe(false);
+    expect((await ack(clients[0].player, 'room:resync', { roomCode: rooms[1].code })).success).toBe(false);
+    expect((await ack(clients[0].player, 'jeopardy:resync')).buzzWinnerId).toBe(clients[0].playerId);
+    expect((await ack(clients[1].player, 'jeopardy:resync')).buzzWinnerId).toBe(clients[1].playerId);
+    expect(JSON.stringify(await ack(clients[0].player, 'jeopardy:resync'))).not.toContain('Parallel B SECRET');
+    expect(JSON.stringify(await ack(clients[1].player, 'jeopardy:resync'))).not.toContain('Parallel A SECRET');
   }, 15000);
 });

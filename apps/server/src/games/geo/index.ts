@@ -5,10 +5,11 @@
 import { Server, Socket } from 'socket.io';
 import { prisma } from '../../persistence/prisma.js';
 import { saveGameStateIfRevision, upsertGameState } from '../core/state.js';
-import { authorizeGameAction } from '../core/access.js';
+import { authorizeGameContext } from '../core/access.js';
+import { gameErrorCode } from '../core/errors.js';
 import { applyScoreDelta, recordScoreMutation } from '../core/score.js';
 import { logger } from '../../observability/logger.js';
-import { requireRoomRole, socketIdentityMap } from '../../http/middleware/auth.js';
+import { socketIdentityMap } from '../../http/middleware/auth.js';
 import { roomChannel } from '../../sockets/index.js';
 
 interface GeoPlayerState {
@@ -405,27 +406,12 @@ export const handleGeoGame = {
     callback?: (result: any) => void
   ) {
     try {
-      // P0-10: Get participationId from socket.data.participationId (set at subscribe time)
-      const participationId = socket.data.participationId;
-      if (!participationId) {
-        callback?.({ success: false, error: 'NOT_JOINED' });
-        return;
-      }
-
-      const roomId = socket.data.roomId;
-      if (!roomId) {
-        callback?.({ success: false, error: 'ROOM_NOT_FOUND' });
-        return;
-      }
-
-      const room = await prisma.room.findUnique({
-        where: { id: roomId },
+      const auth = await authorizeGameContext(socket, {
+        roles: ['PLAYER'], requireParticipation: true, gameSlug: 'geo', requireRunning: true,
       });
-
-      if (!room) {
-        callback?.({ success: false, error: 'ROOM_NOT_FOUND' });
-        return;
-      }
+      if (!auth.ok) { callback?.({ success: false, error: auth.error }); return; }
+      const participationId = auth.actor.participationId!;
+      const room = auth.room;
 
       // P0-12: Atomare Antwort-Speicherung mit revision check (optimistic locking)
       const gameStateData = await prisma.$transaction(async (tx) => {
@@ -506,7 +492,7 @@ export const handleGeoGame = {
         return;
       }
       logger.error('Geo answer error', { error });
-      callback?.({ success: false, error: 'INTERNAL_ERROR' });
+      callback?.({ success: false, error: gameErrorCode(error) });
     }
   },
 
@@ -521,7 +507,7 @@ export const handleGeoGame = {
     callback?: (result: any) => void
   ) {
     try {
-      const auth = authorizeGameAction(socket, { roles: ['PLAYER'], requireParticipation: true });
+      const auth = await authorizeGameContext(socket, { roles: ['PLAYER'], requireParticipation: true, gameSlug: 'geo', requireRunning: true });
       if (!auth.ok) {
         callback?.({ success: false, error: auth.error });
         return;
@@ -600,7 +586,7 @@ export const handleGeoGame = {
       callback?.({ success: true });
     } catch (error) {
       logger.error('Geo 50/50 joker error', { error });
-      callback?.({ success: false, error: 'INTERNAL_ERROR' });
+      callback?.({ success: false, error: gameErrorCode(error) });
     }
   },
 
@@ -615,7 +601,7 @@ export const handleGeoGame = {
     callback?: (result: any) => void
   ) {
     try {
-      const auth = authorizeGameAction(socket, { roles: ['PLAYER'], requireParticipation: true });
+      const auth = await authorizeGameContext(socket, { roles: ['PLAYER'], requireParticipation: true, gameSlug: 'geo', requireRunning: true });
       if (!auth.ok) {
         callback?.({ success: false, error: auth.error });
         return;
@@ -702,7 +688,7 @@ export const handleGeoGame = {
       callback?.({ success: true });
     } catch (error) {
       logger.error('Geo spy joker error', { error });
-      callback?.({ success: false, error: 'INTERNAL_ERROR' });
+      callback?.({ success: false, error: gameErrorCode(error) });
     }
   },
 
@@ -717,7 +703,7 @@ export const handleGeoGame = {
     callback?: (result: any) => void
   ) {
     try {
-      const auth = authorizeGameAction(socket, { roles: ['PLAYER'], requireParticipation: true });
+      const auth = await authorizeGameContext(socket, { roles: ['PLAYER'], requireParticipation: true, gameSlug: 'geo', requireRunning: true });
       if (!auth.ok) {
         callback?.({ success: false, error: auth.error });
         return;
@@ -777,7 +763,7 @@ export const handleGeoGame = {
       callback?.({ success: true });
     } catch (error) {
       logger.error('Geo risk joker error', { error });
-      callback?.({ success: false, error: 'INTERNAL_ERROR' });
+      callback?.({ success: false, error: gameErrorCode(error) });
     }
   },
 
@@ -802,9 +788,11 @@ export const handleGeoGame = {
           return;
         }
 
-        const authResult = await requireRoomRole(socket, roomRecord.id, { role: 'MODERATOR' });
-        if (!authResult.authorized) {
-          callback?.({ success: false, error: authResult.errorCode ?? 'UNAUTHORIZED' });
+        const auth = await authorizeGameContext(socket, {
+          roles: ['MODERATOR'], requireParticipation: true, gameSlug: 'geo', requireRunning: true,
+        });
+        if (!auth.ok || auth.room.id !== roomRecord.id) {
+          callback?.({ success: false, error: auth.ok ? 'WRONG_ROOM' : auth.error });
           return;
         }
       }
@@ -967,7 +955,7 @@ export const handleGeoGame = {
       callback?.({ success: true });
     } catch (error) {
       logger.error('Geo reveal error', { error });
-      callback?.({ success: false, error: 'INTERNAL_ERROR' });
+      callback?.({ success: false, error: gameErrorCode(error) });
     }
   },
 
@@ -992,9 +980,11 @@ export const handleGeoGame = {
       }
 
       // P0-17: Authorization check
-      const authResult = await requireRoomRole(socket, room.id, { role: 'MODERATOR' });
-      if (!authResult.authorized) {
-        callback?.({ success: false, error: authResult.errorCode ?? 'UNAUTHORIZED' });
+      const auth = await authorizeGameContext(socket, {
+        roles: ['MODERATOR'], requireParticipation: true, gameSlug: 'geo', requireRunning: true,
+      });
+      if (!auth.ok || auth.room.id !== room.id) {
+        callback?.({ success: false, error: auth.ok ? 'WRONG_ROOM' : auth.error });
         return;
       }
 
@@ -1042,7 +1032,7 @@ export const handleGeoGame = {
       callback?.({ success: true });
     } catch (error) {
       logger.error('Geo next error', { error });
-      callback?.({ success: false, error: 'INTERNAL_ERROR' });
+      callback?.({ success: false, error: gameErrorCode(error) });
     }
   },
 
@@ -1066,9 +1056,11 @@ export const handleGeoGame = {
         return;
       }
 
-      const authResult = await requireRoomRole(socket, room.id, { role: 'MODERATOR' });
-      if (!authResult.authorized) {
-        callback?.({ success: false, error: authResult.errorCode ?? 'UNAUTHORIZED' });
+      const auth = await authorizeGameContext(socket, {
+        roles: ['MODERATOR'], requireParticipation: true, gameSlug: 'geo', requireRunning: true,
+      });
+      if (!auth.ok || auth.room.id !== room.id) {
+        callback?.({ success: false, error: auth.ok ? 'WRONG_ROOM' : auth.error });
         return;
       }
 
@@ -1116,7 +1108,7 @@ export const handleGeoGame = {
       callback?.({ success: true, remainingMs: pauseRemainingMs });
     } catch (error) {
       logger.error('Geo pause error', { error });
-      callback?.({ success: false, error: 'INTERNAL_ERROR' });
+      callback?.({ success: false, error: gameErrorCode(error) });
     }
   },
 
@@ -1140,9 +1132,11 @@ export const handleGeoGame = {
         return;
       }
 
-      const authResult = await requireRoomRole(socket, room.id, { role: 'MODERATOR' });
-      if (!authResult.authorized) {
-        callback?.({ success: false, error: authResult.errorCode ?? 'UNAUTHORIZED' });
+      const auth = await authorizeGameContext(socket, {
+        roles: ['MODERATOR'], requireParticipation: true, gameSlug: 'geo', requireRunning: true,
+      });
+      if (!auth.ok || auth.room.id !== room.id) {
+        callback?.({ success: false, error: auth.ok ? 'WRONG_ROOM' : auth.error });
         return;
       }
 
@@ -1195,7 +1189,7 @@ export const handleGeoGame = {
       callback?.({ success: true, timerEndMs: newTimerEndMs });
     } catch (error) {
       logger.error('Geo resume error', { error });
-      callback?.({ success: false, error: 'INTERNAL_ERROR' });
+      callback?.({ success: false, error: gameErrorCode(error) });
     }
   },
 

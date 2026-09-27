@@ -9,6 +9,7 @@ import { handleGeoGame } from '../games/geo/index.js';
 import { handleJeopardyGame } from '../games/jeopardy/engine.js';
 import { getGameHandler } from '../games/registry.js';
 import { saveGameStateIfRevision } from '../games/core/state.js';
+import { gameErrorCode } from '../games/core/errors.js';
 import { requireRoomRole, getSocketDataIdentity } from './auth.js';
 import { roomChannel } from './index.js';
 
@@ -157,7 +158,7 @@ export const handleGameEvents = {
       callback?.({ success: true, gameSlug: room.gameDefinition.slug });
     } catch (error) {
       logger.error('Game start error', { error });
-      callback?.({ success: false, error: 'INTERNAL_ERROR' });
+      callback?.({ success: false, error: gameErrorCode(error) });
     }
   },
 
@@ -212,7 +213,7 @@ export const handleGameEvents = {
       callback?.({ success: true });
     } catch (error) {
       logger.error('Game pause error', { error });
-      callback?.({ success: false, error: 'INTERNAL_ERROR' });
+      callback?.({ success: false, error: gameErrorCode(error) });
     }
   },
 
@@ -267,7 +268,7 @@ export const handleGameEvents = {
       callback?.({ success: true });
     } catch (error) {
       logger.error('Game resume error', { error });
-      callback?.({ success: false, error: 'INTERNAL_ERROR' });
+      callback?.({ success: false, error: gameErrorCode(error) });
     }
   },
 
@@ -327,7 +328,7 @@ export const handleGameEvents = {
       callback?.({ success: true });
     } catch (error) {
       logger.error('Game end error', { error });
-      callback?.({ success: false, error: 'INTERNAL_ERROR' });
+      callback?.({ success: false, error: gameErrorCode(error) });
     }
   },
 
@@ -581,7 +582,7 @@ export const handleGameEvents = {
       callback?.({ success: true });
     } catch (error) {
       logger.error('Buzz press error', { error });
-      callback?.({ success: false, error: 'INTERNAL_ERROR' });
+      callback?.({ success: false, error: gameErrorCode(error) });
     }
   },
 

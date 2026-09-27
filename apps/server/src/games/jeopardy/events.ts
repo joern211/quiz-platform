@@ -7,6 +7,7 @@ import { handleJeopardyGame } from './engine.js';
 import { JeopardyGameState } from './state.js';
 import { getSocketDataIdentity } from '../../sockets/auth.js';
 import { authorizeGameAction } from '../core/access.js';
+import { gameErrorCode } from '../core/errors.js';
 
 // ── Jeopardy Runtime Payload Validation ──────────────────────
 const JeopardyFieldOpenSchema = z.object({
@@ -55,11 +56,11 @@ export function registerJeopardyEvents(io: Server, socket: Socket) {
         if (!valid) return;
         handleJeopardyGame.handleFieldOpen(io, socket, valid).then(
           (result) => callback?.(result),
-          (err) => { logger.error('jeopardy:field:open failed', { err }); callback?.({ success: false, error: 'INTERNAL_ERROR' }); }
+          (err) => { logger.error('jeopardy:field:open failed', { err }); callback?.({ success: false, error: gameErrorCode(err) }); }
         );
       } catch (err) {
         logger.error('jeopardy:field:open threw', { err });
-        callback?.({ success: false, error: 'INTERNAL_ERROR' });
+        callback?.({ success: false, error: gameErrorCode(err) });
       }
     });
 
@@ -69,11 +70,11 @@ export function registerJeopardyEvents(io: Server, socket: Socket) {
         if (!valid) return;
         handleJeopardyGame.handleFieldOpen(io, socket, valid as unknown as { boardIndex: 1 | 2; categoryIndex: number; value: number }).then(
           (result) => callback?.(result),
-          (err: unknown) => { logger.error('jeopardy:field:lock failed', { err }); callback?.({ success: false, error: 'INTERNAL_ERROR' }); }
+          (err: unknown) => { logger.error('jeopardy:field:lock failed', { err }); callback?.({ success: false, error: gameErrorCode(err) }); }
         );
       } catch (err) {
         logger.error('jeopardy:field:lock threw', { err });
-        callback?.({ success: false, error: 'INTERNAL_ERROR' });
+        callback?.({ success: false, error: gameErrorCode(err) });
       }
     });
 
@@ -83,11 +84,11 @@ export function registerJeopardyEvents(io: Server, socket: Socket) {
         if (!valid) return;
         handleJeopardyGame.handleBuzz(io, socket, valid as unknown as Record<string, never>).then(
           (result) => callback?.(result),
-          (err: unknown) => { logger.error('jeopardy:buzz failed', { err }); callback?.({ success: false, error: 'INTERNAL_ERROR' }); }
+          (err: unknown) => { logger.error('jeopardy:buzz failed', { err }); callback?.({ success: false, error: gameErrorCode(err) }); }
         );
       } catch (err) {
         logger.error('jeopardy:buzz threw', { err });
-        callback?.({ success: false, error: 'INTERNAL_ERROR' });
+        callback?.({ success: false, error: gameErrorCode(err) });
       }
     });
 
@@ -97,11 +98,11 @@ export function registerJeopardyEvents(io: Server, socket: Socket) {
         if (!valid) return;
         handleJeopardyGame.handleJudge(io, socket, valid as unknown as { correct: boolean }).then(
           (result) => callback?.(result),
-          (err: unknown) => { logger.error('jeopardy:judge failed', { err }); callback?.({ success: false, error: 'INTERNAL_ERROR' }); }
+          (err: unknown) => { logger.error('jeopardy:judge failed', { err }); callback?.({ success: false, error: gameErrorCode(err) }); }
         );
       } catch (err) {
         logger.error('jeopardy:judge threw', { err });
-        callback?.({ success: false, error: 'INTERNAL_ERROR' });
+        callback?.({ success: false, error: gameErrorCode(err) });
       }
     });
 
@@ -111,11 +112,11 @@ export function registerJeopardyEvents(io: Server, socket: Socket) {
         if (!valid) return;
         handleJeopardyGame.handleStealBuzz(io, socket, valid as unknown as Record<string, never>).then(
           (result) => callback?.(result),
-          (err: unknown) => { logger.error('jeopardy:steal:buzz failed', { err }); callback?.({ success: false, error: 'INTERNAL_ERROR' }); }
+          (err: unknown) => { logger.error('jeopardy:steal:buzz failed', { err }); callback?.({ success: false, error: gameErrorCode(err) }); }
         );
       } catch (err) {
         logger.error('jeopardy:steal:buzz threw', { err });
-        callback?.({ success: false, error: 'INTERNAL_ERROR' });
+        callback?.({ success: false, error: gameErrorCode(err) });
       }
     });
 
@@ -125,11 +126,11 @@ export function registerJeopardyEvents(io: Server, socket: Socket) {
         if (!valid) return;
         handleJeopardyGame.handleStealJudge(io, socket, valid as unknown as { correct: boolean }).then(
           (result) => callback?.(result),
-          (err: unknown) => { logger.error('jeopardy:steal:judge failed', { err }); callback?.({ success: false, error: 'INTERNAL_ERROR' }); }
+          (err: unknown) => { logger.error('jeopardy:steal:judge failed', { err }); callback?.({ success: false, error: gameErrorCode(err) }); }
         );
       } catch (err) {
         logger.error('jeopardy:steal:judge threw', { err });
-        callback?.({ success: false, error: 'INTERNAL_ERROR' });
+        callback?.({ success: false, error: gameErrorCode(err) });
       }
     });
 
@@ -139,11 +140,11 @@ export function registerJeopardyEvents(io: Server, socket: Socket) {
         if (!valid) return;
         handleJeopardyGame.handleNext(io, socket, valid as unknown as Record<string, never>).then(
           (result) => callback?.(result),
-          (err: unknown) => { logger.error('jeopardy:next failed', { err }); callback?.({ success: false, error: 'INTERNAL_ERROR' }); }
+          (err: unknown) => { logger.error('jeopardy:next failed', { err }); callback?.({ success: false, error: gameErrorCode(err) }); }
         );
       } catch (err) {
         logger.error('jeopardy:next threw', { err });
-        callback?.({ success: false, error: 'INTERNAL_ERROR' });
+        callback?.({ success: false, error: gameErrorCode(err) });
       }
     });
 
@@ -171,7 +172,7 @@ export function registerJeopardyEvents(io: Server, socket: Socket) {
         callback?.(result);
       } catch (err) {
         logger.error('jeopardy:board:switch threw', { err });
-        callback?.({ success: false, error: 'INTERNAL_ERROR' });
+        callback?.({ success: false, error: gameErrorCode(err) });
       }
     });
 
@@ -287,7 +288,7 @@ export function registerJeopardyEvents(io: Server, socket: Socket) {
         });
       } catch (err) {
         logger.error('jeopardy:resync threw', { err });
-        callback?.({ success: false, error: 'INTERNAL_ERROR' });
+        callback?.({ success: false, error: gameErrorCode(err) });
       }
     });
 }

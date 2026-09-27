@@ -6,6 +6,7 @@
 import type { Server, Socket } from 'socket.io';
 import { handleGeoGame, cancelGeoTimer } from './geo/index.js';
 import { handleJeopardyGame } from './jeopardy/engine.js';
+import { logger } from '../observability/logger.js';
 
 export interface GameRoom {
   id: string;
@@ -44,7 +45,9 @@ const geoHandle: GameHandle = {
     // Geo owns its intro-to-first-round transition. Keeping this lifecycle
     // hook in the adapter prevents generic socket code from knowing Geo rules.
     setTimeout(() => {
-      void handleGeoGame.startRound(io, room.code);
+      void handleGeoGame.startRound(io, room.code).catch((error) => {
+        logger.error('Geo intro transition failed', { roomId: room.id, error });
+      });
     }, 3000);
   },
   async pause({ io, socket, roomCode, callback }) {

@@ -8,7 +8,7 @@ import { prisma } from '../../persistence/prisma.js';
 import { saveGameStateIfRevision, upsertGameState } from '../core/state.js';
 import { logger } from '../../observability/logger.js';
 import { roomChannel } from '../../sockets/index.js';
-import { authorizeGameAction } from '../core/access.js';
+import { authorizeGameContext } from '../core/access.js';
 import { claimBuzzer } from '../core/buzzer.js';
 import { recordScoreMutation } from '../core/score.js';
 import {
@@ -163,7 +163,7 @@ export const handleJeopardyGame = {
     socket: Socket,
     data: { boardIndex: 1 | 2; categoryIndex: number; value: number }
   ): Promise<{ success: boolean; error?: string }> {
-    const auth = authorizeGameAction(socket, { roles: ['MODERATOR'], requireParticipation: true });
+    const auth = await authorizeGameContext(socket, { roles: ['MODERATOR'], requireParticipation: true, gameSlug: 'jeopardy', requireRunning: true });
     if (!auth.ok) {
       return { success: false, error: auth.error === 'FORBIDDEN' ? 'MODERATOR_ONLY' : auth.error };
     }
@@ -278,7 +278,7 @@ export const handleJeopardyGame = {
     socket: Socket,
     _data: Record<string, never> = {}
   ): Promise<{ success: boolean; error?: string }> {
-    const auth = authorizeGameAction(socket, { roles: ['PLAYER'], requireParticipation: true });
+    const auth = await authorizeGameContext(socket, { roles: ['PLAYER'], requireParticipation: true, gameSlug: 'jeopardy', requireRunning: true });
     if (!auth.ok) {
       return { success: false, error: auth.error === 'FORBIDDEN' ? 'PLAYER_ONLY' : auth.error };
     }
@@ -342,7 +342,7 @@ export const handleJeopardyGame = {
     socket: Socket,
     data: { correct: boolean }
   ): Promise<{ success: boolean; error?: string }> {
-    const auth = authorizeGameAction(socket, { roles: ['MODERATOR'] });
+    const auth = await authorizeGameContext(socket, { roles: ['MODERATOR'], requireParticipation: true, gameSlug: 'jeopardy', requireRunning: true });
     if (!auth.ok) {
       return { success: false, error: auth.error === 'FORBIDDEN' ? 'UNAUTHORIZED' : auth.error };
     }
@@ -412,7 +412,7 @@ export const handleJeopardyGame = {
     socket: Socket,
     _data: Record<string, never> = {}
   ): Promise<{ success: boolean; error?: string }> {
-    const auth = authorizeGameAction(socket, { roles: ['PLAYER'], requireParticipation: true });
+    const auth = await authorizeGameContext(socket, { roles: ['PLAYER'], requireParticipation: true, gameSlug: 'jeopardy', requireRunning: true });
     if (!auth.ok) {
       return { success: false, error: auth.error === 'FORBIDDEN' ? 'PLAYER_ONLY' : auth.error };
     }
@@ -473,7 +473,7 @@ export const handleJeopardyGame = {
     socket: Socket,
     data: { correct: boolean }
   ): Promise<{ success: boolean; error?: string }> {
-    const auth = authorizeGameAction(socket, { roles: ['MODERATOR'] });
+    const auth = await authorizeGameContext(socket, { roles: ['MODERATOR'], requireParticipation: true, gameSlug: 'jeopardy', requireRunning: true });
     if (!auth.ok) {
       return { success: false, error: auth.error === 'FORBIDDEN' ? 'UNAUTHORIZED' : auth.error };
     }
@@ -576,7 +576,7 @@ export const handleJeopardyGame = {
     socket: Socket,
     _data: Record<string, never> = {}
   ): Promise<{ success: boolean; error?: string }> {
-    const auth = authorizeGameAction(socket, { roles: ['MODERATOR'] });
+    const auth = await authorizeGameContext(socket, { roles: ['MODERATOR'], requireParticipation: true, gameSlug: 'jeopardy', requireRunning: true });
     if (!auth.ok) {
       return { success: false, error: auth.error === 'FORBIDDEN' ? 'UNAUTHORIZED' : auth.error };
     }

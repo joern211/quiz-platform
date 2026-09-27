@@ -311,6 +311,22 @@ export async function handleRoomSubscription(
     return;
   }
 
+  // A rejoin replaces the previous socket for the same player or moderator.
+  // The old socket must lose both its channel and its action identity.
+  if (identity.role !== 'VIEWER') {
+    for (const [oldId, previous] of socketIdentityMap.entries()) {
+      if (oldId === socket.id || previous.roomId !== room.id ||
+          previous.participationId !== identity.participationId) continue;
+      const oldSocket = io.sockets.sockets.get(oldId);
+      if (oldSocket) {
+        oldSocket.emit('session:replaced');
+        await oldSocket.leave(roomChannel(room.id));
+        oldSocket.data = {};
+      }
+      socketIdentityMap.delete(oldId);
+    }
+  }
+
   // Store identity in socket.data (P0-08/P0-09 fix)
   socket.data = {
     ...socket.data,

@@ -5,14 +5,15 @@
 import { useParams } from 'react-router-dom';
 import { useEffect, useState } from 'react';
 import { io } from 'socket.io-client';
-import { Card, Badge } from '@quiz/ui';
+import { Card } from '@quiz/ui';
 import { Timer } from '@quiz/ui';
+import { GameShell } from '../components/GameShell';
 import styles from './ViewerGamePage.module.css';
 
 export function ViewerGamePage() {
   const { code } = useParams<{ code: string }>();
   const [connected, setConnected] = useState(false);
-  const [, setPhase] = useState<string>('WAITING');
+  const [phase, setPhase] = useState<string>('WAITING');
   const [question, setQuestion] = useState<any>(null);
   const [timerEndMs, setTimerEndMs] = useState(0);
   const [players, setPlayers] = useState<any[]>([]);
@@ -64,10 +65,8 @@ export function ViewerGamePage() {
   }, [code]);
 
   return (
+    <GameShell role="viewer" roomCode={code ?? ''} phase={phase} connected={connected}>
     <div className={styles.page}>
-      <Badge variant={connected ? 'success' : 'danger'} className={styles.status}>
-        {connected ? 'Verbunden' : 'Getrennt'}
-      </Badge>
 
       {question ? (
         <>
@@ -114,5 +113,6 @@ export function ViewerGamePage() {
         </Card>
       )}
     </div>
+    </GameShell>
   );
 }
