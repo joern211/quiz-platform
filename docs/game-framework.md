@@ -8,7 +8,7 @@ PR #8 führt eine gemeinsame Basis für alle Spiel-Engines ein. Ziel ist, dass n
 
 Datei: `apps/server/src/games/registry.ts`
 
-Jede produktive Engine wird über einen `GameHandle` registriert. `game:start`, `game:pause`, `game:resume` und Cleanup werden über die Registry aufgelöst. Ältere Geo-Aktionsadapter liegen noch in `sockets/game.ts`; neue Spiele registrieren ihre Events im eigenen Modul.
+Jede produktive Engine wird über einen `GameHandle` registriert. `game:start`, `game:pause`, `game:resume` und Cleanup werden über die Registry aufgelöst. Die Spielaktionen liegen in `games/geo/events.ts` beziehungsweise `games/jeopardy/events.ts`; neue Spiele registrieren ihre Events im eigenen Modul.
 
 Verfügbare Hooks:
 

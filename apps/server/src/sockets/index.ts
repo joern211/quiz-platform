@@ -13,6 +13,7 @@ import { handleLobbyEvents, handleDisconnect } from './lobby.js';
 import { handleGameEvents } from './game.js';
 import { registerJeopardyEvents } from '../games/jeopardy/events.js';
 import { registerGeoResync } from '../games/geo/resync.js';
+import { handleGeoEvents } from '../games/geo/events.js';
 
 export { roomChannel } from './channel.js';
 
@@ -120,32 +121,32 @@ export function setupSocketHandlers(io: Server) {
 
     // Geo game events
     socket.on('geo:answer', (data, callback) => {
-      handleGameEvents.geoAnswer(io, socket, data, callback);
+      handleGeoEvents.geoAnswer(io, socket, data, callback);
     });
 
     socket.on('geo:joker:5050', (data, callback) => {
-      handleGameEvents.geoJoker5050(io, socket, data, callback);
+      handleGeoEvents.geoJoker5050(io, socket, data, callback);
     });
 
     socket.on('geo:joker:spy', (data, callback) => {
-      handleGameEvents.geoJokerSpy(io, socket, data, callback);
+      handleGeoEvents.geoJokerSpy(io, socket, data, callback);
     });
 
     socket.on('geo:joker:risk', (data, callback) => {
-      handleGameEvents.geoJokerRisk(io, socket, data, callback);
+      handleGeoEvents.geoJokerRisk(io, socket, data, callback);
     });
 
     socket.on('geo:reveal', (data, callback) => {
-      handleGameEvents.geoReveal(io, socket, data, callback);
+      handleGeoEvents.geoReveal(io, socket, data, callback);
     });
 
     socket.on('geo:next', (data, callback) => {
-      handleGameEvents.geoNext(io, socket, data, callback);
+      handleGeoEvents.geoNext(io, socket, data, callback);
     });
 
     // Buzz events
     socket.on('buzz:press', (data, callback) => {
-      handleGameEvents.buzzPress(io, socket, data, callback);
+      handleGeoEvents.buzzPress(io, socket, data, callback);
     });
 
     registerJeopardyEvents(io, socket);

@@ -302,14 +302,16 @@ export const handleGeoGame = {
 
     state.phase = 'INPUT_OPEN';
 
-    // Update database
-    await prisma.$transaction(async (tx) => saveGameStateIfRevision(tx, {
-      roomId: roomRecord.id, expectedRevision: gameStateData.revision, state, phase: 'INPUT_OPEN',
-    }));
-
-    await prisma.room.update({
-      where: { id: roomRecord.id },
-      data: { runPhase: 'ROUND_ACTIVE', revision: { increment: 1 } },
+    // A concurrent game:end must prevent both the state transition and event.
+    await prisma.$transaction(async (tx) => {
+      await saveGameStateIfRevision(tx, {
+        roomId: roomRecord.id, expectedRevision: gameStateData.revision, state, phase: 'INPUT_OPEN',
+      });
+      const updated = await tx.room.updateMany({
+        where: { id: roomRecord.id, status: 'RUNNING' },
+        data: { runPhase: 'ROUND_ACTIVE', revision: { increment: 1 } },
+      });
+      if (updated.count !== 1) throw new Error('GAME_NOT_RUNNING');
     });
 
     // P0-04/P0-17: Emit 'geo:question' with correct structure (NO correctOptionId!)
