@@ -31,8 +31,6 @@ interface GeoRoundState {
   timerStartMs: number | null;
   timerEndMs: number | null;
   pauseRemainingMs: number | null;
-  buzzWinnerId: string | null;
-  buzzOpen: boolean;
   playerStates: Record<string, GeoPlayerState>;
   spyDistribution: Record<string, number> | null;
   // P0-17: Store answers keyed by participationId for score updates
@@ -295,8 +293,6 @@ export const handleGeoGame = {
       timerStartMs,
       timerEndMs,
       pauseRemainingMs: null,
-      buzzWinnerId: null,
-      buzzOpen: false,
       playerStates,
       spyDistribution: null,
       answers: {},
@@ -337,7 +333,6 @@ export const handleGeoGame = {
       },
       timerMs: timerDuration,
       timerEndMs,
-      buzzOpen: false,
       yourJokers: roundState.playerStates['']?.jokers || {
         used5050: false,
         usedSpy: false,

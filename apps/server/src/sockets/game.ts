@@ -200,14 +200,7 @@ export const handleGameEvents = {
       if (gameHandler?.pause) {
         return gameHandler.pause({ io, socket, roomCode: room.code, callback });
       }
-
-      await prisma.room.update({
-        where: { id: room.id },
-        data: { runPhase: 'PAUSED', revision: { increment: 1 } },
-      });
-
-      io.to(channel).emit('game:pause', { roomCode: data.roomCode });
-      callback?.({ success: true });
+      callback?.({ success: false, error: 'GAME_ACTION_UNSUPPORTED' });
     } catch (error) {
       logger.error('Game pause error', { error });
       callback?.({ success: false, error: gameErrorCode(error) });
@@ -255,14 +248,7 @@ export const handleGameEvents = {
       if (gameHandler?.resume) {
         return gameHandler.resume({ io, socket, roomCode: room.code, callback });
       }
-
-      await prisma.room.update({
-        where: { id: room.id },
-        data: { runPhase: 'ROUND_ACTIVE', revision: { increment: 1 } },
-      });
-
-      io.to(channel).emit('game:resume', { roomCode: data.roomCode });
-      callback?.({ success: true });
+      callback?.({ success: false, error: 'GAME_ACTION_UNSUPPORTED' });
     } catch (error) {
       logger.error('Game resume error', { error });
       callback?.({ success: false, error: gameErrorCode(error) });
