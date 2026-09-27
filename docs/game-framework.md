@@ -8,13 +8,14 @@ PR #8 führt eine gemeinsame Basis für alle Spiel-Engines ein. Ziel ist, dass n
 
 Datei: `apps/server/src/games/registry.ts`
 
-Jede produktive Engine wird über einen `GameHandle` registriert. `game:start`, `game:pause`, `game:resume` und Cleanup werden über die Registry aufgelöst. Die Spielaktionen liegen in `games/geo/events.ts` beziehungsweise `games/jeopardy/events.ts`; neue Spiele registrieren ihre Events im eigenen Modul.
+Jede produktive Engine wird über einen `GameHandle` registriert. `game:start`, `game:pause`, `game:resume`, `game:end` und Cleanup werden über die Registry aufgelöst. Die Spielaktionen liegen in `games/geo/events.ts` beziehungsweise `games/jeopardy/events.ts`; neue Spiele registrieren ihre Events im eigenen Modul.
 
 Verfügbare Hooks:
 
 - `initialize(context)`: Game-State aufbauen und persistieren.
 - `afterStart(context)`: optionaler Hook nach `game:start`, z. B. für Geo INTRO → erste Runde.
 - `pause(context)`, `resume(context)`: optionale Fähigkeiten mit eigenem Timerverhalten.
+- `end({ io, room })`: beendet das Spiel revisionssicher und liefert zurück, ob tatsächlich ein Übergang stattfand. Die Engine sendet das Endereignis nur beim ersten Übergang.
 - `cleanup(roomId)`: optionale Freigabe spielspezifischer Ressourcen beim Ende.
 - `registerEvents(io, socket)`: optionale Registrierung der spielspezifischen Aktionen und Resync-Events. `sockets/index.ts` ruft ausschließlich `registerGameSocketHandlers()` auf.
 
@@ -46,6 +47,7 @@ Wichtige Funktionen:
 - `loadGameState<T>()`
 - `upsertGameState<T>()`
 - `saveGameStateIfRevision<T>()`
+- `finishRunningGame<T>()`: setzt `Room` und `RoomGameState` in einer Transaktion auf `ENDED`/`RESULTS` und `GAME_END`. Wiederholte Endaufrufe erzeugen keinen zweiten Übergang.
 
 Race-sensitive Mutationen nutzen Optimistic Concurrency über `RoomGameState.revision`. Bei konkurrierenden Änderungen wird `GameStateConflictError` ausgelöst.
 
@@ -202,6 +204,8 @@ Dabei nach Rolle filtern:
 - Viewer: keine Player-Aktionen und keine geheimen Lösungen.
 
 Reload/Rejoin darf nicht dazu führen, dass Antworten oder Moderator-Secrets geleakt werden.
+
+Bei Geo enthält `geo:answered` für alle Raumteilnehmer nur den Antwortstatus. Die gewählte Option erhält ausschließlich ein Moderator-Socket über `geo:answered:moderator`. 50:50 und Spy werden nur an den handelnden Spieler geschickt und beim Resync aus dessen eigenem Player-State projiziert. `room:snapshot` enthält keinen Engine-State. Geo-Timer werden nach einem Neustart nur für laufende Geo-Räume mit offener Eingabephase restauriert; fehlerhafte Räume werden einzeln übersprungen.
 
 ### 9. Tests
 
