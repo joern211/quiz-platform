@@ -8,7 +8,7 @@ import { prisma } from '../../persistence/prisma.js';
 import { saveGameStateIfRevision, upsertGameState } from '../core/state.js';
 import { logger } from '../../observability/logger.js';
 import { roomChannel } from '../../sockets/index.js';
-import { getSocketDataIdentity } from '../../sockets/auth.js';
+import { authorizeGameAction } from '../core/access.js';
 import {
   JEOPARDY_PHASES,
   pointsForCorrect,
@@ -161,13 +161,13 @@ export const handleJeopardyGame = {
     socket: Socket,
     data: { boardIndex: 1 | 2; categoryIndex: number; value: number }
   ): Promise<{ success: boolean; error?: string }> {
-    const identity = getSocketDataIdentity(socket);
-    if (!identity?.roomId) return { success: false, error: 'NOT_IN_ROOM' };
-    if (identity.role !== 'MODERATOR') return { success: false, error: 'MODERATOR_ONLY' };
+    const auth = authorizeGameAction(socket, { roles: ['MODERATOR'], requireParticipation: true });
+    if (!auth.ok) {
+      return { success: false, error: auth.error === 'FORBIDDEN' ? 'MODERATOR_ONLY' : auth.error };
+    }
 
-    const roomId = identity.roomId;
-    const participationId = identity.participationId;
-    if (!participationId) return { success: false, error: 'NO_PARTICIPATION' };
+    const roomId = auth.actor.roomId;
+    const participationId = auth.actor.participationId!;
 
     // Load room + state
     const room = await prisma.room.findUnique({ where: { id: roomId } });
@@ -276,13 +276,13 @@ export const handleJeopardyGame = {
     socket: Socket,
     _data: Record<string, never> = {}
   ): Promise<{ success: boolean; error?: string }> {
-    const identity = getSocketDataIdentity(socket);
-    if (!identity?.roomId) return { success: false, error: 'NOT_IN_ROOM' };
-    if (identity.role !== 'PLAYER') return { success: false, error: 'PLAYER_ONLY' };
+    const auth = authorizeGameAction(socket, { roles: ['PLAYER'], requireParticipation: true });
+    if (!auth.ok) {
+      return { success: false, error: auth.error === 'FORBIDDEN' ? 'PLAYER_ONLY' : auth.error };
+    }
 
-    const roomId = identity.roomId;
-    const participationId = identity.participationId;
-    if (!participationId) return { success: false, error: 'NO_PARTICIPATION' };
+    const roomId = auth.actor.roomId;
+    const participationId = auth.actor.participationId!;
 
     // Atomic transaction: check + update in one step
     const result = await prisma.$transaction(async (tx) => {
@@ -308,7 +308,7 @@ export const handleJeopardyGame = {
       if (!Object.hasOwn(state.scores, participationId)) throw new Error('PLAYER_NOT_IN_GAME');
       await saveGameStateIfRevision(tx, { roomId, expectedRevision: gameStateData.revision, state, phase: state.phase });
 
-      return { state, displayName: identity.displayName };
+      return { state, displayName: auth.actor.displayName };
     });
 
     // Broadcast buzz:won event (namespaced to avoid collision with geo)
@@ -341,10 +341,11 @@ export const handleJeopardyGame = {
     socket: Socket,
     data: { correct: boolean }
   ): Promise<{ success: boolean; error?: string }> {
-    const identity = getSocketDataIdentity(socket);
-    if (!identity?.roomId) return { success: false, error: 'NOT_IN_ROOM' };
-    if (identity.role !== 'MODERATOR') return { success: false, error: 'UNAUTHORIZED' };
-    const roomId = identity.roomId;
+    const auth = authorizeGameAction(socket, { roles: ['MODERATOR'] });
+    if (!auth.ok) {
+      return { success: false, error: auth.error === 'FORBIDDEN' ? 'UNAUTHORIZED' : auth.error };
+    }
+    const roomId = auth.actor.roomId;
 
     const result = await prisma.$transaction(async (tx) => {
       const row = await tx.roomGameState.findUnique({ where: { roomId } });
@@ -406,13 +407,13 @@ export const handleJeopardyGame = {
     socket: Socket,
     _data: Record<string, never> = {}
   ): Promise<{ success: boolean; error?: string }> {
-    const identity = getSocketDataIdentity(socket);
-    if (!identity?.roomId) return { success: false, error: 'NOT_IN_ROOM' };
-    if (identity.role !== 'PLAYER') return { success: false, error: 'PLAYER_ONLY' };
+    const auth = authorizeGameAction(socket, { roles: ['PLAYER'], requireParticipation: true });
+    if (!auth.ok) {
+      return { success: false, error: auth.error === 'FORBIDDEN' ? 'PLAYER_ONLY' : auth.error };
+    }
 
-    const roomId = identity.roomId;
-    const participationId = identity.participationId;
-    if (!participationId) return { success: false, error: 'NO_PARTICIPATION' };
+    const roomId = auth.actor.roomId;
+    const participationId = auth.actor.participationId!;
 
     const result = await prisma.$transaction(async (tx) => {
       const gameStateData = await tx.roomGameState.findUnique({ where: { roomId } });
@@ -439,7 +440,7 @@ export const handleJeopardyGame = {
 
       await saveGameStateIfRevision(tx, { roomId, expectedRevision: gameStateData.revision, state, phase: state.phase });
 
-      return { displayName: identity.displayName };
+      return { displayName: auth.actor.displayName };
     });
 
     io.to(roomChannel(roomId)).emit('jeopardy:steal:buzz:won', {
