@@ -41,6 +41,10 @@ export function ModeratorGamePage() {
         }
         socket.emit('geo:resync', {}, (res) => {
           if (!res.success) return;
+          if (res.phase === 'GAME_END') {
+            navigate(`/moderator/raum/${roomCode}/ergebnis`, { replace: true });
+            return;
+          }
           if (res.question) setQuestion(res.question);
           setEndsAt(res.timerEndMs ?? 0);
           setRevealed(res.revealed ?? false);
@@ -49,6 +53,7 @@ export function ModeratorGamePage() {
           setTotalQuestions(res.totalQuestions ?? 0);
           setScores(res.scores ?? {});
           setCorrectOptionId(res.question?.correctOptionId ?? null);
+          setAnswerStats(res.answerStats ?? {});
         });
       });
     };

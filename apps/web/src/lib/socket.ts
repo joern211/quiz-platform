@@ -45,6 +45,7 @@ export interface GeoResyncResponse {
   success: boolean;
   error?: string;
   phase?: string;
+  gameEnded?: boolean;
   roundIndex?: number;
   totalQuestions?: number;
   question?: {
@@ -61,6 +62,7 @@ export interface GeoResyncResponse {
   ownJokers?: { used5050: boolean; usedSpy: boolean; usedRisk: boolean } | null;
   ownEliminatedOptions?: string[];
   ownSpyDistribution?: Record<string, number> | null;
+  answerStats?: Record<string, number>;
 }
 
 export type ServerToClientEvents = {

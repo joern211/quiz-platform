@@ -2,7 +2,7 @@
 // Viewer Game Page (Geo Quiz)
 // ============================================================
 
-import { useParams } from 'react-router-dom';
+import { useParams, useNavigate } from 'react-router-dom';
 import { useEffect, useState } from 'react';
 import { io } from 'socket.io-client';
 import { Card } from '@quiz/ui';
@@ -12,6 +12,7 @@ import styles from './ViewerGamePage.module.css';
 
 export function ViewerGamePage() {
   const { code } = useParams<{ code: string }>();
+  const navigate = useNavigate();
   const [connected, setConnected] = useState(false);
   const [phase, setPhase] = useState<string>('WAITING');
   const [question, setQuestion] = useState<any>(null);
@@ -31,6 +32,10 @@ export function ViewerGamePage() {
           revealed?: boolean; phase?: string; scores?: Record<string, number>;
         }) => {
           if (!res.success) return;
+          if (res.phase === 'GAME_END') {
+            navigate(`/zuschauen/${code}/ergebnis`, { replace: true });
+            return;
+          }
           setQuestion(res.question ?? null);
           setTimerEndMs(res.timerEndMs ?? 0);
           setRevealed(res.revealed ?? false);
@@ -72,9 +77,12 @@ export function ViewerGamePage() {
       setPhase('INPUT_OPEN');
       setTimerEndMs(data.timerEndMs);
     });
+    socket.on('game:end', (data: { status: string }) => {
+      if (data.status === 'ENDED') navigate(`/zuschauen/${code}/ergebnis`);
+    });
 
     return () => { socket.disconnect(); };
-  }, [code]);
+  }, [code, navigate]);
 
   return (
     <GameShell role="viewer" roomCode={code ?? ''} phase={phase} connected={connected}>

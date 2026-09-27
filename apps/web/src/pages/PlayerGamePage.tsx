@@ -53,6 +53,10 @@ export function PlayerGamePage() {
         }
         socket.emit('geo:resync', {}, (res) => {
           if (!res.success) return;
+          if (res.phase === 'GAME_END') {
+            navigate(`/raum/${roomCode}/ergebnis`, { replace: true });
+            return;
+          }
           if (res.question) setQuestion(res.question);
           setEndsAt(res.timerEndMs ?? 0);
           setRevealed(res.revealed ?? false);
