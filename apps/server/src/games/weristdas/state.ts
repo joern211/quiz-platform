@@ -38,7 +38,7 @@ export function createWerIstDasState(
 }
 
 export class InvalidGameAction extends Error {
-  constructor(readonly code: string) { super(code); }
+  constructor(readonly code: string) { super(code); this.name = 'InvalidGameAction'; }
 }
 
 function requirePhase(state: WerIstDasState, ...phases: WerIstDasPhase[]) {
