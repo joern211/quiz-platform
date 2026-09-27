@@ -60,6 +60,7 @@ export interface GeoResyncResponse {
   ownAnswered?: boolean;
   ownJokers?: { used5050: boolean; usedSpy: boolean; usedRisk: boolean } | null;
   ownEliminatedOptions?: string[];
+  ownSpyDistribution?: Record<string, number> | null;
 }
 
 export type ServerToClientEvents = {
@@ -97,7 +98,8 @@ export type ServerToClientEvents = {
   'geo:buzzer': (data: { winnerId: string }) => void;
   'geo:next': (data: { nextRoundIndex?: number; roundIndex: number; totalQuestions: number }) => void;
   'geo:init': (data: { questionCount: number; phase: string }) => void;
-  'geo:answered': (data: { participantId: string; questionIndex: number; optionId: string }) => void;
+  'geo:answered': (data: { participantId: string; questionIndex: number; answered: true }) => void;
+  'geo:answered:moderator': (data: { participantId: string; questionIndex: number; optionId: string }) => void;
   'geo:joker:5050:result': (data: { roundIndex: number; options: any[]; eliminated: string[] }) => void;
   'geo:joker:spy:result': (data: { roundIndex: number; distribution: Record<string, number> }) => void;
   'geo:joker:risk:result': (data: { roundIndex: number; active: boolean }) => void;

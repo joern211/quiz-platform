@@ -9,6 +9,7 @@ import { getSession } from '../lib/sessionStore';
 import { Card, Button } from '@quiz/ui';
 import { Timer } from '@quiz/ui';
 import { GameShell } from '../components/GameShell';
+import { displayGeoOptions } from '../utils/geoOptions';
 import styles from './PlayerGamePage.module.css';
 
 export function PlayerGamePage() {
@@ -29,6 +30,7 @@ export function PlayerGamePage() {
     usedRisk: false,
   });
   const [eliminatedOptions, setEliminatedOptions] = useState<string[]>([]);
+  const [spyDistribution, setSpyDistribution] = useState<Record<string, number> | null>(null);
   const [revealed, setRevealed] = useState(false);
   const [result, setResult] = useState<any>(null);
   const [answerSubmitted, setAnswerSubmitted] = useState(false);
@@ -61,6 +63,7 @@ export function PlayerGamePage() {
           setAnswerSubmitted(res.ownAnswered ?? false);
           if (res.ownJokers) setJokers(res.ownJokers);
           setEliminatedOptions(res.ownEliminatedOptions ?? []);
+          setSpyDistribution(res.ownSpyDistribution ?? null);
           if (participationId && res.scores) setScore(res.scores[participationId] ?? 0);
         });
       });
@@ -82,6 +85,7 @@ export function PlayerGamePage() {
       setLocked(false);
       setRevealed(false);
       setEliminatedOptions([]);
+      setSpyDistribution(null);
       setAnswerSubmitted(false);
       setActionError('');
       setPhase('INPUT_OPEN');
@@ -100,7 +104,8 @@ export function PlayerGamePage() {
       setJokers(prev => ({ ...prev, usedRisk: true }));
     });
 
-    socket.on('geo:joker:spy:result', () => {
+    socket.on('geo:joker:spy:result', (data) => {
+      setSpyDistribution(data.distribution);
       setJokers(prev => ({ ...prev, usedSpy: true }));
     });
 
@@ -212,9 +217,8 @@ export function PlayerGamePage() {
         </div>
 
         <div className={styles.options}>
-          {question.options
-            .filter((opt: any) => !eliminatedOptions.includes(opt.id))
-            .map((option: any, index: number) => {
+          {displayGeoOptions(question.options, eliminatedOptions)
+            .map(({ option, label, eliminated }) => {
               const isSelected = selectedOption === option.id;
               const isCorrect = revealed && option.id === result?.correctOptionId;
               const isWrong = revealed && isSelected && !isCorrect;
@@ -222,12 +226,13 @@ export function PlayerGamePage() {
               return (
                 <button
                   key={option.id}
-                  className={`${styles.option} ${isSelected ? styles.selected : ''} ${isCorrect ? styles.correct : ''} ${isWrong ? styles.wrong : ''}`}
+                  className={`${styles.option} ${isSelected ? styles.selected : ''} ${isCorrect ? styles.correct : ''} ${isWrong ? styles.wrong : ''} ${eliminated ? styles.eliminated : ''}`}
                   onClick={() => handleSelectOption(option.id)}
-                  disabled={locked || revealed}
+                  disabled={locked || revealed || eliminated}
+                  aria-label={eliminated ? `${label}: ausgeschieden` : undefined}
                 >
                   <span className={styles.optionLetter}>
-                    {['A', 'B', 'C', 'D'][index]}
+                    {label}
                   </span>
                   <span className={styles.optionText}>{option.text}</span>
                 </button>
@@ -265,6 +270,16 @@ export function PlayerGamePage() {
             Risk ×2 {jokers.usedRisk && '✓'}
           </Button>
         </div>
+        {spyDistribution && (
+          <div className={styles.spyResult} role="status">
+            <h4>Spy: Antworten der anderen Spieler</h4>
+            <ul>
+              {displayGeoOptions(question.options, []).map(({ option, label }) => (
+                <li key={option.id}>{label}: {spyDistribution[option.id] ?? 0} %</li>
+              ))}
+            </ul>
+          </div>
+        )}
       </Card>
     </div>
     </GameShell>

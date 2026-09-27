@@ -79,7 +79,7 @@ export function ModeratorGamePage() {
       setTotalQuestions(data.totalQuestions);
     });
 
-    socket.on('geo:answered', (data) => {
+    socket.on('geo:answered:moderator', (data) => {
       setAnswerStats(prev => ({
         ...prev,
         [data.optionId]: (prev[data.optionId] || 0) + 1,
