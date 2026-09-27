@@ -4,6 +4,7 @@
 
 import { Server, Socket } from 'socket.io';
 import { prisma } from '../../persistence/prisma.js';
+import { upsertGameState } from '../core/state.js';
 import { logger } from '../../observability/logger.js';
 import { requireRoomRole, socketIdentityMap } from '../../http/middleware/auth.js';
 import { roomChannel } from '../../sockets/index.js';
@@ -188,21 +189,12 @@ export const handleGeoGame = {
       scores,
     };
 
-    // Save to database
-    await prisma.roomGameState.upsert({
-      where: { roomId: room.id },
-      create: {
-        roomId: room.id,
-        engineVersion: 1,
-        phase: initialPhase,
-        stateJson: JSON.stringify(gameState),
-        revision: 1,
-      },
-      update: {
-        phase: initialPhase,
-        stateJson: JSON.stringify(gameState),
-        revision: { increment: 1 },
-      },
+    // Save through the shared game-state core.
+    await upsertGameState({
+      roomId: room.id,
+      engineVersion: 1,
+      phase: initialPhase,
+      state: gameState,
     });
 
     // Emit initial state
