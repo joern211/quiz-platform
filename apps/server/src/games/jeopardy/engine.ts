@@ -467,11 +467,12 @@ export const handleJeopardyGame = {
     socket: Socket,
     data: { correct: boolean }
   ): Promise<{ success: boolean; error?: string }> {
-    const identity = getSocketDataIdentity(socket);
-    if (!identity?.roomId) return { success: false, error: 'NOT_IN_ROOM' };
-    if (identity.role !== 'MODERATOR') return { success: false, error: 'UNAUTHORIZED' };
+    const auth = authorizeGameAction(socket, { roles: ['MODERATOR'] });
+    if (!auth.ok) {
+      return { success: false, error: auth.error === 'FORBIDDEN' ? 'UNAUTHORIZED' : auth.error };
+    }
 
-    const roomId = identity.roomId;
+    const roomId = auth.actor.roomId;
 
     const result = await prisma.$transaction(async (tx) => {
       const gameStateData = await tx.roomGameState.findUnique({ where: { roomId } });
@@ -568,11 +569,12 @@ export const handleJeopardyGame = {
     socket: Socket,
     _data: Record<string, never> = {}
   ): Promise<{ success: boolean; error?: string }> {
-    const identity = getSocketDataIdentity(socket);
-    if (!identity?.roomId) return { success: false, error: 'NOT_IN_ROOM' };
-    if (identity.role !== 'MODERATOR') return { success: false, error: 'UNAUTHORIZED' };
+    const auth = authorizeGameAction(socket, { roles: ['MODERATOR'] });
+    if (!auth.ok) {
+      return { success: false, error: auth.error === 'FORBIDDEN' ? 'UNAUTHORIZED' : auth.error };
+    }
 
-    const roomId = identity.roomId;
+    const roomId = auth.actor.roomId;
 
     await prisma.$transaction(async (tx) => {
       const gameStateData = await tx.roomGameState.findUnique({ where: { roomId } });
