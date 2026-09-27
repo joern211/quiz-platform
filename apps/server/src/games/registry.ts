@@ -1,40 +1,63 @@
 // ============================================================
 // Game Registry
-// Central registration for all game modules
+// Single entry point for game lifecycle integration.
 // ============================================================
 
-// All game modules export a single handle object per convention.
-// Each game handler must implement the contract expected by game.ts.
-// ============================================================
-
+import type { Server } from 'socket.io';
 import { handleGeoGame } from './geo/index.js';
-import { handleJeopardy } from './jeopardy/index.js';
+import { handleJeopardyGame } from './jeopardy/engine.js';
 
-// Placeholders until each game exports its handle object
-// TODO GATE-5: wire up each game's handle object
-const handleWerIstDas = { name: 'weristdas', initialize: async () => {} };
-const handleTimeline = { name: 'timeline', initialize: async () => {} };
-const handleLuegen = { name: 'luegen', initialize: async () => {} };
-const handleSong = { name: 'song', initialize: async () => {} };
-
-export interface GameHandle {
-  name: string;
-  initialize: (io: any, room: any) => Promise<void>;
+export interface GameRoom {
+  id: string;
+  code: string;
+  setupSnapshotJson: string | null;
 }
 
-export const gameRegistry: Record<string, GameHandle> = {
-  geo: handleGeoGame as unknown as GameHandle,
-  jeopardy: handleJeopardy,
-  weristdas: handleWerIstDas,
-  timeline: handleTimeline,
-  luegen: handleLuegen,
-  song: handleSong,
+export interface GameInitializeContext {
+  io: Server;
+  room: GameRoom;
+  initialPhase: string;
+}
+
+export interface GameHandle {
+  slug: string;
+  initialize(context: GameInitializeContext): Promise<void>;
+  afterStart?(context: GameInitializeContext): Promise<void> | void;
+}
+
+const geoHandle: GameHandle = {
+  slug: 'geo',
+  async initialize({ io, room, initialPhase }) {
+    await handleGeoGame.initialize(io, room, initialPhase);
+  },
+  afterStart({ io, room }) {
+    // Geo owns its intro-to-first-round transition. Keeping this lifecycle
+    // hook in the adapter prevents generic socket code from knowing Geo rules.
+    setTimeout(() => {
+      void handleGeoGame.startRound(io, room.code);
+    }, 3000);
+  },
 };
 
+const jeopardyHandle: GameHandle = {
+  slug: 'jeopardy',
+  async initialize({ io, room }) {
+    await handleJeopardyGame.initialize(io, room);
+  },
+};
+
+// Future games are registered when their engines implement the lifecycle
+// contract. Do not register no-op placeholders: starting an unsupported game
+// must fail explicitly instead of leaving a RUNNING room without game state.
+const gameRegistry = new Map<string, GameHandle>([
+  [geoHandle.slug, geoHandle],
+  [jeopardyHandle.slug, jeopardyHandle],
+]);
+
 export function getGameHandler(slug: string): GameHandle | null {
-  return gameRegistry[slug] || null;
+  return gameRegistry.get(slug) ?? null;
 }
 
 export function listGames(): string[] {
-  return Object.keys(gameRegistry);
+  return [...gameRegistry.keys()];
 }
