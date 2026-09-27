@@ -6,8 +6,9 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { useEffect, useState, useRef } from 'react';
 import { getSocket, connectSocket, disconnectSocket } from '../lib/socket';
 import { getSession } from '../lib/sessionStore';
-import { Card, Button, Badge } from '@quiz/ui';
+import { Card, Button } from '@quiz/ui';
 import { Timer } from '@quiz/ui';
+import { GameShell } from '../components/GameShell';
 import styles from './PlayerGamePage.module.css';
 
 export function PlayerGamePage() {
@@ -16,7 +17,7 @@ export function PlayerGamePage() {
   const navigate = useNavigate();
   const socketRef = useRef<ReturnType<typeof getSocket> | null>(null);
   const [connected, setConnected] = useState(false);
-  const [, setPhase] = useState<string>('WAITING');
+  const [phase, setPhase] = useState<string>('WAITING');
   const [question, setQuestion] = useState<any>(null);
   const [selectedOption, setSelectedOption] = useState<string | null>(null);
   const [locked, setLocked] = useState(false);
@@ -53,6 +54,7 @@ export function PlayerGamePage() {
           if (res.question) setQuestion(res.question);
           setEndsAt(res.timerEndMs ?? 0);
           setRevealed(res.revealed ?? false);
+          setPhase(res.phase ?? 'WAITING');
           setResult(res.revealed ? { correctOptionId: res.question?.correctOptionId } : null);
           setSelectedOption(res.ownAnswer ?? null);
           setLocked(res.ownAnswered ?? false);
@@ -104,6 +106,7 @@ export function PlayerGamePage() {
 
     socket.on('geo:reveal', (data) => {
       setRevealed(true);
+      setPhase('REVEAL');
       setResult(data);
       
       // Update score from result - use session participationId
@@ -113,8 +116,10 @@ export function PlayerGamePage() {
       }
     });
 
-    socket.on('buzz:won', (_data) => {
-      // Someone buzzed - only relevant if this client buzzed
+    socket.on('geo:paused', () => setPhase('PAUSED'));
+    socket.on('geo:resumed', (data) => {
+      setPhase('INPUT_OPEN');
+      setEndsAt(data.timerEndMs);
     });
 
     return () => { disconnectSocket(); };
@@ -179,27 +184,23 @@ export function PlayerGamePage() {
 
   if (!question) {
     return (
+      <GameShell role="player" roomCode={roomCode} phase={phase} connected={connected} error={actionError}>
       <div className={styles.page}>
         <div className={styles.waiting}>
           <h1>Warte auf nächste Frage...</h1>
-          <Badge variant={connected ? 'success' : 'danger'}>
-            {connected ? 'Verbunden' : 'Getrennt'}
-          </Badge>
         </div>
       </div>
+      </GameShell>
     );
   }
 
   return (
+    <GameShell role="player" roomCode={roomCode} phase={phase} connected={connected} error={actionError}>
     <div className={styles.page}>
       <div className={styles.header}>
         <span className={styles.score}>Score: {score}</span>
-        <Badge variant={connected ? 'success' : 'danger'}>
-          {connected ? 'Verbunden' : 'Getrennt'}
-        </Badge>
       </div>
 
-      {actionError && <p role="alert">{actionError}</p>}
       {answerSubmitted && <p role="status">Antwort gespeichert.</p>}
 
       <Card padding="lg" className={styles.questionCard}>
@@ -207,7 +208,7 @@ export function PlayerGamePage() {
         <h2 className={styles.prompt}>{question.prompt}</h2>
         
         <div className={styles.timer}>
-          {!revealed && <Timer endsAt={endsAt} size="lg" />}
+          {!revealed && phase !== 'PAUSED' && <Timer endsAt={endsAt} size="lg" />}
         </div>
 
         <div className={styles.options}>
@@ -266,5 +267,6 @@ export function PlayerGamePage() {
         </div>
       </Card>
     </div>
+    </GameShell>
   );
 }

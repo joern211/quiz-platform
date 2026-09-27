@@ -9,7 +9,8 @@ import { useEffect } from 'react';
 import { useJeopardy } from '../hooks/useJeopardy';
 import { JeopardyBoard } from '../components/jeopardy/JeopardyBoard';
 import { JeopardyQuestion } from '../components/jeopardy/JeopardyQuestion';
-import { Card, Button, Badge } from '@quiz/ui';
+import { Card, Button } from '@quiz/ui';
+import { GameShell } from '../components/GameShell';
 import styles from './JeopardyModeratorPage.module.css';
 
 export function JeopardyModeratorPage() {
@@ -60,6 +61,7 @@ export function JeopardyModeratorPage() {
   const isFieldDone = gameState.phase === 'FIELD_DONE';
 
   return (
+    <GameShell role="moderator" roomCode={roomCode} phase={gameState.phase} connected={connected}>
     <div className={styles.page}>
       {/* Header */}
       <div className={styles.header}>
@@ -67,11 +69,7 @@ export function JeopardyModeratorPage() {
           <h1 className={styles.title}>
             Jeopardy – Board {gameState.boardNumber}
           </h1>
-          <Badge variant="accent">{gameState.phase}</Badge>
         </div>
-        <Badge variant={connected ? 'success' : 'danger'}>
-          {connected ? 'Verbunden' : 'Getrennt'}
-        </Badge>
       </div>
 
       {error && (
@@ -288,5 +286,6 @@ export function JeopardyModeratorPage() {
         </div>
       </div>
     </div>
+    </GameShell>
   );
 }

@@ -60,6 +60,14 @@
   width: 100%;
 }
 
+.error {
+  padding: var(--space-3);
+  color: var(--danger);
+  background: var(--surface-2);
+  border: 1px solid var(--danger);
+  border-radius: var(--radius);
+}
+
 /* ── Bottom Bar ── */
 .bottomBar {
   display: flex;

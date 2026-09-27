@@ -58,7 +58,19 @@ export function ViewerGamePage() {
 
     socket.on('geo:reveal', (data) => {
       setRevealed(true);
-      setScores(data.scores || {});
+      setPhase('REVEAL');
+      setQuestion((previous: any) => previous
+        ? { ...previous, correctOptionId: data.correctOptionId }
+        : previous);
+      setScores(Object.fromEntries((data.scores ?? []).map(
+        (entry: { participationId: string; score: number }) => [entry.participationId, entry.score]
+      )));
+    });
+
+    socket.on('geo:paused', () => setPhase('PAUSED'));
+    socket.on('geo:resumed', (data) => {
+      setPhase('INPUT_OPEN');
+      setTimerEndMs(data.timerEndMs);
     });
 
     return () => { socket.disconnect(); };
@@ -74,7 +86,7 @@ export function ViewerGamePage() {
             <p className={styles.category}>{question.category}</p>
             <h2 className={styles.prompt}>{question.prompt}</h2>
             
-            {!revealed && <Timer endsAt={timerEndMs} size="lg" />}
+            {!revealed && phase !== 'PAUSED' && <Timer endsAt={timerEndMs} size="lg" />}
             
             <div className={styles.options}>
               {question.options.map((opt: any, i: number) => {

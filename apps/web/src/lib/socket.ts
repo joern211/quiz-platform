@@ -41,10 +41,6 @@ export interface GeoJokerPayload {
   roomCode: string;
 }
 
-export interface BuzzPayload {
-  roomCode: string;
-}
-
 export interface GeoResyncResponse {
   success: boolean;
   error?: string;
@@ -119,8 +115,6 @@ export type ServerToClientEvents = {
   'jeopardy:board:switch': (data: { fromBoard: 1 | 2; toBoard: 2 | 1; categories: Array<{ name: string; clueCount: number }>; values: number[]; scores: Record<string, number> }) => void;
   'jeopardy:board:complete': (data: { boardNumber: 1 | 2; nextBoard: 2 | null }) => void;
   'jeopardy:game:end': (data: { finalScores: Array<{ playerId: string; playerName: string; score: number }>; winnerIds: string[] }) => void;
-  'buzz:won': (data: { playerId: string; displayName: string }) => void;
-  'buzz:press': (data: BuzzPayload) => void;
   'game:pause': (data: { roomCode: string }) => void;
   'game:resume': (data: { roomCode: string }) => void;
   'lobby:chat:message': (data: { id?: string; senderId?: string; senderName: string; content: string; createdAt?: string }) => void;
@@ -145,7 +139,6 @@ export type ClientToServerEvents = {
   'geo:resync': (data: Record<string, never>, ack: (res: GeoResyncResponse) => void) => void;
   'geo:reveal': (data: GeoJokerPayload, ack: (res: { success: boolean; error?: string }) => void) => void;
   'geo:next': (data: GeoJokerPayload, ack: (res: { success: boolean; error?: string; ended?: boolean }) => void) => void;
-  'buzz:press': (data: BuzzPayload & { rejoinToken?: string }, ack: (res: { success: boolean }) => void) => void;
   // ── Jeopardy ────────────────────────────────────────────────
   'jeopardy:field:open': (data: { boardIndex: 1 | 2; categoryIndex: number; value: number; rejoinToken?: string }, ack: (res: { success: boolean; error?: string }) => void) => void;
   'jeopardy:buzz': (data: { rejoinToken?: string }, ack: (res: { success: boolean; error?: string }) => void) => void;

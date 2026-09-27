@@ -17,6 +17,8 @@ export interface GameShellProps {
   endsAt?: number;
   /** Connection status */
   connected?: boolean;
+  /** Action or subscription error, announced to assistive technology */
+  error?: string;
   /** Ready players count */
   readyCount?: number;
   /** Total players */
@@ -33,6 +35,7 @@ export function GameShell({
   phase,
   endsAt,
   connected = true,
+  error,
   readyCount,
   totalPlayers,
   onLeave,
@@ -55,6 +58,7 @@ export function GameShell({
 
       {/* ── Main Content ── */}
       <main className={styles.main}>
+        {error && <p className={styles.error} role="alert">{error}</p>}
         {children}
       </main>
 

@@ -76,6 +76,8 @@ Der Buzzer-Core modelliert:
 
 Jeopardy verwendet `claimBuzzer()` im Haupt- und Steal-Buzz. Persistenz und Phasenwechsel bleiben Aufgabe der Engine. Die erfolgreiche Claim-Änderung wird mit `saveGameStateIfRevision()` in einer Transaktion gespeichert; der erste falsche Spieler steht beim Steal in der Ausschlussliste.
 
+Geo hat in seinem aktuellen Frage-/Antwortfluss keinen Buzzer. Das alte, nie erreichbare `buzz:press`-Gerüst wurde entfernt; ein zukünftiger Geo-Buzz-Modus muss den gemeinsamen Core mit eigener Phase und CAS-Persistenz verwenden.
+
 ### Resync und Geheimnisse
 
 `room:resync` prüft die serverseitige Socket-Identität, Raumzugehörigkeit und den tatsächlichen Socket.IO-Kanal. Der mitgesendete Raumcode dient nur als Plausibilitätsprüfung.
@@ -90,11 +92,15 @@ Geo und Jeopardy validieren ihre Spielaktionen in den jeweiligen `events.ts`-Mod
 
 Geo bleibt vorerst der einzige Nutzer des serverseitigen Timers. `timerEndMs` beziehungsweise die Restzeit bei Pause liegen im persistierten State. Pause und Resume aktualisieren State und Raumphase atomar; aktive Timer werden nach einem Serverneustart aus aktiven Geo-Räumen rekonstruiert. Ein allgemeiner Timer-Core würde derzeit nur diesen einen Anwendungsfall umhüllen. Ein künftiges Timerspiel kann dieses Muster zuerst übernehmen und bei gemeinsamem Bedarf extrahieren.
 
-`apps/web/src/components/GameShell/` stellt Raumcode, Phase und Verbindungsstatus bereit. Geo verwendet es in der Zuschaueransicht; die individuellen Spielflächen bleiben getrennt.
+`apps/web/src/components/GameShell/` stellt Raumcode, Phase, Verbindungsstatus und eine optionale Fehleranzeige bereit. Geo nutzt die Shell für Moderator, Spieler und Zuschauer; Jeopardy nutzt sie ebenfalls für alle drei Rollen. Spielflächen, Wertungen, Spielerübersichten und Moderatoraktionen bleiben in den jeweiligen Spielansichten, da ihre Darstellung fachlich verschieden ist. Geo-Clients verarbeiten Pause/Resume und aktualisieren die sichtbare Timerphase; Zuschauer aktualisieren nach `geo:reveal` Lösung und Scores aus dem öffentlichen Ereignis.
+
+Ein Spiel ohne `pause`-/`resume`-Hook bekommt bei entsprechenden Aufrufen `GAME_ACTION_UNSUPPORTED`. Die generische Socket-Schicht ändert in diesem Fall keine Phase, da nur die Engine ihren eigenen State und Timer konsistent anhalten kann.
 
 ### Fehler und alte Gerüste
 
 Neue Core-Aktionen verwenden insbesondere `NOT_IN_ROOM`, `FORBIDDEN`, `NO_PARTICIPATION`, `WRONG_GAME` und `STATE_CONFLICT`. `games/core/errors.ts` bildet bekannte fachliche Fehler und Revisionskonflikte auf öffentliche ACK-Codes ab und verbirgt unerwartete interne Fehlermeldungen. Bestehende Buzzer-Client-Codes bleiben kompatibel. Bei neuen Events Payloads mit Zod prüfen und Fehler über ACK zurückgeben.
+
+Auch allgemeine Spieleraktionen (`player:ready:set`, `player:profile:update`) nutzen nur die serverseitig gebundene Socket-Participation und den beigetretenen Raumkanal. Mitgesendete Raumcodes und Rejoin-Tokens bestimmen niemals, welcher Spieler verändert wird. Ein Rejoin-Token wird nur bei `room:subscribe` zur Wiederherstellung der Identität geprüft.
 
 Die nicht verwendeten In-Memory-Handler für Wer ist das, Timeline, Lügen, Song und eine alte Jeopardy-Variante wurden entfernt. Sie waren nicht in der Registry registriert und enthielten keine sichere Persistence- oder Rejoin-Implementierung. Neue Engines werden nach den folgenden Schritten neu aufgebaut.
 
@@ -149,7 +155,7 @@ Keine Platzhalter registrieren.
 Für jede Socket-Aktion:
 
 1. Payload validieren.
-2. `authorizeGameAction()` verwenden.
+2. `authorizeGameContext()` mit exakter Rolle, Spiel-Slug und bei laufenden Aktionen `requireRunning` verwenden; für rein öffentliche Projektionen genügt `authorizeGameAction()` mit anschließender Spielprüfung.
 3. Phase prüfen.
 4. State laden.
 5. fachliche Änderung berechnen.
