@@ -6,8 +6,10 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { useEffect, useState, useRef } from 'react';
 import { getSocket, connectSocket, disconnectSocket } from '../lib/socket';
 import { getSession } from '../lib/sessionStore';
-import { Card, Button, Badge } from '@quiz/ui';
+import { Card, Button } from '@quiz/ui';
 import { Timer } from '@quiz/ui';
+import { GameShell } from '../components/GameShell';
+import { displayGeoOptions } from '../utils/geoOptions';
 import styles from './PlayerGamePage.module.css';
 
 export function PlayerGamePage() {
@@ -16,7 +18,7 @@ export function PlayerGamePage() {
   const navigate = useNavigate();
   const socketRef = useRef<ReturnType<typeof getSocket> | null>(null);
   const [connected, setConnected] = useState(false);
-  const [, setPhase] = useState<string>('WAITING');
+  const [phase, setPhase] = useState<string>('WAITING');
   const [question, setQuestion] = useState<any>(null);
   const [selectedOption, setSelectedOption] = useState<string | null>(null);
   const [locked, setLocked] = useState(false);
@@ -28,6 +30,7 @@ export function PlayerGamePage() {
     usedRisk: false,
   });
   const [eliminatedOptions, setEliminatedOptions] = useState<string[]>([]);
+  const [spyDistribution, setSpyDistribution] = useState<Record<string, number> | null>(null);
   const [revealed, setRevealed] = useState(false);
   const [result, setResult] = useState<any>(null);
   const [answerSubmitted, setAnswerSubmitted] = useState(false);
@@ -42,8 +45,36 @@ export function PlayerGamePage() {
 
     connectSocket();
 
-    socket.on('connect', () => setConnected(true));
+    const subscribe = () => {
+      socket.emit('room:subscribe', { roomCode, rejoinToken: rejoinToken ?? undefined }, (response) => {
+        if (!response.success) {
+          setActionError(`Raumverbindung fehlgeschlagen: ${response.error ?? 'Unbekannter Fehler'}`);
+          return;
+        }
+        socket.emit('geo:resync', {}, (res) => {
+          if (!res.success) return;
+          if (res.phase === 'GAME_END') {
+            navigate(`/raum/${roomCode}/ergebnis`, { replace: true });
+            return;
+          }
+          if (res.question) setQuestion(res.question);
+          setEndsAt(res.timerEndMs ?? 0);
+          setRevealed(res.revealed ?? false);
+          setPhase(res.phase ?? 'WAITING');
+          setResult(res.revealed ? { correctOptionId: res.question?.correctOptionId } : null);
+          setSelectedOption(res.ownAnswer ?? null);
+          setLocked(res.ownAnswered ?? false);
+          setAnswerSubmitted(res.ownAnswered ?? false);
+          if (res.ownJokers) setJokers(res.ownJokers);
+          setEliminatedOptions(res.ownEliminatedOptions ?? []);
+          setSpyDistribution(res.ownSpyDistribution ?? null);
+          if (participationId && res.scores) setScore(res.scores[participationId] ?? 0);
+        });
+      });
+    };
+    socket.on('connect', () => { setConnected(true); subscribe(); });
     socket.on('disconnect', () => setConnected(false));
+    if (socket.connected) subscribe();
 
     socket.on('game:end', (data) => {
       if (data.status === 'ENDED') {
@@ -58,6 +89,7 @@ export function PlayerGamePage() {
       setLocked(false);
       setRevealed(false);
       setEliminatedOptions([]);
+      setSpyDistribution(null);
       setAnswerSubmitted(false);
       setActionError('');
       setPhase('INPUT_OPEN');
@@ -76,12 +108,14 @@ export function PlayerGamePage() {
       setJokers(prev => ({ ...prev, usedRisk: true }));
     });
 
-    socket.on('geo:joker:spy:result', () => {
+    socket.on('geo:joker:spy:result', (data) => {
+      setSpyDistribution(data.distribution);
       setJokers(prev => ({ ...prev, usedSpy: true }));
     });
 
     socket.on('geo:reveal', (data) => {
       setRevealed(true);
+      setPhase('REVEAL');
       setResult(data);
       
       // Update score from result - use session participationId
@@ -91,13 +125,10 @@ export function PlayerGamePage() {
       }
     });
 
-    socket.on('buzz:won', (_data) => {
-      // Someone buzzed - only relevant if this client buzzed
-    });
-
-    // Subscribe to room
-    socket.emit('room:subscribe', { roomCode, rejoinToken: rejoinToken ?? undefined }, (response) => {
-      if (!response.success) setActionError(`Raumverbindung fehlgeschlagen: ${response.error ?? 'Unbekannter Fehler'}`);
+    socket.on('geo:paused', () => setPhase('PAUSED'));
+    socket.on('geo:resumed', (data) => {
+      setPhase('INPUT_OPEN');
+      setEndsAt(data.timerEndMs);
     });
 
     return () => { disconnectSocket(); };
@@ -162,27 +193,23 @@ export function PlayerGamePage() {
 
   if (!question) {
     return (
+      <GameShell role="player" roomCode={roomCode} phase={phase} connected={connected} error={actionError}>
       <div className={styles.page}>
         <div className={styles.waiting}>
           <h1>Warte auf nächste Frage...</h1>
-          <Badge variant={connected ? 'success' : 'danger'}>
-            {connected ? 'Verbunden' : 'Getrennt'}
-          </Badge>
         </div>
       </div>
+      </GameShell>
     );
   }
 
   return (
+    <GameShell role="player" roomCode={roomCode} phase={phase} connected={connected} error={actionError}>
     <div className={styles.page}>
       <div className={styles.header}>
         <span className={styles.score}>Score: {score}</span>
-        <Badge variant={connected ? 'success' : 'danger'}>
-          {connected ? 'Verbunden' : 'Getrennt'}
-        </Badge>
       </div>
 
-      {actionError && <p role="alert">{actionError}</p>}
       {answerSubmitted && <p role="status">Antwort gespeichert.</p>}
 
       <Card padding="lg" className={styles.questionCard}>
@@ -190,13 +217,12 @@ export function PlayerGamePage() {
         <h2 className={styles.prompt}>{question.prompt}</h2>
         
         <div className={styles.timer}>
-          {!revealed && <Timer endsAt={endsAt} size="lg" />}
+          {!revealed && phase !== 'PAUSED' && <Timer endsAt={endsAt} size="lg" />}
         </div>
 
         <div className={styles.options}>
-          {question.options
-            .filter((opt: any) => !eliminatedOptions.includes(opt.id))
-            .map((option: any, index: number) => {
+          {displayGeoOptions(question.options, eliminatedOptions)
+            .map(({ option, label, eliminated }) => {
               const isSelected = selectedOption === option.id;
               const isCorrect = revealed && option.id === result?.correctOptionId;
               const isWrong = revealed && isSelected && !isCorrect;
@@ -204,12 +230,13 @@ export function PlayerGamePage() {
               return (
                 <button
                   key={option.id}
-                  className={`${styles.option} ${isSelected ? styles.selected : ''} ${isCorrect ? styles.correct : ''} ${isWrong ? styles.wrong : ''}`}
+                  className={`${styles.option} ${isSelected ? styles.selected : ''} ${isCorrect ? styles.correct : ''} ${isWrong ? styles.wrong : ''} ${eliminated ? styles.eliminated : ''}`}
                   onClick={() => handleSelectOption(option.id)}
-                  disabled={locked || revealed}
+                  disabled={locked || revealed || eliminated}
+                  aria-label={eliminated ? `${label}: ausgeschieden` : undefined}
                 >
                   <span className={styles.optionLetter}>
-                    {['A', 'B', 'C', 'D'][index]}
+                    {label}
                   </span>
                   <span className={styles.optionText}>{option.text}</span>
                 </button>
@@ -247,7 +274,18 @@ export function PlayerGamePage() {
             Risk ×2 {jokers.usedRisk && '✓'}
           </Button>
         </div>
+        {spyDistribution && (
+          <div className={styles.spyResult} role="status">
+            <h4>Spy: Antworten der anderen Spieler</h4>
+            <ul>
+              {displayGeoOptions(question.options, []).map(({ option, label }) => (
+                <li key={option.id}>{label}: {spyDistribution[option.id] ?? 0} %</li>
+              ))}
+            </ul>
+          </div>
+        )}
       </Card>
     </div>
+    </GameShell>
   );
 }

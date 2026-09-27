@@ -1,0 +1,213 @@
+// Geo-specific socket action adapters. Generic room lifecycle lives in sockets/game.ts.
+import { Server, Socket } from 'socket.io';
+import { z } from 'zod';
+import { prisma } from '../../persistence/prisma.js';
+import { handleGeoGame } from './index.js';
+import { requireRoomRole, getSocketDataIdentity } from '../../sockets/auth.js';
+import { registerGeoResync } from './resync.js';
+
+const roomAction = z.object({
+  roomCode: z.string().regex(/^\d{3}-\d{3}$/),
+  rejoinToken: z.string().optional(),
+});
+const answerAction = z.object({
+  optionId: z.string().min(1),
+  questionIndex: z.number().int().nonnegative().optional(),
+});
+
+function validate<T>(schema: z.ZodType<T>, data: unknown, callback?: (result: { success: boolean; error: string }) => void): T | null {
+  const parsed = schema.safeParse(data);
+  if (parsed.success) return parsed.data;
+  callback?.({ success: false, error: 'INVALID_PAYLOAD' });
+  return null;
+}
+
+export function registerGeoEvents(io: Server, socket: Socket): void {
+  socket.on('geo:answer', (data, callback) => {
+    const valid = validate(answerAction, data, callback);
+    if (valid) void handleGeoEvents.geoAnswer(io, socket, valid, callback);
+  });
+  socket.on('geo:joker:5050', (data, callback) => {
+    const valid = validate(roomAction, data, callback);
+    if (valid) void handleGeoEvents.geoJoker5050(io, socket, valid, callback);
+  });
+  socket.on('geo:joker:spy', (data, callback) => {
+    const valid = validate(roomAction, data, callback);
+    if (valid) void handleGeoEvents.geoJokerSpy(io, socket, valid, callback);
+  });
+  socket.on('geo:joker:risk', (data, callback) => {
+    const valid = validate(roomAction, data, callback);
+    if (valid) void handleGeoEvents.geoJokerRisk(io, socket, valid, callback);
+  });
+  socket.on('geo:reveal', (data, callback) => {
+    const valid = validate(roomAction, data, callback);
+    if (valid) void handleGeoEvents.geoReveal(io, socket, valid, callback);
+  });
+  socket.on('geo:next', (data, callback) => {
+    const valid = validate(roomAction, data, callback);
+    if (valid) void handleGeoEvents.geoNext(io, socket, valid, callback);
+  });
+  registerGeoResync(io, socket);
+}
+
+export const handleGeoEvents = {
+  // ============================================================
+  // Geo Quiz Events (delegated to geo engine with auth)
+  // ============================================================
+
+  async geoAnswer(
+    io: Server,
+    socket: Socket,
+    data: { questionIndex?: number; optionId: string },
+    callback?: (result: any) => void
+  ) {
+    // VIEWER role check: only PLAYER and MODERATOR can answer
+    const identity = getSocketDataIdentity(socket);
+    if (!identity || !identity.roomId) {
+      callback?.({ success: false, error: 'NOT_IN_ROOM' });
+      return;
+    }
+    if (identity.role === 'VIEWER') {
+      callback?.({ success: false, error: 'VIEWERS_CANNOT_MODIFY' });
+      return;
+    }
+
+    const room = await prisma.room.findUnique({
+      where: { id: identity.roomId },
+    });
+
+    if (!room) {
+      callback?.({ success: false, error: 'ROOM_NOT_FOUND' });
+      return;
+    }
+
+    // P0-10: Use socket.data.participationId instead of rejoinToken
+    const dataWithRoom = {
+      ...data,
+      roomCode: room.code,
+      participationId: socket.data.participationId,
+    };
+
+    return handleGeoGame.handleAnswer(io, socket, dataWithRoom, callback);
+  },
+
+  async geoJoker5050(
+    io: Server,
+    socket: Socket,
+    data: { roomCode: string; rejoinToken?: string },
+    callback?: (result: any) => void
+  ) {
+    // VIEWER role check: only PLAYER and MODERATOR can use jokers
+    const identity = getSocketDataIdentity(socket);
+    if (!identity || !identity.roomId) {
+      callback?.({ success: false, error: 'NOT_IN_ROOM' });
+      return;
+    }
+    if (identity.role === 'VIEWER') {
+      callback?.({ success: false, error: 'VIEWERS_CANNOT_MODIFY' });
+      return;
+    }
+    return handleGeoGame.handleJoker5050(io, socket, data, callback);
+  },
+
+  async geoJokerSpy(
+    io: Server,
+    socket: Socket,
+    data: { roomCode: string; rejoinToken?: string },
+    callback?: (result: any) => void
+  ) {
+    // VIEWER role check: only PLAYER and MODERATOR can use jokers
+    const identity = getSocketDataIdentity(socket);
+    if (!identity || !identity.roomId) {
+      callback?.({ success: false, error: 'NOT_IN_ROOM' });
+      return;
+    }
+    if (identity.role === 'VIEWER') {
+      callback?.({ success: false, error: 'VIEWERS_CANNOT_MODIFY' });
+      return;
+    }
+    return handleGeoGame.handleJokerSpy(io, socket, data, callback);
+  },
+
+  async geoJokerRisk(
+    io: Server,
+    socket: Socket,
+    data: { roomCode: string; rejoinToken?: string },
+    callback?: (result: any) => void
+  ) {
+    // VIEWER role check: only PLAYER and MODERATOR can use jokers
+    const identity = getSocketDataIdentity(socket);
+    if (!identity || !identity.roomId) {
+      callback?.({ success: false, error: 'NOT_IN_ROOM' });
+      return;
+    }
+    if (identity.role === 'VIEWER') {
+      callback?.({ success: false, error: 'VIEWERS_CANNOT_MODIFY' });
+      return;
+    }
+    return handleGeoGame.handleJokerRisk(io, socket, data, callback);
+  },
+
+  async geoReveal(
+    io: Server,
+    socket: Socket,
+    data: { roomCode: string },
+    callback?: (result: any) => void
+  ) {
+    // P0-17: Use socket identity for authorization
+    const identity = getSocketDataIdentity(socket);
+    if (!identity || !identity.roomId) {
+      callback?.({ success: false, error: 'NOT_IN_ROOM' });
+      return;
+    }
+
+    const room = await prisma.room.findUnique({
+      where: { id: identity.roomId },
+    });
+
+    if (!room) {
+      callback?.({ success: false, error: 'ROOM_NOT_FOUND' });
+      return;
+    }
+
+    const authorized = requireRoomRole(socket, 'MODERATOR');
+    if (!authorized) {
+      callback?.({ success: false, error: 'UNAUTHORIZED' });
+      return;
+    }
+
+    return handleGeoGame.handleReveal(io, socket, { roomCode: room.code }, callback);
+  },
+
+  async geoNext(
+    io: Server,
+    socket: Socket,
+    data: { roomCode: string },
+    callback?: (result: any) => void
+  ) {
+    // P0-17: Use socket identity for authorization
+    const identity = getSocketDataIdentity(socket);
+    if (!identity || !identity.roomId) {
+      callback?.({ success: false, error: 'NOT_IN_ROOM' });
+      return;
+    }
+
+    const room = await prisma.room.findUnique({
+      where: { id: identity.roomId },
+    });
+
+    if (!room) {
+      callback?.({ success: false, error: 'ROOM_NOT_FOUND' });
+      return;
+    }
+
+    const authorized = requireRoomRole(socket, 'MODERATOR');
+    if (!authorized) {
+      callback?.({ success: false, error: 'UNAUTHORIZED' });
+      return;
+    }
+
+    return handleGeoGame.handleNext(io, socket, { roomCode: room.code }, callback);
+  },
+
+};

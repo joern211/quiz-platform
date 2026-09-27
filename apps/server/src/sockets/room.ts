@@ -75,6 +75,28 @@ export async function handleRoomSubscription(
     return;
   }
 
+  // Socket.IO rooms persist across subscribe calls. A socket switching rooms
+  // must leave its previous channel before acquiring another identity.
+  const previousRoomId = socket.data.roomId as string | undefined;
+  const previousParticipationId = socket.data.participationId as string | undefined;
+  if (previousRoomId && previousRoomId !== room.id) {
+    await socket.leave(roomChannel(previousRoomId));
+    socketIdentityMap.delete(socket.id);
+    if (previousParticipationId?.startsWith('viewer:')) {
+      await prisma.viewerSession.updateMany({
+        where: { id: previousParticipationId.slice('viewer:'.length), roomId: previousRoomId },
+        data: { connected: false, disconnectedAt: new Date(), lastSeenAt: new Date() },
+      });
+    } else if (previousParticipationId && ![...socketIdentityMap.values()].some((candidate) =>
+      candidate.roomId === previousRoomId && candidate.participationId === previousParticipationId
+    )) {
+      await prisma.participation.updateMany({
+        where: { id: previousParticipationId, roomId: previousRoomId },
+        data: { connected: false, lastSeenAt: new Date() },
+      });
+    }
+  }
+
   // P0-04: Extract authenticated userId from HTTP session (set by socket middleware)
   const authenticatedUser = (socket as AuthenticatedSocket).user;
   const userId = authenticatedUser?.id;
@@ -289,6 +311,22 @@ export async function handleRoomSubscription(
     return;
   }
 
+  // A rejoin replaces the previous socket for the same player or moderator.
+  // The old socket must lose both its channel and its action identity.
+  if (identity.role !== 'VIEWER') {
+    for (const [oldId, previous] of socketIdentityMap.entries()) {
+      if (oldId === socket.id || previous.roomId !== room.id ||
+          previous.participationId !== identity.participationId) continue;
+      const oldSocket = io.sockets.sockets.get(oldId);
+      if (oldSocket) {
+        oldSocket.emit('session:replaced');
+        await oldSocket.leave(roomChannel(room.id));
+        oldSocket.data = {};
+      }
+      socketIdentityMap.delete(oldId);
+    }
+  }
+
   // Store identity in socket.data (P0-08/P0-09 fix)
   socket.data = {
     ...socket.data,
@@ -483,8 +521,17 @@ export const handleRoomEvents = {
     data: { roomCode: string },
     callback?: RoomAcknowledgement
   ) {
+    const identity = socket.data as { roomId?: string; role?: string; participationId?: string };
+    if (!identity.roomId || !identity.role || !socket.rooms.has(roomChannel(identity.roomId))) {
+      callback?.({ success: false, error: 'NOT_IN_ROOM' });
+      return;
+    }
+    if (!data || typeof data.roomCode !== 'string') {
+      callback?.({ success: false, error: 'INVALID_PAYLOAD' });
+      return;
+    }
     const room = await prisma.room.findUnique({
-      where: { code: data.roomCode },
+      where: { id: identity.roomId },
       include: {
         gameDefinition: true,
         participations: { where: { role: { not: 'VIEWER' } } },
@@ -494,6 +541,10 @@ export const handleRoomEvents = {
 
     if (!room) {
       callback?.({ success: false, error: 'ROOM_NOT_FOUND' });
+      return;
+    }
+    if (room.code !== data.roomCode) {
+      callback?.({ success: false, error: 'WRONG_ROOM' });
       return;
     }
 

@@ -8,7 +8,8 @@ import { useParams } from 'react-router-dom';
 import { useJeopardy } from '../hooks/useJeopardy';
 import { JeopardyBoard } from '../components/jeopardy/JeopardyBoard';
 import { JeopardyQuestion } from '../components/jeopardy/JeopardyQuestion';
-import { Card, Badge } from '@quiz/ui';
+import { Card } from '@quiz/ui';
+import { GameShell } from '../components/GameShell';
 import styles from './JeopardySpectatorPage.module.css';
 
 export function JeopardySpectatorPage() {
@@ -30,6 +31,7 @@ export function JeopardySpectatorPage() {
   const isGameEnded = gameState.phase === 'GAME_END';
 
   return (
+    <GameShell role="viewer" roomCode={roomCode} phase={gameState.phase} connected={connected}>
     <div className={styles.page}>
       {/* Header */}
       <div className={styles.header}>
@@ -37,11 +39,7 @@ export function JeopardySpectatorPage() {
           <h1 className={styles.title}>
             🎬 Jeopardy – Board {gameState.boardNumber}
           </h1>
-          <Badge variant="accent">{gameState.phase}</Badge>
         </div>
-        <Badge variant={connected ? 'success' : 'danger'}>
-          {connected ? 'Verbunden' : 'Getrennt'}
-        </Badge>
       </div>
 
       {error && (
@@ -193,5 +191,6 @@ export function JeopardySpectatorPage() {
         </div>
       </div>
     </div>
+    </GameShell>
   );
 }

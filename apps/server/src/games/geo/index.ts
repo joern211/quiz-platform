@@ -4,8 +4,11 @@
 
 import { Server, Socket } from 'socket.io';
 import { prisma } from '../../persistence/prisma.js';
+import { finishRunningGame, saveGameStateIfRevision, upsertGameState } from '../core/state.js';
+import { authorizeGameContext } from '../core/access.js';
+import { gameErrorCode } from '../core/errors.js';
+import { applyScoreDelta, recordScoreMutation } from '../core/score.js';
 import { logger } from '../../observability/logger.js';
-import { requireRoomRole, socketIdentityMap } from '../../http/middleware/auth.js';
 import { roomChannel } from '../../sockets/index.js';
 
 interface GeoPlayerState {
@@ -13,6 +16,8 @@ interface GeoPlayerState {
   selectedOptionId: string | null;
   locked: boolean;
   score: number;
+  eliminatedOptions: string[];
+  spyDistribution?: Record<string, number> | null;
   jokers: {
     used5050: boolean;
     usedSpy: boolean;
@@ -27,10 +32,7 @@ interface GeoRoundState {
   timerStartMs: number | null;
   timerEndMs: number | null;
   pauseRemainingMs: number | null;
-  buzzWinnerId: string | null;
-  buzzOpen: boolean;
   playerStates: Record<string, GeoPlayerState>;
-  spyDistribution: Record<string, number> | null;
   // P0-17: Store answers keyed by participationId for score updates
   answers: Record<string, { selectedOptionId: string; correct: boolean; bonus: number }>;
 }
@@ -46,12 +48,17 @@ interface GeoGameState {
 // Store active timer handles per roomCode (for cancellation)
 const activeTimers = new Map<string, NodeJS.Timeout>();
 
+export function cancelGeoTimer(roomId: string): void {
+  const timer = activeTimers.get(roomId);
+  if (timer) clearTimeout(timer);
+  activeTimers.delete(roomId);
+}
+
 // P0-16: Rekonstruiere aktive Timer nach Server-Restart aus der DB
 export async function restoreActiveTimers(io: Server): Promise<void> {
   try {
-    // Finde alle Räume mit aktiver Runde
     const roomsWithActiveRound = await prisma.room.findMany({
-      where: { runPhase: 'ROUND_ACTIVE' },
+      where: { status: 'RUNNING', runPhase: 'ROUND_ACTIVE', gameDefinition: { slug: 'geo' } },
       include: {
         gameState: true,
       },
@@ -60,27 +67,32 @@ export async function restoreActiveTimers(io: Server): Promise<void> {
     logger.info('P0-16: Restauriere aktive Timer', { count: roomsWithActiveRound.length });
 
     for (const room of roomsWithActiveRound) {
-      if (!room.gameState) continue;
+      try {
+        if (!room.gameState) continue;
+        const state: GeoGameState = JSON.parse(room.gameState.stateJson);
+        if (state.phase !== 'INPUT_OPEN' || !state.roundStates || !Number.isInteger(state.currentRoundIndex)) continue;
+        const roundState = state.roundStates[state.currentRoundIndex];
+        if (!roundState || typeof roundState.timerEndMs !== 'number' || !Number.isFinite(roundState.timerEndMs)) continue;
 
-      const state: GeoGameState = JSON.parse(room.gameState.stateJson);
-      const roundState = state.roundStates[state.currentRoundIndex];
-      if (!roundState || !roundState.timerEndMs) continue;
+        const remaining = roundState.timerEndMs - Date.now();
+        if (remaining <= 0) {
+          logger.info('P0-16: Timer bereits abgelaufen, beende Runde', { roomId: room.id });
+          await handleGeoGame.handleTimerExpired(io, room);
+          continue;
+        }
 
-      const remaining = roundState.timerEndMs - Date.now();
-      if (remaining <= 0) {
-        // Timer bereits abgelaufen → Runde beenden
-        logger.info('P0-16: Timer bereits abgelaufen, beende Runde', { roomId: room.id });
-        await handleGeoGame.handleTimerExpired(io, room);
-        continue;
+        cancelGeoTimer(room.id);
+        const timer = setTimeout(() => {
+          activeTimers.delete(room.id);
+          void handleGeoGame.handleTimerExpired(io, room).catch((error) => {
+            logger.error('P0-16: Fehler beim Ablauf des restaurierten Timers', { roomId: room.id, error });
+          });
+        }, remaining);
+        activeTimers.set(room.id, timer);
+        logger.info('P0-16: Timer restauriert', { roomId: room.id, remainingMs: remaining });
+      } catch (error) {
+        logger.error('P0-16: Fehler beim Restaurieren eines Raum-Timers', { roomId: room.id, error });
       }
-
-      const timer = setTimeout(async () => {
-        activeTimers.delete(room.id);
-        await handleGeoGame.handleTimerExpired(io, room);
-      }, remaining);
-
-      activeTimers.set(room.id, timer);
-      logger.info('P0-16: Timer restauriert', { roomId: room.id, remainingMs: remaining });
     }
   } catch (error) {
     logger.error('P0-16: Fehler beim Restaurieren der Timer', { error });
@@ -170,6 +182,7 @@ export const handleGeoGame = {
         selectedOptionId: null,
         locked: false,
         score: 0,
+        eliminatedOptions: [],
         jokers: {
           used5050: false,
           usedSpy: false,
@@ -188,21 +201,12 @@ export const handleGeoGame = {
       scores,
     };
 
-    // Save to database
-    await prisma.roomGameState.upsert({
-      where: { roomId: room.id },
-      create: {
-        roomId: room.id,
-        engineVersion: 1,
-        phase: initialPhase,
-        stateJson: JSON.stringify(gameState),
-        revision: 1,
-      },
-      update: {
-        phase: initialPhase,
-        stateJson: JSON.stringify(gameState),
-        revision: { increment: 1 },
-      },
+    // Save through the shared game-state core.
+    await upsertGameState({
+      roomId: room.id,
+      engineVersion: 1,
+      phase: initialPhase,
+      state: gameState,
     });
 
     // Emit initial state
@@ -232,7 +236,7 @@ export const handleGeoGame = {
       roomRecord = await prisma.room.findUnique({
         where: { code: room },
       });
-      if (!roomRecord) return;
+      if (!roomRecord || roomRecord.status !== 'RUNNING') return;
       roomChannelName = roomChannel(roomRecord.id);
     } else {
       // Room object passed directly
@@ -250,8 +254,10 @@ export const handleGeoGame = {
     const question = state.questions[state.currentRoundIndex];
 
     if (!question) {
-      // No more questions - end game
-      io.to(roomChannelName).emit('game:end', { reason: 'NO_MORE_QUESTIONS' });
+      const ended = await finishRunningGame<GeoGameState>({
+        roomId: roomRecord.id, expectedRevision: gameStateData.revision,
+      });
+      if (ended.ended) await this.handleGameEnd(io, roomRecord, ended.state);
       return;
     }
 
@@ -263,6 +269,20 @@ export const handleGeoGame = {
     const timerDuration = (setup.timerDuration || 20) * 1000; // Convert to ms
     const timerStartMs = Date.now();
     const timerEndMs = timerStartMs + timerDuration;
+
+    // Create each player's round state before answers or jokers arrive.
+    const players = await prisma.participation.findMany({
+      where: { roomId: roomRecord.id, role: 'PLAYER' }, select: { id: true },
+    });
+    const playerStates: Record<string, GeoPlayerState> = {};
+    for (const player of players) {
+      playerStates[player.id] = {
+        answered: false, selectedOptionId: null, locked: false,
+        score: state.scores[player.id] ?? 0,
+        eliminatedOptions: [],
+        jokers: { used5050: false, usedSpy: false, usedRisk: false },
+      };
+    }
 
     // Initialize round state
     state.roundStates[state.currentRoundIndex] = {
@@ -279,33 +299,26 @@ export const handleGeoGame = {
       timerStartMs,
       timerEndMs,
       pauseRemainingMs: null,
-      buzzWinnerId: null,
-      buzzOpen: false,
-      playerStates: {},
-      spyDistribution: null,
+      playerStates,
       answers: {},
     };
 
     state.phase = 'INPUT_OPEN';
 
-    // Update database
-    await prisma.roomGameState.update({
-      where: { roomId: roomRecord.id },
-      data: {
-        stateJson: JSON.stringify(state),
-        phase: 'INPUT_OPEN',
-        revision: { increment: 1 },
-      },
-    });
-
-    await prisma.room.update({
-      where: { id: roomRecord.id },
-      data: { runPhase: 'ROUND_ACTIVE', revision: { increment: 1 } },
+    // A concurrent game:end must prevent both the state transition and event.
+    await prisma.$transaction(async (tx) => {
+      await saveGameStateIfRevision(tx, {
+        roomId: roomRecord.id, expectedRevision: gameStateData.revision, state, phase: 'INPUT_OPEN',
+      });
+      const updated = await tx.room.updateMany({
+        where: { id: roomRecord.id, status: 'RUNNING' },
+        data: { runPhase: 'ROUND_ACTIVE', revision: { increment: 1 } },
+      });
+      if (updated.count !== 1) throw new Error('GAME_NOT_RUNNING');
     });
 
     // P0-04/P0-17: Emit 'geo:question' with correct structure (NO correctOptionId!)
     // P0-16: Include timerEndMs in geo:question event
-    const roundState = state.roundStates[state.currentRoundIndex];
     io.to(roomChannelName).emit('geo:question', {
       roundIndex: state.currentRoundIndex,
       totalQuestions: state.questions.length,
@@ -324,12 +337,6 @@ export const handleGeoGame = {
       },
       timerMs: timerDuration,
       timerEndMs,
-      buzzOpen: false,
-      yourJokers: roundState.playerStates['']?.jokers || {
-        used5050: false,
-        usedSpy: false,
-        usedRisk: false,
-      },
     });
 
     // P0-16: Set server-side timeout to auto-close answers and reveal
@@ -364,19 +371,14 @@ export const handleGeoGame = {
       const roundState = state.roundStates[state.currentRoundIndex];
 
       // Skip if already revealed
-      if (roundState?.revealed) return;
+      if (roundState?.revealed || state.phase !== 'INPUT_OPEN') return;
 
       // Close input phase
       state.phase = 'INPUT_LOCKED';
 
-      await prisma.roomGameState.update({
-        where: { roomId: room.id },
-        data: {
-          stateJson: JSON.stringify(state),
-          phase: 'INPUT_LOCKED',
-          revision: { increment: 1 },
-        },
-      });
+      await prisma.$transaction(async (tx) => saveGameStateIfRevision(tx, {
+        roomId: room.id, expectedRevision: gameStateData.revision, state, phase: 'INPUT_LOCKED',
+      }));
 
       io.to(roomChannel(room.id)).emit('geo:timer-expired', {
         roundIndex: state.currentRoundIndex,
@@ -402,27 +404,12 @@ export const handleGeoGame = {
     callback?: (result: any) => void
   ) {
     try {
-      // P0-10: Get participationId from socket.data.participationId (set at subscribe time)
-      const participationId = socket.data.participationId;
-      if (!participationId) {
-        callback?.({ success: false, error: 'NOT_JOINED' });
-        return;
-      }
-
-      const roomId = socket.data.roomId;
-      if (!roomId) {
-        callback?.({ success: false, error: 'ROOM_NOT_FOUND' });
-        return;
-      }
-
-      const room = await prisma.room.findUnique({
-        where: { id: roomId },
+      const auth = await authorizeGameContext(socket, {
+        roles: ['PLAYER'], requireParticipation: true, gameSlug: 'geo', requireRunning: true,
       });
-
-      if (!room) {
-        callback?.({ success: false, error: 'ROOM_NOT_FOUND' });
-        return;
-      }
+      if (!auth.ok) { callback?.({ success: false, error: auth.error }); return; }
+      const participationId = auth.actor.participationId!;
+      const room = auth.room;
 
       // P0-12: Atomare Antwort-Speicherung mit revision check (optimistic locking)
       const gameStateData = await prisma.$transaction(async (tx) => {
@@ -446,6 +433,7 @@ export const handleGeoGame = {
           selectedOptionId: null,
           locked: false,
           score: 0,
+          eliminatedOptions: [],
           jokers: { used5050: false, usedSpy: false, usedRisk: false },
         };
 
@@ -466,9 +454,8 @@ export const handleGeoGame = {
         playerState.selectedOptionId = data.optionId;
         roundState.playerStates[participationId] = playerState;
 
-        await tx.roomGameState.update({
-          where: { roomId: room.id },
-          data: { stateJson: JSON.stringify(parsed), revision: { increment: 1 } },
+        await saveGameStateIfRevision(tx, {
+          roomId: room.id, expectedRevision: existing.revision, state: parsed, phase: parsed.phase,
         });
 
         return { existing, roundIndex: parsed.currentRoundIndex };
@@ -481,12 +468,22 @@ export const handleGeoGame = {
 
       const { roundIndex } = gameStateData;
 
-      // P0-04: Broadcast using correct event name 'geo:answered'
+      // All room members may know who has answered, but only moderators may
+      // see the selected option before reveal. In particular, this must not
+      // bypass the player-private Spy joker.
       io.to(roomChannel(room.id)).emit('geo:answered', {
         questionIndex: roundIndex,
         participantId: participationId,
-        optionId: data.optionId,
+        answered: true,
       });
+      const roomSockets = await io.in(roomChannel(room.id)).fetchSockets();
+      for (const moderator of roomSockets) {
+        if (moderator.data.role === 'MODERATOR' && moderator.data.roomId === room.id) {
+          moderator.emit('geo:answered:moderator', {
+            questionIndex: roundIndex, participantId: participationId, optionId: data.optionId,
+          });
+        }
+      }
 
       callback?.({ success: true });
     } catch (error: any) {
@@ -504,7 +501,7 @@ export const handleGeoGame = {
         return;
       }
       logger.error('Geo answer error', { error });
-      callback?.({ success: false, error: 'INTERNAL_ERROR' });
+      callback?.({ success: false, error: gameErrorCode(error) });
     }
   },
 
@@ -519,21 +516,19 @@ export const handleGeoGame = {
     callback?: (result: any) => void
   ) {
     try {
-      if (!data.rejoinToken) {
-        callback?.({ success: false, error: 'TOKEN_REQUIRED' });
+      const auth = await authorizeGameContext(socket, { roles: ['PLAYER'], requireParticipation: true, gameSlug: 'geo', requireRunning: true });
+      if (!auth.ok) {
+        callback?.({ success: false, error: auth.error });
         return;
       }
-
-      const participation = await prisma.participation.findUnique({
-        where: { rejoinToken: data.rejoinToken },
+      const participation = await prisma.participation.findFirst({
+        where: { id: auth.actor.participationId, roomId: auth.actor.roomId, role: 'PLAYER' },
         include: { room: true },
       });
-
       if (!participation) {
         callback?.({ success: false, error: 'PARTICIPATION_NOT_FOUND' });
         return;
       }
-
       if (participation.room.code !== data.roomCode) {
         callback?.({ success: false, error: 'WRONG_ROOM' });
         return;
@@ -579,6 +574,7 @@ export const handleGeoGame = {
       // Randomly select two wrong options
       const shuffled = wrongOptions.sort(() => Math.random() - 0.5);
       const eliminated = shuffled.slice(0, 2).map((o: any) => o.id);
+      playerState.eliminatedOptions = eliminated;
 
       // P0-17: Keep original option IDs; mark eliminated with eliminated:true
       // Client renders all 4 options but crosses out eliminated ones
@@ -590,28 +586,17 @@ export const handleGeoGame = {
         eliminated: eliminated.includes(o.id),
       }));
 
-      // Send full options list with eliminated flags to this player only (private)
-      socket.emit('geo:joker:applied', {
-        type: '5050',
-        result: {
-          roundIndex: state.currentRoundIndex,
-          options: optionsWithEliminated,
-          eliminated,
-        },
-      });
-
-      await prisma.roomGameState.update({
-        where: { roomId: room.id },
-        data: {
-          stateJson: JSON.stringify(state),
-          revision: { increment: 1 },
-        },
-      });
+      await prisma.$transaction(async (tx) => saveGameStateIfRevision(tx, {
+        roomId: room.id, expectedRevision: gameStateData.revision, state, phase: state.phase,
+      }));
+      const result = { roundIndex: state.currentRoundIndex, options: optionsWithEliminated, eliminated };
+      socket.emit('geo:joker:5050:result', result);
+      socket.emit('geo:joker:applied', { type: '5050', result });
 
       callback?.({ success: true });
     } catch (error) {
       logger.error('Geo 50/50 joker error', { error });
-      callback?.({ success: false, error: 'INTERNAL_ERROR' });
+      callback?.({ success: false, error: gameErrorCode(error) });
     }
   },
 
@@ -626,21 +611,19 @@ export const handleGeoGame = {
     callback?: (result: any) => void
   ) {
     try {
-      if (!data.rejoinToken) {
-        callback?.({ success: false, error: 'TOKEN_REQUIRED' });
+      const auth = await authorizeGameContext(socket, { roles: ['PLAYER'], requireParticipation: true, gameSlug: 'geo', requireRunning: true });
+      if (!auth.ok) {
+        callback?.({ success: false, error: auth.error });
         return;
       }
-
-      const participation = await prisma.participation.findUnique({
-        where: { rejoinToken: data.rejoinToken },
+      const participation = await prisma.participation.findFirst({
+        where: { id: auth.actor.participationId, roomId: auth.actor.roomId, role: 'PLAYER' },
         include: { room: true },
       });
-
       if (!participation) {
         callback?.({ success: false, error: 'PARTICIPATION_NOT_FOUND' });
         return;
       }
-
       if (participation.room.code !== data.roomCode) {
         callback?.({ success: false, error: 'WRONG_ROOM' });
         return;
@@ -703,29 +686,19 @@ export const handleGeoGame = {
         }
       }
 
-      roundState.spyDistribution = distribution;
+      playerState.spyDistribution = distribution;
 
-      // Send only to this player using 'geo:joker:applied'
-      socket.emit('geo:joker:applied', {
-        type: 'spy',
-        result: {
-          roundIndex: state.currentRoundIndex,
-          distribution,
-        },
-      });
-
-      await prisma.roomGameState.update({
-        where: { roomId: room.id },
-        data: {
-          stateJson: JSON.stringify(state),
-          revision: { increment: 1 },
-        },
-      });
+      await prisma.$transaction(async (tx) => saveGameStateIfRevision(tx, {
+        roomId: room.id, expectedRevision: gameStateData.revision, state, phase: state.phase,
+      }));
+      const result = { roundIndex: state.currentRoundIndex, distribution };
+      socket.emit('geo:joker:spy:result', result);
+      socket.emit('geo:joker:applied', { type: 'spy', result });
 
       callback?.({ success: true });
     } catch (error) {
       logger.error('Geo spy joker error', { error });
-      callback?.({ success: false, error: 'INTERNAL_ERROR' });
+      callback?.({ success: false, error: gameErrorCode(error) });
     }
   },
 
@@ -740,21 +713,19 @@ export const handleGeoGame = {
     callback?: (result: any) => void
   ) {
     try {
-      if (!data.rejoinToken) {
-        callback?.({ success: false, error: 'TOKEN_REQUIRED' });
+      const auth = await authorizeGameContext(socket, { roles: ['PLAYER'], requireParticipation: true, gameSlug: 'geo', requireRunning: true });
+      if (!auth.ok) {
+        callback?.({ success: false, error: auth.error });
         return;
       }
-
-      const participation = await prisma.participation.findUnique({
-        where: { rejoinToken: data.rejoinToken },
+      const participation = await prisma.participation.findFirst({
+        where: { id: auth.actor.participationId, roomId: auth.actor.roomId, role: 'PLAYER' },
         include: { room: true },
       });
-
       if (!participation) {
         callback?.({ success: false, error: 'PARTICIPATION_NOT_FOUND' });
         return;
       }
-
       if (participation.room.code !== data.roomCode) {
         callback?.({ success: false, error: 'WRONG_ROOM' });
         return;
@@ -792,27 +763,17 @@ export const handleGeoGame = {
       // Mark joker as used
       playerState.jokers.usedRisk = true;
 
-      // Confirm to player using 'geo:joker:applied'
-      socket.emit('geo:joker:applied', {
-        type: 'risk',
-        result: {
-          roundIndex: state.currentRoundIndex,
-          active: true,
-        },
-      });
-
-      await prisma.roomGameState.update({
-        where: { roomId: room.id },
-        data: {
-          stateJson: JSON.stringify(state),
-          revision: { increment: 1 },
-        },
-      });
+      await prisma.$transaction(async (tx) => saveGameStateIfRevision(tx, {
+        roomId: room.id, expectedRevision: gameStateData.revision, state, phase: state.phase,
+      }));
+      const result = { roundIndex: state.currentRoundIndex, active: true };
+      socket.emit('geo:joker:risk:result', result);
+      socket.emit('geo:joker:applied', { type: 'risk', result });
 
       callback?.({ success: true });
     } catch (error) {
       logger.error('Geo risk joker error', { error });
-      callback?.({ success: false, error: 'INTERNAL_ERROR' });
+      callback?.({ success: false, error: gameErrorCode(error) });
     }
   },
 
@@ -837,9 +798,11 @@ export const handleGeoGame = {
           return;
         }
 
-        const authResult = await requireRoomRole(socket, roomRecord.id, { role: 'MODERATOR' });
-        if (!authResult.authorized) {
-          callback?.({ success: false, error: authResult.errorCode ?? 'UNAUTHORIZED' });
+        const auth = await authorizeGameContext(socket, {
+          roles: ['MODERATOR'], requireParticipation: true, gameSlug: 'geo', requireRunning: true,
+        });
+        if (!auth.ok || auth.room.id !== roomRecord.id) {
+          callback?.({ success: false, error: auth.ok ? 'WRONG_ROOM' : auth.error });
           return;
         }
       }
@@ -883,8 +846,6 @@ export const handleGeoGame = {
       // 4. Store answers in roundState.answers
       await prisma.$transaction(async (tx) => {
         // Calculate scores for each player
-        const scoreEvents: Array<{ participationId: string; delta: number; reason: string }> = [];
-
         for (const [pid, playerState] of Object.entries(roundState.playerStates)) {
           const ps = playerState as GeoPlayerState;
           if (!ps.answered) continue;
@@ -901,7 +862,7 @@ export const handleGeoGame = {
               bonus = questionPoints / 2;
             }
             points = questionPoints;
-            state.scores[pid] = (state.scores[pid] || 0) + points;
+            state.scores = applyScoreDelta(state.scores, pid, points);
           } else {
             // Wrong answer
             let wrongPoints = question.wrongPoints || 0;
@@ -910,7 +871,7 @@ export const handleGeoGame = {
               bonus = -Math.abs(wrongPoints);
             }
             points = wrongPoints;
-            state.scores[pid] = (state.scores[pid] || 0) + points;
+            state.scores = applyScoreDelta(state.scores, pid, points);
           }
 
           // P0-17: Store answer in roundState.answers keyed by participationId
@@ -920,28 +881,10 @@ export const handleGeoGame = {
             bonus,
           };
 
-          scoreEvents.push({
-            participationId: pid,
-            delta: points,
-            reason: isCorrect ? 'CORRECT_ANSWER' : 'WRONG_ANSWER',
-          });
-
-          // Update participation score
-          await tx.participation.update({
-            where: { id: pid },
-            data: { score: state.scores[pid] },
-          });
-
-          // Create score event
-          await tx.scoreEvent.create({
-            data: {
-              roomId: room.id,
-              participationId: pid,
-              roundIndex: state.currentRoundIndex,
-              delta: points,
-              reason: isCorrect ? 'Richtige Antwort' : 'Falsche Antwort',
-              source: 'auto',
-            },
+          await recordScoreMutation(tx, {
+            roomId: room.id, participationId: pid, score: state.scores[pid],
+            roundIndex: state.currentRoundIndex, delta: points,
+            reason: isCorrect ? 'Richtige Antwort' : 'Falsche Antwort',
           });
         }
 
@@ -950,13 +893,8 @@ export const handleGeoGame = {
         state.phase = 'REVEAL';
 
         // Update game state
-        await tx.roomGameState.update({
-          where: { roomId: room.id },
-          data: {
-            stateJson: JSON.stringify(state),
-            phase: 'REVEAL',
-            revision: { increment: 1 },
-          },
+        await saveGameStateIfRevision(tx, {
+          roomId: room.id, expectedRevision: gameStateData.revision, state, phase: 'REVEAL',
         });
 
         await tx.room.update({
@@ -978,13 +916,10 @@ export const handleGeoGame = {
         select: { id: true, displayName: true, score: true },
       });
 
-      // P0-17/P0-21: Split reveal into targeted messages:
-      // - Players/Viewers get geo:reveal WITHOUT correctOptionId (scores only)
-      // - Moderator gets geo:reveal WITH correctOptionId via targeted socket emit
-
-      // P0-21: Broadcast scores-only reveal to all (no correctOptionId - prevents cheating)
+      // The answer becomes public only after the persisted REVEAL transition.
       io.to(roomChannel(room.id)).emit('geo:reveal', {
         roundIndex: state.currentRoundIndex,
+        correctOptionId: question.correctOptionId,
         correctOptionText: correctOption?.text,
         explanation: question.explanation,
         scores: participations.map((p: any) => {
@@ -999,35 +934,10 @@ export const handleGeoGame = {
         }),
       });
 
-      // P0-21: Send correctOptionId ONLY to moderators via targeted socket emit
-      const moderatorSockets = [...socketIdentityMap.entries()]
-        .filter(([, identity]) => identity.roomId === room.id && identity.role === 'MODERATOR')
-        .map(([sid]) => io.sockets.sockets.get(sid))
-        .filter(Boolean);
-
-      for (const modSocket of moderatorSockets) {
-        modSocket?.emit('geo:reveal', {
-          roundIndex: state.currentRoundIndex,
-          correctOptionId: question.correctOptionId,
-          correctOptionText: correctOption?.text,
-          explanation: question.explanation,
-          scores: participations.map((p: any) => {
-            const answer = roundState.answers[p.id];
-            return {
-              participationId: p.id,
-              displayName: p.displayName,
-              score: state.scores[p.id] || 0,
-              correct: answer?.correct || false,
-              bonus: answer?.bonus || 0,
-            };
-          }),
-        });
-      }
-
       callback?.({ success: true });
     } catch (error) {
       logger.error('Geo reveal error', { error });
-      callback?.({ success: false, error: 'INTERNAL_ERROR' });
+      callback?.({ success: false, error: gameErrorCode(error) });
     }
   },
 
@@ -1052,9 +962,11 @@ export const handleGeoGame = {
       }
 
       // P0-17: Authorization check
-      const authResult = await requireRoomRole(socket, room.id, { role: 'MODERATOR' });
-      if (!authResult.authorized) {
-        callback?.({ success: false, error: authResult.errorCode ?? 'UNAUTHORIZED' });
+      const auth = await authorizeGameContext(socket, {
+        roles: ['MODERATOR'], requireParticipation: true, gameSlug: 'geo', requireRunning: true,
+      });
+      if (!auth.ok || auth.room.id !== room.id) {
+        callback?.({ success: false, error: auth.ok ? 'WRONG_ROOM' : auth.error });
         return;
       }
 
@@ -1068,24 +980,27 @@ export const handleGeoGame = {
       }
 
       const state: GeoGameState = JSON.parse(gameStateData.stateJson);
+      if (state.phase !== 'REVEAL') {
+        callback?.({ success: false, error: 'INVALID_PHASE' });
+        return;
+      }
       state.currentRoundIndex++;
       state.phase = 'PROMPT';
 
       // Check if game ended
       if (state.currentRoundIndex >= state.questions.length) {
-        await this.handleGameEnd(io, room, state);
+        const ended = await finishRunningGame<GeoGameState>({
+          roomId: room.id, expectedRevision: gameStateData.revision, requiredPhase: 'REVEAL',
+          nextState: (current) => ({ ...current, currentRoundIndex: current.currentRoundIndex + 1 }),
+        });
+        if (ended.ended) await this.handleGameEnd(io, room, ended.state);
         callback?.({ success: true, ended: true });
         return;
       }
 
-      await prisma.roomGameState.update({
-        where: { roomId: room.id },
-        data: {
-          stateJson: JSON.stringify(state),
-          phase: 'PROMPT',
-          revision: { increment: 1 },
-        },
-      });
+      await prisma.$transaction(async (tx) => saveGameStateIfRevision(tx, {
+        roomId: room.id, expectedRevision: gameStateData.revision, state, phase: 'PROMPT',
+      }));
 
       // P0-04: Emit 'geo:next' (after reveal, to trigger next round)
       io.to(roomChannel(room.id)).emit('geo:next', {
@@ -1099,7 +1014,7 @@ export const handleGeoGame = {
       callback?.({ success: true });
     } catch (error) {
       logger.error('Geo next error', { error });
-      callback?.({ success: false, error: 'INTERNAL_ERROR' });
+      callback?.({ success: false, error: gameErrorCode(error) });
     }
   },
 
@@ -1123,9 +1038,11 @@ export const handleGeoGame = {
         return;
       }
 
-      const authResult = await requireRoomRole(socket, room.id, { role: 'MODERATOR' });
-      if (!authResult.authorized) {
-        callback?.({ success: false, error: authResult.errorCode ?? 'UNAUTHORIZED' });
+      const auth = await authorizeGameContext(socket, {
+        roles: ['MODERATOR'], requireParticipation: true, gameSlug: 'geo', requireRunning: true,
+      });
+      if (!auth.ok || auth.room.id !== room.id) {
+        callback?.({ success: false, error: auth.ok ? 'WRONG_ROOM' : auth.error });
         return;
       }
 
@@ -1141,30 +1058,28 @@ export const handleGeoGame = {
       const state: GeoGameState = JSON.parse(gameStateData.stateJson);
       const roundState = state.roundStates[state.currentRoundIndex];
 
-      if (!roundState || !roundState.timerEndMs) {
+      if (!roundState || !roundState.timerEndMs || state.phase !== 'INPUT_OPEN') {
         callback?.({ success: false, error: 'NO_ACTIVE_TIMER' });
         return;
       }
 
       // P0-20: Calculate remaining time and store it
-      const pauseRemainingMs = roundState.timerEndMs - Date.now();
+      const pauseRemainingMs = Math.max(0, roundState.timerEndMs - Date.now());
       roundState.pauseRemainingMs = pauseRemainingMs;
+      roundState.timerEndMs = null;
+      state.phase = 'PAUSED';
 
-      // Cancel the active timer
-      const existingTimer = activeTimers.get(room.id);
-      if (existingTimer) {
-        clearTimeout(existingTimer);
-        activeTimers.delete(room.id);
-      }
-
-      // Update DB
-      await prisma.roomGameState.update({
-        where: { roomId: room.id },
-        data: {
-          stateJson: JSON.stringify(state),
-          revision: { increment: 1 },
-        },
+      await prisma.$transaction(async (tx) => {
+        await saveGameStateIfRevision(tx, {
+          roomId: room.id, expectedRevision: gameStateData.revision, state, phase: state.phase,
+        });
+        const updated = await tx.room.updateMany({
+          where: { id: room.id, revision: room.revision, status: 'RUNNING' },
+          data: { runPhase: 'PAUSED', revision: { increment: 1 } },
+        });
+        if (updated.count !== 1) throw new Error('STATE_CONFLICT');
       });
+      cancelGeoTimer(room.id);
 
       // Emit pause event
       io.to(roomChannel(room.id)).emit('geo:paused', {
@@ -1175,7 +1090,7 @@ export const handleGeoGame = {
       callback?.({ success: true, remainingMs: pauseRemainingMs });
     } catch (error) {
       logger.error('Geo pause error', { error });
-      callback?.({ success: false, error: 'INTERNAL_ERROR' });
+      callback?.({ success: false, error: gameErrorCode(error) });
     }
   },
 
@@ -1199,9 +1114,11 @@ export const handleGeoGame = {
         return;
       }
 
-      const authResult = await requireRoomRole(socket, room.id, { role: 'MODERATOR' });
-      if (!authResult.authorized) {
-        callback?.({ success: false, error: authResult.errorCode ?? 'UNAUTHORIZED' });
+      const auth = await authorizeGameContext(socket, {
+        roles: ['MODERATOR'], requireParticipation: true, gameSlug: 'geo', requireRunning: true,
+      });
+      if (!auth.ok || auth.room.id !== room.id) {
+        callback?.({ success: false, error: auth.ok ? 'WRONG_ROOM' : auth.error });
         return;
       }
 
@@ -1217,14 +1134,27 @@ export const handleGeoGame = {
       const state: GeoGameState = JSON.parse(gameStateData.stateJson);
       const roundState = state.roundStates[state.currentRoundIndex];
 
-      if (!roundState || roundState.pauseRemainingMs === null) {
+      if (!roundState || roundState.pauseRemainingMs === null || state.phase !== 'PAUSED') {
         callback?.({ success: false, error: 'NOT_PAUSED' });
         return;
       }
 
       // P0-20: Capture remaining time BEFORE clearing pause state
-      const remainingTime = roundState.pauseRemainingMs || 1000;
+      const remainingTime = Math.max(1, roundState.pauseRemainingMs);
       roundState.pauseRemainingMs = null;
+      const newTimerEndMs = Date.now() + remainingTime;
+      roundState.timerEndMs = newTimerEndMs;
+      state.phase = 'INPUT_OPEN';
+      await prisma.$transaction(async (tx) => {
+        await saveGameStateIfRevision(tx, {
+          roomId: room.id, expectedRevision: gameStateData.revision, state, phase: state.phase,
+        });
+        const updated = await tx.room.updateMany({
+          where: { id: room.id, revision: room.revision, status: 'RUNNING', runPhase: 'PAUSED' },
+          data: { runPhase: 'ROUND_ACTIVE', revision: { increment: 1 } },
+        });
+        if (updated.count !== 1) throw new Error('STATE_CONFLICT');
+      });
       const existingTimer = activeTimers.get(room.id);
       if (existingTimer) {
         clearTimeout(existingTimer);
@@ -1237,11 +1167,11 @@ export const handleGeoGame = {
 
       activeTimers.set(room.id, timer);
 
-      const newTimerEndMs = Date.now() + remainingTime;
+      io.to(roomChannel(room.id)).emit('geo:resumed', { timerEndMs: newTimerEndMs });
       callback?.({ success: true, timerEndMs: newTimerEndMs });
     } catch (error) {
       logger.error('Geo resume error', { error });
-      callback?.({ success: false, error: 'INTERNAL_ERROR' });
+      callback?.({ success: false, error: gameErrorCode(error) });
     }
   },
 
@@ -1249,27 +1179,14 @@ export const handleGeoGame = {
   // End Game
   // ============================================================
 
+  async end(io: Server, room: { id: string; code: string }): Promise<{ ended: boolean }> {
+    const result = await finishRunningGame<GeoGameState>({ roomId: room.id });
+    if (result.ended) await this.handleGameEnd(io, room, result.state);
+    return { ended: result.ended };
+  },
+
   async handleGameEnd(io: Server, room: any, _state: GeoGameState) {
-    // Cancel any active timer
-    const existingTimer = activeTimers.get(room.id);
-    if (existingTimer) {
-      clearTimeout(existingTimer);
-      activeTimers.delete(room.id);
-    }
-
-    await prisma.room.update({
-      where: { id: room.id },
-      data: {
-        status: 'ENDED',
-        runPhase: 'RESULTS',
-        endedAt: new Date(),
-      },
-    });
-
-    await prisma.roomGameState.update({
-      where: { roomId: room.id },
-      data: { phase: 'GAME_END' },
-    });
+    cancelGeoTimer(room.id);
 
     // Get final scores with participation details
     const participations = await prisma.participation.findMany({

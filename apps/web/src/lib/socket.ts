@@ -41,8 +41,28 @@ export interface GeoJokerPayload {
   roomCode: string;
 }
 
-export interface BuzzPayload {
-  roomCode: string;
+export interface GeoResyncResponse {
+  success: boolean;
+  error?: string;
+  phase?: string;
+  gameEnded?: boolean;
+  roundIndex?: number;
+  totalQuestions?: number;
+  question?: {
+    id: string; prompt: string; category: string;
+    options: Array<{ id: string; label: string; text: string; imageUrl?: string }>;
+    correctOptionId?: string;
+  } | null;
+  timerEndMs?: number | null;
+  pauseRemainingMs?: number | null;
+  revealed?: boolean;
+  scores?: Record<string, number>;
+  ownAnswer?: string | null;
+  ownAnswered?: boolean;
+  ownJokers?: { used5050: boolean; usedSpy: boolean; usedRisk: boolean } | null;
+  ownEliminatedOptions?: string[];
+  ownSpyDistribution?: Record<string, number> | null;
+  answerStats?: Record<string, number>;
 }
 
 export type ServerToClientEvents = {
@@ -75,10 +95,13 @@ export type ServerToClientEvents = {
   }) => void;
   'geo:reveal': (data: { correctOptionId?: string; correctOptionText?: string; explanation?: string; scores: Array<{ participationId: string; displayName: string; score: number; correct: boolean; bonus: number }> }) => void;
   'geo:timer-expired': (data: { roundIndex: number }) => void;
+  'geo:paused': (data: { roundIndex: number; remainingMs: number }) => void;
+  'geo:resumed': (data: { timerEndMs: number }) => void;
   'geo:buzzer': (data: { winnerId: string }) => void;
   'geo:next': (data: { nextRoundIndex?: number; roundIndex: number; totalQuestions: number }) => void;
   'geo:init': (data: { questionCount: number; phase: string }) => void;
-  'geo:answered': (data: { participantId: string; questionIndex: number; optionId: string }) => void;
+  'geo:answered': (data: { participantId: string; questionIndex: number; answered: true }) => void;
+  'geo:answered:moderator': (data: { participantId: string; questionIndex: number; optionId: string }) => void;
   'geo:joker:5050:result': (data: { roundIndex: number; options: any[]; eliminated: string[] }) => void;
   'geo:joker:spy:result': (data: { roundIndex: number; distribution: Record<string, number> }) => void;
   'geo:joker:risk:result': (data: { roundIndex: number; active: boolean }) => void;
@@ -96,8 +119,6 @@ export type ServerToClientEvents = {
   'jeopardy:board:switch': (data: { fromBoard: 1 | 2; toBoard: 2 | 1; categories: Array<{ name: string; clueCount: number }>; values: number[]; scores: Record<string, number> }) => void;
   'jeopardy:board:complete': (data: { boardNumber: 1 | 2; nextBoard: 2 | null }) => void;
   'jeopardy:game:end': (data: { finalScores: Array<{ playerId: string; playerName: string; score: number }>; winnerIds: string[] }) => void;
-  'buzz:won': (data: { playerId: string; displayName: string }) => void;
-  'buzz:press': (data: BuzzPayload) => void;
   'game:pause': (data: { roomCode: string }) => void;
   'game:resume': (data: { roomCode: string }) => void;
   'lobby:chat:message': (data: { id?: string; senderId?: string; senderName: string; content: string; createdAt?: string }) => void;
@@ -119,9 +140,9 @@ export type ClientToServerEvents = {
   'geo:joker:5050': (data: GeoJokerPayload & { rejoinToken?: string }, ack: (res: { success: boolean; error?: string; eliminatedOptions?: string[] }) => void) => void;
   'geo:joker:spy': (data: GeoJokerPayload & { rejoinToken?: string }, ack: (res: { success: boolean; error?: string; distribution?: Record<string, number> }) => void) => void;
   'geo:joker:risk': (data: GeoJokerPayload & { rejoinToken?: string }, ack: (res: { success: boolean; error?: string }) => void) => void;
+  'geo:resync': (data: Record<string, never>, ack: (res: GeoResyncResponse) => void) => void;
   'geo:reveal': (data: GeoJokerPayload, ack: (res: { success: boolean; error?: string }) => void) => void;
   'geo:next': (data: GeoJokerPayload, ack: (res: { success: boolean; error?: string; ended?: boolean }) => void) => void;
-  'buzz:press': (data: BuzzPayload & { rejoinToken?: string }, ack: (res: { success: boolean }) => void) => void;
   // ── Jeopardy ────────────────────────────────────────────────
   'jeopardy:field:open': (data: { boardIndex: 1 | 2; categoryIndex: number; value: number; rejoinToken?: string }, ack: (res: { success: boolean; error?: string }) => void) => void;
   'jeopardy:buzz': (data: { rejoinToken?: string }, ack: (res: { success: boolean; error?: string }) => void) => void;

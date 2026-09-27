@@ -5,8 +5,9 @@
 import { useParams, useNavigate } from 'react-router-dom';
 import { useEffect, useState, useRef } from 'react';
 import { getSocket, connectSocket, disconnectSocket } from '../lib/socket';
-import { Card, Button, Badge } from '@quiz/ui';
+import { Card, Button } from '@quiz/ui';
 import { Timer } from '@quiz/ui';
+import { GameShell } from '../components/GameShell';
 import styles from './ModeratorGamePage.module.css';
 
 export function ModeratorGamePage() {
@@ -21,7 +22,6 @@ export function ModeratorGamePage() {
   const [endsAt, setEndsAt] = useState(0);
   const [answerStats, setAnswerStats] = useState<Record<string, number>>({});
   const [players, setPlayers] = useState<any[]>([]);
-  const [, setBuzzerWinner] = useState<any>(null);
   const [, setGameEnded] = useState(false);
   const [revealed, setRevealed] = useState(false);
   const [scores, setScores] = useState<Record<string, number>>({});
@@ -35,7 +35,26 @@ export function ModeratorGamePage() {
 
     const subscribe = () => {
       socket.emit('room:subscribe', { roomCode, role: 'MODERATOR' }, (response) => {
-        if (!response.success) setActionError(`Raumverbindung fehlgeschlagen: ${response.error ?? 'Unbekannter Fehler'}`);
+        if (!response.success) {
+          setActionError(`Raumverbindung fehlgeschlagen: ${response.error ?? 'Unbekannter Fehler'}`);
+          return;
+        }
+        socket.emit('geo:resync', {}, (res) => {
+          if (!res.success) return;
+          if (res.phase === 'GAME_END') {
+            navigate(`/moderator/raum/${roomCode}/ergebnis`, { replace: true });
+            return;
+          }
+          if (res.question) setQuestion(res.question);
+          setEndsAt(res.timerEndMs ?? 0);
+          setRevealed(res.revealed ?? false);
+          setTimerPaused(res.phase === 'PAUSED');
+          setCurrentIndex(res.roundIndex ?? 0);
+          setTotalQuestions(res.totalQuestions ?? 0);
+          setScores(res.scores ?? {});
+          setCorrectOptionId(res.question?.correctOptionId ?? null);
+          setAnswerStats(res.answerStats ?? {});
+        });
       });
     };
 
@@ -58,7 +77,6 @@ export function ModeratorGamePage() {
       setQuestion(data.question);
       setEndsAt(data.timerEndMs);
       setRevealed(false);
-      setBuzzerWinner(null);
       setAnswerStats({});
       setCorrectOptionId(null);
       setActionError('');
@@ -66,21 +84,22 @@ export function ModeratorGamePage() {
       setTotalQuestions(data.totalQuestions);
     });
 
-    socket.on('geo:answered', (data) => {
+    socket.on('geo:answered:moderator', (data) => {
       setAnswerStats(prev => ({
         ...prev,
         [data.optionId]: (prev[data.optionId] || 0) + 1,
       }));
     });
 
-    socket.on('buzz:won', (data) => {
-      setBuzzerWinner(data);
-    });
-
     socket.on('geo:reveal', (data) => {
       setRevealed(true);
       setCorrectOptionId(data.correctOptionId ?? null);
       setScores(Object.fromEntries(data.scores.map(entry => [entry.participationId, entry.score])));
+    });
+    socket.on('geo:paused', () => setTimerPaused(true));
+    socket.on('geo:resumed', (data: { timerEndMs: number }) => {
+      setTimerPaused(false);
+      setEndsAt(data.timerEndMs);
     });
 
     socket.on('game:end', (data) => {
@@ -151,35 +170,30 @@ export function ModeratorGamePage() {
 
   if (!question) {
     return (
+      <GameShell role="moderator" roomCode={roomCode} phase="WAITING" connected={connected} error={actionError}>
       <div className={styles.page}>
         <div className={styles.waiting}>
           <h1>Warte auf Spielstart...</h1>
-          <Badge variant={connected ? 'success' : 'danger'}>
-            {connected ? 'Verbunden' : 'Getrennt'}
-          </Badge>
         </div>
       </div>
+      </GameShell>
     );
   }
 
   return (
+    <GameShell role="moderator" roomCode={roomCode} phase={timerPaused ? 'PAUSED' : revealed ? 'REVEAL' : 'INPUT_OPEN'} connected={connected} error={actionError}>
     <div className={styles.page}>
       <div className={styles.header}>
         <div className={styles.progress}>
           <span>Frage {currentIndex + 1} / {totalQuestions}</span>
         </div>
-        <Badge variant={connected ? 'success' : 'danger'}>
-          {connected ? 'Verbunden' : 'Getrennt'}
-        </Badge>
       </div>
-
-      {actionError && <p role="alert">{actionError}</p>}
 
       <Card padding="lg" className={styles.questionCard}>
         <p className={styles.category}>{question.category}</p>
         <h2 className={styles.prompt}>{question.prompt}</h2>
         
-        {!revealed && <Timer endsAt={endsAt} size="lg" />}
+        {!revealed && !timerPaused && <Timer endsAt={endsAt} size="lg" />}
         
         <div className={styles.answerStats}>
           {question.options.map((opt: any, i: number) => (
@@ -225,5 +239,6 @@ export function ModeratorGamePage() {
         <Button variant="danger" onClick={handleEndGame}>Spiel beenden</Button>
       </div>
     </div>
+    </GameShell>
   );
 }

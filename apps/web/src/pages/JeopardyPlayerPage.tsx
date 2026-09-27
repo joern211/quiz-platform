@@ -9,7 +9,8 @@ import { useJeopardy } from '../hooks/useJeopardy';
 import { JeopardyBoard } from '../components/jeopardy/JeopardyBoard';
 import { JeopardyQuestion } from '../components/jeopardy/JeopardyQuestion';
 import { getSessionData } from '../lib/socket';
-import { Card, Badge } from '@quiz/ui';
+import { Card } from '@quiz/ui';
+import { GameShell } from '../components/GameShell';
 import styles from './JeopardyPlayerPage.module.css';
 
 export function JeopardyPlayerPage() {
@@ -50,18 +51,15 @@ export function JeopardyPlayerPage() {
   const myScore = selfId ? gameState.scores[selfId] ?? 0 : 0;
 
   return (
+    <GameShell role="player" roomCode={roomCode} phase={gameState.phase} connected={connected}>
     <div className={styles.page}>
       {/* Header */}
       <div className={styles.header}>
         <div className={styles.headerLeft}>
           <h1 className={styles.title}>Jeopardy – Board {gameState.boardNumber}</h1>
-          <Badge variant="accent">{gameState.phase}</Badge>
         </div>
         <div className={styles.headerRight}>
           <span className={styles.myScore}>Deine Punkte: {myScore}</span>
-          <Badge variant={connected ? 'success' : 'danger'}>
-            {connected ? 'Verbunden' : 'Getrennt'}
-          </Badge>
         </div>
       </div>
 
@@ -210,5 +208,6 @@ export function JeopardyPlayerPage() {
         </div>
       </div>
     </div>
+    </GameShell>
   );
 }

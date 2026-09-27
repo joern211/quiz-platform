@@ -2,17 +2,19 @@
 // Viewer Game Page (Geo Quiz)
 // ============================================================
 
-import { useParams } from 'react-router-dom';
+import { useParams, useNavigate } from 'react-router-dom';
 import { useEffect, useState } from 'react';
 import { io } from 'socket.io-client';
-import { Card, Badge } from '@quiz/ui';
+import { Card } from '@quiz/ui';
 import { Timer } from '@quiz/ui';
+import { GameShell } from '../components/GameShell';
 import styles from './ViewerGamePage.module.css';
 
 export function ViewerGamePage() {
   const { code } = useParams<{ code: string }>();
+  const navigate = useNavigate();
   const [connected, setConnected] = useState(false);
-  const [, setPhase] = useState<string>('WAITING');
+  const [phase, setPhase] = useState<string>('WAITING');
   const [question, setQuestion] = useState<any>(null);
   const [timerEndMs, setTimerEndMs] = useState(0);
   const [players, setPlayers] = useState<any[]>([]);
@@ -22,10 +24,29 @@ export function ViewerGamePage() {
   useEffect(() => {
     const socket = io(window.location.origin, { withCredentials: true });
     
-    socket.on('connect', () => setConnected(true));
+    const subscribe = () => {
+      socket.emit('room:subscribe', { roomCode: code, role: 'VIEWER' }, (response: { success: boolean }) => {
+        if (!response.success) return;
+        socket.emit('geo:resync', {}, (res: {
+          success: boolean; question?: typeof question; timerEndMs?: number | null;
+          revealed?: boolean; phase?: string; scores?: Record<string, number>;
+        }) => {
+          if (!res.success) return;
+          if (res.phase === 'GAME_END') {
+            navigate(`/zuschauen/${code}/ergebnis`, { replace: true });
+            return;
+          }
+          setQuestion(res.question ?? null);
+          setTimerEndMs(res.timerEndMs ?? 0);
+          setRevealed(res.revealed ?? false);
+          setPhase(res.phase ?? 'WAITING');
+          setScores(res.scores ?? {});
+        });
+      });
+    };
+    socket.on('connect', () => { setConnected(true); subscribe(); });
     socket.on('disconnect', () => setConnected(false));
-    
-    socket.emit('room:subscribe', { roomCode: code, role: 'VIEWER' });
+    if (socket.connected) subscribe();
     
     socket.on('room:snapshot', (data) => {
       setPlayers(data.players || []);
@@ -42,17 +63,30 @@ export function ViewerGamePage() {
 
     socket.on('geo:reveal', (data) => {
       setRevealed(true);
-      setScores(data.scores || {});
+      setPhase('REVEAL');
+      setQuestion((previous: any) => previous
+        ? { ...previous, correctOptionId: data.correctOptionId }
+        : previous);
+      setScores(Object.fromEntries((data.scores ?? []).map(
+        (entry: { participationId: string; score: number }) => [entry.participationId, entry.score]
+      )));
+    });
+
+    socket.on('geo:paused', () => setPhase('PAUSED'));
+    socket.on('geo:resumed', (data) => {
+      setPhase('INPUT_OPEN');
+      setTimerEndMs(data.timerEndMs);
+    });
+    socket.on('game:end', (data: { status: string }) => {
+      if (data.status === 'ENDED') navigate(`/zuschauen/${code}/ergebnis`);
     });
 
     return () => { socket.disconnect(); };
-  }, [code]);
+  }, [code, navigate]);
 
   return (
+    <GameShell role="viewer" roomCode={code ?? ''} phase={phase} connected={connected}>
     <div className={styles.page}>
-      <Badge variant={connected ? 'success' : 'danger'} className={styles.status}>
-        {connected ? 'Verbunden' : 'Getrennt'}
-      </Badge>
 
       {question ? (
         <>
@@ -60,7 +94,7 @@ export function ViewerGamePage() {
             <p className={styles.category}>{question.category}</p>
             <h2 className={styles.prompt}>{question.prompt}</h2>
             
-            {!revealed && <Timer endsAt={timerEndMs} size="lg" />}
+            {!revealed && phase !== 'PAUSED' && <Timer endsAt={timerEndMs} size="lg" />}
             
             <div className={styles.options}>
               {question.options.map((opt: any, i: number) => {
@@ -99,5 +133,6 @@ export function ViewerGamePage() {
         </Card>
       )}
     </div>
+    </GameShell>
   );
 }

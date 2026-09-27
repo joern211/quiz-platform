@@ -3,6 +3,9 @@
 // Phase 3: Immutable-style state + helpers
 // ============================================================
 
+import { applyScoreDelta as applyCoreScoreDelta, ensureScoreEntries } from '../core/score.js';
+import { createBuzzerState, openBuzzer as openCoreBuzzer, resetBuzzerState } from '../core/buzzer.js';
+
 import {
   JeopardyPhase,
   JEOPARDY_PHASES,
@@ -119,10 +122,7 @@ export function createJeopardyGameState(
   playerNames: Record<string, string>,
   initialScores: Record<string, number> = {}
 ): JeopardyGameState {
-  const scores: Record<string, number> = { ...initialScores };
-  for (const id of playerIds) {
-    if (scores[id] === undefined) scores[id] = 0;
-  }
+  const scores = ensureScoreEntries(initialScores, playerIds);
 
   return {
     currentBoard,
@@ -269,10 +269,7 @@ export function applyScoreDelta(
   playerId: string,
   delta: number
 ): Record<string, number> {
-  return {
-    ...scores,
-    [playerId]: (scores[playerId] ?? 0) + delta,
-  };
+  return applyCoreScoreDelta(scores, playerId, delta);
 }
 
 /**
@@ -304,10 +301,11 @@ export function calcWrongStealDelta(value: number): number {
  * Open buzzer: first to buzz wins.
  */
 export function openBuzzer(state: JeopardyGameState): JeopardyGameState {
+  const buzzer = openCoreBuzzer(createBuzzerState());
   return {
     ...state,
-    buzzOpen: true,
-    buzzWinner: null,
+    buzzOpen: buzzer.open,
+    buzzWinner: buzzer.winnerId,
   };
 }
 
@@ -326,10 +324,11 @@ export function lockBuzzer(state: JeopardyGameState, winnerId: string): Jeopardy
  * Reset buzzer state (for next field).
  */
 export function resetBuzzer(state: JeopardyGameState): JeopardyGameState {
+  const buzzer = resetBuzzerState();
   return {
     ...state,
-    buzzOpen: false,
-    buzzWinner: null,
+    buzzOpen: buzzer.open,
+    buzzWinner: buzzer.winnerId,
     stealOpen: false,
     stealWinner: null,
   };

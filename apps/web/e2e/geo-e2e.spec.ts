@@ -165,11 +165,13 @@ test('G4-4: Vollständiger Geo-UI-Ablauf mit zwei Spielern', async ({ browser })
   const moderatorContext = await browser.newContext();
   const playerAContext = await browser.newContext();
   const playerBContext = await browser.newContext();
+  const viewerContext = await browser.newContext();
 
   try {
     const moderator = await moderatorContext.newPage();
     const playerA = await playerAContext.newPage();
     const playerB = await playerBContext.newPage();
+    const viewer = await viewerContext.newPage();
 
     await loginAsModerator(moderator);
     const code = await createGeoRoom(moderator, 1);
@@ -177,6 +179,8 @@ test('G4-4: Vollständiger Geo-UI-Ablauf mit zwei Spielern', async ({ browser })
       joinAsPlayer(playerA, code, 'Quiz Champion'),
       joinAsPlayer(playerB, code, 'Spieler B'),
     ]);
+    await viewer.goto(`${BASE}/zuschauen/${code}/lobby`);
+    await expect(viewer.getByText('Verbunden', { exact: true }).first()).toBeVisible();
     await Promise.all([markReady(playerA), markReady(playerB)]);
 
     await expect(moderator.getByText('Quiz Champion', { exact: true })).toBeVisible();
@@ -188,6 +192,7 @@ test('G4-4: Vollständiger Geo-UI-Ablauf mit zwei Spielern', async ({ browser })
       moderator.waitForURL(new RegExp(`/moderator/raum/${code}/spiel$`), { timeout: 20_000 }),
       playerA.waitForURL(new RegExp(`/raum/${code}/spiel$`), { timeout: 20_000 }),
       playerB.waitForURL(new RegExp(`/raum/${code}/spiel$`), { timeout: 20_000 }),
+      viewer.waitForURL(new RegExp(`/zuschauen/${code}/spiel$`), { timeout: 20_000 }),
       startButton.click(),
     ]);
 
@@ -208,6 +213,7 @@ test('G4-4: Vollständiger Geo-UI-Ablauf mit zwei Spielern', async ({ browser })
       moderator.waitForURL(new RegExp(`/moderator/raum/${code}/ergebnis$`), { timeout: 15_000 }),
       playerA.waitForURL(new RegExp(`/raum/${code}/ergebnis$`), { timeout: 15_000 }),
       playerB.waitForURL(new RegExp(`/raum/${code}/ergebnis$`), { timeout: 15_000 }),
+      viewer.waitForURL(new RegExp(`/zuschauen/${code}/ergebnis$`), { timeout: 15_000 }),
       nextButton.click(),
     ]);
 
@@ -216,7 +222,58 @@ test('G4-4: Vollständiger Geo-UI-Ablauf mit zwei Spielern', async ({ browser })
     await expect(playerA.getByText(/\d+ pts/).first()).toBeVisible();
     await expect(playerB.getByText(/\d+ pts/).first()).toBeVisible();
     await expect(moderator.getByRole('heading', { name: 'Ergebnis' })).toBeVisible();
+    const resultsResponse = await viewer.context().request.get(`${BASE}/api/v1/rooms/${code}/results`);
+    expect(resultsResponse.status()).toBe(200);
+    expect((await resultsResponse.json()).data.status).toBe('ENDED');
+    await Promise.all([
+      moderator.goto(`${BASE}/moderator/raum/${code}/spiel`),
+      playerA.goto(`${BASE}/raum/${code}/spiel`),
+      playerB.goto(`${BASE}/raum/${code}/spiel`),
+      viewer.goto(`${BASE}/zuschauen/${code}/spiel`),
+    ]);
+    await Promise.all([
+      expect(moderator).toHaveURL(new RegExp(`/moderator/raum/${code}/ergebnis$`)),
+      expect(playerA).toHaveURL(new RegExp(`/raum/${code}/ergebnis$`)),
+      expect(playerB).toHaveURL(new RegExp(`/raum/${code}/ergebnis$`)),
+      expect(viewer).toHaveURL(new RegExp(`/zuschauen/${code}/ergebnis$`)),
+    ]);
+    await expect(viewer.getByRole('heading', { name: 'Spiel beendet' })).toBeVisible();
   } finally {
-    await Promise.all([moderatorContext.close(), playerAContext.close(), playerBContext.close()]);
+    await Promise.all([moderatorContext.close(), playerAContext.close(), playerBContext.close(), viewerContext.close()]);
+  }
+});
+
+test('G4-6: Moderator-Antwortzahlen über Reload und weitere Antwort erhalten', async ({ browser }) => {
+  test.setTimeout(90_000);
+  const contexts = await Promise.all(Array.from({ length: 4 }, () => browser.newContext()));
+  try {
+    const [moderator, first, second, third] = await Promise.all(contexts.map(context => context.newPage()));
+    await loginAsModerator(moderator);
+    const code = await createGeoRoom(moderator, 1);
+    await Promise.all([
+      joinAsPlayer(first, code, 'Erster'),
+      joinAsPlayer(second, code, 'Zweiter'),
+      joinAsPlayer(third, code, 'Dritter'),
+    ]);
+    await Promise.all([markReady(first), markReady(second), markReady(third)]);
+    await moderator.getByRole('button', { name: 'Spiel starten' }).click();
+    await moderator.waitForURL(new RegExp(`/moderator/raum/${code}/spiel$`));
+    for (const player of [first, second, third]) {
+      await expect(player.locator('button[class*="option"]').first()).toBeVisible({ timeout: 15_000 });
+    }
+    const stat = (index: number) => moderator.locator('[class*="statRow"]').nth(index).locator('[class*="statCount"]');
+    await first.locator('button[class*="option"]').nth(0).click();
+    await second.locator('button[class*="option"]').nth(2).click();
+    await expect(stat(0)).toHaveText('1');
+    await expect(stat(2)).toHaveText('1');
+    await moderator.reload();
+    await expect(stat(0)).toHaveText('1');
+    await expect(stat(1)).toHaveText('0');
+    await expect(stat(2)).toHaveText('1');
+    await third.locator('button[class*="option"]').nth(0).click();
+    await expect(stat(0)).toHaveText('2');
+    await expect(stat(2)).toHaveText('1');
+  } finally {
+    await Promise.all(contexts.map(context => context.close()));
   }
 });
