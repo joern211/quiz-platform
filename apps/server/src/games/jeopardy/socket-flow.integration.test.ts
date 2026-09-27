@@ -343,7 +343,7 @@ describe('Jeopardy multiplayer socket integration', () => {
       expect((await ack(second, 'geo:resync')).ownEliminatedOptions).toEqual([]);
       const options = JSON.parse(question.options) as Array<{ id: string }>;
       const firstAnswer = options[0].id;
-      const secondAnswer = options[1].id;
+      const secondAnswer = options[2].id;
       const secondEvent = new Promise<Record<string, unknown>>(resolve => second.once('geo:answered', resolve));
       const viewerEvent = new Promise<Record<string, unknown>>(resolve => spectator.once('geo:answered', resolve));
       const moderatorEvent = new Promise<Record<string, unknown>>(resolve => host.once('geo:answered:moderator', resolve));
@@ -371,6 +371,11 @@ describe('Jeopardy multiplayer socket integration', () => {
       expect((await ack(first, 'geo:joker:spy', { roomCode: geoRoom.code })).success).toBe(true);
       expect((await ack(first, 'geo:resync')).ownSpyDistribution).toEqual({ [secondAnswer]: 100 });
       expect((await ack(second, 'geo:resync')).ownSpyDistribution).toEqual({ [firstAnswer]: 100 });
+      const moderatorStats = await ack(host, 'geo:resync');
+      expect(moderatorStats.answerStats).toEqual({ [firstAnswer]: 1, [secondAnswer]: 1 });
+      expect((await ack(first, 'geo:resync')).answerStats).toBeUndefined();
+      expect((await ack(second, 'geo:resync')).answerStats).toBeUndefined();
+      expect((await ack(spectator, 'geo:resync')).answerStats).toBeUndefined();
       const rejoinedSecond = await connect();
       expect((await ack(rejoinedSecond, 'room:subscribe', {
         roomCode: geoRoom.code, rejoinToken: parts[1].rejoinToken,
@@ -396,7 +401,14 @@ describe('Jeopardy multiplayer socket integration', () => {
       expect((await prisma.room.findUniqueOrThrow({ where: { id: geoRoom.id } })).status).toBe('ENDED');
       const endedGeoState = await prisma.roomGameState.findUniqueOrThrow({ where: { roomId: geoRoom.id } });
       expect(endedGeoState.phase).toBe('GAME_END');
-      expect((await ack(first, 'geo:resync')).phase).toBe('GAME_END');
+      for (const client of [host, first, spectator]) {
+        const endedResync = await ack(client, 'geo:resync');
+        expect(endedResync.phase).toBe('GAME_END');
+        expect(endedResync.gameEnded).toBe(true);
+        expect(endedResync.timerEndMs).toBeNull();
+        expect(endedResync.question).toBeNull();
+        expect(endedResync.answerStats).toBeUndefined();
+      }
     } finally {
       temporaryRoomIds.push(geoRoom.id);
     }
@@ -444,7 +456,10 @@ describe('Jeopardy multiplayer socket integration', () => {
       expect(endedRoom.runPhase).toBe('RESULTS');
       expect(gameState.phase).toBe('GAME_END');
       expect(JSON.parse(gameState.stateJson).phase).toBe('GAME_END');
-      expect((await ack(client, 'geo:resync')).phase).toBe('GAME_END');
+      const endedResync = await ack(client, 'geo:resync');
+      expect(endedResync.phase).toBe('GAME_END');
+      expect(endedResync.timerEndMs).toBeNull();
+      expect(endedResync.question).toBeNull();
       expect((await ack(host, 'game:resume', { roomCode: room.code })).success).toBe(false);
     }
   }, 20000);

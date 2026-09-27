@@ -27,10 +27,26 @@ type GeoState = {
 
 /** Only return public state plus the actor's own data. Never serialize questions[] to a socket. */
 export function projectGeoStateForClient(state: GeoState, actor: GameActor) {
+  if (state.phase === 'GAME_END') {
+    return {
+      success: true as const, phase: 'GAME_END', gameEnded: true,
+      roundIndex: state.currentRoundIndex, totalQuestions: state.questions.length,
+      question: null, timerEndMs: null, pauseRemainingMs: null,
+      revealed: true, scores: state.scores,
+    };
+  }
   const round = state.roundStates[state.currentRoundIndex];
   const own = actor.role === 'PLAYER' && actor.participationId
     ? round?.playerStates[actor.participationId] : undefined;
   const revealed = round?.revealed ?? false;
+  const answerStats: Record<string, number> = {};
+  if (actor.role === 'MODERATOR') {
+    for (const player of Object.values(round?.playerStates ?? {})) {
+      if (player.answered && player.selectedOptionId) {
+        answerStats[player.selectedOptionId] = (answerStats[player.selectedOptionId] ?? 0) + 1;
+      }
+    }
+  }
   return {
     success: true as const,
     phase: state.phase,
@@ -50,6 +66,7 @@ export function projectGeoStateForClient(state: GeoState, actor: GameActor) {
     ownJokers: own?.jokers ?? null,
     ownEliminatedOptions: own?.eliminatedOptions ?? [],
     ownSpyDistribution: own?.spyDistribution ?? null,
+    ...(actor.role === 'MODERATOR' ? { answerStats } : {}),
   };
 }
 
