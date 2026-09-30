@@ -7,6 +7,30 @@ import { io, Socket } from 'socket.io-client';
 
 export type PlayerRole = 'MODERATOR' | 'PLAYER' | 'VIEWER';
 
+export interface WerIstDasView {
+  phase: 'ROUND_READY' | 'BUZZ_OPEN' | 'ANSWERING' | 'REVEAL' | 'GAME_END';
+  roundIndex: number;
+  roundCount: number;
+  roundId: string;
+  imageAssetId: string;
+  scores: Record<string, number>;
+  playerNames: Record<string, string>;
+  buzzerOpen: boolean;
+  winnerId: string | null;
+  winnerName: string | null;
+  hintActive: boolean;
+  excludedPlayerIds?: string[];
+  excluded?: boolean;
+  solvedBy: string | null;
+  lastDelta: number | null;
+  revealed: boolean;
+  person1?: string;
+  person2?: string;
+  aliases1?: string[];
+  aliases2?: string[];
+  description?: string;
+}
+
 export interface RoomState {
   roomId: string;
   code: string;
@@ -66,6 +90,7 @@ export interface GeoResyncResponse {
 }
 
 export type ServerToClientEvents = {
+  'weristdas:update': (state: WerIstDasView) => void;
   'room:snapshot': (state: RoomState & { identity?: { participationId: string; role: PlayerRole } }) => void;
   'room:update': (state: RoomState) => void;
   'room:updated': (data: { roomCode: string; revision: number; players: any[]; viewerCount?: number }) => void;
@@ -128,6 +153,13 @@ export type ServerToClientEvents = {
 };
 
 export type ClientToServerEvents = {
+  'weristdas:buzzer:open': (data: Record<string, never>, ack: (res: { success: boolean; error?: string }) => void) => void;
+  'weristdas:buzz': (data: Record<string, never>, ack: (res: { success: boolean; error?: string }) => void) => void;
+  'weristdas:hint': (data: Record<string, never>, ack: (res: { success: boolean; error?: string }) => void) => void;
+  'weristdas:judge': (data: { result: 'BOTH_CORRECT' | 'ONE_CORRECT' | 'WRONG' }, ack: (res: { success: boolean; error?: string }) => void) => void;
+  'weristdas:reveal': (data: Record<string, never>, ack: (res: { success: boolean; error?: string }) => void) => void;
+  'weristdas:next': (data: Record<string, never>, ack: (res: { success: boolean; error?: string }) => void) => void;
+  'weristdas:resync': (data: Record<string, never>, ack: (res: { success: boolean; error?: string; state?: WerIstDasView }) => void) => void;
   'room:subscribe': (data: { roomCode: string; rejoinToken?: string; pin?: string; role?: PlayerRole }, ack: (res: { success: boolean; error?: string; snapshot?: RoomState }) => void) => void;
   'room:resync': (data: { roomCode: string; rejoinToken?: string }, ack: (res: { success: boolean; state?: RoomState }) => void) => void;
   'room:kick': (data: { roomCode: string; playerId: string }, ack: (res: { success: boolean; error?: string }) => void) => void;

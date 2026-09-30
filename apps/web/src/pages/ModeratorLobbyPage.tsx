@@ -3,6 +3,7 @@
 // ============================================================
 
 import { useParams, useNavigate } from 'react-router-dom';
+import { gamePath } from '../lib/gamePaths';
 import { useEffect, useState, useRef } from 'react';
 import { getSocket, connectSocket, disconnectSocket } from '../lib/socket';
 import { setSession } from '../lib/sessionStore';
@@ -66,9 +67,7 @@ export function ModeratorLobbyPage() {
       // If game already running, redirect to game page
       if (data.status === 'RUNNING') {
         setGameStarted(true);
-        const path = data.gameSlug === 'jeopardy'
-          ? `/moderator/raum/${roomCode}/jeopardy`
-          : `/moderator/raum/${roomCode}/spiel`;
+        const path = gamePath(data.gameSlug, 'MODERATOR', roomCode);
         navigate(path);
       }
     });
@@ -94,9 +93,7 @@ export function ModeratorLobbyPage() {
     socket.on('game:start', (data) => {
       if (data.status === 'RUNNING') {
         setGameStarted(true);
-        const path = data.gameSlug === 'jeopardy'
-          ? `/moderator/raum/${roomCode}/jeopardy`
-          : `/moderator/raum/${roomCode}/spiel`;
+        const path = gamePath(data.gameSlug, 'MODERATOR', roomCode);
         navigate(path);
       }
     });
@@ -136,9 +133,7 @@ export function ModeratorLobbyPage() {
       setLoading(false);
       if (response.success) {
         const gameSlug = response.gameSlug ?? '';
-        const path = gameSlug === 'jeopardy'
-          ? `/moderator/raum/${roomCode}/jeopardy`
-          : `/moderator/raum/${roomCode}/spiel`;
+        const path = gamePath(gameSlug, 'MODERATOR', roomCode);
         navigate(path);
       } else {
         setKickError(response.error || 'Start nicht möglich');
@@ -158,9 +153,7 @@ export function ModeratorLobbyPage() {
         setLoading(false);
         if (response.success) {
           const gameSlug = response.gameSlug ?? '';
-          const path = gameSlug === 'jeopardy'
-            ? `/moderator/raum/${roomCode}/jeopardy`
-            : `/moderator/raum/${roomCode}/spiel`;
+          const path = gamePath(gameSlug, 'MODERATOR', roomCode);
           navigate(path);
         } else {
           setKickError(response.error || 'Start nicht möglich');

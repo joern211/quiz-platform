@@ -8,6 +8,8 @@ import { handleGeoGame, cancelGeoTimer } from './geo/index.js';
 import { handleJeopardyGame } from './jeopardy/engine.js';
 import { registerGeoEvents } from './geo/events.js';
 import { registerJeopardyEvents } from './jeopardy/events.js';
+import { registerWerIstDasEvents } from './weristdas/events.js';
+import { werIstDasGame } from './weristdas/engine.js';
 import { logger } from '../observability/logger.js';
 
 export interface GameRoom {
@@ -78,12 +80,23 @@ const jeopardyHandle: GameHandle = {
   },
 };
 
+const werIstDasHandle: GameHandle = {
+  slug: 'weristdas',
+  registerEvents: registerWerIstDasEvents,
+  async initialize({ io, room }) { await werIstDasGame.initialize(io, room); },
+  async end({ io, room }) {
+    const result = await werIstDasGame.end(io, room);
+    return { ended: result.ended };
+  },
+};
+
 // Future games are registered when their engines implement the lifecycle
 // contract. Do not register no-op placeholders: starting an unsupported game
 // must fail explicitly instead of leaving a RUNNING room without game state.
 const gameRegistry = new Map<string, GameHandle>([
   [geoHandle.slug, geoHandle],
   [jeopardyHandle.slug, jeopardyHandle],
+  [werIstDasHandle.slug, werIstDasHandle],
 ]);
 
 export function getGameHandler(slug: string): GameHandle | null {

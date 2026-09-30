@@ -7,6 +7,7 @@ const PUBLIC_CODES = new Set([
   'PHASE_NOT_BUZZ_OPEN', 'PHASE_NOT_FIELD_DONE', 'PHASE_NOT_STEAL_LOCKED',
   'PHASE_NOT_STEAL_OPEN', 'PLAYER_NOT_IN_GAME', 'STATE_CONFLICT',
   'TIME_EXPIRED',
+  'INVALID_SETUP',
 ]);
 
 export function gameErrorCode(error: unknown): string {

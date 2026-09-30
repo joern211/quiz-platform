@@ -38,6 +38,8 @@ import { JeopardyModeratorPage } from './pages/JeopardyModeratorPage';
 import { JeopardyPlayerPage }    from './pages/JeopardyPlayerPage';
 import { JeopardySpectatorPage } from './pages/JeopardySpectatorPage';
 import { JeopardySetupPage }     from './pages/JeopardySetupPage';
+import { WerIstDasSetupPage } from './pages/WerIstDasSetupPage';
+import { WerIstDasGamePage } from './pages/WerIstDasGamePage';
 
 export default function App() {
   const { theme } = useTheme();
@@ -69,18 +71,22 @@ export default function App() {
           {/* ── Moderator ── */}
           <Route path="/moderator/anmelden"                              element={<ModeratorLoginPage />} />
           <Route path="/moderator/vorbereitung/jeopardy"         element={<JeopardySetupPage />} />
+          <Route path="/moderator/vorbereitung/weristdas" element={<WerIstDasSetupPage />} />
+          <Route path="/moderator/vorbereitung/wer-ist-das" element={<WerIstDasSetupPage />} />
           <Route path="/moderator/vorbereitung/:gameSlug"         element={<ModeratorSetupPage />} />
           <Route path="/moderator/raeume"                                element={<RoomsPage />} />
           <Route path="/moderator/raum/:code/lobby"                      element={<ModeratorLobbyPage />} />
           <Route path="/moderator/raum/:code/spiel"                      element={<ModeratorGamePage />} />
           <Route path="/moderator/raum/:code/ergebnis"                   element={<ModeratorResultPage />} />
           <Route path="/moderator/raum/:code/jeopardy"                     element={<JeopardyModeratorPage />} />
+          <Route path="/moderator/raum/:code/weristdas" element={<WerIstDasGamePage role="MODERATOR" />} />
 
           {/* ── Spieler ── */}
           <Route path="/raum/:code/lobby"     element={<PlayerLobbyPage />} />
           <Route path="/raum/:code/spiel"     element={<PlayerGamePage />} />
           <Route path="/raum/:code/ergebnis"  element={<PlayerResultPage />} />
           <Route path="/jeopardy/spiel/:code" element={<JeopardyPlayerPage />} />
+          <Route path="/weristdas/spiel/:code" element={<WerIstDasGamePage role="PLAYER" />} />
 
           {/* ── Zuschauer ── */}
           <Route path="/zuschauen"                        element={<ViewerPage />} />
@@ -89,6 +95,7 @@ export default function App() {
           <Route path="/zuschauen/:code/ergebnis"          element={<ViewerResultPage />} />
           {/* ── Jeopardy (Buzzer-Game) ── */}
           <Route path="/jeopardy/zuschauer/:code"         element={<JeopardySpectatorPage />} />
+          <Route path="/weristdas/zuschauer/:code" element={<WerIstDasGamePage role="VIEWER" />} />
 
           {/* ── Profil / Admin ── */}
           <Route path="/spieler/profil" element={<ProfilePage />} />

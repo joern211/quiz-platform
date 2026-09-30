@@ -3,6 +3,7 @@
 // ============================================================
 
 import { useParams, useNavigate } from 'react-router-dom';
+import { gamePath } from '../lib/gamePaths';
 import { useEffect, useState } from 'react';
 import { getSocket, connectSocket, disconnectSocket } from '../lib/socket';
 import { Card, Badge } from '@quiz/ui';
@@ -29,18 +30,14 @@ export function ViewerLobbyPage() {
       setRoomInfo(data);
       setPlayers(data.players || []);
       if (data.status === 'RUNNING') {
-        const path = data.gameSlug === 'jeopardy'
-          ? `/jeopardy/zuschauer/${code}`
-          : `/zuschauen/${code}/spiel`;
+        const path = gamePath(data.gameSlug, 'VIEWER', code ?? '');
         navigate(path);
       }
     });
 
     socket.on('game:start', (data) => {
       if (data.status === 'RUNNING') {
-        navigate(data.gameSlug === 'jeopardy'
-          ? `/jeopardy/zuschauer/${code}`
-          : `/zuschauen/${code}/spiel`);
+        navigate(gamePath(data.gameSlug, 'VIEWER', code ?? ''));
       }
     });
 
