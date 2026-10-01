@@ -1,6 +1,6 @@
 # Online Quiz Plattform
 
-⚠️ **Prototyp v0.3.0 – nur Geo-Quiz ist vollständig spielbar**
+⚠️ **Prototyp v0.3.0 – Wissensduell, Jeopardy & Wer-ist-das? sind vollständig spielbar**
 
 ![Version](https://img.shields.io/badge/version-0.3.0-blue)
 ![License](https://img.shields.io/badge/license-MIT-green)
@@ -17,7 +17,7 @@ Die Online Quiz Plattform ist eine **moderne React/TypeScript PWA** mit Node.js/
 ### Kernfeatures
 
 - 📱 **PWA** - Auf Handy & Desktop installierbar
-- 🎮 **Mehrspieler-Spiele** - Aktuell: Geo-Quiz (spielbar)
+- 🎮 **Mehrspieler-Spiele** - Aktuell spielbar: Wissensduell, Jeopardy, Wer ist das?
 - 👥 **Multiplayer** - Bis 10 Spieler, 50 Zuschauer
 - 🎯 **Moderator-System** - Eigene Räume erstellen und verwalten
 - 🌙 **Dark/Light Theme** - Cyan Dark & Lila Light
@@ -28,18 +28,22 @@ Die Online Quiz Plattform ist eine **moderne React/TypeScript PWA** mit Node.js/
 
 ## 🎮 Spiele
 
-⚠️ **Status:**
+⚠️ **Status** (Status laut kanonischem Katalog aus `@quiz/shared`, Regelwerk §14):
 
-| Spiel | Beschreibung | Status |
-|-------|--------------|--------|
-| **Geo-Quiz** | Multiple Choice mit Joker (50/50, Spy, Risk) | ✅ VOLLSTÄNDIG SPIELBAR |
-| **Jeopardy** | 2 Boards, Abstauber | 🔶 IN ARBEIT |
-| **Wer ist das?** | Fusionbilder erkennen | 🔶 GEPLANT |
-| **Timeline** | Elemente einordnen | 🔶 GEPLANT |
-| **Wer lügt am besten?** | Lügen & Abstimmung | 🔶 GEPLANT |
-| **Erkenne den Song** | Musik-Buzzer | 🔶 GEPLANT |
+| Spiel | Slug | Beschreibung | Status |
+|-------|------|--------------|--------|
+| **Wissensduell** | `wissensduell` | Multiple Choice mit Joker (50/50, Spy, Risk); Content-Pools Geo/Allgemeinwissen | ✅ VOLLSTÄNDIG SPIELBAR |
+| **Jeopardy** | `jeopardy` | 2 Boards, 6 Kategorien, Abstauber | ✅ VOLLSTÄNDIG SPIELBAR |
+| **Wer ist das?** | `wer-ist-das` | Fusionbilder erkennen, Buzzer | ✅ VOLLSTÄNDIG SPIELBAR |
+| **Erkenne den Song** | `song-quiz` | Musik-Buzzer | 🔶 GEPLANT |
+| **Timeline** | `timeline` | Elemente einordnen | 🔶 GEPLANT |
+| **Imposter** | `imposter` | Echte & erfundene Antworten voten | 🔶 GEPLANT |
+| **Wahr oder Fake?** | `wahr-oder-fake` | Fakten & Fakes unterscheiden | 🔶 GEPLANT |
 
-Nur Geo-Quiz ist derzeit end-to-end spielbar. Andere Spiele sind Konzept-Scaffolds.
+Drei Spiele sind derzeit end-to-end spielbar und getestet. Alle weiteren sind im
+kanonischen Katalog als `PLANNED` gekennzeichnet und vortäuschen keinen
+startbaren Raum (keine Engine-Registry-Handler). „Geo" und „Allgemeinwissen"
+sind keine eigenen Spiele, sondern **Content-Pools** von Wissensduell.
 
 ---
 
@@ -156,13 +160,13 @@ Passwort:  secret
 2. Öffne `http://localhost:3001`
 3. Klicke "Moderator Login" oder navigiere zu `/admin`
 4. Login mit den obigen Zugangsdaten
-5. Erstelle einen Geo-Quiz-Raum und starte ein Spiel
+5. Erstelle einen Wissensduell-, Jeopardy- oder Wer-ist-das?-Raum und starte ein Spiel
 
 ---
 
 ## ⚠️ Bekannte Einschränkungen
 
-- **Nur Geo-Quiz spielbar**: Alle anderen Spiele sind Konzept-Scaffolds
+- **Drei Spiele vollständig spielbar** (Wissensduell, Jeopardy, Wer-ist-das?); alle anderen sind im Katalog als `PLANNED` gekennzeichnet und starten keine Räume
 - **SQLite Datenbank**: Nicht geeignet für horizontale Skalierung
 - **Kein HTTPS**: Für Produktion muss ein Reverse Proxy mit TLS konfiguriert werden
 - **Demo-Passwörter**: secret / admin123 nur für lokale Entwicklung
