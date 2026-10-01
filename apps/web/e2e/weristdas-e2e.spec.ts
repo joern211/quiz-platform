@@ -25,10 +25,12 @@ test('W1-W10: setup, image, private solution, buzzer, scores, reconnect, viewer 
     const login = await moderator.context().request.post(`${BASE}/api/v1/auth/e2e-token`, { data: { userId: 'mod-1' } });
     expect(login.status(), await login.text()).toBe(200);
     await moderator.goto(`${BASE}/kategorie/buzzer-reaktion`);
-    await moderator.locator('a[href="/spiel/weristdas"]').click();
-    await expect(moderator).toHaveURL(`${BASE}/spiel/weristdas`);
+    // Kanonischer Katalog: die Spielkarte verlinkt auf den kanonischen
+    // Slug wer-ist-das (Regelwerk §14). Legacy-Links werden separat getestet.
+    await moderator.locator('a[href="/spiel/wer-ist-das"]').click();
+    await expect(moderator).toHaveURL(`${BASE}/spiel/wer-ist-das`);
     await moderator.getByRole('heading', { name: 'Moderator', exact: true }).click();
-    await expect(moderator).toHaveURL(`${BASE}/moderator/vorbereitung/weristdas`);
+    await expect(moderator).toHaveURL(`${BASE}/moderator/vorbereitung/wer-ist-das`);
     await expect(moderator.getByRole('heading', { name: 'Wer ist das? einrichten' })).toBeVisible();
     await moderator.getByRole('button', { name: 'Runde hinzufügen' }).click();
     for (let index = 0; index < 2; index++) {
@@ -51,10 +53,10 @@ test('W1-W10: setup, image, private solution, buzzer, scores, reconnect, viewer 
     await expect(viewer.getByText('Verbunden', { exact: true }).first()).toBeVisible();
     await moderator.getByRole('button', { name: 'Spiel starten' }).click();
     await Promise.all([
-      moderator.waitForURL(new RegExp(`/moderator/raum/${code}/weristdas$`)),
-      alice.waitForURL(new RegExp(`/weristdas/spiel/${code}$`)),
-      bob.waitForURL(new RegExp(`/weristdas/spiel/${code}$`)),
-      viewer.waitForURL(new RegExp(`/weristdas/zuschauer/${code}$`)),
+      moderator.waitForURL(new RegExp(`/moderator/raum/${code}/wer-ist-das$`)),
+      alice.waitForURL(new RegExp(`/wer-ist-das/spiel/${code}$`)),
+      bob.waitForURL(new RegExp(`/wer-ist-das/spiel/${code}$`)),
+      viewer.waitForURL(new RegExp(`/wer-ist-das/zuschauer/${code}$`)),
     ]);
     await expect(moderator.getByText(secret)).toBeVisible();
     for (const page of [alice, bob, viewer]) {

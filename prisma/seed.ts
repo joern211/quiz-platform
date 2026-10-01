@@ -5,6 +5,7 @@
 import 'dotenv/config';
 import { PrismaClient } from '@prisma/client';
 import argon2 from 'argon2';
+import { GAME_MANIFESTS, GAME_SLUGS } from '@quiz/shared';
 
 const prisma = new PrismaClient();
 
@@ -27,15 +28,15 @@ async function main() {
   const adminPassword = process.env.INITIAL_ADMIN_PASSWORD || 'admin123';
   const modPassword = process.env.INITIAL_ADMIN_PASSWORD || 'moderator123';
 
-  // Create a default question pack
+  // Create a default question pack (kanonischer Slug: wissensduell)
   await prisma.questionPack.upsert({
     where: { id: 'default-pack' },
     update: {},
     create: {
       id: 'default-pack',
-      gameSlug: 'geo',
-      title: 'Standard Geo-Paket',
-      description: 'Standard Geografie-Fragen',
+      gameSlug: GAME_SLUGS.wissensduell,
+      title: 'Standard-Wissenspaket',
+      description: 'Standard-Wissensfragen (Geo, Allgemeinwissen, …)',
       status: 'PUBLISHED',
     },
   });
@@ -65,98 +66,45 @@ async function main() {
     },
   });
 
-  // Create game definitions
-  const games = [
-    {
-      slug: 'geo',
-      name: 'Geografie-Quiz',
-      category: 'Quiz & Wissen',
-      description: 'Multiple-Choice Quiz mit Geografie-Fragen',
-      shortDescription: '4 Antworten, 20s Timer, Joker verfügbar',
-      status: 'AVAILABLE',
-      minPlayers: 2,
-      maxPlayers: 10,
-      estimatedMinutes: 15,
-      tags: JSON.stringify(['buzzer', 'teams']),
-      hasBuzzer: true,
-      hasTimer: true,
-    },
-    {
-      slug: 'jeopardy',
-      name: 'Jeopardy',
-      category: 'Buzzer & Reaktion',
-      description: 'Klassisches Jeopardy mit zwei Boards und Abstauber-Runde',
-      shortDescription: 'Feld wählen, Antwort geben, bei Fehler können andere buzzern',
-      status: 'AVAILABLE',
-      minPlayers: 2,
-      maxPlayers: 10,
-      estimatedMinutes: 30,
-      tags: JSON.stringify(['buzzer']),
-      hasBuzzer: true,
-      hasTimer: true,
-    },
-    {
-      slug: 'weristdas',
-      name: 'Wer ist das?',
-      category: 'Buzzer & Reaktion',
-      description: 'Errate die beiden Personen im Fusionsbild',
-      shortDescription: 'Buzzer, zwei Personen erraten, Hinweis möglich',
-      status: 'AVAILABLE',
-      minPlayers: 2,
-      maxPlayers: 10,
-      estimatedMinutes: 20,
-      tags: JSON.stringify(['buzzer', 'media']),
-      hasBuzzer: true,
-      hasTimer: true,
-    },
-    {
-      slug: 'timeline',
-      name: 'Timeline',
-      category: 'Schätzen & Sortieren',
-      description: 'Ordne Elemente in die richtige Reihenfolge ein',
-      shortDescription: '3 Leben, Element an richtige Position setzen',
-      status: 'AVAILABLE',
-      minPlayers: 2,
-      maxPlayers: 10,
-      estimatedMinutes: 15,
-      tags: JSON.stringify(['sorting']),
-      hasTimer: true,
-    },
-    {
-      slug: 'luegen',
-      name: 'Wer lügt am besten?',
-      category: 'Bluff & Täuschung',
-      description: 'Echte und erfundene Antworten erkennen und voted',
-      shortDescription: 'Lüge schreiben, abstimmen, Lügen-Ersteller punkten',
-      status: 'AVAILABLE',
-      minPlayers: 3,
-      maxPlayers: 10,
-      estimatedMinutes: 25,
-      tags: JSON.stringify(['voting', 'creative']),
-      hasTimer: true,
-    },
-    {
-      slug: 'song',
-      name: 'Erkenne den Song',
-      category: 'Buzzer & Reaktion',
-      description: 'Höre den Song und buzzere als Erster',
-      shortDescription: 'Audio abspielen, schnell buzzern, Titel+Interpret nennen',
-      status: 'AVAILABLE',
-      minPlayers: 2,
-      maxPlayers: 10,
-      estimatedMinutes: 20,
-      tags: JSON.stringify(['buzzer', 'audio']),
-      hasBuzzer: true,
-      hasAudio: true,
-      hasTimer: true,
-    },
-  ];
-
-  for (const game of games) {
+  // Create game definitions – abgeleitet aus dem kanonischen Manifest
+  // (@quiz/shared, Single Source of Truth, Regelwerk §14). So tragen DB,
+  // API und Website dieselben Identitäten und ehrlichen Status.
+  for (const game of GAME_MANIFESTS) {
     await prisma.gameDefinition.upsert({
       where: { slug: game.slug },
-      update: game,
-      create: game,
+      update: {
+        name: game.name,
+        category: game.category,
+        shortDescription: game.shortDescription,
+        description: game.description,
+        status: game.status,
+        minPlayers: game.minPlayers,
+        maxPlayers: game.maxPlayers,
+        estimatedMinutes: game.estimatedDurationMinutes,
+        hasBuzzer: game.hasBuzzer,
+        hasTeams: game.hasTeams,
+        hasCamera: game.hasCamera,
+        hasAudio: game.hasAudio,
+        hasTimer: game.hasTimer,
+        tags: JSON.stringify(game.tags),
+      },
+      create: {
+        slug: game.slug,
+        name: game.name,
+        category: game.category,
+        shortDescription: game.shortDescription,
+        description: game.description,
+        status: game.status,
+        minPlayers: game.minPlayers,
+        maxPlayers: game.maxPlayers,
+        estimatedMinutes: game.estimatedDurationMinutes,
+        hasBuzzer: game.hasBuzzer,
+        hasTeams: game.hasTeams,
+        hasCamera: game.hasCamera,
+        hasAudio: game.hasAudio,
+        hasTimer: game.hasTimer,
+        tags: JSON.stringify(game.tags),
+      },
     });
   }
 

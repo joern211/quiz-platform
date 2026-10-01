@@ -5,6 +5,7 @@
 import { useParams, useNavigate } from 'react-router-dom';
 import { useState, useEffect } from 'react';
 import { Card, Button, Input, Badge } from '@quiz/ui';
+import { GAME_SLUGS } from '@quiz/shared';
 import styles from './GeoSetupPage.module.css';
 
 interface GeoQuestion {
@@ -143,8 +144,8 @@ export function GeoSetupPage() {
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
         body: JSON.stringify({
-          gameSlug: 'geo',
-          roomName: roomName || 'Geo-Quiz',
+          gameSlug: GAME_SLUGS.wissensduell,
+          roomName: roomName || 'Wissensduell',
           pin: pin || undefined,
           maxPlayers,
           allowViewers,

@@ -6,6 +6,7 @@ import { recordScoreMutation } from '../core/score.js';
 import { finishRunningGame, loadGameState, saveGameStateIfRevision, upsertGameState } from '../core/state.js';
 import { WerIstDasPhase, WerIstDasSetupSchema, type WerIstDasSetup } from './contracts.js';
 import { projectWerIstDas } from './resync.js';
+import { resolveCanonicalSlug } from '@quiz/shared';
 import { activateHint, buzz, createWerIstDasState, judge, nextRound, openRoundBuzzer, revealRound,
   type WerIstDasState } from './state.js';
 
@@ -43,7 +44,7 @@ export const werIstDasGame = {
 
   async act(io: Server, socket: Socket, action: Action, payload?: { result?: 'BOTH_CORRECT' | 'ONE_CORRECT' | 'WRONG' }): Promise<Ack> {
     const auth = await authorizeGameContext(socket, {
-      gameSlug: 'weristdas', roles: action === 'buzz' ? ['PLAYER'] : ['MODERATOR'],
+      gameSlug: resolveCanonicalSlug('wer-ist-das')!, roles: action === 'buzz' ? ['PLAYER'] : ['MODERATOR'],
       requireParticipation: true, requireRunning: true,
     });
     if (!auth.ok) return { success: false, error: auth.error };
@@ -84,7 +85,7 @@ export const werIstDasGame = {
 
   async resync(socket: Socket): Promise<Ack> {
     const auth = await authorizeGameContext(socket, {
-      gameSlug: 'weristdas', roles: ['MODERATOR', 'PLAYER', 'VIEWER'],
+      gameSlug: resolveCanonicalSlug('wer-ist-das')!, roles: ['MODERATOR', 'PLAYER', 'VIEWER'],
       requireParticipation: true,
     });
     if (!auth.ok) return { success: false, error: auth.error };

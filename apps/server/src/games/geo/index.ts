@@ -4,6 +4,7 @@
 
 import { Server, Socket } from 'socket.io';
 import { prisma } from '../../persistence/prisma.js';
+import { resolveCanonicalSlug } from '@quiz/shared';
 import { finishRunningGame, saveGameStateIfRevision, upsertGameState } from '../core/state.js';
 import { authorizeGameContext } from '../core/access.js';
 import { gameErrorCode } from '../core/errors.js';
@@ -58,7 +59,7 @@ export function cancelGeoTimer(roomId: string): void {
 export async function restoreActiveTimers(io: Server): Promise<void> {
   try {
     const roomsWithActiveRound = await prisma.room.findMany({
-      where: { status: 'RUNNING', runPhase: 'ROUND_ACTIVE', gameDefinition: { slug: 'geo' } },
+      where: { status: 'RUNNING', runPhase: 'ROUND_ACTIVE', gameDefinition: { slug: resolveCanonicalSlug('geo')! } },
       include: {
         gameState: true,
       },
@@ -138,7 +139,7 @@ export const handleGeoGame = {
     } else {
       // P0-08: No questions selected AND no pool - use default pool (first pack)
       const firstPack = await prisma.questionPack.findFirst({
-        where: { gameSlug: 'geo' },
+        where: { gameSlug: resolveCanonicalSlug('geo')! },
         orderBy: { createdAt: 'asc' },
       });
       
@@ -405,7 +406,7 @@ export const handleGeoGame = {
   ) {
     try {
       const auth = await authorizeGameContext(socket, {
-        roles: ['PLAYER'], requireParticipation: true, gameSlug: 'geo', requireRunning: true,
+        roles: ['PLAYER'], requireParticipation: true, gameSlug: resolveCanonicalSlug('geo')!, requireRunning: true,
       });
       if (!auth.ok) { callback?.({ success: false, error: auth.error }); return; }
       const participationId = auth.actor.participationId!;
@@ -516,7 +517,7 @@ export const handleGeoGame = {
     callback?: (result: any) => void
   ) {
     try {
-      const auth = await authorizeGameContext(socket, { roles: ['PLAYER'], requireParticipation: true, gameSlug: 'geo', requireRunning: true });
+      const auth = await authorizeGameContext(socket, { roles: ['PLAYER'], requireParticipation: true, gameSlug: resolveCanonicalSlug('geo')!, requireRunning: true });
       if (!auth.ok) {
         callback?.({ success: false, error: auth.error });
         return;
@@ -611,7 +612,7 @@ export const handleGeoGame = {
     callback?: (result: any) => void
   ) {
     try {
-      const auth = await authorizeGameContext(socket, { roles: ['PLAYER'], requireParticipation: true, gameSlug: 'geo', requireRunning: true });
+      const auth = await authorizeGameContext(socket, { roles: ['PLAYER'], requireParticipation: true, gameSlug: resolveCanonicalSlug('geo')!, requireRunning: true });
       if (!auth.ok) {
         callback?.({ success: false, error: auth.error });
         return;
@@ -713,7 +714,7 @@ export const handleGeoGame = {
     callback?: (result: any) => void
   ) {
     try {
-      const auth = await authorizeGameContext(socket, { roles: ['PLAYER'], requireParticipation: true, gameSlug: 'geo', requireRunning: true });
+      const auth = await authorizeGameContext(socket, { roles: ['PLAYER'], requireParticipation: true, gameSlug: resolveCanonicalSlug('geo')!, requireRunning: true });
       if (!auth.ok) {
         callback?.({ success: false, error: auth.error });
         return;
@@ -799,7 +800,7 @@ export const handleGeoGame = {
         }
 
         const auth = await authorizeGameContext(socket, {
-          roles: ['MODERATOR'], requireParticipation: true, gameSlug: 'geo', requireRunning: true,
+          roles: ['MODERATOR'], requireParticipation: true, gameSlug: resolveCanonicalSlug('geo')!, requireRunning: true,
         });
         if (!auth.ok || auth.room.id !== roomRecord.id) {
           callback?.({ success: false, error: auth.ok ? 'WRONG_ROOM' : auth.error });
@@ -963,7 +964,7 @@ export const handleGeoGame = {
 
       // P0-17: Authorization check
       const auth = await authorizeGameContext(socket, {
-        roles: ['MODERATOR'], requireParticipation: true, gameSlug: 'geo', requireRunning: true,
+        roles: ['MODERATOR'], requireParticipation: true, gameSlug: resolveCanonicalSlug('geo')!, requireRunning: true,
       });
       if (!auth.ok || auth.room.id !== room.id) {
         callback?.({ success: false, error: auth.ok ? 'WRONG_ROOM' : auth.error });
@@ -1039,7 +1040,7 @@ export const handleGeoGame = {
       }
 
       const auth = await authorizeGameContext(socket, {
-        roles: ['MODERATOR'], requireParticipation: true, gameSlug: 'geo', requireRunning: true,
+        roles: ['MODERATOR'], requireParticipation: true, gameSlug: resolveCanonicalSlug('geo')!, requireRunning: true,
       });
       if (!auth.ok || auth.room.id !== room.id) {
         callback?.({ success: false, error: auth.ok ? 'WRONG_ROOM' : auth.error });
@@ -1115,7 +1116,7 @@ export const handleGeoGame = {
       }
 
       const auth = await authorizeGameContext(socket, {
-        roles: ['MODERATOR'], requireParticipation: true, gameSlug: 'geo', requireRunning: true,
+        roles: ['MODERATOR'], requireParticipation: true, gameSlug: resolveCanonicalSlug('geo')!, requireRunning: true,
       });
       if (!auth.ok || auth.room.id !== room.id) {
         callback?.({ success: false, error: auth.ok ? 'WRONG_ROOM' : auth.error });

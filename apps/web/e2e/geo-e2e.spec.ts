@@ -20,7 +20,7 @@ async function loginAsModerator(page: Page, userId = 'mod-1'): Promise<void> {
 }
 
 async function createGeoRoom(page: Page, questionCount = 1): Promise<string> {
-  await page.goto(`${BASE}/moderator/vorbereitung/geo`);
+  await page.goto(`${BASE}/moderator/vorbereitung/wissensduell`);
   await expect(page.getByRole('heading', { name: 'Raum vorbereiten' })).toBeVisible();
   await page.getByLabel('Raumname (optional)').fill('E2E Geo Test');
   await page.getByLabel('Anzahl Fragen').fill(String(questionCount));

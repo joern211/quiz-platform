@@ -11,6 +11,7 @@ import { verifySession } from '../auth/session.js';
 import { logger } from '../observability/logger.js';
 import { config } from '../config/index.js';
 import { CreateRoomSchema, JoinRoomSchema, validateBody } from './validators.js';
+import { resolveCanonicalSlug } from '@quiz/shared';
 
 export const roomsRouter : ReturnType<typeof Router> = Router();
 
@@ -134,11 +135,15 @@ roomsRouter.post('/', async (req, res) => {
       isPublic,
     } = parsed;
 
-    // Resolve game definition: prefer slug, fallback to id
+    // Resolve game definition: prefer slug (mit Legacy-Auflösung), fallback to id
     let resolvedGameDefId = gameDefinitionId;
     if (!resolvedGameDefId && gameSlug) {
+      // Legacy-Slugs (z.B. "geo", "weristdas") werden auf den kanonischen
+      // Slug aufgelöst, damit alte Clients/Legacy-Links kontrolliert auf den
+      // kanonischen Pfad übergehen. (Regelwerk §5.23, §12.1)
+      const canonicalSlug = resolveCanonicalSlug(gameSlug) ?? gameSlug;
       const gameDef = await prisma.gameDefinition.findUnique({
-        where: { slug: gameSlug },
+        where: { slug: canonicalSlug },
       });
       if (!gameDef) {
         return res.status(400).json({

@@ -4,6 +4,7 @@
 // ============================================================
 
 import type { Server, Socket } from 'socket.io';
+import { resolveCanonicalSlug } from '@quiz/shared';
 import { handleGeoGame, cancelGeoTimer } from './geo/index.js';
 import { handleJeopardyGame } from './jeopardy/engine.js';
 import { registerGeoEvents } from './geo/events.js';
@@ -43,7 +44,9 @@ export interface GameActionContext {
 }
 
 const geoHandle: GameHandle = {
-  slug: 'geo',
+  // Kanonischer Slug (Regelwerk §14): "geo" → "wissensduell".
+  // Das interne Modul bleibt games/geo (Module-/Tabellenname ≠ Spiel-Slug).
+  slug: 'wissensduell',
   async initialize({ io, room, initialPhase }) {
     await handleGeoGame.initialize(io, room, initialPhase);
   },
@@ -81,7 +84,8 @@ const jeopardyHandle: GameHandle = {
 };
 
 const werIstDasHandle: GameHandle = {
-  slug: 'weristdas',
+  // Kanonischer Slug (Regelwerk §14): "weristdas" → "wer-ist-das".
+  slug: 'wer-ist-das',
   registerEvents: registerWerIstDasEvents,
   async initialize({ io, room }) { await werIstDasGame.initialize(io, room); },
   async end({ io, room }) {
@@ -100,11 +104,29 @@ const gameRegistry = new Map<string, GameHandle>([
 ]);
 
 export function getGameHandler(slug: string): GameHandle | null {
-  return gameRegistry.get(slug) ?? null;
+  // Legacy-Slugs werden auf die kanonischen aufgelöst, damit auch Räume,
+  // die noch einen alten Slug tragen (Migration läuft / wurde übersprungen),
+  // kontrolliert weiter funktionieren. (Regelwerk §5.23)
+  const canonical = resolveCanonicalSlug(slug) ?? slug;
+  return gameRegistry.get(canonical) ?? null;
 }
 
 export function listGames(): string[] {
   return [...gameRegistry.keys()];
+}
+
+/**
+ * Slugs, die tatsächlich einen startbaren Engine-Handler besitzen.
+ * Das ist die ehrliche Grundlage für "ist startbar" (Regelwerk §13.1):
+ * nur diese Spiele haben eine Engine, keine no-op-Placeholders.
+ */
+export function startableSlugs(): string[] {
+  return [...gameRegistry.keys()];
+}
+
+/** true, wenn der (auch legacy) Slug einen echten Registry-Handler hat. */
+export function isStartableSlug(slug: string): boolean {
+  return getGameHandler(slug) !== null;
 }
 
 export function registerGameSocketHandlers(io: Server, socket: Socket): void {

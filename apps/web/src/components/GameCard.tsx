@@ -17,7 +17,7 @@ interface Game {
   hasTeams: boolean;
   hasCamera: boolean;
   hasAudio: boolean;
-  status: 'AVAILABLE' | 'BETA' | 'PLANNED';
+  status: 'AVAILABLE' | 'BETA' | 'PLANNED' | 'HIDDEN';
 }
 
 interface GameCardProps {
@@ -29,6 +29,7 @@ export function GameCard({ game }: GameCardProps) {
     AVAILABLE: { label: 'Verfügbar', variant: 'success' as const },
     BETA: { label: 'Beta', variant: 'warning' as const },
     PLANNED: { label: 'Geplant', variant: 'muted' as const },
+    HIDDEN: { label: 'Intern', variant: 'muted' as const },
   }[game.status];
 
   const tags = [];
