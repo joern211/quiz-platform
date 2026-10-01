@@ -29,7 +29,7 @@ const visibleCategories = deriveVisibleCategories();
 catalogRouter.get('/categories', (_req, res) => {
   res.json({
     success: true,
-    data: visibleCategories.map(({ gameSlugs, ...rest }) => ({ ...rest, id: rest.slug })),
+    data: visibleCategories.map(({ gameSlugs: _gameSlugs, ...rest }) => ({ ...rest, id: rest.slug })),
   });
 });
 

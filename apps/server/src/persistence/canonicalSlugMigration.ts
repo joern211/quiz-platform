@@ -26,7 +26,7 @@
 //                    bleiben unberührt → Recovery nutzt exakt dieselbe Engine.
 // ============================================================
 
-import type { PrismaClient, PrismaPromise } from '@prisma/client';
+import type { PrismaClient } from '@prisma/client';
 import { GAME_MANIFESTS, LEGACY_SLUG_ALIASES } from '@quiz/shared';
 import { logger } from '../observability/logger.js';
 
@@ -49,8 +49,6 @@ export interface SlugMigrationResult {
   hiddenDefinitions: string[];
   changes: number;
 }
-
-type DbClient = PrismaClient | (PrismaClient & { $transaction: (fn: (tx: any) => Promise<any>) => Promise<any> });
 
 /** Katalog-Attribute aus dem kanonischen Manifest für eine Slug-Ausrichtung. */
 function manifestAttributes(canonicalSlug: string) {

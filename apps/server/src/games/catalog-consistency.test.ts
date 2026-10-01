@@ -19,7 +19,6 @@ import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
   GAME_MANIFESTS,
-  GAME_SLUGS,
   LEGACY_SLUG_ALIASES,
   ALL_CANONICAL_SLUGS,
   deriveVisibleCategories,

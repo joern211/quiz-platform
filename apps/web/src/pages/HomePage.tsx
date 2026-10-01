@@ -8,12 +8,6 @@ import { GAME_MANIFESTS } from '@quiz/shared';
 import { toUiGame, startableCount } from '../lib/catalog';
 import styles from './HomePage.module.css';
 
-// Hervorgehobene, ECHT startbare Spiele (aus dem kanonischen Katalog).
-const featuredGames = GAME_MANIFESTS
-  .filter((m) => m.status === 'AVAILABLE')
-  .slice(0, 4)
-  .map((m) => ({ ...toUiGame(m), icon: featuredIcon(m.slug) }));
-
 const featuredIcons: Record<string, string> = {
   wissensduell: '🌍',
   jeopardy: '💰',
@@ -22,6 +16,12 @@ const featuredIcons: Record<string, string> = {
 function featuredIcon(slug: string): string {
   return featuredIcons[slug] ?? '🎮';
 }
+
+// Hervorgehobene, ECHT startbare Spiele (aus dem kanonischen Katalog).
+const featuredGames = GAME_MANIFESTS
+  .filter((m) => m.status === 'AVAILABLE')
+  .slice(0, 4)
+  .map((m) => ({ ...toUiGame(m), icon: featuredIcon(m.slug) }));
 
 export function HomePage() {
   return (
