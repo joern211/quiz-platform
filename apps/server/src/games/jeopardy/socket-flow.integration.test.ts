@@ -245,7 +245,7 @@ describe('Jeopardy multiplayer socket integration', () => {
   });
 
   it('restores only active Geo timers and continues after malformed state', async () => {
-    const geo = await prisma.gameDefinition.findUniqueOrThrow({ where: { slug: 'geo' } });
+    const geo = await prisma.gameDefinition.findUniqueOrThrow({ where: { slug: 'wissensduell' } });
     const jeopardy = await prisma.gameDefinition.findUniqueOrThrow({ where: { slug: 'jeopardy' } });
     const createRoom = async (slug: 'geo' | 'jeopardy', json: string, status = 'RUNNING', runPhase = 'ROUND_ACTIVE') => {
       const room = await prisma.room.create({ data: {
@@ -285,7 +285,7 @@ describe('Jeopardy multiplayer socket integration', () => {
   });
 
   it('binds Geo joker actions to the subscribed player even with another player token', async () => {
-    const geo = await prisma.gameDefinition.findUniqueOrThrow({ where: { slug: 'geo' } });
+    const geo = await prisma.gameDefinition.findUniqueOrThrow({ where: { slug: 'wissensduell' } });
     const question = await prisma.geoQuestion.findFirstOrThrow({ where: { enabled: true } });
     const geoRoom = await prisma.room.create({
       data: {
@@ -415,7 +415,7 @@ describe('Jeopardy multiplayer socket integration', () => {
   }, 15000);
 
   it('ends Geo during INPUT_OPEN and PAUSED without restarting either timer', async () => {
-    const geo = await prisma.gameDefinition.findUniqueOrThrow({ where: { slug: 'geo' } });
+    const geo = await prisma.gameDefinition.findUniqueOrThrow({ where: { slug: 'wissensduell' } });
     const question = await prisma.geoQuestion.findFirstOrThrow({ where: { enabled: true } });
     for (const pauseBeforeEnd of [false, true]) {
       const room = await prisma.room.create({ data: {

@@ -33,7 +33,7 @@ describe('Wer ist das? real multiplayer sockets', () => {
     return socket;
   }
   beforeAll(async () => {
-    const game = await prisma.gameDefinition.findUniqueOrThrow({ where: { slug: 'weristdas' } });
+    const game = await prisma.gameDefinition.findUniqueOrThrow({ where: { slug: 'wer-ist-das' } });
     const asset = await prisma.mediaAsset.create({ data: {
       type: 'image', mimeType: 'image/png', filename: 'weristdas-test.png', originalName: 'test.png',
       fileSize: 12, sha256: randomUUID(), storagePath: '/tmp/weristdas-test.png', uploadedBy: 'mod-1',
@@ -153,7 +153,7 @@ describe('Wer ist das? real multiplayer sockets', () => {
   });
 
   it('isolates concurrent rooms and keeps manual end idempotent without revealing secrets', async () => {
-    const game = await prisma.gameDefinition.findUniqueOrThrow({ where: { slug: 'weristdas' } });
+    const game = await prisma.gameDefinition.findUniqueOrThrow({ where: { slug: 'wer-ist-das' } });
     const session = await prisma.session.findFirstOrThrow({ where: { userId: 'mod-1' } });
     const setup = JSON.stringify({ rounds: [{ id: 'shared', imageAssetId: imageId,
       person1: secret, person2: 'Hidden person' }] });

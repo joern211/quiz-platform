@@ -14,6 +14,9 @@
 
 import { describe, it, expect } from 'vitest';
 import supertest from 'supertest';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import {
   GAME_MANIFESTS,
   GAME_SLUGS,
@@ -175,6 +178,48 @@ describe('Ehrlicher Status & Startbarkeit (§13.1)', () => {
     expect(isStartableSlug('weristdas')).toBe(true);
     expect(getGameHandler('geo')?.slug).toBe('wissensduell');
     expect(getGameHandler('weristdas')?.slug).toBe('wer-ist-das');
+  });
+});
+
+describe('Seed ↔ Katalog-Sync (Regelwerk §14)', () => {
+  // prisma/seed.ts läuft vom Repo-Root und importiert @quiz/shared NICHT
+  // (pnpm verlinkt den Workspace-Import nicht ins Root). Deshalb: Guard-Test,
+  // der die im Seed hart kodierte Spiel-Menge mit dem kanonischen Katalog
+  // abgleicht. Wenn @quiz/shared sich ändert, schlägt dieser Test rot,
+  // bis der Seed synchronisiert wurde.
+  // Test-Datei liegt in apps/server/src/games/ → Monorepo-Root ist 4 Ebenen hoch
+  // (games → src → server → apps → root).
+  const gamesDir = resolve(fileURLToPath(import.meta.url), '..');
+  const rootDir = resolve(gamesDir, '..', '..', '..', '..');
+  const seedSource = readFileSync(resolve(rootDir, 'prisma', 'seed.ts'), 'utf8');
+
+  it('Seed definiert exakt die 18 kanonischen Slugs (keine Legacy, keine Doppelungen)', () => {
+    // Nur die `slug: '...'`-Felder der Spiel-Menge zählen (nicht das gameSlug des Fragepakets)
+    const gameSlugs = [...seedSource.matchAll(/\{\s*slug:\s*'([^']+)'/g)].map((m) => m[1]);
+    expect(gameSlugs).toHaveLength(18);
+    expect(new Set(gameSlugs).size).toBe(18); // keine Doppelung
+    const canonicalSet = new Set(GAME_MANIFESTS.map((m) => m.slug));
+    expect(new Set(gameSlugs)).toEqual(canonicalSet);
+    // kein Legacy-Slug im Seed
+    for (const legacy of Object.keys(LEGACY_SLUG_ALIASES)) {
+      expect(gameSlugs, `Legacy ${legacy} im Seed`).not.toContain(legacy);
+    }
+  });
+
+  it('Seed-Status stimmt mit dem ehrlichen Katalog-Status überein', () => {
+    const statusMatches = [...seedSource.matchAll(/\{\s*slug:\s*'([^']+)'[\s\S]*?status:\s*'([^']+)'/g)]
+      .map((m) => ({ slug: m[1], status: m[2] }));
+    expect(statusMatches).toHaveLength(18);
+    for (const { slug, status } of statusMatches) {
+      const manifest = GAME_MANIFESTS.find((m) => m.slug === slug)!;
+      expect(manifest, `Manifest für ${slug}`).toBeDefined();
+      expect(status, `Status für ${slug}`).toBe(manifest.status);
+    }
+  });
+
+  it('Default-Fragepaket nutzt den kanonischen Slug wissensduell (nicht "geo")', () => {
+    expect(seedSource).toMatch(/gameSlug:\s*'wissensduell'/);
+    expect(seedSource).not.toMatch(/gameSlug:\s*'geo'/);
   });
 });
 

@@ -5,7 +5,6 @@
 import 'dotenv/config';
 import { PrismaClient } from '@prisma/client';
 import argon2 from 'argon2';
-import { GAME_MANIFESTS, GAME_SLUGS } from '@quiz/shared';
 
 const prisma = new PrismaClient();
 
@@ -34,7 +33,7 @@ async function main() {
     update: {},
     create: {
       id: 'default-pack',
-      gameSlug: GAME_SLUGS.wissensduell,
+      gameSlug: 'wissensduell',
       title: 'Standard-Wissenspaket',
       description: 'Standard-Wissensfragen (Geo, Allgemeinwissen, …)',
       status: 'PUBLISHED',
@@ -66,44 +65,72 @@ async function main() {
     },
   });
 
-  // Create game definitions – abgeleitet aus dem kanonischen Manifest
-  // (@quiz/shared, Single Source of Truth, Regelwerk §14). So tragen DB,
-  // API und Website dieselben Identitäten und ehrlichen Status.
-  for (const game of GAME_MANIFESTS) {
+  // Create game definitions – kanonische Identitäten aus dem
+  // Spielekatalog (Regelwerk §14).
+  //
+  // WICHTIG: Dieses Script läuft vom REPOSITORY ROOT (pnpm db:seed /
+  // Server-Test-Pipeline) und darf KEINEN Workspace-Package-Import
+  // (z.B. @quiz/shared) nutzen – pnpm verlinkt @quiz/shared nur in die
+  // Pakete (apps/*, packages/*), nicht ins Root-Verzeichnis. Die
+  // Seed-Daten sind daher bewusst hier selbstbelegt. Der Konsistenztest
+  // (apps/server/src/games/catalog-consistency.test.ts) stellt sicher,
+  // dass Slugs + ehrlicher Status mit dem kanonischen Katalog in
+  // @quiz/shared übereinstimmen – so bleibt @quiz/shared weiterhin die
+  // Single Source of Truth für API/UI/Registry.
+  //
+  // Status-Logik (§13.1): AVAILABLE nur bei startbarer, getesteter
+  // Engine (wissensduell, jeopardy, wer-ist-das). Alle anderen PLANNED.
+  const seedGames = [
+    { slug: 'wissensduell', name: 'Wissensduell', category: 'quiz-wissen', status: 'AVAILABLE', minPlayers: 2, maxPlayers: 10, estimatedMinutes: 15, hasBuzzer: false, hasTeams: false, hasCamera: false, hasAudio: false, hasTimer: true },
+    { slug: 'jeopardy', name: 'Jeopardy', category: 'buzzer-reaktion', status: 'AVAILABLE', minPlayers: 2, maxPlayers: 10, estimatedMinutes: 30, hasBuzzer: true, hasTeams: false, hasCamera: false, hasAudio: false, hasTimer: true },
+    { slug: 'wer-ist-das', name: 'Wer ist das?', category: 'buzzer-reaktion', status: 'AVAILABLE', minPlayers: 2, maxPlayers: 10, estimatedMinutes: 15, hasBuzzer: true, hasTeams: false, hasCamera: false, hasAudio: false, hasTimer: false },
+    { slug: 'song-quiz', name: 'Erkenne den Song', category: 'buzzer-reaktion', status: 'PLANNED', minPlayers: 2, maxPlayers: 10, estimatedMinutes: 15, hasBuzzer: true, hasTeams: false, hasCamera: false, hasAudio: true, hasTimer: false },
+    { slug: 'millionenfrage', name: 'Millionenfrage', category: 'quiz-wissen', status: 'PLANNED', minPlayers: 1, maxPlayers: 4, estimatedMinutes: 30, hasBuzzer: false, hasTeams: false, hasCamera: false, hasAudio: false, hasTimer: true },
+    { slug: 'timeline', name: 'Timeline', category: 'schaetzen-sortieren', status: 'PLANNED', minPlayers: 2, maxPlayers: 10, estimatedMinutes: 20, hasBuzzer: false, hasTeams: false, hasCamera: false, hasAudio: false, hasTimer: false },
+    { slug: 'schaetz-mal', name: 'Schätz mal', category: 'schaetzen-sortieren', status: 'PLANNED', minPlayers: 2, maxPlayers: 10, estimatedMinutes: 15, hasBuzzer: false, hasTeams: false, hasCamera: false, hasAudio: false, hasTimer: true },
+    { slug: 'higher-lower', name: 'Higher or Lower', category: 'schaetzen-sortieren', status: 'PLANNED', minPlayers: 2, maxPlayers: 10, estimatedMinutes: 10, hasBuzzer: false, hasTeams: false, hasCamera: false, hasAudio: false, hasTimer: false },
+    { slug: 'imposter', name: 'Imposter', category: 'bluff-taeuschung', status: 'PLANNED', minPlayers: 3, maxPlayers: 10, estimatedMinutes: 20, hasBuzzer: false, hasTeams: false, hasCamera: false, hasAudio: false, hasTimer: false },
+    { slug: 'wahr-oder-fake', name: 'Wahr oder Fake?', category: 'bluff-taeuschung', status: 'PLANNED', minPlayers: 2, maxPlayers: 10, estimatedMinutes: 15, hasBuzzer: false, hasTeams: false, hasCamera: false, hasAudio: false, hasTimer: false },
+    { slug: 'undercover', name: 'Undercover', category: 'social-deduction', status: 'PLANNED', minPlayers: 4, maxPlayers: 10, estimatedMinutes: 25, hasBuzzer: false, hasTeams: false, hasCamera: false, hasAudio: false, hasTimer: false },
+    { slug: 'secret-agent', name: 'Geheim Agent', category: 'social-deduction', status: 'PLANNED', minPlayers: 4, maxPlayers: 10, estimatedMinutes: 25, hasBuzzer: false, hasTeams: false, hasCamera: false, hasAudio: false, hasTimer: false },
+    { slug: 'partner-challenge', name: 'Wie weit gehst du?', category: 'team-kooperation', status: 'PLANNED', minPlayers: 4, maxPlayers: 8, estimatedMinutes: 25, hasBuzzer: false, hasTeams: true, hasCamera: false, hasAudio: false, hasTimer: true },
+    { slug: 'same-thought', name: 'Gleicher Gedanke', category: 'team-kooperation', status: 'PLANNED', minPlayers: 2, maxPlayers: 8, estimatedMinutes: 15, hasBuzzer: false, hasTeams: true, hasCamera: false, hasAudio: false, hasTimer: true },
+    { slug: 'stadt-land-fluss', name: 'Stadt, Land, Fluss', category: 'meta-spielmodi', status: 'PLANNED', minPlayers: 2, maxPlayers: 10, estimatedMinutes: 20, hasBuzzer: false, hasTeams: false, hasCamera: false, hasAudio: false, hasTimer: true },
+    { slug: 'board-race', name: 'Raus damit!', category: 'meta-spielmodi', status: 'PLANNED', minPlayers: 2, maxPlayers: 6, estimatedMinutes: 20, hasBuzzer: false, hasTeams: false, hasCamera: false, hasAudio: false, hasTimer: false },
+    { slug: 'yacht', name: 'Yacht', category: 'meta-spielmodi', status: 'PLANNED', minPlayers: 1, maxPlayers: 8, estimatedMinutes: 20, hasBuzzer: false, hasTeams: false, hasCamera: false, hasAudio: false, hasTimer: false },
+    { slug: 'last-man-standing', name: 'Last Man Standing', category: 'meta-spielmodi', status: 'PLANNED', minPlayers: 2, maxPlayers: 10, estimatedMinutes: 20, hasBuzzer: false, hasTeams: false, hasCamera: false, hasAudio: false, hasTimer: true },
+  ];
+
+  for (const game of seedGames) {
     await prisma.gameDefinition.upsert({
       where: { slug: game.slug },
       update: {
         name: game.name,
         category: game.category,
-        shortDescription: game.shortDescription,
-        description: game.description,
         status: game.status,
         minPlayers: game.minPlayers,
         maxPlayers: game.maxPlayers,
-        estimatedMinutes: game.estimatedDurationMinutes,
+        estimatedMinutes: game.estimatedMinutes,
         hasBuzzer: game.hasBuzzer,
         hasTeams: game.hasTeams,
         hasCamera: game.hasCamera,
         hasAudio: game.hasAudio,
         hasTimer: game.hasTimer,
-        tags: JSON.stringify(game.tags),
       },
       create: {
         slug: game.slug,
         name: game.name,
         category: game.category,
-        shortDescription: game.shortDescription,
-        description: game.description,
         status: game.status,
         minPlayers: game.minPlayers,
         maxPlayers: game.maxPlayers,
-        estimatedMinutes: game.estimatedDurationMinutes,
+        estimatedMinutes: game.estimatedMinutes,
         hasBuzzer: game.hasBuzzer,
         hasTeams: game.hasTeams,
         hasCamera: game.hasCamera,
         hasAudio: game.hasAudio,
         hasTimer: game.hasTimer,
-        tags: JSON.stringify(game.tags),
+        tags: '[]',
       },
     });
   }
