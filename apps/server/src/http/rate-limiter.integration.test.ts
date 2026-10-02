@@ -166,25 +166,18 @@ describe('Rate Limiter — Join Route (dev mode)', () => {
     const { createApp } = await import('../app.js');
     const { app } = createApp();
 
-    // Create a test room
+    // Create a test room (DB-level — der Fokus dieses Tests ist das
+    // Join-Rate-Limiting, nicht die Raumerstellung).
     const { prisma } = await import('../persistence/prisma.js');
-    const { createHmac } = await import('crypto');
-    const { config } = await import('../config/index.js');
-    const geoDef = await getOrCreateGeoGame();
 
     const modUser = await prisma.user.upsert({
       where: { id: `mod-rl-dev-${Date.now()}` },
       update: {},
       create: { id: `mod-rl-dev-${Date.now()}`, displayName: 'RLHost', email: `rl-dev-${Date.now()}@test.local`, passwordHash: '$argon2id$v=19$m=65536,t=3,p=4$test', role: 'MODERATOR' },
     });
-    const session = await prisma.session.create({ data: { id: `rl-dev-sess-${Date.now()}`, userId: modUser.id, expiresAt: new Date(Date.now() + 86400000) } });
-    const sig = createHmac('sha256', config.sessionSecret).update(session.id).digest('base64url');
-    const cookie = `quiz_session=${session.id}.${sig}`;
 
     const req = supertest(app);
-    const createRes = await req.post('/api/v1/rooms').set('Cookie', cookie).send({ gameSlug: geoDef.slug, roomName: 'RL Dev Room' });
-    expect(createRes.status, createRes.text).toBe(201);
-    roomCode = createRes.body.data.code;
+    roomCode = await createTestRoomInDb(modUser.id, 30);
 
     // 5 requests — all succeed in dev (limiter is a no-op)
     const results = await Promise.all([0, 1, 2, 3, 4].map((i) =>

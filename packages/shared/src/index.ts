@@ -235,9 +235,59 @@ export type GeoRoundState = z.infer<typeof GeoRoundStateSchema>;
 export type GeoGameState = z.infer<typeof GeoGameStateSchema>;
 
 // ------------------------------------------------------------
-// Game Manifest
+// Game Manifest & Kanonischer Spielekatalog
+// Single Source of Truth (Regelwerk §5.3, §14, §12.1).
+//
+// ACHTUNG: Dieses Modul ist bewusst in index.ts INLINE eingebettet
+// (kein separates gameCatalog.ts). @quiz/shared wird in der
+// Produktion als TypeScript-Quelle konsumiert (package.json main/exports
+// → src/index.ts, von Node type-stripped). Nodes natives Type-Stripping
+// löst RELATIVE .js→.ts-Imports NICHT auf — eine eigene Datei würde
+// daher das Runtime-Loading brechen. Deshalb: eine einzige Quelldatei,
+// nur bare-Module-Import (zod). Server (Catalog-API, Registry,
+// Room-Create) und Web (Katalog, Kategorien, Routen) nutzen ALLE
+// dieselben Daten unten.
 // ------------------------------------------------------------
 
+
+// ------------------------------------------------------------
+// Verfügbarkeitsstatus (Regelwerk §5.3)
+//   PLANNED  – noch keine Engine / keine startbare Implementierung
+//   BETA     – Engine vorhanden, nicht-kritische dokumentierte offene Punkte
+//   AVAILABLE– startbare Engine + vollständig getesteter Ablauf (CI grün)
+//   HIDDEN   – intern/versteckt, öffentlich nicht sichtbar
+// ------------------------------------------------------------
+export const GameStatusSchema = z.enum(['PLANNED', 'BETA', 'AVAILABLE', 'HIDDEN']);
+export type GameStatus = z.infer<typeof GameStatusSchema>;
+
+// ------------------------------------------------------------
+// Kategorien – feste Taxonomie (Anzeigebegriffe)
+// Die *sichtbaren* Kategorien und deren Spielzahlen werden aus
+// GAME_MANIFESTS abgeleitet (siehe deriveVisibleCategories), nicht
+// hart mit Fantasiezahlen eingetragen.
+// ------------------------------------------------------------
+export const CatalogCategorySchema = z.object({
+  slug: z.string(),
+  name: z.string(),
+  description: z.string(),
+  icon: z.string(),
+  order: z.number().int(),
+});
+export type CatalogCategory = z.infer<typeof CatalogCategorySchema>;
+
+export const CATALOG_CATEGORIES: CatalogCategory[] = [
+  { slug: 'quiz-wissen', name: 'Quiz & Wissen', description: 'Wissensfragen aus allen Bereichen', icon: '📚', order: 1 },
+  { slug: 'buzzer-reaktion', name: 'Buzzer & Reaktion', description: 'Schnelle Reaktion und Buzzer-Spiele', icon: '🔔', order: 2 },
+  { slug: 'schaetzen-sortieren', name: 'Schätzen & Sortieren', description: 'Schätzfragen und Reihenfolgen', icon: '🎯', order: 3 },
+  { slug: 'bluff-taeuschung', name: 'Bluff & Täuschung', description: 'Lügen, Täuschen und Überzeugen', icon: '🎭', order: 5 },
+  { slug: 'social-deduction', name: 'Social Deduction', description: 'Geheime Rollen und Verräter', icon: '🕵️', order: 6 },
+  { slug: 'team-kooperation', name: 'Team & Kooperation', description: 'Gemeinsam spielen und gewinnen', icon: '👥', order: 8 },
+  { slug: 'meta-spielmodi', name: 'Meta-Spielmodi', description: 'Quizabende und Turniere', icon: '🏆', order: 11 },
+];
+
+// ------------------------------------------------------------
+// GameManifest – Schema (Regelwerk §5.3)
+// ------------------------------------------------------------
 export const GameManifestSchema = z.object({
   slug: z.string(),
   name: z.string(),
@@ -249,7 +299,7 @@ export const GameManifestSchema = z.object({
   estimatedDurationMinutes: z.number().int().default(15),
   roles: z.array(z.enum(['MODERATOR', 'PLAYER', 'VIEWER'])),
   tags: z.array(z.string()),
-  status: z.enum(['AVAILABLE', 'BETA', 'PLANNED', 'HIDDEN']).default('PLANNED'),
+  status: GameStatusSchema.default('PLANNED'),
   hasBuzzer: z.boolean().default(false),
   hasTeams: z.boolean().default(false),
   hasCamera: z.boolean().default(false),
@@ -261,54 +311,516 @@ export const GameManifestSchema = z.object({
 export type GameManifest = z.infer<typeof GameManifestSchema>;
 
 // ------------------------------------------------------------
-// Catalog
+// Kanonischer Spiel-Slugs (zentral, stabil, Englisch) – Regelwerk §12.1
+// ------------------------------------------------------------
+export const GAME_SLUGS = {
+  wissensduell: 'wissensduell',
+  jeopardy: 'jeopardy',
+  werIstDas: 'wer-ist-das',
+  imposter: 'imposter',
+  songQuiz: 'song-quiz',
+  lastManStanding: 'last-man-standing',
+  higherLower: 'higher-lower',
+  timeline: 'timeline',
+  partnerChallenge: 'partner-challenge',
+  stadtLandFluss: 'stadt-land-fluss',
+  sameThought: 'same-thought',
+  schaetzMal: 'schaetz-mal',
+  millionenfrage: 'millionenfrage',
+  wahrOderFake: 'wahr-oder-fake',
+  undercover: 'undercover',
+  boardRace: 'board-race',
+  secretAgent: 'secret-agent',
+  yacht: 'yacht',
+} as const;
+
+export type CanonicalSlug = (typeof GAME_SLUGS)[keyof typeof GAME_SLUGS];
+
+// ------------------------------------------------------------
+// Legacy-Slug-Hilfen (nur für Migration / Compatibility, §5.23)
 // ------------------------------------------------------------
 
-export const CategorySchema = z.object({
-  id: z.string(),
-  slug: z.string(),
-  name: z.string(),
-  description: z.string(),
-  icon: z.string(),
-  order: z.number().int(),
-});
+/**
+ * Alle Legacy-Slugs, die auf einen kanonischen Slug abbilden. Für Timer-
+ * Restoration und Slug-Checks über die kanonische Identität, damit Räume,
+ * die noch den Legacy-Slug tragen (Migration nicht gelaufen / fehlgeschlagen),
+ * ebenfalls gefunden werden. (Regelwerk §5.21/§5.22/§5.23)
+ */
+export function legacySlugsForCanonical(canonical: string): string[] {
+  return Object.entries(LEGACY_SLUG_ALIASES)
+    .filter(([, c]) => c === canonical)
+    .map(([legacy]) => legacy);
+}
 
-export type Category = z.infer<typeof CategorySchema>;
+/** Kanonischer Slug plus alle erkannten Legacy-Slugs (für DB-Slug-Filter). */
+export function slugWithLegacy(canonical: string): string[] {
+  return [canonical, ...legacySlugsForCanonical(canonical)];
+}
 
-export const CATALOG_CATEGORIES: Category[] = [
-  { id: '1', slug: 'quiz-wissen', name: 'Quiz & Wissen', description: 'Wissensfragen aus allen Bereichen', icon: '📚', order: 1 },
-  { id: '2', slug: 'buzzer-reaktion', name: 'Buzzer & Reaktion', description: 'Schnelle Reaktion und Buzzer-Spiele', icon: '🔔', order: 2 },
-  { id: '3', slug: 'schaetzen-sortieren', name: 'Schätzen & Sortieren', description: 'Schätzfragen und Reihenfolgen', icon: '🎯', order: 3 },
-  { id: '4', slug: 'kreativ-schreiben', name: 'Kreativ & Schreiben', description: 'Kreative Antworten und Geschichten', icon: '✏️', order: 4 },
-  { id: '5', slug: 'bluff-taeuschung', name: 'Bluff & Täuschung', description: 'Lügen, Täuschen und Überzeugen', icon: '🎭', order: 5 },
-  { id: '6', slug: 'social-deduction', name: 'Social Deduction', description: 'Geheime Rollen und Verräter', icon: '🕵️', order: 6 },
-  { id: '7', slug: 'medien-erkennen', name: 'Medien & Erkennen', description: 'Bilder, Sounds und Medien erraten', icon: '🎬', order: 7 },
-  { id: '8', slug: 'team-kooperation', name: 'Team & Kooperation', description: 'Gemeinsam spielen und gewinnen', icon: '👥', order: 8 },
-  { id: '9', slug: 'freundesgruppe-insider', name: 'Freundesgruppe & Insider', description: 'Fragen über die Gruppe', icon: '💬', order: 9 },
-  { id: '10', slug: 'minigames', name: 'Minigames', description: 'Kurze Spaßspiele', icon: '🎮', order: 10 },
-  { id: '11', slug: 'meta-spielmodi', name: 'Meta-Spielmodi', description: 'Quizabende und Turniere', icon: '🏆', order: 11 },
-];
+// ------------------------------------------------------------
+// Legacy → kanonische Slug-Aliasse (Regelwerk §5.23, §12.1)
+//
+// Nur für Migration / Compatibility. Alte Begriffe dürfen im Runtime-Code
+// nicht als Alias verwendet werden – ausschließlich über diese Tabelle.
+// Regelwerk §14:
+//   geo                → wissensduell   (Geo/Allgemeinwissen = Content-Kategorien)
+//   weristdas          → wer-ist-das
+//   wer-luegt, luegen  → imposter
+//   song, song-erraten → song-quiz
+//   wer-wird-millionaer→ millionenfrage
+//   wahrheit-oder-fake → wahr-oder-fake
+//   allgemeinwissen    → kein eigenes Game, Content-Kategorie in wissensduell
+//                        (Redirect, damit alte Links nicht 404 werden)
+// ------------------------------------------------------------
+export const LEGACY_SLUG_ALIASES: Readonly<Record<string, CanonicalSlug>> = {
+  geo: GAME_SLUGS.wissensduell,
+  allgemeinwissen: GAME_SLUGS.wissensduell,
+  weristdas: GAME_SLUGS.werIstDas,
+  'wer-luegt': GAME_SLUGS.imposter,
+  luegen: GAME_SLUGS.imposter,
+  song: GAME_SLUGS.songQuiz,
+  'song-erraten': GAME_SLUGS.songQuiz,
+  'wer-wird-millionaer': GAME_SLUGS.millionenfrage,
+  'wahrheit-oder-fake': GAME_SLUGS.wahrOderFake,
+};
 
+const CANONICAL_SLUG_SET: ReadonlySet<string> = new Set(Object.values(GAME_SLUGS));
+
+/**
+ * Resolved einen (möglicherweise Legacy-)Slug auf den kanonischen Slug.
+ * Gibt den Input unverändert zurück, wenn er bereits kanonisch ist.
+ * Für unbekannte Slugs (weder kanonisch noch als Legacy bekannt) wird der
+ * Input ebenfalls unverändert zurückgegeben – Aufrufer entscheiden dann,
+ * ob sie "nicht gefunden" melden.
+ */
+export function resolveCanonicalSlug(slug: string | null | undefined): string | null {
+  if (!slug) return null;
+  if (CANONICAL_SLUG_SET.has(slug)) return slug;
+  const aliased = LEGACY_SLUG_ALIASES[slug];
+  return aliased ?? slug;
+}
+
+// ------------------------------------------------------------
+// Kanonischer Spielekatalog (Regelwerk §14)
+//
+// Status-Ableitung (Regelwerk §5.28, §13.1):
+//   AVAILABLE nur, wenn startbare Engine + vollständig getesteter Ablauf
+//   existieren und CI grün ist. Auf main (nach PR #9) sind genau drei
+//   Engines vollständig implementiert und getestet:
+//     wissensduell (ehem. geo)   – E2E G4-* + Integrationstests
+//     jeopardy                    – E2E J1-J10 + Integrationstests
+//     wer-ist-das (ehem. weristdas) – E2E + socket-flow-Integrationstests
+//   Alle weiteren Katalogeinträge haben KEINE Engine → PLANNED.
+//   (Die früheren Labels song-erraten/timeline/luegen "AVAILABLE" waren
+//    falsch – es existiert dafür keine startbare Engine.)
+// ------------------------------------------------------------
 export const GAME_MANIFESTS: GameManifest[] = [
-  // Kategorie 1: Quiz & Wissen
-  { slug: 'geo', name: 'Geografie-Quiz', category: 'quiz-wissen', setupSchemaVersion: 1, shortDescription: 'Multiple-Choice Quiz mit Joker', description: 'Teste dein Geografie-Wissen mit vier Antwortoptionen und nutze Joker.', minPlayers: 2, maxPlayers: 10, estimatedDurationMinutes: 15, roles: ['MODERATOR', 'PLAYER', 'VIEWER'], tags: ['quiz', 'joker', 'timer'], status: 'AVAILABLE', hasBuzzer: false, hasTeams: false, hasCamera: false, hasAudio: true, hasTimer: true },
-  { slug: 'allgemeinwissen', name: 'Allgemeinwissen-Quiz', category: 'quiz-wissen', setupSchemaVersion: 1, shortDescription: 'Fragen aus allen Wissensgebieten', description: 'Allgemeinwissen aus verschiedenen Bereichen.', minPlayers: 2, maxPlayers: 10, estimatedDurationMinutes: 15, roles: ['MODERATOR', 'PLAYER', 'VIEWER'], tags: ['quiz'], status: 'PLANNED', hasBuzzer: false, hasTeams: false, hasCamera: false, hasAudio: false, hasTimer: true },
-  { slug: 'wer-wird-millionaer', name: 'Wer wird Millionär', category: 'quiz-wissen', setupSchemaVersion: 1, shortDescription: 'Aufsteigende Schwierigkeit mit Jokern', description: 'Die klassische Quizshow mit Gewinnleiter und Jokern.', minPlayers: 1, maxPlayers: 4, estimatedDurationMinutes: 30, roles: ['MODERATOR', 'PLAYER', 'VIEWER'], tags: ['quiz', 'show'], status: 'PLANNED', hasBuzzer: false, hasTeams: false, hasCamera: false, hasAudio: false, hasTimer: true },
-  
-  // Kategorie 2: Buzzer & Reaktion
-  { slug: 'jeopardy', name: 'Jeopardy', category: 'buzzer-reaktion', setupSchemaVersion: 1, shortDescription: '2 Boards, 6 Kategorien, Abstauber', description: 'Wähle Felder, beantworte Fragen und staube bei falschen Antworten ab.', minPlayers: 2, maxPlayers: 10, estimatedDurationMinutes: 30, roles: ['MODERATOR', 'PLAYER', 'VIEWER'], tags: ['buzzer', 'board'], status: 'AVAILABLE', hasBuzzer: true, hasTeams: false, hasCamera: false, hasAudio: false, hasTimer: true },
-  { slug: 'song-erraten', name: 'Erkenne den Song', category: 'buzzer-reaktion', setupSchemaVersion: 1, shortDescription: 'Musik-Buzzer-Spiel', description: 'Höre Clips und sei der Erste, der Titel und Interpret nennt.', minPlayers: 2, maxPlayers: 10, estimatedDurationMinutes: 20, roles: ['MODERATOR', 'PLAYER', 'VIEWER'], tags: ['buzzer', 'audio'], status: 'AVAILABLE', hasBuzzer: true, hasTeams: false, hasCamera: false, hasAudio: true, hasTimer: false },
-  { slug: 'weristdas', name: 'Wer ist das?', category: 'buzzer-reaktion', setupSchemaVersion: 1, shortDescription: 'Fusionbilder erkennen', description: 'Errate welche beiden Personen im Fusionsbild stecken.', minPlayers: 2, maxPlayers: 10, estimatedDurationMinutes: 15, roles: ['MODERATOR', 'PLAYER', 'VIEWER'], tags: ['buzzer', 'fusion'], status: 'AVAILABLE', hasBuzzer: true, hasTeams: false, hasCamera: false, hasAudio: false, hasTimer: false },
-  
-  // Kategorie 3: Schätzen & Sortieren
-  { slug: 'timeline', name: 'Timeline', category: 'schaetzen-sortieren', setupSchemaVersion: 1, shortDescription: 'Elemente chronologisch einordnen', description: 'Ordne Bilder oder Werte in die richtige Reihenfolge ein.', minPlayers: 2, maxPlayers: 10, estimatedDurationMinutes: 20, roles: ['MODERATOR', 'PLAYER', 'VIEWER'], tags: ['sortieren', 'leben'], status: 'PLANNED', hasBuzzer: false, hasTeams: false, hasCamera: false, hasAudio: false, hasTimer: false },
-  { slug: 'schaetz-mal', name: 'Schätz mal', category: 'schaetzen-sortieren', setupSchemaVersion: 1, shortDescription: 'Zahlenwerte schätzen', description: 'Schätze Zahlenwerte - die geringste Abweichung gewinnt.', minPlayers: 2, maxPlayers: 10, estimatedDurationMinutes: 15, roles: ['MODERATOR', 'PLAYER', 'VIEWER'], tags: ['schaetzen'], status: 'PLANNED', hasBuzzer: false, hasTeams: false, hasCamera: false, hasAudio: false, hasTimer: true },
-  { slug: 'higher-lower', name: 'Higher or Lower', category: 'schaetzen-sortieren', setupSchemaVersion: 1, shortDescription: 'Höher oder niedriger entscheiden', description: 'Entscheide ob der nächste Wert höher oder niedriger ist.', minPlayers: 2, maxPlayers: 10, estimatedDurationMinutes: 10, roles: ['MODERATOR', 'PLAYER', 'VIEWER'], tags: ['schaetzen'], status: 'PLANNED', hasBuzzer: false, hasTeams: false, hasCamera: false, hasAudio: false, hasTimer: false },
-  
-  // Kategorie 5: Bluff & Täuschung
-  { slug: 'wer-luegt', name: 'Wer lügt am besten?', category: 'bluff-taeuschung', setupSchemaVersion: 1, shortDescription: 'Echte und erfundene Antworten voten', description: 'Schreibe plausible falsche Antworten und vote für die beste Lüge.', minPlayers: 3, maxPlayers: 10, estimatedDurationMinutes: 20, roles: ['MODERATOR', 'PLAYER', 'VIEWER'], tags: ['bluff', 'vote'], status: 'AVAILABLE', hasBuzzer: false, hasTeams: false, hasCamera: false, hasAudio: false, hasTimer: false },
-  { slug: 'wahrheit-oder-fake', name: 'Wahrheit oder Fake?', category: 'bluff-taeuschung', setupSchemaVersion: 1, shortDescription: 'Echte von falschen Behauptungen unterscheiden', description: 'Stimme ab ob Behauptungen wahr oder erfunden sind.', minPlayers: 2, maxPlayers: 10, estimatedDurationMinutes: 15, roles: ['MODERATOR', 'PLAYER', 'VIEWER'], tags: ['bluff', 'vote'], status: 'PLANNED', hasBuzzer: false, hasTeams: false, hasCamera: false, hasAudio: false, hasTimer: false },
+  // ── Quiz & Wissen ──────────────────────────────────────────
+  {
+    slug: GAME_SLUGS.wissensduell,
+    name: 'Wissensduell',
+    category: 'quiz-wissen',
+    shortDescription: 'Multiple-Choice-Duell mit Joker – Geo und Allgemeinwissen',
+    description:
+      'Das generische Wissens-Duell: Multiple-Choice-Fragen aus Content-Pools ' +
+      '(Geografie, Allgemeinwissen, Geschichte, …) mit 50/50-, Spy- und Risk-Joker.',
+    minPlayers: 2,
+    maxPlayers: 10,
+    estimatedDurationMinutes: 15,
+    roles: ['MODERATOR', 'PLAYER', 'VIEWER'],
+    tags: ['quiz', 'joker', 'timer'],
+    status: 'AVAILABLE',
+    hasBuzzer: false,
+    hasTeams: false,
+    hasCamera: false,
+    hasAudio: false,
+    hasTimer: true,
+    setupSchemaVersion: 1,
+  },
+  {
+    slug: GAME_SLUGS.millionenfrage,
+    name: 'Millionenfrage',
+    category: 'quiz-wissen',
+    shortDescription: 'Aufsteigende Schwierigkeit mit Jokern',
+    description: 'Die klassische Quizshow mit Gewinnleiter und Jokern (Millionär-Prinzip).',
+    minPlayers: 1,
+    maxPlayers: 4,
+    estimatedDurationMinutes: 30,
+    roles: ['MODERATOR', 'PLAYER', 'VIEWER'],
+    tags: ['quiz', 'show'],
+    status: 'PLANNED',
+    hasBuzzer: false,
+    hasTeams: false,
+    hasCamera: false,
+    hasAudio: false,
+    hasTimer: true,
+    setupSchemaVersion: 1,
+  },
+
+  // ── Buzzer & Reaktion ──────────────────────────────────────
+  {
+    slug: GAME_SLUGS.jeopardy,
+    name: 'Jeopardy',
+    category: 'buzzer-reaktion',
+    shortDescription: '2 Boards, 6 Kategorien, Abstauber',
+    description: 'Wähle Felder, beantworte Fragen und staube bei falschen Antworten ab.',
+    minPlayers: 2,
+    maxPlayers: 10,
+    estimatedDurationMinutes: 30,
+    roles: ['MODERATOR', 'PLAYER', 'VIEWER'],
+    tags: ['buzzer', 'board'],
+    status: 'AVAILABLE',
+    hasBuzzer: true,
+    hasTeams: false,
+    hasCamera: false,
+    hasAudio: false,
+    hasTimer: true,
+    setupSchemaVersion: 1,
+  },
+  {
+    slug: GAME_SLUGS.werIstDas,
+    name: 'Wer ist das?',
+    category: 'buzzer-reaktion',
+    shortDescription: 'Bild + zwei Namen raten (Buzzer)',
+    description:
+      'Pro Runde ein vorbereitetes Bild und zwei zu ratende Namen: Erster Buzzer antwortet, ' +
+      'der Moderator bewertet. (MVP-BETA: Fusionsbild-Generierung folgt in einem eigenen PR; ' +
+      'das Spiel funktioniert mit vorbereiteten Bildern — Regelwerk §13.1, §15.3.)',
+    minPlayers: 2,
+    maxPlayers: 10,
+    estimatedDurationMinutes: 15,
+    roles: ['MODERATOR', 'PLAYER', 'VIEWER'],
+    tags: ['buzzer', 'fusion'],
+    status: 'BETA',
+    hasBuzzer: true,
+    hasTeams: false,
+    hasCamera: false,
+    hasAudio: false,
+    hasTimer: false,
+    setupSchemaVersion: 1,
+  },
+  {
+    slug: GAME_SLUGS.songQuiz,
+    name: 'Erkenne den Song',
+    category: 'buzzer-reaktion',
+    shortDescription: 'Synchrones Audio, erster Buzzer antwortet',
+    description:
+      'Synchronisierter Song-Ausschnitt läuft, der erste Buzzer nennt Titel und Artist. ' +
+      'Host prüft als Judge. (Engine in Planung – Regelwerk §15.5)',
+    minPlayers: 2,
+    maxPlayers: 10,
+    estimatedDurationMinutes: 15,
+    roles: ['MODERATOR', 'PLAYER', 'VIEWER'],
+    tags: ['buzzer', 'audio'],
+    status: 'PLANNED',
+    hasBuzzer: true,
+    hasTeams: false,
+    hasCamera: false,
+    hasAudio: true,
+    hasTimer: false,
+    setupSchemaVersion: 1,
+  },
+
+  // ── Schätzen & Sortieren ───────────────────────────────────
+  {
+    slug: GAME_SLUGS.timeline,
+    name: 'Timeline',
+    category: 'schaetzen-sortieren',
+    shortDescription: 'Elemente chronologisch einordnen',
+    description: 'Ordne Bilder oder Werte in die richtige Reihenfolge ein.',
+    minPlayers: 2,
+    maxPlayers: 10,
+    estimatedDurationMinutes: 20,
+    roles: ['MODERATOR', 'PLAYER', 'VIEWER'],
+    tags: ['sortieren'],
+    status: 'PLANNED',
+    hasBuzzer: false,
+    hasTeams: false,
+    hasCamera: false,
+    hasAudio: false,
+    hasTimer: false,
+    setupSchemaVersion: 1,
+  },
+  {
+    slug: GAME_SLUGS.schaetzMal,
+    name: 'Schätz mal',
+    category: 'schaetzen-sortieren',
+    shortDescription: 'Zahlenwerte schätzen',
+    description: 'Schätze Zahlenwerte – die geringste Abweichung gewinnt.',
+    minPlayers: 2,
+    maxPlayers: 10,
+    estimatedDurationMinutes: 15,
+    roles: ['MODERATOR', 'PLAYER', 'VIEWER'],
+    tags: ['schaetzen'],
+    status: 'PLANNED',
+    hasBuzzer: false,
+    hasTeams: false,
+    hasCamera: false,
+    hasAudio: false,
+    hasTimer: true,
+    setupSchemaVersion: 1,
+  },
+  {
+    slug: GAME_SLUGS.higherLower,
+    name: 'Higher or Lower',
+    category: 'schaetzen-sortieren',
+    shortDescription: 'Höher oder niedriger entscheiden',
+    description: 'Entscheide, ob der nächste Wert höher oder niedriger ist.',
+    minPlayers: 2,
+    maxPlayers: 10,
+    estimatedDurationMinutes: 10,
+    roles: ['MODERATOR', 'PLAYER', 'VIEWER'],
+    tags: ['schaetzen'],
+    status: 'PLANNED',
+    hasBuzzer: false,
+    hasTeams: false,
+    hasCamera: false,
+    hasAudio: false,
+    hasTimer: false,
+    setupSchemaVersion: 1,
+  },
+
+  // ── Bluff & Täuschung ──────────────────────────────────────
+  {
+    slug: GAME_SLUGS.imposter,
+    name: 'Imposter',
+    category: 'bluff-taeuschung',
+    shortDescription: 'Echte und erfundene Antworten voten',
+    description: 'Schreibe plausible falsche Antworten und vote für die echte Antwort.',
+    minPlayers: 3,
+    maxPlayers: 10,
+    estimatedDurationMinutes: 20,
+    roles: ['MODERATOR', 'PLAYER', 'VIEWER'],
+    tags: ['bluff', 'vote'],
+    status: 'PLANNED',
+    hasBuzzer: false,
+    hasTeams: false,
+    hasCamera: false,
+    hasAudio: false,
+    hasTimer: false,
+    setupSchemaVersion: 1,
+  },
+  {
+    slug: GAME_SLUGS.wahrOderFake,
+    name: 'Wahr oder Fake?',
+    category: 'bluff-taeuschung',
+    shortDescription: 'Echte von falschen Behauptungen unterscheiden',
+    description: 'Stimme ab, ob Behauptungen wahr oder erfunden sind.',
+    minPlayers: 2,
+    maxPlayers: 10,
+    estimatedDurationMinutes: 15,
+    roles: ['MODERATOR', 'PLAYER', 'VIEWER'],
+    tags: ['bluff', 'vote'],
+    status: 'PLANNED',
+    hasBuzzer: false,
+    hasTeams: false,
+    hasCamera: false,
+    hasAudio: false,
+    hasTimer: false,
+    setupSchemaVersion: 1,
+  },
+
+  // ── Social Deduction ───────────────────────────────────────
+  {
+    slug: GAME_SLUGS.undercover,
+    name: 'Undercover',
+    category: 'social-deduction',
+    shortDescription: 'Geheime Begriffe, Hinweise, Voting',
+    description: 'Secret-Role-/Deduction-Spiel (getrennt von Imposter): geheime Begriffe, Hinweise, Voting.',
+    minPlayers: 4,
+    maxPlayers: 10,
+    estimatedDurationMinutes: 25,
+    roles: ['MODERATOR', 'PLAYER', 'VIEWER'],
+    tags: ['deduction', 'secret-role'],
+    status: 'PLANNED',
+    hasBuzzer: false,
+    hasTeams: false,
+    hasCamera: false,
+    hasAudio: false,
+    hasTimer: false,
+    setupSchemaVersion: 1,
+  },
+  {
+    slug: GAME_SLUGS.secretAgent,
+    name: 'Geheim Agent',
+    category: 'social-deduction',
+    shortDescription: 'Social Deduction mit geheimen Rollen',
+    description: 'Social-Deduction-Spiel mit geheimen Rollen und Informationen.',
+    minPlayers: 4,
+    maxPlayers: 10,
+    estimatedDurationMinutes: 25,
+    roles: ['MODERATOR', 'PLAYER', 'VIEWER'],
+    tags: ['deduction', 'secret-role'],
+    status: 'PLANNED',
+    hasBuzzer: false,
+    hasTeams: false,
+    hasCamera: false,
+    hasAudio: false,
+    hasTimer: false,
+    setupSchemaVersion: 1,
+  },
+
+  // ── Team & Kooperation ─────────────────────────────────────
+  {
+    slug: GAME_SLUGS.partnerChallenge,
+    name: 'Wie weit gehst du?',
+    category: 'team-kooperation',
+    shortDescription: 'Biet-/Partner-Challenge',
+    description: 'Partner-Challenge: Bieten, Aufgabe erfüllen, gegnerische Validierung.',
+    minPlayers: 4,
+    maxPlayers: 8,
+    estimatedDurationMinutes: 25,
+    roles: ['MODERATOR', 'PLAYER', 'VIEWER'],
+    tags: ['team', 'bidding'],
+    status: 'PLANNED',
+    hasBuzzer: false,
+    hasTeams: true,
+    hasCamera: false,
+    hasAudio: false,
+    hasTimer: true,
+    setupSchemaVersion: 1,
+  },
+  {
+    slug: GAME_SLUGS.sameThought,
+    name: 'Gleicher Gedanke',
+    category: 'team-kooperation',
+    shortDescription: 'Assoziations-/Partner-Matching',
+    description: 'Partner geben unabhängig Begriffe ein – gleiche Assoziation ergibt Erfolg.',
+    minPlayers: 2,
+    maxPlayers: 8,
+    estimatedDurationMinutes: 15,
+    roles: ['MODERATOR', 'PLAYER', 'VIEWER'],
+    tags: ['team', 'association'],
+    status: 'PLANNED',
+    hasBuzzer: false,
+    hasTeams: true,
+    hasCamera: false,
+    hasAudio: false,
+    hasTimer: true,
+    setupSchemaVersion: 1,
+  },
+
+  // ── Meta-Spielmodi ─────────────────────────────────────────
+  {
+    slug: GAME_SLUGS.stadtLandFluss,
+    name: 'Stadt, Land, Fluss',
+    category: 'meta-spielmodi',
+    shortDescription: 'Klassisches Raten in Kategorien',
+    description: 'Neuer Spieltyp: Kategorien abfahren, erste gültige Antwort gewinnt den Punkt.',
+    minPlayers: 2,
+    maxPlayers: 10,
+    estimatedDurationMinutes: 20,
+    roles: ['MODERATOR', 'PLAYER', 'VIEWER'],
+    tags: ['raterunde'],
+    status: 'PLANNED',
+    hasBuzzer: false,
+    hasTeams: false,
+    hasCamera: false,
+    hasAudio: false,
+    hasTimer: true,
+    setupSchemaVersion: 1,
+  },
+  {
+    slug: GAME_SLUGS.boardRace,
+    name: 'Raus damit!',
+    category: 'meta-spielmodi',
+    shortDescription: 'Digitales Figuren-Rennspiel',
+    description: 'Digitales Figuren-Rennspiel: Würfeln, Figuren bewegen, Heimfeld.',
+    minPlayers: 2,
+    maxPlayers: 6,
+    estimatedDurationMinutes: 20,
+    roles: ['MODERATOR', 'PLAYER', 'VIEWER'],
+    tags: ['rennspiel', 'dice'],
+    status: 'PLANNED',
+    hasBuzzer: false,
+    hasTeams: false,
+    hasCamera: false,
+    hasAudio: false,
+    hasTimer: false,
+    setupSchemaVersion: 1,
+  },
+  {
+    slug: GAME_SLUGS.yacht,
+    name: 'Yacht',
+    category: 'meta-spielmodi',
+    shortDescription: 'Würfelspiel nach Kniffel-Prinzip',
+    description: 'Würfelspiel nach klassischem Kniffel-Prinzip: 5 Würfel, Kategorien, Scorecard.',
+    minPlayers: 1,
+    maxPlayers: 8,
+    estimatedDurationMinutes: 20,
+    roles: ['MODERATOR', 'PLAYER', 'VIEWER'],
+    tags: ['dice', 'solitär'],
+    status: 'PLANNED',
+    hasBuzzer: false,
+    hasTeams: false,
+    hasCamera: false,
+    hasAudio: false,
+    hasTimer: false,
+    setupSchemaVersion: 1,
+  },
+  {
+    slug: GAME_SLUGS.lastManStanding,
+    name: 'Last Man Standing',
+    category: 'meta-spielmodi',
+    shortDescription: 'Feste Turn Order, einzigartige Antworten',
+    description: 'Letzter Überlebender: feste Turn Order, einzigartige gültige Antworten, Leben/KO.',
+    minPlayers: 2,
+    maxPlayers: 10,
+    estimatedDurationMinutes: 20,
+    roles: ['MODERATOR', 'PLAYER', 'VIEWER'],
+    tags: ['turn-based', 'lives'],
+    status: 'PLANNED',
+    hasBuzzer: false,
+    hasTeams: false,
+    hasCamera: false,
+    hasAudio: false,
+    hasTimer: true,
+    setupSchemaVersion: 1,
+  },
 ];
+
+// ------------------------------------------------------------
+// Abgeleitete, sichtbare Kategorien (aus den Katalogdaten)
+// Regelwerk §12.1: keine doppelten Hardcodes, keine Fantasiezahlen.
+// Nur Kategorien, die tatsächlich mindestens ein Spiel im Katalog
+// enthalten, werden sichtbar; gameCount = echte Anzahl.
+// ------------------------------------------------------------
+export interface VisibleCategory extends CatalogCategory {
+  gameCount: number;
+  gameSlugs: string[];
+}
+
+export function deriveVisibleCategories(manifests: GameManifest[] = GAME_MANIFESTS): VisibleCategory[] {
+  const bySlug = new Map<string, string[]>();
+  for (const m of manifests) {
+    if (m.status === 'HIDDEN') continue;
+    const list = bySlug.get(m.category) ?? [];
+    list.push(m.slug);
+    bySlug.set(m.category, list);
+  }
+  const result: VisibleCategory[] = [];
+  for (const cat of CATALOG_CATEGORIES) {
+    const slugs = bySlug.get(cat.slug);
+    if (!slugs || slugs.length === 0) continue; // nur Kategorien mit echten Spielen
+    result.push({ ...cat, gameCount: slugs.length, gameSlugs: slugs });
+  }
+  return result;
+}
+
+// ------------------------------------------------------------
+// Lookup-Helfer
+// ------------------------------------------------------------
+export function getGameManifest(slug: string | null | undefined): GameManifest | undefined {
+  const canonical = resolveCanonicalSlug(slug);
+  if (!canonical) return undefined;
+  return GAME_MANIFESTS.find((m) => m.slug === canonical);
+}
+
+export function isStartableGame(status: GameStatus): boolean {
+  return status === 'AVAILABLE' || status === 'BETA';
+}
+
+export const ALL_CANONICAL_SLUGS: readonly string[] = Object.values(GAME_SLUGS);
 
 // ------------------------------------------------------------
 // API Response Types
@@ -363,7 +875,7 @@ export const ScoreEventSchema = z.object({
   createdAt: z.string().datetime(),
 });
 
-export type ScoreEvent = z.infer<typeof GameManifestSchema>;
+export type ScoreEvent = z.infer<typeof ScoreEventSchema>;
 
 // ============================================================
 // API Contract — Request / Response Schemas

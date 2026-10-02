@@ -11,8 +11,35 @@ import { verifySession } from '../auth/session.js';
 import { logger } from '../observability/logger.js';
 import { config } from '../config/index.js';
 import { CreateRoomSchema, JoinRoomSchema, validateBody } from './validators.js';
+import { resolveCanonicalSlug, getGameManifest, type GameManifest } from '@quiz/shared';
+import { isStartableSlug } from '../games/registry.js';
 
 export const roomsRouter : ReturnType<typeof Router> = Router();
+
+// ------------------------------------------------------------
+// Startfähigkeit serverseitig prüfen (Regelwerk §13.1, §14).
+//
+// Eine Raum darf NUR erstellt werden, wenn das Spiel:
+//   1. einen ECHTEN Engine-Handler hat (isStartableSlug — keine no-op-
+//      Placeholders), UND
+//   2. einen ehrlichen Status AVAILABLE/BETA hat (kein PLANNED/HIDDEN).
+//
+// Die Prüfung gilt für BEIDE Aufrouten: gameSlug UND gameDefinitionId.
+// Ein PLANNED- oder HIDDEN-Spiel, dessen Definition in der DB existiert
+// (z.B. wie nach dem Seed), ist trotzdem NICH startbar → GAME_NOT_STARTABLE.
+// ------------------------------------------------------------
+export function classifyRoomCreationError(
+  definition: Pick<GameManifest, 'slug' | 'status'> | null | undefined,
+  startable: boolean,
+): { code: string; message: string } | null {
+  if (!startable) {
+    return { code: 'GAME_NOT_STARTABLE', message: 'Dieses Spiel ist noch nicht startbar (keine Engine implementiert).' };
+  }
+  if (definition && definition.status !== 'AVAILABLE' && definition.status !== 'BETA') {
+    return { code: 'GAME_NOT_STARTABLE', message: `Spielstatus „${definition.status}“ — Raumerstellung ist dafür gesperrt.` };
+  }
+  return null;
+}
 
 // Generate unique room code using crypto
 function generateRoomCode(): string {
@@ -134,11 +161,17 @@ roomsRouter.post('/', async (req, res) => {
       isPublic,
     } = parsed;
 
-    // Resolve game definition: prefer slug, fallback to id
+    // Resolve game definition: prefer slug (mit Legacy-Auflösung), fallback to id
     let resolvedGameDefId = gameDefinitionId;
-    if (!resolvedGameDefId && gameSlug) {
-      const gameDef = await prisma.gameDefinition.findUnique({
-        where: { slug: gameSlug },
+    let gameDef: { id: string; slug: string } | null = null;
+
+    if (!gameDefinitionId && gameSlug) {
+      // Legacy-Slugs (z.B. "geo", "weristdas") werden auf den kanonischen
+      // Slug aufgelöst, damit alte Clients/Legacy-Links kontrolliert auf den
+      // kanonischen Pfad übergehen. (Regelwerk §5.23, §12.1)
+      const canonicalSlug = resolveCanonicalSlug(gameSlug) ?? gameSlug;
+      gameDef = await prisma.gameDefinition.findUnique({
+        where: { slug: canonicalSlug },
       });
       if (!gameDef) {
         return res.status(400).json({
@@ -147,6 +180,18 @@ roomsRouter.post('/', async (req, res) => {
         });
       }
       resolvedGameDefId = gameDef.id;
+    } else if (gameDefinitionId) {
+      // Direkte Angabe über gameDefinitionId: die Definition laden, um
+      // Status + Engine-Handler ebenfalls serverseitig zu prüfen.
+      gameDef = await prisma.gameDefinition.findUnique({
+        where: { id: gameDefinitionId },
+      });
+      if (!gameDef) {
+        return res.status(400).json({
+          success: false,
+          error: { code: 'GAME_NOT_FOUND', message: 'Spiel nicht gefunden.' },
+        });
+      }
     }
 
     if (!resolvedGameDefId) {
@@ -154,6 +199,17 @@ roomsRouter.post('/', async (req, res) => {
         success: false,
         error: { code: 'VALIDATION', message: 'Spiel (slug oder id) erforderlich.' },
       });
+    }
+
+    // Startfähigkeits-Prüfung (Regelwerk §13.1): echte Engine + ehrlicher Status.
+    // Gilt für gameSlug UND gameDefinitionId — ein PLANNED/HIDDEN-Spiel mit
+    // existierender Definition ist trotzdem nicht startbar.
+    const canonicalSlug = gameDef ? resolveCanonicalSlug(gameDef.slug) ?? gameDef.slug : null;
+    const startable = canonicalSlug ? isStartableSlug(canonicalSlug) : false;
+    const manifest = canonicalSlug ? getGameManifest(canonicalSlug) : null;
+    const startErr = classifyRoomCreationError(manifest, startable);
+    if (startErr) {
+      return res.status(400).json({ success: false, error: startErr });
     }
 
     // Generate unique code

@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { GAME_SLUGS } from '@quiz/shared';
 import styles from './WerIstDasSetupPage.module.css';
 
 interface RoundDraft { id: string; imageAssetId: string; person1: string; person2: string; fileName?: string }
@@ -36,7 +37,7 @@ export function WerIstDasSetupPage() {
     try {
       const response = await fetch('/api/v1/rooms', {
         method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ gameSlug: 'weristdas', roomName, pin: pin || undefined,
+        body: JSON.stringify({ gameSlug: GAME_SLUGS.werIstDas, roomName, pin: pin || undefined,
           maxPlayers: 10, allowViewers: true, viewerRequiresPin: false,
           setupSnapshotJson: { rounds: rounds.map(({ id, imageAssetId, person1, person2 }) =>
             ({ id, imageAssetId, person1: person1.trim(), person2: person2.trim() })) } }),

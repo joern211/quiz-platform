@@ -71,14 +71,15 @@ export default function App() {
           {/* ── Moderator ── */}
           <Route path="/moderator/anmelden"                              element={<ModeratorLoginPage />} />
           <Route path="/moderator/vorbereitung/jeopardy"         element={<JeopardySetupPage />} />
-          <Route path="/moderator/vorbereitung/weristdas" element={<WerIstDasSetupPage />} />
           <Route path="/moderator/vorbereitung/wer-ist-das" element={<WerIstDasSetupPage />} />
+          <Route path="/moderator/vorbereitung/weristdas" element={<WerIstDasSetupPage />} />
           <Route path="/moderator/vorbereitung/:gameSlug"         element={<ModeratorSetupPage />} />
           <Route path="/moderator/raeume"                                element={<RoomsPage />} />
           <Route path="/moderator/raum/:code/lobby"                      element={<ModeratorLobbyPage />} />
           <Route path="/moderator/raum/:code/spiel"                      element={<ModeratorGamePage />} />
           <Route path="/moderator/raum/:code/ergebnis"                   element={<ModeratorResultPage />} />
           <Route path="/moderator/raum/:code/jeopardy"                     element={<JeopardyModeratorPage />} />
+          <Route path="/moderator/raum/:code/wer-ist-das" element={<WerIstDasGamePage role="MODERATOR" />} />
           <Route path="/moderator/raum/:code/weristdas" element={<WerIstDasGamePage role="MODERATOR" />} />
 
           {/* ── Spieler ── */}
@@ -86,6 +87,7 @@ export default function App() {
           <Route path="/raum/:code/spiel"     element={<PlayerGamePage />} />
           <Route path="/raum/:code/ergebnis"  element={<PlayerResultPage />} />
           <Route path="/jeopardy/spiel/:code" element={<JeopardyPlayerPage />} />
+          <Route path="/wer-ist-das/spiel/:code" element={<WerIstDasGamePage role="PLAYER" />} />
           <Route path="/weristdas/spiel/:code" element={<WerIstDasGamePage role="PLAYER" />} />
 
           {/* ── Zuschauer ── */}
@@ -95,6 +97,7 @@ export default function App() {
           <Route path="/zuschauen/:code/ergebnis"          element={<ViewerResultPage />} />
           {/* ── Jeopardy (Buzzer-Game) ── */}
           <Route path="/jeopardy/zuschauer/:code"         element={<JeopardySpectatorPage />} />
+          <Route path="/wer-ist-das/zuschauer/:code" element={<WerIstDasGamePage role="VIEWER" />} />
           <Route path="/weristdas/zuschauer/:code" element={<WerIstDasGamePage role="VIEWER" />} />
 
           {/* ── Profil / Admin ── */}

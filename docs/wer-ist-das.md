@@ -2,7 +2,11 @@
 
 ## Einrichtung
 
-Der Moderator wählt das Spiel im Katalog (`weristdas`) und erstellt eine oder mehrere Runden. Jede Runde benötigt ein vorbereitetes Bild sowie zwei Personennamen. Der bestehende Medienendpunkt speichert die hochgeladenen Bilder. Der Raum speichert die Reihenfolge und Lösungen als `setupSnapshotJson`; bei Spielstart prüft die Engine Runden, eindeutige IDs und vorhandene Bilder des Raumhosts. Ein fehlerhaftes Setup setzt den Raum in die Lobby zurück.
+Der Moderator wählt das Spiel im Katalog (Slug `wer-ist-das`, Anzeigename „Wer ist das?") und erstellt eine oder mehrere Runden. Jede Runde benötigt ein vorbereitetes Bild sowie zwei Personennamen. Der bestehende Medienendpunkt speichert die hochgeladenen Bilder. Der Raum speichert die Reihenfolge und Lösungen als `setupSnapshotJson`; bei Spielstart prüft die Engine Runden, eindeutige IDs und vorhandene Bilder des Raumhosts. Ein fehlerhaftes Setup setzt den Raum in die Lobby zurück.
+
+> Hinweis: Der interne Modul- und Socket-Eventname bleibt `weristdas`
+> (Modulpfad `games/weristdas/`, Events `weristdas:*`). Das ist bewusst
+> getrennt vom **Spiel-Slug** `wer-ist-das` (sichtbare Identität in DB/API/URL).
 
 Das MVP erzeugt keine Fusionsbilder und erkennt gesprochene Namen nicht automatisch. Der Moderator bewertet mündliche Antworten. Öffentliche Bildantworten geben den ursprünglichen Upload-Dateinamen nicht im HTTP-Header preis, da er die Lösung enthalten kann.
 

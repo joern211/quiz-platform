@@ -15,6 +15,7 @@ import { rm as rmAsync } from 'node:fs/promises';
 import {
   seedTestUserWithDb,
   getOrCreateGeoGame,
+  getOrCreateStartableGame,
   cleanupTestDataForDb,
   createTestDatabase,
 } from '../test-helpers.js';
@@ -95,12 +96,14 @@ describe('Rooms API — Create Room', () => {
     const { request: req, prisma: db, dbUrl } = await createTestApp();
     const ts = Date.now();
     const result = await seedTestUserWithDb(db, `mod-create-${ts}`, `Creator${ts}`, `mod-create-${ts}@test.local`);
-    const geoDef = await getOrCreateGeoGame();
+    // Echte startbare Definition (kanonischer Slug + Engine-Handler) — die
+    // Startfähigkeits-Sperre (Regelwerk §13.1) akzeptiert nur diese.
+    const startable = await getOrCreateStartableGame();
 
     const res = await req
       .post('/api/v1/rooms')
       .set('Cookie', result.cookie)
-      .send({ roomName: 'My Test Room', gameSlug: geoDef.slug, gameDefinitionId: geoDef.id });
+      .send({ roomName: 'My Test Room', gameSlug: startable.slug });
 
     expect(res.status, res.text).toBe(201);
     expect(res.body.success).toBe(true);

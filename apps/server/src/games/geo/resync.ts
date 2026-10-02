@@ -3,6 +3,7 @@ import { prisma } from '../../persistence/prisma.js';
 import { logger } from '../../observability/logger.js';
 import { authorizeGameAction, type GameActor } from '../core/access.js';
 import { loadGameState } from '../core/state.js';
+import { resolveCanonicalSlug } from '@quiz/shared';
 
 type GeoRound = {
   question: { id: string; prompt: string; category: string; options: Array<{ id: string; text: string }> };
@@ -79,7 +80,7 @@ export function registerGeoResync(_io: Server, socket: Socket): void {
         where: { id: auth.actor.roomId }, include: { gameDefinition: true },
       });
       if (!room) { callback?.({ success: false, error: 'ROOM_NOT_FOUND' }); return; }
-      if (room.gameDefinition.slug !== 'geo') {
+      if (resolveCanonicalSlug(room.gameDefinition.slug) !== resolveCanonicalSlug('geo')) {
         callback?.({ success: false, error: 'WRONG_GAME' }); return;
       }
       const loaded = await loadGameState<GeoState>(room.id);
