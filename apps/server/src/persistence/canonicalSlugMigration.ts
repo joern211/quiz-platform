@@ -27,10 +27,13 @@
 // ============================================================
 
 import type { PrismaClient } from '@prisma/client';
-import { GAME_MANIFESTS, LEGACY_SLUG_ALIASES } from '@quiz/shared';
+import { GAME_MANIFESTS, LEGACY_SLUG_ALIASES, type GameManifest } from '@quiz/shared';
 import { logger } from '../observability/logger.js';
 
 export const CANONICAL_SLUG_MIGRATION_VERSION = 1;
+
+/** Kanonische Definition-Status (Regelwerk §5.3). */
+export type GameDefStatus = 'AVAILABLE' | 'BETA' | 'PLANNED' | 'HIDDEN';
 
 // Marker für verarbeitete Legacy-Definitionen (Kollisionsfall).
 // Nach dem Merge wird die Legacy-Definition HIDDEN + mit diesem Präfix
@@ -38,19 +41,11 @@ export const CANONICAL_SLUG_MIGRATION_VERSION = 1;
 // Idempotenz (keine doppelte Audit-Protokollierung, keine Wiederholung).
 const MIGRATED_DEF_NAME_PREFIX = '[slug-migrated]';
 
-export interface SlugMigrationResult {
-  version: number;
-  applied: boolean;
-  renamedDefinitions: string[];
-  mergedCollisions: Array<{ legacy: string; canonical: string }>;
-  repointedRooms: number;
-  repointedSetups: number;
-  repointedQuestionPacks: number;
-  hiddenDefinitions: string[];
-  changes: number;
-}
-
-/** Katalog-Attribute aus dem kanonischen Manifest für eine Slug-Ausrichtung. */
+/**
+ * Liefert die fachlich relevanten Manifest-Attribute für einen kanonischen
+ * Slug. Dies ist die EXAKTE Menge Felder, die die Migration auf die
+ * GameDefinition schreibt (Slug selbst + Ausrichtung an den Manifest).
+ */
 function manifestAttributes(canonicalSlug: string) {
   const m = GAME_MANIFESTS.find((g) => g.slug === canonicalSlug);
   if (!m) return null;
@@ -71,6 +66,49 @@ function manifestAttributes(canonicalSlug: string) {
     setupSchemaVersion: m.setupSchemaVersion,
   };
 }
+
+/**
+ * Ist eine bestehende `GameDefinition` (nach einem vorherigen Lauf) bereits
+ * inhaltlich mit ihrem Manifest ausgerichtet? (Idempotenz ohne Schreibzugriff:
+ * ein Lauf, der nichts mehr zu ändern hat, darf die DB nicht berühren — weder
+ * `updatedAt` noch eine Audit-Zeile. Regelwerk §5.23 "keine stillen Änderungen".)
+ */
+export function slugMatchesManifest(
+  def: Pick<import('@prisma/client').GameDefinition,
+    'slug' | 'name' | 'category' | 'shortDescription' | 'description' | 'status'
+      | 'minPlayers' | 'maxPlayers' | 'estimatedMinutes' | 'hasBuzzer' | 'hasTeams'
+      | 'hasCamera' | 'hasAudio' | 'hasTimer' | 'setupSchemaVersion'>,
+  m: GameManifest,
+): boolean {
+  return def.name === m.name
+    && def.category === m.category
+    && (def.shortDescription ?? null) === (m.shortDescription ?? null)
+    && (def.description ?? null) === (m.description ?? null)
+    && def.status === m.status
+    && def.minPlayers === m.minPlayers
+    && def.maxPlayers === m.maxPlayers
+    && def.estimatedMinutes === m.estimatedDurationMinutes
+    && def.hasBuzzer === m.hasBuzzer
+    && def.hasTeams === m.hasTeams
+    && def.hasCamera === m.hasCamera
+    && def.hasAudio === m.hasAudio
+    && def.hasTimer === m.hasTimer
+    && def.setupSchemaVersion === m.setupSchemaVersion;
+}
+
+export interface SlugMigrationResult {
+  version: number;
+  applied: boolean;
+  renamedDefinitions: string[];
+  mergedCollisions: Array<{ legacy: string; canonical: string }>;
+  repointedRooms: number;
+  repointedSetups: number;
+  repointedQuestionPacks: number;
+  hiddenDefinitions: string[];
+  changes: number;
+}
+
+
 
 /**
  * Führt die kanonische Slug-Migration aus. Atomar (ein $transaction) und
@@ -165,14 +203,22 @@ export async function runCanonicalSlugMigration(client: PrismaClient): Promise<S
     }
 
     // ── Schritt 3: kanonische Definitionen an den Manifest ausrichten ──
-    // Stellt sicher, dass die DB die ehrlichen Katalog-Status trägt
-    // (AVAILABLE nur bei startbarer, getesteter Engine). Nur für die
-    // tatsächlich existierenden kanonischen Definitionen.
+    // Stellt sicher, dass die DB die ehrlichen Katalog-Status + Attribute
+    // trägt (AVAILABLE/BETA nur bei startbarer, getesteter Engine). Nur für
+    // die tatsächlich existierenden kanonischen Definitionen.
+    //
+    // IDEMPOTENZ (Regelwerk §5.23 "keine stillen Änderungen"): Nur Definitionen,
+    // die sich inhaltlich vom Manifest unterscheiden, werden aktualisiert. Ein
+    // bereits ausgerichteter Lauf schreibt NICHTS — `updatedAt` bleibt unverändert
+    // und es entsteht kein Audit-Record. (Prisma-`@updatedAt` würde ansonsten bei
+    // jedem Start hochgezogen, obwohl sich fachlich nichts geändert hat.)
     for (const m of GAME_MANIFESTS) {
       const def = await tx.gameDefinition.findUnique({ where: { slug: m.slug } });
       if (!def) continue;
+      if (slugMatchesManifest(def, m)) continue; // bereits ausgerichtet → No-op
       const attrs = manifestAttributes(m.slug)!;
       await tx.gameDefinition.update({ where: { id: def.id }, data: attrs });
+      result.changes += 1;
     }
 
     // ── Schritt 4: Audit-Protokoll (nur bei Änderungen) ────────────────
@@ -208,21 +254,69 @@ export async function runCanonicalSlugMigration(client: PrismaClient): Promise<S
   return result;
 }
 
+// ------------------------------------------------------------
+// Degradierter Zustand (Regelwerk §5.23 "keine sichere Migration → alte
+// Engine behalten") — globaler Flag, den server.ts / Health prüfen können.
+// ------------------------------------------------------------
+
 /**
- * Start-Hook: führt die Migration idempotent aus. Ein Fehler darf den
- * Server nicht blockieren, wird aber prominent geloggt (Recovery-Prinzip:
- * besser lauten als falschen State erzeugen).
+ * true, wenn die Slug-Migration beim letzten Start FEHLGESCHLAGEN ist.
+ * Solange true, dürfen wir keinen "sauberen" Betrieb behaupten — aber der
+ * Server fährt im Legacy-Kompatibilitätsbetrieb weiter, weil Autorisierung
+ * (authorizeGameContext) und Timer-Restoration (restoreActiveTimers) beide
+ * erkannte Legacy-Slugs über resolveCanonicalSlug auflösen (nachweislich
+ * getestet: canonicalSlugMigration.test.ts, "Migrationsfehler").
+ */
+let slugMigrationDegraded = false;
+
+export function isSlugMigrationDegraded(): boolean {
+  return slugMigrationDegraded;
+}
+
+/** Test-Hook: degradierter Zustand zurücksetzen (vor jedem Start-Test). */
+export function _resetSlugMigrationDegradedForTest(): void {
+  slugMigrationDegraded = false;
+}
+
+// Test-Seed: ein Migrationsfehler (für die Legacy-Kompatibilitäts-Tests).
+// Ersetzt den internen Runner, damit migrateCanonicalSlugsOnStartup einen
+// echten Fehler erlebt — ohne die DB zu beschädigen.
+let _migrationRunnerOverride:
+  | ((client: PrismaClient) => Promise<SlugMigrationResult>)
+  | null = null;
+export function _setMigrationRunnerForTest(
+  fn: ((client: PrismaClient) => Promise<SlugMigrationResult>) | null,
+): void {
+  _migrationRunnerOverride = fn;
+}
+
+/**
+ * Start-Hook: führt die Migration idempotent aus.
+ *
+ * Fehlerbehandlung (Regelwerk §5.23): Ein Migrationsfehler blockiert den
+ * Serverstart NICHT. Der Server fährt im Legacy-Kompatibilitätsbetrieb weiter:
+ * Autorisierung und Timer-Restoration lösen erkannte Legacy-Slugs auf, daher
+ * bleiben laufende Räume mit Legacy-Slug (z.B. "geo") funktionsfähig. Dieser
+ * Zustand wird prominent geloggt UND über isSlugMigrationDegraded() exponiert,
+ * damit er nicht als "sauber migriert" behauptet wird.
  */
 export async function migrateCanonicalSlugsOnStartup(client: PrismaClient): Promise<void> {
   try {
-    const result = await runCanonicalSlugMigration(client);
+    const runner = _migrationRunnerOverride ?? runCanonicalSlugMigration;
+    const result = await runner(client);
+    slugMigrationDegraded = false;
     if (!result.applied) {
       logger.debug('Canonical slug migration: no changes (already canonical)');
     }
   } catch (error) {
-    logger.error('Canonical slug migration FAILED — check database before continuing', { error });
-    // Kein throw: der Server kann auch mit unverändertem (legacy) State
-    // fahren, da die Runtime-Lösung (resolveCanonicalSlug) Legacy-Slugs
-    // ebenfalls auflöst. Die Migration ist aber für saubere Daten nötig.
+    slugMigrationDegraded = true;
+    logger.error(
+      'Canonical slug migration FAILED — Server fährt im Legacy-Kompatibilitätsbetrieb weiter. ' +
+        'Autorisierung und Timer-Restoration lösen erkannte Legacy-Slugs auf, laufende Räume bleiben funktionsfähig. ' +
+        'Migration muss manuell nachgeholt werden (Daten prüfen!).',
+      { error },
+    );
+    // Kein throw: Recovery-Prinzip — besser lauten als falschen State erzeugen.
+    // Die Legacy-Kompatibilität ist real, nicht nur behauptet (siehe oben).
   }
 }

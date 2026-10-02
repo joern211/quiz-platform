@@ -121,7 +121,7 @@ interface MigrationSnapshot {
 }
 async function snapshot(): Promise<MigrationSnapshot> {
   const [defs, packs, questions, rooms, parts, events, states, audits] = await Promise.all([
-    prisma.gameDefinition.findMany({ orderBy: { slug: 'asc' } }).then((d) => d.map((x) => ({ id: x.id, slug: x.slug, name: x.name, category: x.category, status: x.status, engineVersion: x.engineVersion, estimatedMinutes: x.estimatedMinutes }))),
+    prisma.gameDefinition.findMany({ orderBy: { slug: 'asc' } }).then((d) => d.map((x) => ({ id: x.id, slug: x.slug, name: x.name, category: x.category, status: x.status, engineVersion: x.engineVersion, estimatedMinutes: x.estimatedMinutes, updatedAt: x.updatedAt.toISOString() }))),
     prisma.questionPack.findMany({ orderBy: { id: 'asc' } }).then((p) => p.map((x) => ({ id: x.id, gameSlug: x.gameSlug, title: x.title }))),
     prisma.geoQuestion.findMany().then((q) => q.map((x) => ({ id: x.id, packId: x.packId, prompt: x.prompt, correctOptionId: x.correctOptionId }))),
     prisma.room.findMany().then((r) => r.map((x) => ({ id: x.id, code: x.code, gameDefinitionId: x.gameDefinitionId, status: x.status, runPhase: x.runPhase }))),
@@ -302,5 +302,288 @@ describe('Slug-Migration: bereits kanonische DB', () => {
     expect(result.applied).toBe(false);
     const after = await snapshot();
     expect(after).toEqual(before);
+  });
+});
+
+// ============================================================
+// Regelwerk §5.23 "keine sichere Migration → alte Engine behalten" +
+// §5.21 Recovery: Eine fehlgeschlagene Startmigration darf keinen
+// behaupteten Legacy-Betrieb verdecken. Die Kompatibilität muss REAL sein:
+// Autorisierung (authorizeGameContext) UND Timer-Restoration (P0-16) müssen
+// einen bestehenden, laufenden Raum mit Legacy-Slug ("geo") weiter bedienen.
+// ============================================================
+describe('Migrationsfehler → laufender geo-Raum bleibt funktionsfähig (§5.21/§5.23)', () => {
+  let httpServer: import('node:http').Server;
+  let io: import('socket.io').Server;
+  let legacyRoomId: string;
+  const prevGlobalPrisma = (globalThis as { __prisma?: unknown }).__prisma;
+
+  beforeAll(async () => {
+    // access.ts / geo/index.ts nutzen das lazy Prisma-Singleton → Test-DB einbinden.
+    (globalThis as { __prisma?: unknown }).__prisma = prisma;
+
+    // Legacy-Definition "geo" (frei, da Block A sie zu wissensduell umbenannt hat)
+    const legacyDef = await prisma.gameDefinition.create({
+      data: { id: 'migfail-geo', slug: 'geo', name: 'Geo (legacy)', category: 'GEO', status: 'AVAILABLE' },
+    });
+    const host = await prisma.user.create({ data: { id: 'migfail-host', displayName: 'FailHost', passwordHash: 'x', role: 'MODERATOR' } });
+
+    // LAUFENDER Raum mit Legacy-Slug + aktivem Timer (INPUT_OPEN, future timerEndMs)
+    const room = await prisma.room.create({
+      data: { code: '444-444', roomName: 'Legacy Running', gameDefinitionId: legacyDef.id, hostUserId: host.id, status: 'RUNNING', runPhase: 'ROUND_ACTIVE' },
+    });
+    legacyRoomId = room.id;
+    const part = await prisma.participation.create({
+      data: { roomId: room.id, displayName: 'Alice', normalizedName: 'alice', role: 'PLAYER', rejoinToken: 'migfail-rt', connected: true, ready: true },
+    });
+    await prisma.roomGameState.create({
+      data: {
+        roomId: room.id, engineVersion: 1, phase: 'INPUT_OPEN',
+        stateJson: JSON.stringify({
+          phase: 'INPUT_OPEN', currentRoundIndex: 0,
+          questions: [{ correctOptionId: 'b' }],
+          roundStates: { 0: { timerEndMs: Date.now() + 60000, timerStartMs: Date.now() - 5000, revealed: false } },
+          scores: { [part.id]: 0 },
+        }),
+      },
+    });
+
+    // io-Server nur für die Timer-Restoration (keine realen Clients)
+    httpServer = (await import('node:http')).createServer();
+    io = new (await import('socket.io')).Server(httpServer);
+  });
+
+  afterAll(async () => {
+    // Test-Hooks zurücksetzen, damit sie andere Tests nicht beeinflussen
+    const { _resetSlugMigrationDegradedForTest, _setMigrationRunnerForTest } = await import('./canonicalSlugMigration.js');
+    const { cancelGeoTimer } = await import('../games/geo/index.js');
+    cancelGeoTimer(legacyRoomId);
+    _resetSlugMigrationDegradedForTest();
+    _setMigrationRunnerForTest(null);
+    await new Promise<void>((r) => io.close(() => r()));
+    if (httpServer?.listening) await new Promise<void>((r) => httpServer.close(() => r()));
+    await prisma.$transaction(async (tx) => {
+      await tx.roomGameState.deleteMany({ where: { roomId: legacyRoomId } });
+      await tx.participation.deleteMany({ where: { roomId: legacyRoomId } });
+      await tx.room.deleteMany({ where: { id: legacyRoomId } });
+      await tx.gameDefinition.deleteMany({ where: { id: 'migfail-geo' } });
+    }).catch(() => undefined);
+    (globalThis as { __prisma?: unknown }).__prisma = prevGlobalPrisma;
+  });
+
+  it('Server fährt im degradierten Zustand weiter (kein throw, Flag=true)', async () => {
+    const { _setMigrationRunnerForTest, _resetSlugMigrationDegradedForTest, migrateCanonicalSlugsOnStartup, isSlugMigrationDegraded } = await import('./canonicalSlugMigration.js');
+    _resetSlugMigrationDegradedForTest();
+    // Simuliert einen Migrationsfehler (z.B. korrumpierte DB / Constraint-Fehler)
+    _setMigrationRunnerForTest(async () => { throw new Error('simulated migration failure'); });
+
+    await expect(migrateCanonicalSlugsOnStartup(prisma)).resolves.toBeUndefined(); // kein throw
+    expect(isSlugMigrationDegraded()).toBe(true); // Zustand wird exponiert, NICHT vertuscht
+  });
+
+  it('Timer-Restoration (P0-16) restauriert den Timer des laufenden Legacy-geo-Raums', async () => {
+    const { __activeTimerRoomIdsForTest } = await import('../games/geo/index.js');
+    await import('../games/geo/index.js').then((m) => m.restoreActiveTimers(io));
+    expect(__activeTimerRoomIdsForTest()).toContain(legacyRoomId);
+  });
+
+  it('Autorisierung akzeptiert eine Geo-Action für den Legacy-geo-Raum (engineSlug=wissensduell)', async () => {
+    const { authorizeGameContext } = await import('../games/core/access.js');
+    const { roomChannel } = await import('../sockets/channel.js');
+    const room = await prisma.room.findUniqueOrThrow({ where: { id: legacyRoomId } });
+    const part = await prisma.participation.findFirstOrThrow({ where: { roomId: legacyRoomId, role: 'PLAYER' } });
+    // Die Geo-Engine ruft authorizeGameContext mit resolveCanonicalSlug('geo')="wissensduell" auf.
+    const socket = {
+      data: { roomId: legacyRoomId, role: 'PLAYER', participationId: part.id, displayName: 'Alice' },
+      rooms: new Set([roomChannel(legacyRoomId)]),
+    } as unknown as import('socket.io').Socket;
+
+    const result = await authorizeGameContext(socket, {
+      roles: ['PLAYER'], requireParticipation: true,
+      gameSlug: 'wissensduell', // = resolveCanonicalSlug('geo'), wie die Engine es übergibt
+      requireRunning: true,
+    });
+
+    expect(result.ok, `Legacy-geo-Raum wurde abgelehnt: ${JSON.stringify(result)}`).toBe(true);
+    void room;
+  });
+});
+
+// ============================================================
+// Regelwerk §5.23 (keine sichere Migration → alte Engine behalten) +
+// §5.21/§5.22 (Recovery / Engine-Versionierung): Kollisionsfall mit einem
+// REAL LAUFENDEN Raum, END-TO-END nach der Umbindung auf die kanonische
+// Definition. Nachweis, dass eine sichere Fortsetzung beweisbar ist:
+//   Rejoin → Resync → nächste Spielaktion → Timer → Ergebnis.
+// Engine-Version und Setup bleiben unverändert; der Raum läuft über den
+// stabilen roomId/roomCode und den (umgebundenen) gameDefinitionId.
+// ============================================================
+describe('Kollision mit LAUFENDEM Raum — sichere Fortsetzung e2e (§5.21/§5.23)', () => {
+  let httpServer: import('node:http').Server;
+  let io: import('socket.io').Server;
+  let origin: string;
+  const sockets: import('socket.io-client').Socket[] = [];
+
+  let legacyDefId: string;
+  let canonicalDefId: string;
+  let hostId: string;
+  let roomId: string;
+  let roomCode: string;
+  let playerId: string;
+  let playerToken: string;
+  let modToken: string;
+  let modCookie: string;
+
+  const prevGlobalPrisma = (globalThis as { __prisma?: unknown }).__prisma;
+
+  function connect(cookie?: string) {
+    return import('../test-socket-harness.js').then(({ connectGameClient }) =>
+      connectGameClient(origin, cookie).then((s) => { sockets.push(s); return s; }),
+    );
+  }
+  function ack(s: import('socket.io-client').Socket, ev: string, data: object = {}) {
+    return import('../test-socket-harness.js').then(({ gameAck }) => gameAck(s, ev, data));
+  }
+
+  beforeAll(async () => {
+    (globalThis as { __prisma?: unknown }).__prisma = prisma;
+
+    const canonical = await prisma.gameDefinition.findUniqueOrThrow({ where: { slug: 'wissensduell' } });
+    canonicalDefId = canonical.id;
+    // Neue Legacy-Definition "geo" (Slug nach Block A wieder frei) → Kollision
+    const legacy = await prisma.gameDefinition.create({
+      data: { id: 'colllive-geo', slug: 'geo', name: 'Geo (Alt)', category: 'GEO', status: 'AVAILABLE' },
+    });
+    legacyDefId = legacy.id;
+
+    const { randomUUID } = await import('node:crypto');
+    const host = await prisma.user.create({ data: { id: 'colllive-host', displayName: 'CollLive Host', passwordHash: 'x', role: 'MODERATOR' } });
+    hostId = host.id;
+
+    roomCode = '555-555';
+    const room = await prisma.room.create({
+      data: { code: roomCode, roomName: 'Coll Live', gameDefinitionId: legacyDefId, hostUserId: hostId, status: 'RUNNING', runPhase: 'ROUND_ACTIVE' },
+    });
+    roomId = room.id;
+
+    // Fragepaket (legacy Slug "geo") + echte Frage
+    const pack = await prisma.questionPack.create({ data: { gameSlug: 'geo', title: 'CollLive Pack', status: 'PUBLISHED' } });
+    await prisma.geoQuestion.create({
+      data: { packId: pack.id, prompt: 'Hauptstadt von Frankreich?', category: 'Geo', options: JSON.stringify([{ id: 'a', text: 'London' }, { id: 'b', text: 'Paris' }]), correctOptionId: 'b', points: 100, wrongPoints: 0, enabled: true },
+    });
+
+    // Moderator + Spieler
+    const mod = await prisma.participation.create({ data: { roomId, role: 'MODERATOR', displayName: 'Host', normalizedName: 'host', rejoinToken: `colllive-mod-${randomUUID()}`, connected: true, ready: true } });
+    modToken = mod.rejoinToken;
+    const player = await prisma.participation.create({ data: { roomId, role: 'PLAYER', displayName: 'Alice', normalizedName: 'alice', rejoinToken: `colllive-rt-${randomUUID()}`, connected: true, ready: true } });
+    playerId = player.id;
+    playerToken = player.rejoinToken;
+
+    // Host-Session (für Moderator-Rejoin)
+    const { createSessionCookie } = await import('../auth/session.js');
+    const { config } = await import('../config/index.js');
+    const session = await prisma.session.create({ data: { id: `colllive-sess-${randomUUID()}`, userId: hostId, expiresAt: new Date(Date.now() + 60000) } });
+    modCookie = createSessionCookie(session.id, config.sessionSecret);
+
+    // Realistischer Geo-Game-States (INPUT_OPEN, Zukunft-Timer) — so wie ihn
+    // initialize()/startRound() schreiben würden. Setup: questionPoolId.
+    const setupSnapshot = JSON.stringify({ questionPoolId: pack.id, questionCount: 1, timerDuration: 60 });
+    await prisma.room.update({ where: { id: roomId }, data: { setupSnapshotJson: setupSnapshot } });
+    const now = Date.now();
+    const state = {
+      phase: 'INPUT_OPEN',
+      currentRoundIndex: 0,
+      questions: [{ id: 'collq-1', prompt: 'Hauptstadt von Frankreich?', category: 'Geo', options: JSON.stringify([{ id: 'a', text: 'London' }, { id: 'b', text: 'Paris' }]), correctOptionId: 'b', points: 100, wrongPoints: 0 }],
+      roundStates: {
+        0: {
+          questionIndex: 0,
+          question: { id: 'collq-1', prompt: 'Hauptstadt von Frankreich?', category: 'Geo', options: [{ id: 'a', text: 'London' }, { id: 'b', text: 'Paris' }] },
+          revealed: false,
+          timerStartMs: now - 5000,
+          timerEndMs: now + 60000,
+          pauseRemainingMs: null,
+          playerStates: { [playerId]: { answered: false, selectedOptionId: null, locked: false, score: 0, eliminatedOptions: [], jokers: { used5050: false, usedSpy: false, usedRisk: false } } },
+          answers: {},
+        },
+      },
+      scores: { [playerId]: 0 },
+    };
+    await prisma.roomGameState.create({ data: { roomId, engineVersion: 1, phase: 'INPUT_OPEN', stateJson: JSON.stringify(state) } });
+
+    // Echter Socket-Server (setupSocketHandlers) für den e2e-Nachweis
+    httpServer = (await import('node:http')).createServer();
+    io = new (await import('socket.io')).Server(httpServer, { cors: { origin: '*' } });
+    const { setupSocketHandlers } = await import('../sockets/index.js');
+    setupSocketHandlers(io);
+    await new Promise<void>((resolve) => httpServer.listen(0, '127.0.0.1', resolve));
+    const address = httpServer.address();
+    if (!address || typeof address === 'string') throw new Error('No port');
+    origin = `http://127.0.0.1:${address.port}`;
+  });
+
+  afterAll(async () => {
+    for (const s of sockets) s.disconnect();
+    await new Promise<void>((r) => io.close(() => r()));
+    if (httpServer?.listening) await new Promise<void>((r) => httpServer.close(() => r()));
+    await prisma.$transaction(async (tx) => {
+      await tx.roomGameState.deleteMany({ where: { roomId } });
+      await tx.scoreEvent.deleteMany({ where: { roomId } });
+      await tx.participation.deleteMany({ where: { roomId } });
+      await tx.room.deleteMany({ where: { id: roomId } });
+      await tx.geoQuestion.deleteMany({ where: { prompt: 'Hauptstadt von Frankreich?' } });
+      await tx.questionPack.deleteMany({ where: { title: 'CollLive Pack' } });
+      await tx.gameDefinition.deleteMany({ where: { id: 'colllive-geo' } });
+      await tx.session.deleteMany({ where: { userId: hostId } });
+    }).catch(() => undefined);
+    (globalThis as { __prisma?: unknown }).__prisma = prevGlobalPrisma;
+  });
+
+  it('Kollisions-Migration bindet den laufenden Raum auf die kanonische Definition um (kein Löschen)', async () => {
+    const result = await runCanonicalSlugMigration(prisma);
+    expect(result.mergedCollisions).toEqual(expect.arrayContaining([{ legacy: 'geo', canonical: 'wissensduell' }]));
+    const room = await prisma.room.findUniqueOrThrow({ where: { id: roomId } });
+    expect(room.gameDefinitionId).toBe(canonicalDefId); // Raum jetzt an KANONISCH
+    expect(room.status).toBe('RUNNING'); // Status bleibt RUNNING
+    const legacy = await prisma.gameDefinition.findUnique({ where: { id: legacyDefId } });
+    expect(legacy?.status).toBe('HIDDEN'); // Legacy erhalten, nicht gelöscht
+  });
+
+  it('e2e nach Umbinden: Rejoin + Resync + Spielaktion + Timer + Ergebnis', async () => {
+    // ── 1. REJOIN: Spieler verbindet sich per rejoinToken ──
+    const alice = await connect();
+    const rejoin = await ack(alice, 'room:subscribe', { roomCode, rejoinToken: playerToken });
+    expect(rejoin.success, `Rejoin nach Umbinden fehlgeschlagen: ${JSON.stringify(rejoin)}`).toBe(true);
+
+    // ── 2. RESYNC: Spieler erhält seinen State (Phase + Score) ──
+    const resync = await ack(alice, 'geo:resync');
+    expect(resync.success, `Resync nach Umbinden fehlgeschlagen: ${JSON.stringify(resync)}`).toBe(true);
+    expect(resync.phase).toBe('INPUT_OPEN');
+    expect((resync.scores as Record<string, number>)[playerId]).toBe(0);
+
+    // ── 3. TIMER: Timer-Restoration restauriert den aktiven Timer des Raums ──
+    const geo = await import('../games/geo/index.js');
+    await geo.restoreActiveTimers(io);
+    expect(geo.__activeTimerRoomIdsForTest(), 'Timer des umgebundenen Raums nicht restauriert').toContain(roomId);
+
+    // ── 4. NÄCHSTE SPIELAKTION: Spieler antwortet auf die laufende Frage ──
+    const answer = await ack(alice, 'geo:answer', { optionId: 'b' });
+    expect(answer.success, `Spielaktion nach Umbinden fehlgeschlagen: ${JSON.stringify(answer)}`).toBe(true);
+
+    // ── 5. ERGEBNIS: Moderator (via Host-Session) löst die Runde auf ──
+    const mod = await connect(modCookie);
+    const modRejoin = await ack(mod, 'room:subscribe', { roomCode, rejoinToken: modToken, moderatorToken: modToken });
+    expect(modRejoin.success, `Moderator-Rejoin fehlgeschlagen: ${JSON.stringify(modRejoin)}`).toBe(true);
+    const reveal = await ack(mod, 'geo:reveal', { roomCode });
+    expect(reveal.success, `Reveal nach Umbinden fehlgeschlagen: ${JSON.stringify(reveal)}`).toBe(true);
+
+    // Ergebnis nachgewiesen: Score + ScoreEvent + Phase + runPhase
+    const part = await prisma.participation.findUniqueOrThrow({ where: { id: playerId } });
+    expect(part.score).toBe(100);
+    const events = await prisma.scoreEvent.findMany({ where: { roomId } });
+    expect(events.some((e) => e.participationId === playerId && e.delta === 100)).toBe(true);
+    const stateRow = await prisma.roomGameState.findUniqueOrThrow({ where: { roomId } });
+    expect(stateRow.phase).toBe('REVEAL');
+    const room = await prisma.room.findUniqueOrThrow({ where: { id: roomId } });
+    expect(room.runPhase).toBe('REVEAL');
   });
 });

@@ -4,7 +4,7 @@
 
 import { Server, Socket } from 'socket.io';
 import { prisma } from '../../persistence/prisma.js';
-import { resolveCanonicalSlug } from '@quiz/shared';
+import { resolveCanonicalSlug, slugWithLegacy } from '@quiz/shared';
 import { finishRunningGame, saveGameStateIfRevision, upsertGameState } from '../core/state.js';
 import { authorizeGameContext } from '../core/access.js';
 import { gameErrorCode } from '../core/errors.js';
@@ -55,11 +55,24 @@ export function cancelGeoTimer(roomId: string): void {
   activeTimers.delete(roomId);
 }
 
-// P0-16: Rekonstruiere aktive Timer nach Server-Restart aus der DB
+/** Test-Hook: IDs der Räume mit aktuell gesetztem (in-Memory) Timer. */
+export function __activeTimerRoomIdsForTest(): string[] {
+  return [...activeTimers.keys()];
+}
+
+// P0-16: Rekonstruiere aktive Timer nach Server-Restart aus der DB.
+// Filtert über die kanonische Identität UND erkannte Legacy-Slugs (z.B. "geo"):
+// Solange die Migration noch nicht lief oder fehlgeschlagen ist, tragen aktive
+// Räume ggf. den Legacy-Slug — die Timer müssen in beiden Fällen laufen.
 export async function restoreActiveTimers(io: Server): Promise<void> {
   try {
+    const slugFilter = slugWithLegacy(resolveCanonicalSlug('geo')!);
     const roomsWithActiveRound = await prisma.room.findMany({
-      where: { status: 'RUNNING', runPhase: 'ROUND_ACTIVE', gameDefinition: { slug: resolveCanonicalSlug('geo')! } },
+      where: {
+        status: 'RUNNING',
+        runPhase: 'ROUND_ACTIVE',
+        gameDefinition: { slug: { in: slugFilter } },
+      },
       include: {
         gameState: true,
       },
