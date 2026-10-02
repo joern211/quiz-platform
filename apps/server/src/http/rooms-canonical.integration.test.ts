@@ -182,3 +182,84 @@ describe('Raumerstellung: Fehlerfälle & Rechte', () => {
     void dbUrl;
   });
 });
+
+// ============================================================
+// Startfähigkeits-Sperre (Regelwerk §13.1) — serverseitig, für
+// gameSlug UND gameDefinitionId. Ein PLANNED-/HIDDEN-Spiel, dessen
+// Definition in der DB existiert (z.B. wie nach dem Seed), ist trotzdem
+// NICH startbar → GAME_NOT_STARTABLE (nicht GAME_NOT_FOUND).
+// ============================================================
+describe('Raumerstellung: Startfähigkeits-Sperre (§13.1)', () => {
+  // Legt eine Definition an, die wie nach dem Seed existiert (PLANNED).
+  async function seedPlannedDefinition(prisma: PrismaClient) {
+    const m = (await import('@quiz/shared')).getGameManifest(GAME_SLUGS.timeline)!;
+    return prisma.gameDefinition.create({
+      data: { slug: GAME_SLUGS.timeline, name: m.name, category: m.category, status: 'PLANNED', minPlayers: m.minPlayers, maxPlayers: m.maxPlayers },
+    });
+  }
+
+  it('geplantes Spiel MIT Definition (wie nach Seed) → GAME_NOT_STARTABLE über gameSlug', async () => {
+    const { request: req, prisma, dbUrl } = await createTestApp();
+    await seedGames(prisma);
+    const planned = await seedPlannedDefinition(prisma);
+    const mod = await seedModerator(prisma);
+
+    const res = await req.post('/api/v1/rooms').set('Cookie', mod.cookie)
+      .send({ roomName: 'Timeline-Abend', gameSlug: GAME_SLUGS.timeline });
+    expect(res.status, res.text).toBe(400);
+    expect(res.body.error.code).toBe('GAME_NOT_STARTABLE');
+    // Kein Raum darf angelegt worden sein.
+    expect(await prisma.room.count({ where: { gameDefinitionId: planned.id } })).toBe(0);
+
+    await cleanupTestDataForDb(dbUrl);
+    await prisma.$disconnect();
+  });
+
+  it('geplantes Spiel MIT Definition → GAME_NOT_STARTABLE über gameDefinitionId', async () => {
+    const { request: req, prisma, dbUrl } = await createTestApp();
+    await seedGames(prisma);
+    const planned = await seedPlannedDefinition(prisma);
+    const mod = await seedModerator(prisma);
+
+    const res = await req.post('/api/v1/rooms').set('Cookie', mod.cookie)
+      .send({ roomName: 'Timeline via ID', gameDefinitionId: planned.id });
+    expect(res.status, res.text).toBe(400);
+    expect(res.body.error.code).toBe('GAME_NOT_STARTABLE');
+    expect(await prisma.room.count({ where: { gameDefinitionId: planned.id } })).toBe(0);
+
+    await cleanupTestDataForDb(dbUrl);
+    await prisma.$disconnect();
+  });
+
+  it('HIDDEN-Spiel (Kollisions-Legacy) → GAME_NOT_STARTABLE', async () => {
+    const { request: req, prisma, dbUrl } = await createTestApp();
+    await seedGames(prisma);
+    // Simuliert eine HIDDEN-Legacy-Definition (Kollisions-Migration).
+    const hidden = await prisma.gameDefinition.create({
+      data: { slug: 'verstecktes-spiel', name: 'Verstecktes', category: 'x', status: 'HIDDEN' },
+    });
+    const mod = await seedModerator(prisma);
+
+    const res = await req.post('/api/v1/rooms').set('Cookie', mod.cookie)
+      .send({ roomName: 'Hidden', gameDefinitionId: hidden.id });
+    expect(res.status, res.text).toBe(400);
+    expect(res.body.error.code).toBe('GAME_NOT_STARTABLE');
+    expect(await prisma.room.count({ where: { gameDefinitionId: hidden.id } })).toBe(0);
+
+    await cleanupTestDataForDb(dbUrl);
+    await prisma.$disconnect();
+  });
+
+  it('AVAILABLE-Spiel mit Engine-Handler → 201 (Sperre lässt Startbares durch)', async () => {
+    const { request: req, prisma, dbUrl } = await createTestApp();
+    await seedGames(prisma);
+    const mod = await seedModerator(prisma);
+
+    const res = await req.post('/api/v1/rooms').set('Cookie', mod.cookie)
+      .send({ roomName: 'OK', gameSlug: GAME_SLUGS.wissensduell });
+    expect(res.status, res.text).toBe(201);
+
+    await cleanupTestDataForDb(dbUrl);
+    await prisma.$disconnect();
+  });
+});

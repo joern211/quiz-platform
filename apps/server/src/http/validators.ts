@@ -23,7 +23,7 @@ export const CreateRoomSchema = z.object({
       (val) => val === undefined || /^\d{4,10}$/.test(val),
       'PIN muss 4–10 Ziffern enthalten.',
     ),
-  gameSlug: z.string({ required_error: 'Spiel-Slug erforderlich.' }).min(1),
+  gameSlug: z.string().min(1).optional(),
   gameDefinitionId: z.string().optional(),
   maxPlayers: z.number().int().min(2).max(100).default(10),
   cameraEnabled: z.boolean().default(false),
