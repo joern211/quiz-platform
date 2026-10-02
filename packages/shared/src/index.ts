@@ -337,6 +337,27 @@ export const GAME_SLUGS = {
 export type CanonicalSlug = (typeof GAME_SLUGS)[keyof typeof GAME_SLUGS];
 
 // ------------------------------------------------------------
+// Legacy-Slug-Hilfen (nur für Migration / Compatibility, §5.23)
+// ------------------------------------------------------------
+
+/**
+ * Alle Legacy-Slugs, die auf einen kanonischen Slug abbilden. Für Timer-
+ * Restoration und Slug-Checks über die kanonische Identität, damit Räume,
+ * die noch den Legacy-Slug tragen (Migration nicht gelaufen / fehlgeschlagen),
+ * ebenfalls gefunden werden. (Regelwerk §5.21/§5.22/§5.23)
+ */
+export function legacySlugsForCanonical(canonical: string): string[] {
+  return Object.entries(LEGACY_SLUG_ALIASES)
+    .filter(([, c]) => c === canonical)
+    .map(([legacy]) => legacy);
+}
+
+/** Kanonischer Slug plus alle erkannten Legacy-Slugs (für DB-Slug-Filter). */
+export function slugWithLegacy(canonical: string): string[] {
+  return [canonical, ...legacySlugsForCanonical(canonical)];
+}
+
+// ------------------------------------------------------------
 // Legacy → kanonische Slug-Aliasse (Regelwerk §5.23, §12.1)
 //
 // Nur für Migration / Compatibility. Alte Begriffe dürfen im Runtime-Code
@@ -460,14 +481,17 @@ export const GAME_MANIFESTS: GameManifest[] = [
     slug: GAME_SLUGS.werIstDas,
     name: 'Wer ist das?',
     category: 'buzzer-reaktion',
-    shortDescription: 'Fusionbilder erkennen',
-    description: 'Errate, welche beiden Personen im Fusionsbild stecken. Erster Buzzer antwortet.',
+    shortDescription: 'Bild + zwei Namen raten (Buzzer)',
+    description:
+      'Pro Runde ein vorbereitetes Bild und zwei zu ratende Namen: Erster Buzzer antwortet, ' +
+      'der Moderator bewertet. (MVP-BETA: Fusionsbild-Generierung folgt in einem eigenen PR; ' +
+      'das Spiel funktioniert mit vorbereiteten Bildern — Regelwerk §13.1, §15.3.)',
     minPlayers: 2,
     maxPlayers: 10,
     estimatedDurationMinutes: 15,
     roles: ['MODERATOR', 'PLAYER', 'VIEWER'],
     tags: ['buzzer', 'fusion'],
-    status: 'AVAILABLE',
+    status: 'BETA',
     hasBuzzer: true,
     hasTeams: false,
     hasCamera: false,

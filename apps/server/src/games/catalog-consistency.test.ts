@@ -144,10 +144,21 @@ describe('Legacy-Slug-Auflösung (§5.23, §12.1)', () => {
 
 describe('Ehrlicher Status & Startbarkeit (§13.1)', () => {
   const availableSlugs = GAME_MANIFESTS.filter((m) => m.status === 'AVAILABLE').map((m) => m.slug);
+  const betaSlugs = GAME_MANIFESTS.filter((m) => m.status === 'BETA').map((m) => m.slug);
+  const startableExpected = [...availableSlugs, ...betaSlugs];
   const plannedSlugs = GAME_MANIFESTS.filter((m) => m.status === 'PLANNED').map((m) => m.slug);
 
-  it('exakt diese drei sind AVAILABLE (nachgewiesene Engine + getesteter Ablauf)', () => {
-    expect([...availableSlugs].sort()).toEqual(['jeopardy', 'wer-ist-das', 'wissensduell'].sort());
+  it('exakt diese zwei sind AVAILABLE (nachgewiesene Engine + getesteter Ablauf)', () => {
+    expect([...availableSlugs].sort()).toEqual(['jeopardy', 'wissensduell'].sort());
+  });
+
+  it('wer-ist-das ist BETA (MVP ohne Fusionsbild-Generierung, Regelwerk §13.1)', () => {
+    // docs/wer-ist-das.md: Das MVP erzeugt KEINE Fusionsbilder (follow-up PR).
+    // Regelwerk §13.1: AVAILABLE erst bei vollständiger DoD-Erfüllung. Die
+    // nichtkritische Einschränkung (keine Fusionsbild-Generierung) rechtfertigt
+    // den ehrlichen Status BETA, nicht AVAILABLE.
+    expect(getGameManifest('wer-ist-das')?.status).toBe('BETA');
+    expect([...betaSlugs].sort()).toEqual(['wer-ist-das'].sort());
   });
 
   it('startbare Spiele (AVAILABLE/BETA) haben einen echten Registry-Handler', () => {
@@ -159,16 +170,16 @@ describe('Ehrlicher Status & Startbarkeit (§13.1)', () => {
   });
 
   it('geplante Spiele sind NICHT startbar (kein Registry-Handler)', () => {
-    expect(plannedSlugs.length).toBe(18 - availableSlugs.length - GAME_MANIFESTS.filter((m) => m.status === 'HIDDEN' || m.status === 'BETA').length);
+    expect(plannedSlugs.length).toBe(18 - startableExpected.length - GAME_MANIFESTS.filter((m) => m.status === 'HIDDEN').length);
     for (const slug of plannedSlugs) {
       expect(isStartableSlug(slug), `${slug} sollte nicht startbar sein`).toBe(false);
       expect(getGameHandler(slug), `${slug} hätte unerwartet einen Handler`).toBeNull();
     }
   });
 
-  it('Registry listet genau die AVAILABLE-Slugs als startbar', () => {
-    expect([...startableSlugs()].sort()).toEqual([...availableSlugs].sort());
-    expect([...listGames()].sort()).toEqual([...availableSlugs].sort());
+  it('Registry listet genau die startbaren Slugs (AVAILABLE + BETA)', () => {
+    expect([...startableSlugs()].sort()).toEqual([...startableExpected].sort());
+    expect([...listGames()].sort()).toEqual([...startableExpected].sort());
   });
 
   it('Legacy-Slugs der startbaren Spiele lösen auf den Handler auf', () => {
@@ -214,6 +225,63 @@ describe('Seed ↔ Katalog-Sync (Regelwerk §14)', () => {
       expect(manifest, `Manifest für ${slug}`).toBeDefined();
       expect(status, `Status für ${slug}`).toBe(manifest.status);
     }
+  });
+
+  it('Seed-Relevanzfelder (Name/Kategorie/Player/Zeit/Features) stimmen mit dem Manifest überein', () => {
+    // Regelwerk §14: Der Seed ist eine Kopie des kanonischen Katalogs.
+    // Jemand ändert minPlayers/hasTimer/etc. nur in @quiz/shared → dieser
+    // Test schlägt rot, bis der Seed synchronisiert ist (jenseits von
+    // Slug/Status, die oben geprüft werden).
+    const lines = seedSource.split('\n');
+    const seedEntries: Array<Record<string, string>> = [];
+    for (const line of lines) {
+      const slugMatch = line.match(/^\s*\{\s*slug:\s*'([^']+)'/);
+      if (!slugMatch) continue;
+      const entry: Record<string, string> = { slug: slugMatch[1] };
+      for (const key of [
+        'name', 'category', 'status',
+        'minPlayers', 'maxPlayers', 'estimatedMinutes',
+        'hasBuzzer', 'hasTeams', 'hasCamera', 'hasAudio', 'hasTimer',
+      ]) {
+        const m = line.match(new RegExp(`${key}:\\s*('[^']*'|[A-Za-z0-9.]+)`));
+        expect(m, `Feld ${key} fehlt im Seed-Eintrag ${entry.slug}`).toBeTruthy();
+        entry[key] = m![1].replace(/^'|'$/g, '');
+      }
+      seedEntries.push(entry);
+    }
+    expect(seedEntries).toHaveLength(18);
+    for (const seed of seedEntries) {
+      const manifest = GAME_MANIFESTS.find((m) => m.slug === seed.slug)!;
+      expect(manifest, `Manifest für ${seed.slug}`).toBeDefined();
+      const checks: Array<[string, string, string]> = [
+        ['name', seed.name, manifest.name],
+        ['category', seed.category, manifest.category],
+        ['status', seed.status, manifest.status],
+        ['minPlayers', seed.minPlayers, String(manifest.minPlayers)],
+        ['maxPlayers', seed.maxPlayers, String(manifest.maxPlayers)],
+        ['estimatedDurationMinutes', seed.estimatedMinutes, String(manifest.estimatedDurationMinutes)],
+        ['hasBuzzer', seed.hasBuzzer, String(manifest.hasBuzzer)],
+        ['hasTeams', seed.hasTeams, String(manifest.hasTeams)],
+        ['hasCamera', seed.hasCamera, String(manifest.hasCamera)],
+        ['hasAudio', seed.hasAudio, String(manifest.hasAudio)],
+        ['hasTimer', seed.hasTimer, String(manifest.hasTimer)],
+      ];
+      for (const [label, seedVal, manifestVal] of checks) {
+        expect(seedVal, `${seed.slug}.${label}: Seed=${seedVal} ≠ Manifest=${manifestVal}`).toBe(manifestVal);
+      }
+    }
+  });
+
+  it('wer-ist-das: Seed-Beschreibung (shortDescription/description) identisch mit Manifest', () => {
+    // Die MVP-BETA-Begründung (keine Fusionsbild-Generierung) muss Seed,
+    // DB und API-Response deckungsgleich sein — sonst behauptet die DB
+    // etwas anderes als der kanonische Katalog.
+    const manifest = GAME_MANIFESTS.find((m) => m.slug === 'wer-ist-das')!;
+    expect(manifest.status).toBe('BETA');
+    expect(seedSource).toContain(`shortDescription: '${manifest.shortDescription}'`);
+    expect(seedSource).toContain(`description: '${manifest.description}'`);
+    expect(manifest.description).toMatch(/MVP-BETA/);
+    expect(manifest.description).toMatch(/Fusionsbild/);
   });
 
   it('Default-Fragepaket nutzt den kanonischen Slug wissensduell (nicht "geo")', () => {
