@@ -121,7 +121,7 @@ export function GamePage() {
               <h3>Zuschauer</h3>
               <p>Schau dem Spiel zu, ohne selbst zu spielen</p>
               <ul className={styles.roleFeatures}>
-                <li>✓ Alles sehen</li>
+                <li>✓ Spielverlauf &amp; Ergebnisse live</li>
                 <li>✓ Keine Eingabe</li>
                 <li>✓ Perfekt zum Streamen</li>
               </ul>

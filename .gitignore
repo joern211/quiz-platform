@@ -17,12 +17,25 @@ build/
 *.db-journal
 
 # Storage (keep dir structure, ignore contents)
+# NOTE: The server runs with STORAGE_ROOT=./storage RELATIVE TO apps/server,
+# so the real dir is apps/server/storage (NOT the repo root). A pattern that
+# contains a slash is anchored to the .gitignore's directory, which is why the
+# bare `storage/uploads/*` above never matched apps/server/… and let upload
+# test-artifacts get committed. Ignore both the repo-root and the apps/server
+# locations.
 storage/database/*
 storage/uploads/*
 storage/backups/*
 !storage/database/.gitkeep
 !storage/uploads/.gitkeep
 !storage/backups/.gitkeep
+
+apps/server/storage/database/*
+apps/server/storage/uploads/*
+apps/server/storage/backups/*
+!apps/server/storage/database/.gitkeep
+!apps/server/storage/uploads/.gitkeep
+!apps/server/storage/backups/.gitkeep
 
 # Logs
 *.log
