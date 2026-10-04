@@ -216,9 +216,10 @@ Recovery-Prinzip: besser lauten als falschen State erzeugen (Regelwerk §5.23).
     `GAME_NOT_STARTABLE`.
   - AVAILABLE/BETA mit Handler (z. B. `wissensduell`, `wer-ist-das`) →
     `201`; Legacy-Slugs erzeugen Räume an der kanonischen Definition.
-  (Nachgewiesen: `rooms-canonical.integration.test.ts` — 4 neue
+  (Nachgewiesen: `rooms-canonical.integration.test.ts` — 5 neue
   Gate-Tests, inkl. „geplantes Spiel MIT Definition wie nach Seed“ für
-  beide Aufrouten und HIDDEN-Legacy-Definition.)
+  beide Aufrouten, HIDDEN-Legacy-Definition **und** HIDDEN-Legacy-`geo`
+  (Slug → startbares wissensduell) über `gameDefinitionId`.)
 - **Registry**: `getGameHandler(legacy)` → kanonischer Handler.
 - **Katalog-API**:
   - `GET /catalog/games/:legacySlug` → **301-Redirect** auf
@@ -291,7 +292,7 @@ ignorieren; die zwei versehentlich committeten PNGs wurden entfernt.
 - **Lint**: `pnpm lint` — **0 Errors** (97 Vorbestehende Warnungen,
   `any`/`no-console`/`exhaustive-deps`).
 - **Build**: `pnpm build` — Server (tsc) + Web (Vite) grün.
-- **Server-Tests**: `204/204` grün (23 Dateien; `pnpm --filter @quiz/server
+- **Server-Tests**: `205/205` grün (23 Dateien; `pnpm --filter @quiz/server
   test`).
 - **Web-Tests**: `52/52` grün (6 Dateien; `pnpm --filter @quiz/web test`).
 - **E2E (Playwright, Chromium)**: `17/17` grün für die relevanten Specs —
@@ -300,10 +301,12 @@ ignorieren; die zwei versehentlich committeten PNGs wurden entfernt.
 
 ### Neue / erweiterte Tests (dieser PR)
 
-1. `apps/server/src/http/rooms-canonical.integration.test.ts` — **4 neue
+1. `apps/server/src/http/rooms-canonical.integration.test.ts` — **5 neue
    Server-Gate-Tests**: geplantes Spiel **mit** DB-Definition (wie nach
    Seed) → `GAME_NOT_STARTABLE` über `gameSlug` **und** `gameDefinitionId`;
-   HIDDEN-Legacy-Definition → `GAME_NOT_STARTABLE`; AVAILABLE mit Handler →
+   HIDDEN-Legacy-Definition → `GAME_NOT_STARTABLE`; **HIDDEN-Legacy-`geo`
+   (Slug → startbares wissensduell) über `gameDefinitionId` → `GAME_NOT_
+   STARTABLE`, kein Raum** (Review-Blocker); AVAILABLE mit Handler →
    `201`. (Bestehend: `wissensduell`/`wer-ist-das`-Räume, Legacy-Resolution,
    `GAME_NOT_FOUND` bei unbekanntem/geplantem Spiel, `401`.)
 2. `apps/server/src/persistence/canonicalSlugMigration.test.ts` — erweitert:

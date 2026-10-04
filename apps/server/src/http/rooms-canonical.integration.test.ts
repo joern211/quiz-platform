@@ -250,6 +250,41 @@ describe('Raumerstellung: Startfähigkeits-Sperre (§13.1)', () => {
     await prisma.$disconnect();
   });
 
+  it('HIDDEN-Legacy „geo" (Slug → startbares wissensduell) → NICHT über gameDefinitionId startbar', async () => {
+    // Review-Blocker: Eine HIDDEN-Legacy-Definition, deren Slug auf ein
+    // STARTBARES kanonisches Spiel verweist (geo → wissensduell), darf über
+    // ihre ID nicht gestartet werden. Der Status der TATSÄCHLICH angeforderten
+    // DB-Definition (HIDDEN) muss maßgeblich sein — nicht nur der des
+    // kanonischen Manifests (AVAILABLE) und nicht nur der Engine-Handler.
+    const { request: req, prisma, dbUrl } = await createTestApp();
+    await seedGames(prisma); // legt wissensduell als AVAILABLE an
+
+    // wissensduell (kanonisch) ist AVAILABLE und hat einen echten Handler …
+    const wissensduell = await prisma.gameDefinition.findUniqueOrThrow({
+      where: { slug: GAME_SLUGS.wissensduell },
+    });
+    expect(wissensduell.status).toBe('AVAILABLE');
+
+    // … aber es existiert zusätzlich eine HIDDEN-Legacy-Definition „geo"
+    // (wie nach einer Kollisions-Migration).
+    const hiddenGeo = await prisma.gameDefinition.create({
+      data: { slug: 'geo', name: 'Geo (alt)', category: 'GEO', status: 'HIDDEN', minPlayers: 2, maxPlayers: 10 },
+    });
+    const mod = await seedModerator(prisma);
+
+    const res = await req.post('/api/v1/rooms').set('Cookie', mod.cookie)
+      .send({ roomName: 'Geo-Alt via ID', gameDefinitionId: hiddenGeo.id });
+    expect(res.status, res.text).toBe(400);
+    expect(res.body.error.code).toBe('GAME_NOT_STARTABLE');
+    // KEIN Raum an der HIDDEN-Legacy-Definition (und keiner insgesamt) —
+    // der Start über die ID von „geo" ist gesperrt.
+    expect(await prisma.room.count({ where: { gameDefinitionId: hiddenGeo.id } })).toBe(0);
+    expect(await prisma.room.count()).toBe(0);
+
+    await cleanupTestDataForDb(dbUrl);
+    await prisma.$disconnect();
+  });
+
   it('AVAILABLE-Spiel mit Engine-Handler → 201 (Sperre lässt Startbares durch)', async () => {
     const { request: req, prisma, dbUrl } = await createTestApp();
     await seedGames(prisma);

@@ -20,23 +20,50 @@ export const roomsRouter : ReturnType<typeof Router> = Router();
 // Startfähigkeit serverseitig prüfen (Regelwerk §13.1, §14).
 //
 // Eine Raum darf NUR erstellt werden, wenn das Spiel:
-//   1. einen ECHTEN Engine-Handler hat (isStartableSlug — keine no-op-
+//   1. einen echten Engine-Handler in der Registry hat (keine
 //      Placeholders), UND
-//   2. einen ehrlichen Status AVAILABLE/BETA hat (kein PLANNED/HIDDEN).
+//   2. den ehrlichen Status AVAILABLE/BETA hat (kein PLANNED/HIDDEN) —
+//      geprüft für die TATSÄCHLICH angeforderte DB-Definition (darauf bindet
+//      der Raum) UND für das kanonische Manifest.
 //
-// Die Prüfung gilt für BEIDE Aufrouten: gameSlug UND gameDefinitionId.
-// Ein PLANNED- oder HIDDEN-Spiel, dessen Definition in der DB existiert
-// (z.B. wie nach dem Seed), ist trotzdem NICH startbar → GAME_NOT_STARTABLE.
+// Die Prüfung gilt für BEIDE Aufrouten: gameSlug UND gameDefinitionId. Ein
+// PLANNED- oder HIDDEN-Spiel, dessen Definition in der DB existiert (z.B. wie
+// nach dem Seed), ist trotzdem NICH startbar → GAME_NOT_STARTABLE.
+//
+// KRITISCH (gameDefinitionId): Eine als HIDDEN markierte Legacy-Definition
+// (z.B. „geo" nach einer Kollisions-Migration) wird NICHT gestartet, selbst
+// wenn ihr Slug auf ein startbares kanonisches Spiel (wissensduell) verweist.
+// Der Status der tatsächlich angeforderten Datenbankzeile zählt, nicht nur
+// der des kanonischen Manifests.
 // ------------------------------------------------------------
 export function classifyRoomCreationError(
-  definition: Pick<GameManifest, 'slug' | 'status'> | null | undefined,
-  startable: boolean,
+  args: {
+    /** Status der tatsächlich angeforderten DB-Definition (Bind-Ziel des Raums). */
+    requestedStatus?: string | null;
+    /** Kanonisches Manifest (Single Source of Truth). */
+    manifest?: Pick<GameManifest, 'slug' | 'status'> | null;
+    /** true, wenn die Registry für den aufgelösten kanonischen Slug einen echten Engine-Handler hat. */
+    startable: boolean;
+  },
 ): { code: string; message: string } | null {
-  if (!startable) {
+  // 1) Echte Engine vorhanden (Regelwerk §13.1: keine no-op-Placeholders).
+  if (!args.startable) {
     return { code: 'GAME_NOT_STARTABLE', message: 'Dieses Spiel ist noch nicht startbar (keine Engine implementiert).' };
   }
-  if (definition && definition.status !== 'AVAILABLE' && definition.status !== 'BETA') {
-    return { code: 'GAME_NOT_STARTABLE', message: `Spielstatus „${definition.status}“ — Raumerstellung ist dafür gesperrt.` };
+  // 2) Status der TATSÄCHLICH angeforderten DB-Definition. Der Raum wird auf
+  //    genau diese Zeile gebunden — ihr Status ist maßgeblich, unabhängig vom
+  //    kanonischen Manifest (HIDDEN-Legacy-„geo" verweist auf wissensduell,
+  //    darf aber nicht gestartet werden).
+  if (
+    args.requestedStatus != null
+    && args.requestedStatus !== 'AVAILABLE'
+    && args.requestedStatus !== 'BETA'
+  ) {
+    return { code: 'GAME_NOT_STARTABLE', message: `Spielstatus „${args.requestedStatus}“ — Raumerstellung ist dafür gesperrt.` };
+  }
+  // 3) Kanonisches Manifest-Status (Regelwerk §13.1/§12.1).
+  if (args.manifest && args.manifest.status !== 'AVAILABLE' && args.manifest.status !== 'BETA') {
+    return { code: 'GAME_NOT_STARTABLE', message: `Spielstatus „${args.manifest.status}“ — Raumerstellung ist dafür gesperrt.` };
   }
   return null;
 }
@@ -163,7 +190,7 @@ roomsRouter.post('/', async (req, res) => {
 
     // Resolve game definition: prefer slug (mit Legacy-Auflösung), fallback to id
     let resolvedGameDefId = gameDefinitionId;
-    let gameDef: { id: string; slug: string } | null = null;
+    let gameDef: { id: string; slug: string; status: string } | null = null;
 
     if (!gameDefinitionId && gameSlug) {
       // Legacy-Slugs (z.B. "geo", "weristdas") werden auf den kanonischen
@@ -203,11 +230,17 @@ roomsRouter.post('/', async (req, res) => {
 
     // Startfähigkeits-Prüfung (Regelwerk §13.1): echte Engine + ehrlicher Status.
     // Gilt für gameSlug UND gameDefinitionId — ein PLANNED/HIDDEN-Spiel mit
-    // existierender Definition ist trotzdem nicht startbar.
+    // existierender Definition ist trotzdem nicht startbar. Maßgeblich ist der
+    // Status der TATSÄCHLICH angeforderten DB-Definition (Bind-Ziel des Raums),
+    // zusätzlich das kanonische Manifest und der Engine-Handler.
     const canonicalSlug = gameDef ? resolveCanonicalSlug(gameDef.slug) ?? gameDef.slug : null;
     const startable = canonicalSlug ? isStartableSlug(canonicalSlug) : false;
     const manifest = canonicalSlug ? getGameManifest(canonicalSlug) : null;
-    const startErr = classifyRoomCreationError(manifest, startable);
+    const startErr = classifyRoomCreationError({
+      requestedStatus: gameDef?.status,
+      manifest,
+      startable,
+    });
     if (startErr) {
       return res.status(400).json({ success: false, error: startErr });
     }
