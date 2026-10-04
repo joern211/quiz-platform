@@ -15,11 +15,16 @@ async function hashPassword(password: string): Promise<string> {
 async function main() {
   console.log('Seeding database...');
 
-  // Idempotent seed: check if already seeded
+  // Idempotenz (Regelwerk §14): Spiel-Definitionen werden IMMER (upsert) auf
+  // den kanonischen Katalog konvergiert — auch bei einer bereits teilgefüllten
+  // DB. Das ist wichtig, wenn sich Katalog-Status/Attribute zwischen Releases
+  // ändern (z.B. wer-ist-das AVAILABLE → BETA) oder ein Seed unterbrochen
+  // wurde. Nutzer, Demo-Fragepaket und Demo-Fragen bleiben dagegen nur im
+  // FRESH-DB-Fall neu, damit ein Re-Seed bestehende DBs nicht überschreibt.
   const existingGames = await prisma.gameDefinition.count();
-  if (existingGames > 0) {
-    console.log('Database already seeded, skipping...');
-    return;
+  const isFresh = existingGames === 0;
+  if (!isFresh) {
+    console.log('Database bereits befüllt — Spiel-Definitionen werden zum Katalog konvergiert (Nutzer/Content bleiben unverändert).');
   }
 
   // Get admin credentials from env (with defaults for dev)
@@ -27,136 +32,143 @@ async function main() {
   const adminPassword = process.env.INITIAL_ADMIN_PASSWORD || 'admin123';
   const modPassword = process.env.INITIAL_ADMIN_PASSWORD || 'moderator123';
 
-  // Create a default question pack
-  await prisma.questionPack.upsert({
-    where: { id: 'default-pack' },
-    update: {},
-    create: {
-      id: 'default-pack',
-      gameSlug: 'geo',
-      title: 'Standard Geo-Paket',
-      description: 'Standard Geografie-Fragen',
-      status: 'PUBLISHED',
-    },
-  });
-
-  // Create demo moderator
-  await prisma.user.upsert({
-    where: { id: 'mod-1' },
-    update: {},
-    create: {
-      id: 'mod-1',
-      email: 'moderator@example.com',
-      displayName: adminUsername,
-      passwordHash: await hashPassword(modPassword),
-      role: 'MODERATOR',
-    },
-  });
-
-  // Create admin
-  await prisma.user.upsert({
-    where: { id: 'admin-1' },
-    update: {},
-    create: {
-      id: 'admin-1',
-      displayName: 'Admin',
-      passwordHash: await hashPassword(adminPassword),
-      role: 'ADMIN',
-    },
-  });
-
-  // Create game definitions
-  const games = [
-    {
-      slug: 'geo',
-      name: 'Geografie-Quiz',
-      category: 'Quiz & Wissen',
-      description: 'Multiple-Choice Quiz mit Geografie-Fragen',
-      shortDescription: '4 Antworten, 20s Timer, Joker verfügbar',
-      status: 'AVAILABLE',
-      minPlayers: 2,
-      maxPlayers: 10,
-      estimatedMinutes: 15,
-      tags: JSON.stringify(['buzzer', 'teams']),
-      hasBuzzer: true,
-      hasTimer: true,
-    },
-    {
-      slug: 'jeopardy',
-      name: 'Jeopardy',
-      category: 'Buzzer & Reaktion',
-      description: 'Klassisches Jeopardy mit zwei Boards und Abstauber-Runde',
-      shortDescription: 'Feld wählen, Antwort geben, bei Fehler können andere buzzern',
-      status: 'AVAILABLE',
-      minPlayers: 2,
-      maxPlayers: 10,
-      estimatedMinutes: 30,
-      tags: JSON.stringify(['buzzer']),
-      hasBuzzer: true,
-      hasTimer: true,
-    },
-    {
-      slug: 'weristdas',
-      name: 'Wer ist das?',
-      category: 'Buzzer & Reaktion',
-      description: 'Errate die beiden Personen im Fusionsbild',
-      shortDescription: 'Buzzer, zwei Personen erraten, Hinweis möglich',
-      status: 'AVAILABLE',
-      minPlayers: 2,
-      maxPlayers: 10,
-      estimatedMinutes: 20,
-      tags: JSON.stringify(['buzzer', 'media']),
-      hasBuzzer: true,
-      hasTimer: true,
-    },
-    {
-      slug: 'timeline',
-      name: 'Timeline',
-      category: 'Schätzen & Sortieren',
-      description: 'Ordne Elemente in die richtige Reihenfolge ein',
-      shortDescription: '3 Leben, Element an richtige Position setzen',
-      status: 'AVAILABLE',
-      minPlayers: 2,
-      maxPlayers: 10,
-      estimatedMinutes: 15,
-      tags: JSON.stringify(['sorting']),
-      hasTimer: true,
-    },
-    {
-      slug: 'luegen',
-      name: 'Wer lügt am besten?',
-      category: 'Bluff & Täuschung',
-      description: 'Echte und erfundene Antworten erkennen und voted',
-      shortDescription: 'Lüge schreiben, abstimmen, Lügen-Ersteller punkten',
-      status: 'AVAILABLE',
-      minPlayers: 3,
-      maxPlayers: 10,
-      estimatedMinutes: 25,
-      tags: JSON.stringify(['voting', 'creative']),
-      hasTimer: true,
-    },
-    {
-      slug: 'song',
-      name: 'Erkenne den Song',
-      category: 'Buzzer & Reaktion',
-      description: 'Höre den Song und buzzere als Erster',
-      shortDescription: 'Audio abspielen, schnell buzzern, Titel+Interpret nennen',
-      status: 'AVAILABLE',
-      minPlayers: 2,
-      maxPlayers: 10,
-      estimatedMinutes: 20,
-      tags: JSON.stringify(['buzzer', 'audio']),
-      hasBuzzer: true,
-      hasAudio: true,
-      hasTimer: true,
-    },
+  // ── Spiel-Definitionen: immer konvergieren (create + update-Branch) ──
+  // Kanonische Identitäten aus dem Spielekatalog (Regelwerk §14).
+  //
+  // WICHTIG: Dieses Script läuft vom REPOSITORY ROOT (pnpm db:seed /
+  // Server-Test-Pipeline) und darf KEINEN Workspace-Package-Import
+  // (z.B. @quiz/shared) nutzen – pnpm verlinkt @quiz/shared nur in die
+  // Pakete (apps/*, packages/*), nicht ins Root-Verzeichnis. Die
+  // Seed-Daten sind daher bewusst hier selbstbelegt. Der Konsistenztest
+  // (apps/server/src/games/catalog-consistency.test.ts) stellt sicher,
+  // dass Slugs + ehrlicher Status + relevante Attribute mit dem kanonischen
+  // Katalog in @quiz/shared übereinstimmen – so bleibt @quiz/shared weiterhin
+  // die Single Source of Truth für API/UI/Registry.
+  //
+  // Status-Logik (§13.1): AVAILABLE nur bei startbarer, getesteter
+  // Engine (wissensduell, jeopardy). wer-ist-das = BETA (MVP ohne
+  // Fusionsbild-Generierung). Alle anderen PLANNED.
+  type SeedGame = {
+    slug: string; name: string; category: string; status: string;
+    minPlayers: number; maxPlayers: number; estimatedMinutes: number;
+    hasBuzzer: boolean; hasTeams: boolean; hasCamera: boolean;
+    hasAudio: boolean; hasTimer: boolean;
+    shortDescription?: string; description?: string;
+  };
+  const seedGames: SeedGame[] = [
+    { slug: 'wissensduell', name: 'Wissensduell', category: 'quiz-wissen', status: 'AVAILABLE', minPlayers: 2, maxPlayers: 10, estimatedMinutes: 15, hasBuzzer: false, hasTeams: false, hasCamera: false, hasAudio: false, hasTimer: true },
+    { slug: 'jeopardy', name: 'Jeopardy', category: 'buzzer-reaktion', status: 'AVAILABLE', minPlayers: 2, maxPlayers: 10, estimatedMinutes: 30, hasBuzzer: true, hasTeams: false, hasCamera: false, hasAudio: false, hasTimer: true },
+    { slug: 'wer-ist-das', name: 'Wer ist das?', category: 'buzzer-reaktion', status: 'BETA', shortDescription: 'Bild + zwei Namen raten (Buzzer)', description: 'Pro Runde ein vorbereitetes Bild und zwei zu ratende Namen: Erster Buzzer antwortet, der Moderator bewertet. (MVP-BETA: Fusionsbild-Generierung folgt in einem eigenen PR; das Spiel funktioniert mit vorbereiteten Bildern — Regelwerk §13.1, §15.3.)', minPlayers: 2, maxPlayers: 10, estimatedMinutes: 15, hasBuzzer: true, hasTeams: false, hasCamera: false, hasAudio: false, hasTimer: false },
+    { slug: 'song-quiz', name: 'Erkenne den Song', category: 'buzzer-reaktion', status: 'PLANNED', minPlayers: 2, maxPlayers: 10, estimatedMinutes: 15, hasBuzzer: true, hasTeams: false, hasCamera: false, hasAudio: true, hasTimer: false },
+    { slug: 'millionenfrage', name: 'Millionenfrage', category: 'quiz-wissen', status: 'PLANNED', minPlayers: 1, maxPlayers: 4, estimatedMinutes: 30, hasBuzzer: false, hasTeams: false, hasCamera: false, hasAudio: false, hasTimer: true },
+    { slug: 'timeline', name: 'Timeline', category: 'schaetzen-sortieren', status: 'PLANNED', minPlayers: 2, maxPlayers: 10, estimatedMinutes: 20, hasBuzzer: false, hasTeams: false, hasCamera: false, hasAudio: false, hasTimer: false },
+    { slug: 'schaetz-mal', name: 'Schätz mal', category: 'schaetzen-sortieren', status: 'PLANNED', minPlayers: 2, maxPlayers: 10, estimatedMinutes: 15, hasBuzzer: false, hasTeams: false, hasCamera: false, hasAudio: false, hasTimer: true },
+    { slug: 'higher-lower', name: 'Higher or Lower', category: 'schaetzen-sortieren', status: 'PLANNED', minPlayers: 2, maxPlayers: 10, estimatedMinutes: 10, hasBuzzer: false, hasTeams: false, hasCamera: false, hasAudio: false, hasTimer: false },
+    { slug: 'imposter', name: 'Imposter', category: 'bluff-taeuschung', status: 'PLANNED', minPlayers: 3, maxPlayers: 10, estimatedMinutes: 20, hasBuzzer: false, hasTeams: false, hasCamera: false, hasAudio: false, hasTimer: false },
+    { slug: 'wahr-oder-fake', name: 'Wahr oder Fake?', category: 'bluff-taeuschung', status: 'PLANNED', minPlayers: 2, maxPlayers: 10, estimatedMinutes: 15, hasBuzzer: false, hasTeams: false, hasCamera: false, hasAudio: false, hasTimer: false },
+    { slug: 'undercover', name: 'Undercover', category: 'social-deduction', status: 'PLANNED', minPlayers: 4, maxPlayers: 10, estimatedMinutes: 25, hasBuzzer: false, hasTeams: false, hasCamera: false, hasAudio: false, hasTimer: false },
+    { slug: 'secret-agent', name: 'Geheim Agent', category: 'social-deduction', status: 'PLANNED', minPlayers: 4, maxPlayers: 10, estimatedMinutes: 25, hasBuzzer: false, hasTeams: false, hasCamera: false, hasAudio: false, hasTimer: false },
+    { slug: 'partner-challenge', name: 'Wie weit gehst du?', category: 'team-kooperation', status: 'PLANNED', minPlayers: 4, maxPlayers: 8, estimatedMinutes: 25, hasBuzzer: false, hasTeams: true, hasCamera: false, hasAudio: false, hasTimer: true },
+    { slug: 'same-thought', name: 'Gleicher Gedanke', category: 'team-kooperation', status: 'PLANNED', minPlayers: 2, maxPlayers: 8, estimatedMinutes: 15, hasBuzzer: false, hasTeams: true, hasCamera: false, hasAudio: false, hasTimer: true },
+    { slug: 'stadt-land-fluss', name: 'Stadt, Land, Fluss', category: 'meta-spielmodi', status: 'PLANNED', minPlayers: 2, maxPlayers: 10, estimatedMinutes: 20, hasBuzzer: false, hasTeams: false, hasCamera: false, hasAudio: false, hasTimer: true },
+    { slug: 'board-race', name: 'Raus damit!', category: 'meta-spielmodi', status: 'PLANNED', minPlayers: 2, maxPlayers: 6, estimatedMinutes: 20, hasBuzzer: false, hasTeams: false, hasCamera: false, hasAudio: false, hasTimer: false },
+    { slug: 'yacht', name: 'Yacht', category: 'meta-spielmodi', status: 'PLANNED', minPlayers: 1, maxPlayers: 8, estimatedMinutes: 20, hasBuzzer: false, hasTeams: false, hasCamera: false, hasAudio: false, hasTimer: false },
+    { slug: 'last-man-standing', name: 'Last Man Standing', category: 'meta-spielmodi', status: 'PLANNED', minPlayers: 2, maxPlayers: 10, estimatedMinutes: 20, hasBuzzer: false, hasTeams: false, hasCamera: false, hasAudio: false, hasTimer: true },
   ];
 
-  for (const game of games) {
-    await prisma.gameDefinition.upsert({
-      where: { slug: game.slug },
-      update: game,
-      create: game,
+  for (const game of seedGames) {
+    // shortDescription/description nur übernehmen, wenn das Seed-Objekt sie
+    // mitbringt (derzeit nur wer-ist-das). So bleibt der Seed mit dem
+    // kanonischen Manifest abgeglichen (Regelwerk §14) UND konvergiert eine
+    // bestehende, teilweise befüllte DB (update-Branch) auf die Manifest-Werte.
+    const base: {
+      name: string; category: string; status: string; minPlayers: number; maxPlayers: number;
+      estimatedMinutes: number; hasBuzzer: boolean; hasTeams: boolean; hasCamera: boolean;
+      hasAudio: boolean; hasTimer: boolean; shortDescription?: string; description?: string;
+    } = {
+      name: game.name,
+      category: game.category,
+      status: game.status,
+      minPlayers: game.minPlayers,
+      maxPlayers: game.maxPlayers,
+      estimatedMinutes: game.estimatedMinutes,
+      hasBuzzer: game.hasBuzzer,
+      hasTeams: game.hasTeams,
+      hasCamera: game.hasCamera,
+      hasAudio: game.hasAudio,
+      hasTimer: game.hasTimer,
+    };
+    if (game.shortDescription !== undefined) base.shortDescription = game.shortDescription;
+    if (game.description !== undefined) base.description = game.description;
+
+    // IDEMPOTENZ (Regelwerk §14, nachweislich getestet): Vor dem Update
+    // vergleichen — Prisma 5.x setzt `@updatedAt` auch bei inhaltsgleichem
+    // Update-Call (empirisch verifiziert: identische Zeile, updatedAt steigt
+    // trotzdem). Nur bei echter Abweichung schreiben → zweiter Seed-Lauf ist
+    // ein No-op ohne Datenbank-Side-Effekte (wie canonicalSlugMigration.ts,
+    // die mit demselben Pattern arbeitet).
+    const existing = await prisma.gameDefinition.findUnique({ where: { slug: game.slug } });
+    if (existing) {
+      // `?? null` normalisiert undefined (nicht gesetzt) ↔ null (DB-Wert),
+      // damit Spalten ohne Seed-Wert nicht als Änderung erkannt werden.
+      const changed = (Object.keys(base) as Array<keyof typeof base>).some(
+        (key) => (existing[key] ?? null) !== (base[key] ?? null),
+      );
+      if (changed) {
+        await prisma.gameDefinition.update({ where: { slug: game.slug }, data: base });
+      }
+      continue;
+    }
+    await prisma.gameDefinition.create({
+      data: {
+        slug: game.slug,
+        ...base,
+        tags: '[]',
+      },
+    });
+  }
+
+  // ── Demo-Nutzer + Demo-Content: nur bei NEUER DB ──────────────
+  // Bei einer bestehenden/teilgefüllten DB werden Nutzer und Content
+  // NICH angefasst (kein Überschreiben). Nur die Spiel-Definitionen
+  // konvergieren (siehe oben).
+  if (isFresh) {
+    // Create a default question pack (kanonischer Slug: wissensduell)
+    await prisma.questionPack.upsert({
+      where: { id: 'default-pack' },
+      update: {},
+      create: {
+        id: 'default-pack',
+        gameSlug: 'wissensduell',
+        title: 'Standard-Wissenspaket',
+        description: 'Standard-Wissensfragen (Geo, Allgemeinwissen, …)',
+        status: 'PUBLISHED',
+      },
+    });
+
+    // Create demo moderator
+    await prisma.user.upsert({
+      where: { id: 'mod-1' },
+      update: {},
+      create: {
+        id: 'mod-1',
+        email: 'moderator@example.com',
+        displayName: adminUsername,
+        passwordHash: await hashPassword(modPassword),
+        role: 'MODERATOR',
+      },
+    });
+
+    // Create admin
+    await prisma.user.upsert({
+      where: { id: 'admin-1' },
+      update: {},
+      create: {
+        id: 'admin-1',
+        displayName: 'Admin',
+        passwordHash: await hashPassword(adminPassword),
+        role: 'ADMIN',
+      },
     });
   }
 
@@ -249,12 +261,14 @@ async function main() {
     },
   ];
 
-  for (const q of geoQuestions) {
-    await prisma.geoQuestion.upsert({
-      where: { id: q.id },
-      update: q,
-      create: q,
-    });
+  if (isFresh) {
+    for (const q of geoQuestions) {
+      await prisma.geoQuestion.upsert({
+        where: { id: q.id },
+        update: q,
+        create: q,
+      });
+    }
   }
 
   console.log('Seeding complete!');

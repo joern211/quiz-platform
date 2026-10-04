@@ -4,46 +4,24 @@
 
 import { Link } from 'react-router-dom';
 import { Card, Button } from '@quiz/ui';
+import { GAME_MANIFESTS } from '@quiz/shared';
+import { toUiGame, startableCount } from '../lib/catalog';
 import styles from './HomePage.module.css';
 
-const featuredGames = [
-  {
-    slug: 'geo',
-    name: 'Geografie-Quiz',
-    icon: '🌍',
-    shortRules: 'Hauptstädte, Flaggen, Flüsse und mehr — 4 Optionen, Joker verfügbar.',
-    playerCount: { min: 2, max: 10 },
-    duration: '15–30 Min',
-    status: 'AVAILABLE',
-  },
-  {
-    slug: 'jeopardy',
-    name: 'Jeopardy',
-    icon: '💰',
-    shortRules: 'Wähle ein Feld, beantworte die Frage — oder schnappe sie dir als Abstauber!',
-    playerCount: { min: 2, max: 10 },
-    duration: '30–45 Min',
-    status: 'AVAILABLE',
-  },
-  {
-    slug: 'timeline',
-    name: 'Timeline',
-    icon: '📅',
-    shortRules: 'Ordne Ereignisse in die richtige Reihenfolge. 3 Leben — wer hält durch?',
-    playerCount: { min: 2, max: 10 },
-    duration: '20–30 Min',
-    status: 'AVAILABLE',
-  },
-  {
-    slug: 'luegen',
-    name: 'Wer lügt am besten?',
-    icon: '🎭',
-    shortRules: 'Schreibe eine falsche Antwort und täusche die anderen.',
-    playerCount: { min: 3, max: 10 },
-    duration: '20–30 Min',
-    status: 'AVAILABLE',
-  },
-];
+const featuredIcons: Record<string, string> = {
+  wissensduell: '🌍',
+  jeopardy: '💰',
+  'wer-ist-das': '🎭',
+};
+function featuredIcon(slug: string): string {
+  return featuredIcons[slug] ?? '🎮';
+}
+
+// Hervorgehobene, ECHT startbare Spiele (aus dem kanonischen Katalog).
+const featuredGames = GAME_MANIFESTS
+  .filter((m) => m.status === 'AVAILABLE')
+  .slice(0, 4)
+  .map((m) => ({ ...toUiGame(m), icon: featuredIcon(m.slug) }));
 
 export function HomePage() {
   return (
@@ -62,7 +40,7 @@ export function HomePage() {
 
         <p className={styles.heroSubtitle}>
           Erstelle einen Raum, lade deine Freunde ein und spielt gemeinsam —
-          Geo-Quiz, Jeopardy, Timeline und mehr.
+          Wissensduell, Jeopardy, Wer ist das? und mehr.
         </p>
 
         <div className={styles.heroCta}>
@@ -77,8 +55,8 @@ export function HomePage() {
 
         <div className={styles.heroStats}>
           <div className={styles.stat}>
-            <div className={styles.statValue}>6</div>
-            <div className={styles.statLabel}>Spielarten</div>
+            <div className={styles.statValue}>{startableCount()}</div>
+            <div className={styles.statLabel}>spielsbereit</div>
           </div>
           <div className={styles.stat}>
             <div className={styles.statValue}>2+</div>

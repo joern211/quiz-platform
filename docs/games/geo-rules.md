@@ -1,8 +1,8 @@
-# Geo-Quiz - Spielregeln
+# Wissensduell – Spielregeln
 
 ## Übersicht
 
-Das **Geo-Quiz** ist ein klassisches Multiple-Choice-Quiz mit vier Antwortoptionen. Es unterstützt Text-, Bild- und Audio-Fragen sowie drei Joker.
+**Wissensduell** (Slug `wissensduell`, ersetzt das frühere „Geo-Quiz") ist ein klassisches Multiple-Choice-Quiz mit vier Antwortoptionen. Es unterstützt Text-, Bild- und Audio-Fragen sowie drei Joker. „Geo" und „Allgemeinwissen" sind keine eigenen Spiele, sondern **Content-Pools/Kategorien** innerhalb von Wissensduell. Der interne Modulname bleibt `games/geo`.
 
 ## Spielablauf
 
@@ -90,7 +90,7 @@ Falls im Setup aktiviert: Linearer Bonus bis 25% der Fragepunkte basierend auf v
 
 ## Kategorien
 
-Das Geo-Quiz unterstützt folgende Kategorien:
+Das Wissensduell unterstützt folgende Kategorien (Content-Pools):
 
 - Hauptstädte
 - Flaggen

@@ -73,6 +73,33 @@ export async function getOrCreateJeopardyGame() {
   });
 }
 
+/**
+ * Legt eine ECHTE startbare Spiel-Definition an (kanonischer Slug mit
+ * Registry-Handler + Status AVAILABLE). Für Raumerstellungs-POST-Tests, die
+ * die neue Startfähigkeits-Sperre (Regelwerk §13.1) passieren müssen.
+ * `getOrCreateGeoGame()` ist dagegen eine synthetic Definition (zeitgestempelter
+ * Slug) OHNE Engine-Handler — die wird (korrekt) von der Sperre abgelehnt.
+ */
+export async function getOrCreateStartableGame() {
+  const { prisma } = await import('./persistence/prisma.js');
+  const { GAME_SLUGS, getGameManifest } = await import('@quiz/shared');
+  const slug = GAME_SLUGS.wissensduell;
+  const m = getGameManifest(slug)!;
+  return prisma.gameDefinition.upsert({
+    where: { slug },
+    update: { status: 'AVAILABLE', name: m.name, category: m.category },
+    create: {
+      slug,
+      name: m.name,
+      category: m.category,
+      status: 'AVAILABLE',
+      minPlayers: m.minPlayers,
+      maxPlayers: m.maxPlayers,
+      estimatedMinutes: m.estimatedDurationMinutes,
+    },
+  });
+}
+
 // ── Session cookie factory ──────────────────────────────────
 
 function makeSessionCookie(sessionId: string, secret: string): string {

@@ -7,6 +7,7 @@ import type { Socket } from 'socket.io';
 import { getSocketDataIdentity } from '../../sockets/auth.js';
 import { roomChannel } from '../../sockets/channel.js';
 import { prisma } from '../../persistence/prisma.js';
+import { resolveCanonicalSlug } from '@quiz/shared';
 import type { GameDefinition, Room } from '@prisma/client';
 
 export type GameRole = 'MODERATOR' | 'PLAYER' | 'VIEWER';
@@ -77,7 +78,13 @@ export async function authorizeGameContext(
     where: { id: auth.actor.roomId }, include: { gameDefinition: true },
   });
   if (!room) return { ok: false, error: 'ROOM_NOT_FOUND' };
-  if (room.gameDefinition.slug !== options.gameSlug) return { ok: false, error: 'WRONG_GAME' };
+  // Slug-Vergleich über die kanonische Identität (Regelwerk §5.23): Räume,
+  // die noch einen Legacy-Slug tragen (Migration fehlgeschlagen / übersprungen),
+  // werden weiterhin korrekt autorisiert — Legacy und Engine-Slug werden auf
+  // dieselbe kanonische Form normalisiert.
+  const roomSlug = resolveCanonicalSlug(room.gameDefinition.slug) ?? room.gameDefinition.slug;
+  const expectedSlug = resolveCanonicalSlug(options.gameSlug) ?? options.gameSlug;
+  if (roomSlug !== expectedSlug) return { ok: false, error: 'WRONG_GAME' };
   if (options.requireRunning && room.status !== 'RUNNING') {
     return { ok: false, error: 'GAME_NOT_RUNNING' };
   }
