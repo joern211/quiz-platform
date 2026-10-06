@@ -17,6 +17,7 @@ const envSchema = z.object({
   STORAGE_ROOT: z.string().default('./storage'),
   MAX_UPLOAD_SIZE_MB: z.coerce.number().int().default(50),
   MAX_IMAGE_SIZE_MB: z.coerce.number().int().default(10),
+  MAX_IMAGE_DIMENSION: z.coerce.number().int().min(1).default(4096),
   MAX_AVATAR_SIZE_MB: z.coerce.number().int().default(5),
   ROOM_ARCHIVE_HOURS: z.coerce.number().int().default(24),
   CODE_REUSE_DAYS: z.coerce.number().int().default(30),
@@ -45,6 +46,7 @@ function loadConfig() {
     STORAGE_ROOT: process.env.STORAGE_ROOT || './storage',
     MAX_UPLOAD_SIZE_MB: process.env.MAX_UPLOAD_SIZE_MB || '50',
     MAX_IMAGE_SIZE_MB: process.env.MAX_IMAGE_SIZE_MB || '10',
+    MAX_IMAGE_DIMENSION: process.env.MAX_IMAGE_DIMENSION || '4096',
     MAX_AVATAR_SIZE_MB: process.env.MAX_AVATAR_SIZE_MB || '5',
     ROOM_ARCHIVE_HOURS: process.env.ROOM_ARCHIVE_HOURS || '24',
     CODE_REUSE_DAYS: process.env.CODE_REUSE_DAYS || '30',
@@ -99,6 +101,7 @@ function loadConfig() {
     maxFileSizes: {
       upload: data.MAX_UPLOAD_SIZE_MB * 1024 * 1024,
       image: data.MAX_IMAGE_SIZE_MB * 1024 * 1024,
+      imageDimension: data.MAX_IMAGE_DIMENSION,
       avatar: data.MAX_AVATAR_SIZE_MB * 1024 * 1024,
     },
     // Game defaults
@@ -140,6 +143,7 @@ export type Config = {
   maxFileSizes: {
     upload: number;
     image: number;
+    imageDimension: number;
     avatar: number;
   };
   geoDefaultTimerMs: number;

@@ -8,11 +8,14 @@
 
 - **Basis-Commit:** `411a5b783e5857bca5b208598fade43affc108b5` (PR #10, verifiziert = origin/main)
 - **Branch:** `feature/wer-ist-das-fusion-media`
-- **Letzter Commit:** —
-- **Etappe:** 1/5 (Bestandsaufnahme/Design)
-- **PR:** —
-- **Tests:** —
-- **Nächster Schritt:** —
+- **Letzter Commit:** (siehe Logbuch unten)
+- **Etappe:** 2/5 (Medienrechte/Upload) — Implementierung + Tests fertig, Push folgt
+- **PR:** noch nicht erstellt
+- **Tests:** `media.integration.test.ts` → 14/14 grün (Upload-Content-Check, MIME-Spoofing 415,
+  Dedupe, Signed-URL-Zugriff: game/host/abgelaufen/foreign-asset, Cache `no-store`, PUBLIC offen,
+  404). Typecheck grün.
+- **Nächster Schritt:** Commit + Push (Etappe 2), dann Etappe 3: `createGameImage()` (sharp,
+  deterministisch), Setup-Schema v2 (`contracts.ts`), Composite-Endpoint, Engine v2, Resync v2.
 
 ---
 
@@ -236,6 +239,34 @@
   Browser-Bildverarbeitung + Storage-Abhängigkeit).
 
 ## 5. Logbuch (Chronik, nach jeder Etappe ein Eintrag)
+
+### Etappe 2 — Medienrechte + sichere Upload-Verarbeitung (fertig, wartet auf Push)
+Geändert:
+- `prisma/schema.prisma` + Migration `20261005211743_add_media_derived_from_and_process_status`:
+  `MediaAsset.derivedFromAssetIds` (JSON-Array, §7.5) + `MediaAsset.processStatus` (Default "READY", §7.7).
+  Additive, kein Datenumschreiben; SQLite RedefineTable mit Daten-Kopie.
+- `apps/server/src/config/index.ts`: `MAX_IMAGE_DIMENSION` (Default 4096).
+- `apps/server/src/media/signedUrl.ts` (neue): HMAC-Signed-URLs (assetId|audience|exp, §10.8),
+  `buildSignedMediaUrl`/`verifySignedAccess`, TTL 5 Min (game) / 60 Min (host).
+- `apps/server/src/http/media.ts` (umgeschrieben):
+  - GET-Zugriffspolitik: PUBLIC/SYSTEM offen (Geo bleibt funktionieren), sonst **nur** via
+    Signed URL — audience `game` = freigegebenes Spielbild (ohne Login, für Player/Viewer/Display),
+    audience `host` = Originale, zusätzlich mit Session + (uploader == user ODER user == Raum-Host).
+    `Cache-Control: no-store` für private Inhalte (vorher `public, max-age=1y`!). `Content-Disposition`
+    neutral, nie storagePath/originalName. 403 generisch (keine Leaks).
+  - Upload: echter Content-Check (sharp `metadata()`, Format aus Bytes), EXIF-Orientation +
+    Metadaten-Strip, WebP-Normalisierung (Bilder), Audio über Magic-Bytes (MP3/WAV/M4A/AAC/OGG)
+    unverändert weiter; Limits: MAX_IMAGE_SIZE_MB + MAX_IMAGE_DIMENSION; Dedupe über sha256
+    (gleicher Uploader → Asset wiederverwenden, sonst eigenes Asset, kein 500); Fehler → Datei-Cleanup,
+    keine Orphan/DB-Zeile.
+- `apps/server/src/http/media.integration.test.ts` (neu, 14 Tests): MIME-Spoofing 415 + Cleanup,
+  valides PNG → WebP + width/height + READY, 401, Dedupe, PUBLIC offen, PRIVATE ohne/veraltete/
+  foreign-Signatur 403, game-URL ohne Session 200 + `no-store`, host-URL mit/ohne Session,
+  Raum-Host-Recht, Asset-Getausche 403, Header-Leaks, 404.
+
+Teststand: `pnpm --filter @quiz/server typecheck` ✅ · `vitest run media.integration.test.ts` → 14/14 ✅
+Offen: WID-Engine muss das freigegebene Spielbild künftig als Signed `game`-URL projizieren
+(Etappe 3/4), sonst lädt die laufende MVP-GamePage nicht mehr (bewusst: alte offene URL ist weg).
 
 ### Etappe 1 — Bestandsaufnahme + Design (jetzt)
 - Branch `feature/wer-ist-das-fusion-media` von `origin/main` (411a5b7) erstellt.

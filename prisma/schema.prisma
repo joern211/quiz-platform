@@ -326,11 +326,20 @@ model MediaAsset {
   sha256          String   @unique
   storagePath     String
   uploadedBy      String?
-  visibility      String   @default("PRIVATE") // PRIVATE | PUBLIC | ROOM
+  // PRIVATE | SHARED | PUBLIC | SYSTEM | ROOM_TEMP (Regelwerk §7.3)
+  // Legacy-Zeilen dürfen weiterhin 'PRIVATE' | 'PUBLIC' | 'ROOM' tragen.
+  visibility      String   @default("PRIVATE")
   roomId          String?
   processed       Boolean  @default(false)
   thumbnailPath   String?
-  
+  // PR11 (§7.5): IDs der Quell-Assets, aus denen dieses Asset abgeleitet wurde
+  // (z.B. Fusion/Composite aus mehreren Bildern). JSON-Array, z.B. ["a","b"].
+  // null = Original/Quelle, keine abgeleitete Ableitung.
+  derivedFromAssetIds String?
+  // PR11 (§7.7): Verarbeitungsstatus. Bestehende Assets bleiben "READY".
+  // READY | PROCESSING | FAILED | REJECTED — Normalspiele akzeptieren nur READY.
+  processStatus       String   @default("READY")
+
   createdAt       DateTime @default(now())
   
   // Note: GeoQuestion holds the forward relation via mediaAssetId

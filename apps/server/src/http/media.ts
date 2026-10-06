@@ -1,5 +1,21 @@
 // ============================================================
-// Media Upload Router
+// Media Router — Upload + geschützte Auslieferung
+//
+// Regelwerk §7.3/§7.6/§7.7/§7.8/§7.9, §10.7/§10.8:
+//   - MIME + echten Content prüfen (nicht nur client-beschrieben),
+//     serverseitig decodieren, Metadaten säubern.
+//   - PRIVATE/SHARED/ROOM_TEMP: keine permanente offene URL,
+//     Auth + kurzlebige Signed URL, storagePath nie an den Browser.
+//   - Keine öffentliche Langzeit-Cache für nicht-öffentliche Inhalte.
+//
+// Zugriff:
+//   - PUBLIC / SYSTEM  → offen, kurz cachebar (Geo/Wissensduell-Public-Medien).
+//   - Sonst            → nur über gültige Signed URL (`?exp=…&sig=…`):
+//        audience "game" → freigegebenes Spielbild (Composite / v1-Bild),
+//                          an Player/Viewer/Display ohne Login.
+//        audience "host" → Originale, NUR zusätzlich mit Session eines
+//                          berechtigten Hosts (uploader == user ODER
+//                          user == Host von asset.roomId).
 // ============================================================
 
 import { Router } from 'express';
@@ -7,142 +23,253 @@ import multer from 'multer';
 import path from 'path';
 import crypto from 'crypto';
 import fs from 'fs/promises';
+import sharp from 'sharp';
 import { prisma } from '../persistence/prisma.js';
 import { verifySession } from '../auth/session.js';
 import { logger } from '../observability/logger.js';
 import { config } from '../config/index.js';
+import {
+  signMediaAccess, buildSignedMediaUrl, verifySignedAccess,
+  MEDIA_URL_TTL_SECONDS, MEDIA_HOST_URL_TTL_SECONDS, type MediaUrlAudience,
+} from '../media/signedUrl.js';
 
 export const mediaRouter : ReturnType<typeof Router> = Router();
 
-// Configure multer
+// Re-Export für bestehende Importe (Tests nutzen sie über media.js).
+export { signMediaAccess, buildSignedMediaUrl, verifySignedAccess, MEDIA_URL_TTL_SECONDS, MEDIA_HOST_URL_TTL_SECONDS };
+export type { MediaUrlAudience };
+
+// ------------------------------------------------------------
+// (Signed-URL-Helfer leben jetzt in media/signedUrl.ts)
+// ------------------------------------------------------------
+
+// ------------------------------------------------------------
+// Upload-Storage
+// ------------------------------------------------------------
+
 const storage = multer.diskStorage({
   destination: async (_req, _file, cb) => {
     const uploadDir = path.resolve(config.storagePaths.uploads);
     await fs.mkdir(uploadDir, { recursive: true });
     cb(null, uploadDir);
   },
-  filename: (_req, file, cb) => {
+  filename: (_req, _file, cb) => {
     const uniqueId = crypto.randomBytes(16).toString('hex');
-    const ext = path.extname(file.originalname);
-    cb(null, `${uniqueId}${ext}`);
+    cb(null, `${uniqueId}.bin`); // Suffix kommt erst nach Content-Prüfung
   },
 });
 
-const upload = multer({
-  storage,
-  limits: { fileSize: config.maxFileSizes.upload },
-  fileFilter: (_req, file, cb) => {
-    const allowedMimes = [
-      'image/png', 'image/jpeg', 'image/webp',
-      'audio/mpeg', 'audio/wav', 'audio/ogg', 'audio/mp4', 'audio/aac',
-    ];
-    if (allowedMimes.includes(file.mimetype)) {
-      cb(null, true);
-    } else {
-      cb(new Error('Nicht unterstützter Dateityp'));
+const upload = multer({ storage, limits: { fileSize: config.maxFileSizes.image } });
+
+// ------------------------------------------------------------
+// Content-Prüfung: echter Content, keine Client-Claims
+// ------------------------------------------------------------
+
+interface ProcessedMedia {
+  ok: boolean;
+  error?: { code: string; message: string };
+  buffer?: Buffer;
+  type?: 'image' | 'audio';
+  mimeType?: string;
+  width?: number;
+  height?: number;
+}
+
+function detectAudioMime(buf: Buffer): string | null {
+  if (buf.length < 12) return null;
+  if (buf[0] === 0x49 && buf[1] === 0x44 && buf[2] === 0x33) return 'audio/mpeg'; // ID3 (MP3)
+  if (buf[0] === 0xFF && (buf[1] & 0xE6) === 0xE2) return 'audio/mpeg'; // MP3 frame sync
+  if (buf[0] === 0x52 && buf[1] === 0x49 && buf[2] === 0x46 && buf[3] === 0x46) return 'audio/wav'; // RIFF (WAV)
+  if (buf.slice(4, 8).toString('ascii') === 'ftyp') return 'audio/mp4'; // M4A/AAC
+  if (buf.slice(0, 4).toString('ascii') === 'OggS') return 'audio/ogg';
+  return null;
+}
+
+/**
+ * Prüft den tatsächlichen Content. Bilder: decodieren via sharp, EXIF/Metadaten-
+ * Strip, als WebP normalisieren. Audio: Magic-Bytes prüfen, Content unverändert.
+ * Das Format/MIME kommt aus dem Content, nie aus der Client-Assertion.
+ */
+async function processUploaded(filePath: string, fileSize: number): Promise<ProcessedMedia> {
+  const rejected = (message: string): ProcessedMedia => ({ ok: false, error: { code: 'MEDIA_REJECTED', message } });
+  try {
+    const buf = await fs.readFile(filePath);
+    if (fileSize > config.maxFileSizes.image) return rejected('Datei ist zu groß.');
+
+    // Erst: Bild? sharp meldet bei nicht-Bildern einen Fehler.
+    let imageMeta: { width?: number; height?: number; format?: string } | null = null;
+    try {
+      const input = sharp(filePath, { failOn: 'error' });
+      const metadata = await input.metadata();
+      if (metadata.format && metadata.width && metadata.height) imageMeta = metadata;
+    } catch {
+      imageMeta = null; // kein Bild → evtl. Audio
     }
-  },
-});
 
-// POST /api/v1/media - Upload media
+    if (imageMeta) {
+      const { width, height, format } = imageMeta;
+      if (width! > config.maxFileSizes.imageDimension || height! > config.maxFileSizes.imageDimension) {
+        return rejected(`Bild ist zu groß (max. ${config.maxFileSizes.imageDimension}px).`);
+      }
+      if (format !== 'jpeg' && format !== 'png' && format !== 'webp') {
+        return rejected('Nur JPG, PNG oder WebP sind erlaubt.');
+      }
+      const normalized = await sharp(filePath, { animated: false })
+        .rotate() // EXIF-Orientation anwenden
+        .webp({ quality: 85 })
+        .toBuffer({ resolveWithObject: true });
+      return { ok: true, buffer: normalized.data, type: 'image', mimeType: 'image/webp', width, height };
+    }
+
+    // Kein Bild → Audio?
+    const audioMime = detectAudioMime(buf);
+    if (audioMime) {
+      return { ok: true, buffer: buf, type: 'audio', mimeType: audioMime };
+    }
+
+    return rejected('Nicht unterstützter oder beschädigter Inhalt (nur JPG/PNG/WebP oder MP3/WAV/M4A/AAC/OGG).');
+  } catch {
+    return rejected('Datei konnte nicht gelesen oder verarbeitet werden.');
+  }
+}
+
+// ------------------------------------------------------------
+// POST /api/v1/media — Upload (Session erforderlich)
+// ------------------------------------------------------------
+
 mediaRouter.post('/', upload.single('file'), async (req, res) => {
+  const uploadedPath: string | undefined = (req as { file?: { path: string } }).file?.path;
+  const uploadedSize: number = (req as { file?: { size: number } }).file?.size ?? 0;
+  const removeUploaded = () => { if (uploadedPath) fs.unlink(uploadedPath).catch(() => {}); };
+
   try {
     const sessionId = verifySession(req, config.sessionSecret);
     if (!sessionId) {
-      return res.status(401).json({
-        success: false,
-        error: { code: 'NOT_AUTHENTICATED', message: 'Anmeldung erforderlich.' },
+      removeUploaded();
+      return res.status(401).json({ success: false, error: { code: 'NOT_AUTHENTICATED', message: 'Anmeldung erforderlich.' } });
+    }
+    const session = await prisma.session.findUnique({ where: { id: sessionId } });
+    if (!session || session.revokedAt || session.expiresAt < new Date()) {
+      removeUploaded();
+      return res.status(401).json({ success: false, error: { code: 'SESSION_EXPIRED', message: 'Sitzung abgelaufen.' } });
+    }
+    if (!uploadedPath) {
+      return res.status(400).json({ success: false, error: { code: 'VALIDATION', message: 'Keine Datei hochgeladen.' } });
+    }
+
+    const processed = await processUploaded(uploadedPath, uploadedSize);
+    if (!processed.ok || !processed.buffer) {
+      removeUploaded();
+      return res.status(415).json({ success: false, error: processed.error });
+    }
+
+    // Normalisiertes/neues Ergebnis ablegen (Bilder: WebP, saubere Metadaten).
+    const ext = processed.type === 'image' ? '.webp' : path.extname(
+      (req as { file?: { originalname: string } }).file?.originalname ?? ''
+    ) || '.bin';
+    const outPath = path.join(path.dirname(uploadedPath), crypto.randomBytes(16).toString('hex') + ext);
+    await fs.writeFile(outPath, processed.buffer);
+    await fs.unlink(uploadedPath).catch(() => {});
+
+    const sha256 = crypto.createHash('sha256').update(processed.buffer).digest('hex');
+
+    // Dedupe: gleiche Bytes + gleicher Uploader → Asset wiederverwenden (kein 500, keine Duplizierung).
+    const existing = await prisma.mediaAsset.findUnique({ where: { sha256 } });
+    if (existing && existing.uploadedBy === session.userId) {
+      await fs.unlink(outPath).catch(() => {});
+      return res.status(200).json({
+        success: true,
+        data: { id: existing.id, type: existing.type, mimeType: existing.mimeType, filename: existing.filename, fileSize: existing.fileSize, deduplicated: true },
       });
     }
 
-    if (!req.file) {
-      return res.status(400).json({
-        success: false,
-        error: { code: 'VALIDATION', message: 'Keine Datei hochgeladen.' },
-      });
-    }
-
-    // Calculate hash
-    const fileBuffer = await fs.readFile(req.file.path);
-    const sha256 = crypto.createHash('sha256').update(fileBuffer).digest('hex');
-
-    // Determine type
-    const mimeType = req.file.mimetype;
-    const type = mimeType.startsWith('image/') ? 'image' : 'audio';
-
-    // Create database entry
     const asset = await prisma.mediaAsset.create({
       data: {
-        type,
-        mimeType,
-        filename: req.file.filename,
-        originalName: req.file.originalname,
-        fileSize: req.file.size,
+        type: processed.type!,
+        mimeType: processed.mimeType!,
+        filename: path.basename(outPath),
+        originalName: (req as { file?: { originalname: string } }).file?.originalname ?? 'upload', // Audit-only, nie an Client
+        fileSize: processed.buffer.length,
+        width: processed.width ?? null,
+        height: processed.height ?? null,
         sha256,
-        storagePath: req.file.path,
-        uploadedBy: (await prisma.session.findUnique({ where: { id: sessionId } }))?.userId,
+        storagePath: outPath,
+        uploadedBy: session.userId,
         visibility: 'PRIVATE',
+        processStatus: 'READY',
+        processed: processed.type === 'image',
       },
     });
-
-    logger.info('Media uploaded', { assetId: asset.id, mimeType, size: req.file.size });
-
-    res.status(201).json({
+    logger.info('Media uploaded (validated)', { assetId: asset.id, type: processed.type, size: processed.buffer.length });
+    return res.status(201).json({
       success: true,
-      data: {
-        id: asset.id,
-        type: asset.type,
-        mimeType: asset.mimeType,
-        filename: asset.filename,
-        fileSize: asset.fileSize,
-      },
+      data: { id: asset.id, type: processed.type, mimeType: processed.mimeType, filename: asset.filename, fileSize: asset.fileSize },
     });
   } catch (error) {
+    removeUploaded();
     logger.error('Failed to upload media', { error });
-    res.status(500).json({
-      success: false,
-      error: { code: 'INTERNAL_ERROR', message: 'Upload fehlgeschlagen.' },
-    });
+    return res.status(500).json({ success: false, error: { code: 'INTERNAL_ERROR', message: 'Upload fehlgeschlagen.' } });
   }
 });
 
-// GET /api/v1/media/:id - Get media
+// ------------------------------------------------------------
+// GET /api/v1/media/:id — Zugriffspolitik + Signed-URL-Prüfung
+// ------------------------------------------------------------
+
+async function isRoomHost(roomId: string, userId: string): Promise<boolean> {
+  const room = await prisma.room.findUnique({ where: { id: roomId }, select: { hostUserId: true } });
+  return room?.hostUserId === userId;
+}
+
 mediaRouter.get('/:id', async (req, res) => {
   try {
-    const asset = await prisma.mediaAsset.findUnique({
-      where: { id: req.params.id },
-    });
-
+    const asset = await prisma.mediaAsset.findUnique({ where: { id: req.params.id } });
     if (!asset) {
-      return res.status(404).json({
-        success: false,
-        error: { code: 'NOT_FOUND', message: 'Medium nicht gefunden.' },
-      });
+      return res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: 'Medium nicht gefunden.' } });
     }
-
-    // Check file exists
     try {
       await fs.access(asset.storagePath);
     } catch {
-      return res.status(404).json({
-        success: false,
-        error: { code: 'FILE_MISSING', message: 'Datei nicht gefunden.' },
-      });
+      return res.status(404).json({ success: false, error: { code: 'FILE_MISSING', message: 'Datei nicht gefunden.' } });
     }
 
-    // Set headers and send file
+    const isPublic = asset.visibility === 'PUBLIC' || asset.visibility === 'SYSTEM';
+    let allowed = false;
+
+    if (isPublic) {
+      allowed = true;
+    } else {
+      const exp = req.query.exp as string | undefined;
+      const sig = req.query.sig as string | undefined;
+      const gameOk = verifySignedAccess({ assetId: asset.id, audience: 'game', exp, sig });
+      const hostSigOk = verifySignedAccess({ assetId: asset.id, audience: 'host', exp, sig });
+
+      if (gameOk) {
+        // Freigegebenes Spielbild (Composite / v1-Bild) → Player/Viewer/Display.
+        allowed = true;
+      } else if (hostSigOk) {
+        // Originale: zusätzlich gültige Session + Host-Recht.
+        const sessionId = verifySession(req, config.sessionSecret);
+        const session = sessionId ? await prisma.session.findUnique({ where: { id: sessionId } }) : null;
+        if (session && (asset.uploadedBy === session.userId
+          || (asset.roomId ? await isRoomHost(asset.roomId, session.userId) : false))) {
+          allowed = true;
+        }
+      }
+    }
+
+    if (!allowed) {
+      // Generisch: keine Existenz-/Rechte-Leaks.
+      return res.status(403).json({ success: false, error: { code: 'FORBIDDEN', message: 'Zugriff nicht erlaubt.' } });
+    }
+
     res.setHeader('Content-Type', asset.mimeType);
-    // Public image URLs are shown before a quiz reveal. An upload name can contain
-    // the answer, so never expose the original filename in response headers.
-    res.setHeader('Content-Disposition', 'inline');
-    res.setHeader('Cache-Control', 'public, max-age=31536000'); // 1 year cache
-    
+    // Nie storagePath/originalName in Header. Nicht-öffentliche: no-store.
+    res.setHeader('Content-Disposition', 'inline; filename="media"');
+    res.setHeader('Cache-Control', isPublic ? 'public, max-age=86400' : 'no-store');
     res.sendFile(path.resolve(asset.storagePath));
   } catch (error) {
     logger.error('Failed to get media', { error });
-    res.status(500).json({
-      success: false,
-      error: { code: 'INTERNAL_ERROR', message: 'Medium konnte nicht geladen werden.' },
-    });
+    res.status(500).json({ success: false, error: { code: 'INTERNAL_ERROR', message: 'Medium konnte nicht geladen werden.' } });
   }
 });
