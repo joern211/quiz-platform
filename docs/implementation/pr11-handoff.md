@@ -8,9 +8,9 @@
 
 - **Basis-Commit:** `411a5b783e5857bca5b208598fade43affc108b5` (PR #10, verifiziert = origin/main)
 - **Branch:** `feature/wer-ist-das-fusion-media`
-- **Letzter Commit:** (siehe Logbuch unten)
-- **Etappe:** 2/5 (Medienrechte/Upload) — Implementierung + Tests fertig, Push folgt
-- **PR:** noch nicht erstellt
+- **Letzter Commit:** `1236d06` (Etappe 2) — gepusht
+- **Etappe:** 2/5 (Medienrechte/Upload) — fertig + gepusht
+- **PR:** **Draft-PR #11** → https://github.com/joern211/quiz-platform/pull/11 (Basis main, Head 1236d06)
 - **Tests:** `media.integration.test.ts` → 14/14 grün (Upload-Content-Check, MIME-Spoofing 415,
   Dedupe, Signed-URL-Zugriff: game/host/abgelaufen/foreign-asset, Cache `no-store`, PUBLIC offen,
   404). Typecheck grün.
