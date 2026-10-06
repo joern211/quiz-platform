@@ -273,15 +273,16 @@ describe('Seed ↔ Katalog-Sync (Regelwerk §14)', () => {
   });
 
   it('wer-ist-das: Seed-Beschreibung (shortDescription/description) identisch mit Manifest', () => {
-    // Die MVP-BETA-Begründung (keine Fusionsbild-Generierung) muss Seed,
-    // DB und API-Response deckungsgleich sein — sonst behauptet die DB
+    // Die BETA-Begründung (einfache Composite-Fusion, kein echtes Morphing) muss
+    // Seed, DB und API-Response deckungsgleich sein — sonst behauptet die DB
     // etwas anderes als der kanonische Katalog.
     const manifest = GAME_MANIFESTS.find((m) => m.slug === 'wer-ist-das')!;
     expect(manifest.status).toBe('BETA');
+    expect(manifest.setupSchemaVersion).toBe(2);
     expect(seedSource).toContain(`shortDescription: '${manifest.shortDescription}'`);
     expect(seedSource).toContain(`description: '${manifest.description}'`);
-    expect(manifest.description).toMatch(/MVP-BETA/);
-    expect(manifest.description).toMatch(/Fusionsbild/);
+    expect(manifest.description).toMatch(/BETA/);
+    expect(manifest.description).toMatch(/Fusion/);
   });
 
   it('Default-Fragepaket nutzt den kanonischen Slug wissensduell (nicht "geo")', () => {

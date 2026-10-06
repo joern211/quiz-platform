@@ -8,14 +8,17 @@
 
 - **Basis-Commit:** `411a5b783e5857bca5b208598fade43affc108b5` (PR #10, verifiziert = origin/main)
 - **Branch:** `feature/wer-ist-das-fusion-media`
-- **Letzter Commit:** `1236d06` (Etappe 2) — gepusht
-- **Etappe:** 2/5 (Medienrechte/Upload) — fertig + gepusht
-- **PR:** **Draft-PR #11** → https://github.com/joern211/quiz-platform/pull/11 (Basis main, Head 1236d06)
-- **Tests:** `media.integration.test.ts` → 14/14 grün (Upload-Content-Check, MIME-Spoofing 415,
-  Dedupe, Signed-URL-Zugriff: game/host/abgelaufen/foreign-asset, Cache `no-store`, PUBLIC offen,
-  404). Typecheck grün.
-- **Nächster Schritt:** Commit + Push (Etappe 2), dann Etappe 3: `createGameImage()` (sharp,
-  deterministisch), Setup-Schema v2 (`contracts.ts`), Composite-Endpoint, Engine v2, Resync v2.
+- **Letzter Commit:** `1236d06` (Etappe 2) gepusht + **Etappe 3 (uncommittiert im Arbeitsbaum, Tests grün, wartet auf Commit/Push)**
+- **Etappe:** 3/5 (Composite/Modell) — Implementierung + Tests fertig, Commit/Push folgt
+- **PR:** **Draft-PR #11** → https://github.com/joern211/quiz-platform/pull/11 (Basis main)
+- **Tests:** Komplette Server-Suite **228/228 grün** (CI-Reihenfolge: prisma generate → migrate deploy →
+  typecheck → lint → build → `pnpm --filter @quiz/server test`), inkl. neuer
+  `composite.test.ts` (5) + `fusion.integration.test.ts` (4) + bestehende
+  `socket-flow` v1-Regression (3) + `media.integration` (14) + `catalog-consistency` (26) +
+  `seed-partial-db` (2). Typecheck 0 Fehler, Lint 0 Errors (97 pre-existing Warnings).
+- **Nächster Schritt:** Etappe 3 committen + pushen, dann Etappe 4: `WerIstDasSetupPage`
+  (2 Bilder + Namen + Fusion-Trigger + Vorschau), `WerIstDasGamePage` auf `gameImageUrl`
+  (Signed URL) umstellen, Web-Typecheck/Test, E2E-Update.
 
 ---
 
@@ -240,7 +243,54 @@
 
 ## 5. Logbuch (Chronik, nach jeder Etappe ein Eintrag)
 
-### Etappe 2 — Medienrechte + sichere Upload-Verarbeitung (fertig, wartet auf Push)
+### Etappe 3 — Composite/Fusion + Setup-Schema v2 + Engine/Resync/Geheimhaltung (fertig, wartet auf Commit/Push)
+Geändert/neu:
+- `apps/server/src/games/weristdas/composite.ts` (neu): `createGameImage()` — echtes,
+  reproduzierbares Fusion-Bild: beide Originale center-crop 1024×1024, B als 50%-Alpha-Crossfade
+  über A (verlustfreies PNG-Overlay → WebP), **deterministisch** (crossfade-v1), `derivedFromAssetIds`
+  = [A,B], `visibility ROOM_TEMP`, `processStatus READY`, Filename `fusion-<round>-<digest>` (KEINE
+  Lösung). Idempotent über sha256 (gleiche Quellen+Algo → gleiche Asset-ID, keine Duplikate).
+  Ownership-/Typ-/Status-/Existenz-Check pro Quelle; identische A/B abgelehnt (`SOURCES_MUST_DIFFER`);
+  Fehler → `COMPOSITE_FAILED` + Datei-Cleanup (keine Orphan/Geheimdatei). Algorithmus hinter einer
+  Funktion gekapselt → späteres Morphing tauscht nur `createGameImage()`.
+- `apps/server/src/http/media.ts`: `POST /api/v1/media/composite` (Host-Session, prüft Raum-Eigentum
+  wenn roomId), Fehler-Mapping (404/400/500) mit verständlichen deutschen Meldungen, liefert
+  `gameImageUrl` (Signed, audience `game`).
+- `apps/server/src/games/weristdas/contracts.ts`: Setup-Schema v2 — `setupVersion` 1|2,
+  `WerIstDasRoundV2` (`personAImageAssetId`, `personBImageAssetId`, `gameImageAssetId`,
+  `personAName`, `personBName`, `aliasesA?`, `aliasesB?`), `isV2Round()`, `normalizeRound()`
+  (→ `imageUrlAssetId` = freigegebenes Spielbild, `secretAssetIds` = Originale), `WER_IST_DAS_ENGINE_VERSION=2`.
+- `apps/server/src/games/weristdas/engine.ts`: `validateSetup()` serverseitig (Eigentum, Typ, READY,
+  (v2) Spielbild gehört zu GENAU den beiden Quellen via `derivedFromAssetIds`), `initialize()` pinnt
+  `engineVersion` + validiert → `INVALID_SETUP` → `game.ts` rollt LOBBY→RUNNING zurück (kein halb
+  gestartetes Spiel).
+- `apps/server/src/games/weristdas/resync.ts`: v2-Rollenprojektion — Player/Viewer/Display erhalten
+  vor Reveal NUR das freigegebene Spielbild (`imageAssetId` + `gameImageUrl` = Signed `game`-URL),
+  KEINE Namen/Original-IDs/Original-URLs; Host erhält zusätzlich `hostImageUrls` (Signed `host`-URLs
+  der Originale, nur mit Host-Session ladbar). Nach Reveal: Namen für alle (das ausdrücklich
+  Freigegebene). `storagePath`/`originalName`/rohe Secret-IDs nie in der Projektion.
+- `apps/server/src/http/rooms.ts`: `POST /:code/join` — **Host-als-Player-Sperre** (Regelwerk §2,
+  Arbeitsauftrag §2C): wer die Bilder/Namen selbst eingegeben hat, wird serverseitig als Player
+  in der eigenen wer-ist-das-Runde abgelehnt (`HOST_CANNOT_PLAY_OWN_ROUND`, 403). Anonyme Player
+  (ohne Login = fairer Modus) sind nicht betroffen. Client-seites Verstecken würde den Wissensvorteil
+  NICHT lösen → daher harte Sperre, kein „fairer Host-als-Player-Modus".
+- `packages/shared/src/index.ts` + `prisma/seed.ts` + Konsistenz-Tests: wer-ist-das
+  `setupSchemaVersion` 1→2, Beschreibung/Begründung auf die Fusion aktualisiert (Seed ↔ Manifest
+  deckungsgleich, `catalog-consistency` + `seed-partial-db` angepasst).
+- Neue Tests: `composite.test.ts` (5: echtes gespeichertes 1024²-Composite mit Quelle + nicht-Kopie,
+  Idempotenz, Fremd-ID/Ownership, identische A/B, Fehler-Cleanup ohne Orphan) und
+  `fusion.integration.test.ts` (4: v2-Rolle-Geheimhaltung + Full-Round, Reconnect/Recovery mit
+  pinned `engineVersion` + nicht-neu-erzeugtem Composite, 3× Invalid-Setup-Rollback, Host-als-Player-Block).
+
+Teststand (CI-Reihenfolge): prisma generate ✅ · migrate deploy ✅ · `pnpm typecheck` ✅ (0) ·
+`pnpm lint` ✅ (0 errors / 97 pre-existing warnings) · `pnpm build` ✅ · `pnpm --filter @quiz/server test`
+→ **228/228 grün** (v1-`socket-flow`-Regression 3/3 + `media` 14/14 + `catalog-consistency` 26/26 +
+`seed-partial-db` 2/2 + neue `composite` 5/5 + `fusion` 4/4, u. a.).
+Bemerkung: Test-Pool `vmForks` + `isolate:false` teilt `globalThis.__prisma` worker-weit → beide neuen
+Test-Dateien sichern den vorherigen Prisma-Client und stellen ihn in `afterAll` wieder her
+(sonst erbt eine spätere Datei im selben Worker die geschlossene Temp-DB).
+
+### Etappe 2 — Medienrechte + sichere Upload-Verarbeitung (fertig, gepusht)
 Geändert:
 - `prisma/schema.prisma` + Migration `20261005211743_add_media_derived_from_and_process_status`:
   `MediaAsset.derivedFromAssetIds` (JSON-Array, §7.5) + `MediaAsset.processStatus` (Default "READY", §7.7).

@@ -24,6 +24,7 @@ import path from 'path';
 import crypto from 'crypto';
 import fs from 'fs/promises';
 import sharp from 'sharp';
+import { z } from 'zod';
 import { prisma } from '../persistence/prisma.js';
 import { verifySession } from '../auth/session.js';
 import { logger } from '../observability/logger.js';
@@ -209,6 +210,126 @@ mediaRouter.post('/', upload.single('file'), async (req, res) => {
     removeUploaded();
     logger.error('Failed to upload media', { error });
     return res.status(500).json({ success: false, error: { code: 'INTERNAL_ERROR', message: 'Upload fehlgeschlagen.' } });
+  }
+});
+
+// ------------------------------------------------------------
+// POST /api/v1/media/composite — Fusion-Spielbild erzeugen (PR11, §15.3)
+//
+// Zwei vom Host selbst hochgeladene Originale → ein reproduzierbares,
+// EINMAL persistiertes Composite (ROOM_TEMP, roomId, derivedFrom).
+// Idempotent: gleiche Quellen + Algorithmus → gleiche Asset-ID, keine
+// Duplikate bei Wiederholungsaufruf.
+// ------------------------------------------------------------
+
+mediaRouter.post('/composite', async (req, res) => {
+  try {
+    const sessionId = verifySession(req, config.sessionSecret);
+    if (!sessionId) {
+      return res.status(401).json({ success: false, error: { code: 'NOT_AUTHENTICATED', message: 'Anmeldung erforderlich.' } });
+    }
+    const session = await prisma.session.findUnique({ where: { id: sessionId } });
+    if (!session || session.revokedAt || session.expiresAt < new Date()) {
+      return res.status(401).json({ success: false, error: { code: 'SESSION_EXPIRED', message: 'Sitzung abgelaufen.' } });
+    }
+
+    const body = z.object({
+      personAImageAssetId: z.string().uuid(),
+      personBImageAssetId: z.string().uuid(),
+      roundId: z.string().min(1).max(100),
+      roomId: z.string().min(1).max(100).optional(),
+    });
+    const parsed = body.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ success: false, error: { code: 'VALIDATION', message: 'Ungültige Parameter.' } });
+    }
+    const { personAImageAssetId, personBImageAssetId, roundId, roomId } = parsed.data;
+    if (personAImageAssetId === personBImageAssetId) {
+      return res.status(400).json({ success: false, error: { code: 'VALIDATION', message: 'Beide Bilder müssen unterschiedlich sein.' } });
+    }
+    // Ein Raum wird nur für ROOM_TEMP gesetzt, wenn der aufrufende Host den
+    // Raum besitzt (sonst bleibt roomId leer — kein fremdes Raum-Asset).
+    let effectiveRoomId: string | null = null;
+    if (roomId) {
+      const room = await prisma.room.findUnique({ where: { id: roomId }, select: { id: true, hostUserId: true } });
+      if (!room || room.hostUserId !== session.userId) {
+        return res.status(400).json({ success: false, error: { code: 'VALIDATION', message: 'Raum gehört dir nicht.' } });
+      }
+      effectiveRoomId = room.id;
+    }
+
+    const { createGameImage } = await import('../games/weristdas/composite.js');
+    const result = await createGameImage({
+      personAImageAssetId,
+      personBImageAssetId,
+      hostUserId: session.userId,
+      roomId: effectiveRoomId ?? `tmp-${session.userId}`,
+      roundId,
+    });
+    return res.status(201).json({
+      success: true,
+      data: {
+        gameImageAssetId: result.gameImageAssetId,
+        width: result.width,
+        height: result.height,
+        gameImageUrl: buildSignedMediaUrl({ assetId: result.gameImageAssetId, audience: 'game' }),
+      },
+    });
+  } catch (error) {
+    const message = (error as Error).message;
+    const publicErrors = ['ASSET_NOT_FOUND', 'ASSET_NOT_IMAGE', 'ASSET_NOT_READY', 'ASSET_NOT_OWNED', 'ASSET_FILE_MISSING', 'SOURCES_MUST_DIFFER', 'COMPOSITE_FAILED'];
+    const code = publicErrors.includes(message) ? message : 'INTERNAL_ERROR';
+    const friendly = {
+      ASSET_NOT_FOUND: 'Ein Bild wurde nicht gefunden.',
+      ASSET_NOT_IMAGE: 'Ein gewähltes Asset ist kein Bild.',
+      ASSET_NOT_READY: 'Ein Bild ist noch nicht verarbeitet.',
+      ASSET_NOT_OWNED: 'Ein Bild gehört dir nicht.',
+      ASSET_FILE_MISSING: 'Eine Bilddatei fehlt.',
+      SOURCES_MUST_DIFFER: 'Beide Bilder müssen unterschiedlich sein.',
+      COMPOSITE_FAILED: 'Das Spielbild konnte nicht erzeugt werden.',
+      INTERNAL_ERROR: 'Fehler bei der Erstellung des Spielbilds.',
+    }[code];
+    if (code === 'INTERNAL_ERROR') logger.error('Composite failed', { error });
+    const status = code === 'ASSET_NOT_FOUND' || code === 'ASSET_FILE_MISSING' ? 404
+      : code === 'INTERNAL_ERROR' ? 500 : 400;
+    return res.status(status).json({ success: false, error: { code, message: friendly } });
+  }
+});
+
+// ------------------------------------------------------------
+// GET /api/v1/media/host/:id — Original-Assets für den Host-Kontext
+// (Reveal-Vorschau, Setup-Korrektur). Zusätzlich zur Signed-URL mit
+// audience "host" ist eine gültige Session + (uploader ODER Raum-Host)
+// erforderlich. Spieler-/Zuschauer-Projektionen nutzen diese Route nie.
+// ------------------------------------------------------------
+
+mediaRouter.get('/host/:id', async (req, res) => {
+  try {
+    const asset = await prisma.mediaAsset.findUnique({ where: { id: req.params.id } });
+    if (!asset || asset.visibility === 'PUBLIC' || asset.visibility === 'SYSTEM') {
+      return res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: 'Medium nicht gefunden.' } });
+    }
+    const sessionId = verifySession(req, config.sessionSecret);
+    const session = sessionId ? await prisma.session.findUnique({ where: { id: sessionId } }) : null;
+    const allowed = Boolean(session && (
+      asset.uploadedBy === session.userId
+      || (asset.roomId ? await isRoomHost(asset.roomId, session.userId) : false)
+    ));
+    if (!allowed) {
+      return res.status(403).json({ success: false, error: { code: 'FORBIDDEN', message: 'Zugriff nicht erlaubt.' } });
+    }
+    try {
+      await fs.access(asset.storagePath);
+    } catch {
+      return res.status(404).json({ success: false, error: { code: 'FILE_MISSING', message: 'Datei nicht gefunden.' } });
+    }
+    res.setHeader('Content-Type', asset.mimeType);
+    res.setHeader('Content-Disposition', 'inline; filename="media"');
+    res.setHeader('Cache-Control', 'no-store');
+    res.sendFile(path.resolve(asset.storagePath));
+  } catch (error) {
+    logger.error('Failed to get host media', { error });
+    res.status(500).json({ success: false, error: { code: 'INTERNAL_ERROR', message: 'Medium konnte nicht geladen werden.' } });
   }
 });
 

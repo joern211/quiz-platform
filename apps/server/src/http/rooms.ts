@@ -450,6 +450,7 @@ roomsRouter.post('/:code/join', joinLimiter, async (req, res) => {
     const roomCode = req.params.code as string;
     const room = await prisma.room.findUnique({
       where: { code: normalizeRoomCode(roomCode) },
+      include: { gameDefinition: { select: { slug: true } } },
     });
 
     if (!room) {
@@ -464,6 +465,30 @@ roomsRouter.post('/:code/join', joinLimiter, async (req, res) => {
         success: false,
         error: { code: 'ROOM_NOT_JOINABLE', message: 'Raum ist nicht mehr beitretbar.' },
       });
+    }
+
+    // Wer ist das? (BETA): Der Raum-Host hat die Originale + Namen selbst
+    // eingegeben und damit Wissensvorteil (Arbeitsauftrag §2C, Regelwerk §2:
+    // administrierende Rolle ≠ Informationsrecht). Client-seites Verstecken
+    // löst diesen Vorteil NICHT — daher wird das Mitspielen des Host-Kontos
+    // in der eigenen wer-ist-das-Runde serverseitig verhindert.
+    // Anonyme Spieler (ohne Login) sind davon nicht betroffen; das ist der
+    // vorgesehene faire Modus.
+    if (room.gameDefinition.slug === 'wer-ist-das') {
+      const joiningSessionId = verifySession(req, config.sessionSecret);
+      if (joiningSessionId && room.hostUserId) {
+        const joiningSession = await prisma.session.findUnique({ where: { id: joiningSessionId } });
+        if (joiningSession && !joiningSession.revokedAt && joiningSession.expiresAt > new Date()
+            && joiningSession.userId === room.hostUserId) {
+          return res.status(403).json({
+            success: false,
+            error: {
+              code: 'HOST_CANNOT_PLAY_OWN_ROUND',
+              message: 'Wer die Bilder und Namen eingegeben hat, kann in dieser Runde nicht blind mitraten.',
+            },
+          });
+        }
+      }
     }
 
     // Check PIN - verify with argon2
