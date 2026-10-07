@@ -1,0 +1,138 @@
+# Jeopardy (`jeopardy`) — Spezifikation
+
+**Status main:** AVAILABLE (MVP, `games/jeopardy/`). **Ziel-PR:** PR37
+(Vollständige V1-Verträge). **Keine neue Engine.**
+
+## 1. Kurzbeschreibung & Regelquellen
+
+Klassisches Jeopardy-Board: 2 Boards à 6 Kategorien, verbale Antworten,
+Host-Judge, Steals, Buzzer, Punkte über ScoreEvents, Rejoin/Resync,
+Secret/Projection-Regeln.
+
+- FEST: Master §15.2 (Spielcharakter + zentrale Cores).
+- FEST: §5 (Game Core), §6 (Content), §13 (DoD).
+- BESTEHEND: Board-Struktur, Phasen `SELECTING → BUZZ_OPEN → BUZZ_LOCKED →
+  FIELD_DONE / STEAL_OPEN → STEAL_LOCKED → … → BOARD_COMPLETE`,
+  atomarer Buzzer (CAS), Steal-Ausschluss, ScoreEvents.
+
+## 2. Feste Regeln (Master + bestehender MVP)
+
+- Verbale Antworten, Host bewertet (JUDGE_ANSWER).
+- Steals: nach falscher Antwort dürfen andere antworten; Steal-Winner
+  scheidet für Folge-Steals aus (`excludedPlayerId`, bestehend).
+- Buzzer: erster gültiger Servereingang (SERVER_ARRIVAL), falsche Antwort
+  → optional Runden-Ausschluss (Buzzer-Core `excludedPlayerIds`, bestehend).
+- Punkte über ScoreEvent-Ledger (`recordScoreMutation`, bestehend).
+- Geheimhaltung: Frage/Lösung nur im `BUZZ_LOCKED`/Judge-Kontext an den
+  Buzzer-Winner + Host; Viewer/andere Player sehen Feld + Kategorie,
+  keine Lösung (E2E J9 grün).
+
+## 3. Spieler/Teams/Rollen
+
+| Aspekt | Wert | Status |
+|---|---|---|
+| min/max | 2 / 10 (Manifest) | FEST |
+| Teams | heute false; Team-Buzzer über Buzzer-Core (PR15) möglich | O |
+| Host-Mitspiel | erlaubt; Host-Judge bleibt getrennt — als Player sieht Host keine Lösung vor dem eigenen Buzzer, da Lösung erst im Judge-Kontext an Winner+Host geht (Gleichzeitigkeit: Host sieht Lösung als Judge, wenn er selbst buzzt → **Einschränkung dokumentieren**: Host-Judge und Host-Player sind in derselben Sitzung; VORSCHLAG DEC-JEO-01: Host darf mitbuzzen, Lösung wird ihm als Judge sofort sichtbar — akzeptabler Vorteil? Alternative: Host wird in der Runde automatisch aus dem Buzzer-Pool ausgeschlossen) | OFFEN |
+| Secrets | Frage+Lösung `PLAYER_PRIVATE` (nur Winner) + `HOST_PRIVATE` (Judge) bis Feld abgeschlossen | FEST §5.15 |
+
+## 4. Setup (Ziel)
+
+```
+JeopardySetup {
+  pools: ContentPoolRef[]            // Kategorien als Pools/Tags
+  boards: 1|2 (default 2, bestehend)
+  categoriesPerBoard: 6 (bestehend)
+  questionCount: boards * 6
+  perField: {timerMs (default 20000 — bestehend), pointValues: [200,400,600,800,1000,2000] (bestehend)}
+  stealAllowed: true (bestehend)
+  falseBuzzPenalty: none (bestehend: Steal-Ausschluss)
+  buzzerLockoutMs: 1000 (bestehend, config)
+  repeatRule / difficultyProgression: wie Wissensduell (PR17)
+  hostContentVisibility: HOST_PREVIEW|BLIND_HOST
+}
+```
+
+- Quick Defaults: 2 Boards, je 6 Kategorien aus erstem READY-Pool,
+  Standard-Werte, Steals an.
+- Preflight: genügend Fragen pro Kategorie/Wert (sonst WARNINGS).
+
+## 5. Content-/Editor-Schema
+
+- Item = `JeopardyQuestion`: prompt (Feldtext), answer (verbal, Lösung),
+  category (Tag), pointValue, explanation?, mediaAssetId?.
+- READY: prompt + answer nicht leer, Kategorie vorhanden, Wert im Raster.
+- Editor Quick: Feld, Antwort, Kategorie, Wert. Advanced: Erklärung, Media,
+  Synonyme für Judge-Hilfe (VORSCHLAG).
+- SYSTEM-Quick-Template „Jeopardy 2×6".
+
+## 6. Phasen/Commands (bestehend, vereinheitlicht)
+
+```
+SELECTING → BUZZ_OPEN → BUZZ_LOCKED → FIELD_DONE | (WRONG) STEAL_OPEN → STEAL_LOCKED → … → BOARD_COMPLETE → … → GAME_END → RESULT_REVIEW → FINALIZED
+```
+
+| Command | Rolle | Phase |
+|---|---|---|
+| `field.select` | PLAYER (im SELECTING) | SELECTING |
+| `buzz` / `steal.buzz` | PLAYER | BUZZ_OPEN / STEAL_OPEN |
+| `judge.decide` (CORRECT\|WRONG\|CANCELLED + reason?) | HOST (JUDGE_ANSWER) | BUZZ_LOCKED / STEAL_LOCKED |
+| `timer.*` | HOST | während Feld |
+| `board.next` / `game.start` / `pause`/`resume` / `emergency.*` | HOST | — |
+
+- **Ablaufbeispiel:** Feld „Geografie 400" → Player A buzzt → Host zeigt
+  Frage nur A + sich → A falsch → STEAL_OPEN → Player B buzzt → korrekt
+  → +400 B, (Steal) A unverändert.
+
+## 7. Wertung & Endgründe
+
+- Korrekt: +Feldwert; falsch (Steal verloren): −Feldwert (bestehend).
+  Ledger-Events: `ANSWER_CORRECT`, `ANSWER_WRONG`.
+- Ties: möglich → Leaderboard zeigt Gleichstand (Tie-Core `ALLOW_TIE` Default,
+  Endplatzierung mit geteiltem Platz — VORSCHLAG DEC-JEO-02).
+- Endgründe: `COMPLETED` (alle Felder), `HOST_ABORTED`, `TECHNICAL_ABORT`,
+  `INSUFFICIENT_PLAYERS`, `RULE_TRIGGERED_END` (negativer Gesamtpunkt-
+  Limit? — OFFEN, nicht im Master; **kein** Default).
+
+## 8. Projektionen & Secrets
+
+- PLAYER: Board, gewählte Felder, eigene Punkte, Timer; Frage/Lösung
+  **nur** Winner (bzw. Steal-Winner) + Host.
+- HOST: Judge-Ansicht (Frage/Lösung bei Locked), Scoreboard, Steuerung.
+- VIEWER: Board, Werte, „Feld offen/besetzt", Scoreboard; keine Lösung.
+- DISPLAY: große Board-Ansicht (PR20).
+- Preloading: nächste Feldtexte nie (leak-safe).
+
+## 9. Rejoin/Pause/Host-Ausfall/Recovery
+
+- Rejoin/Resync: bestehend (E2E J7); Buzzer-Reihenfolge wird nicht
+  verändert; offene Steals werden rekonstruiert.
+- Pause: Buzzer gesperrt, Timer stoppt (Game-Core).
+- Host-Ausfall: Spiel **pausiert** (Judge nötig) — nach Frist Host-Transfer;
+  alternative Auto-Felder ohne Judge sind nicht vorgesehen (VORSCHLAG
+  DEC-JEO-03: kein Auto-Judge).
+- Recovery: State-CAS + Persistenz (bestehend); Buzzer/Score nie doppelt
+  (commandId-Dedup, PR13/41).
+
+## 10. Results/Stats/Events/Versionierung
+
+- RoundResult = pro Feld (Frage-Ref, Winner, Punkte, Dauer, Steal-Flag).
+- GameResult: Platzierungen, Endpunkte, Endgrund.
+- Stats: games, wins, avg buzzer time, won buzzes, false buzzes (§9.12),
+  Content-Usage.
+- Engine-Version: `1` → `2` in PR37.
+
+## 11. Tests & DoD
+
+- Bestehend: E2E J1–J10 (inkl. J8 Judge-Rechte, J9 Geheimhaltung),
+  State-/Contract-Tests (373/389 Zeilen), Socket-Flow-Integration (513 Zeilen).
+- Neu (PR37): 10 Pflichttests vervollständigen, Duplicate-Command,
+  Secret-Leak-Suite, Display-Projektion, FINALIZED-Integration.
+
+## 12. Offene Punkte
+
+| ID | Frage | Vorschlag |
+|---|---|---|
+| DEC-JEO-01 | Host-Mitspiel bei Judge-Rolle (Info-Vorteil durch sofortige Lösungsansicht)? | Host wird in eigenen Runden aus Buzzer-Pool ausgeschlossen (engine-/phasenbezogene Einschränkung, kein Rollenmodell-Bruch) |
+| DEC-JEO-02 | End-Tie: geteilte Plätze oder Tie-Breaker-Feld? | `ALLOW_TIE` + geteilte Plätze (kein Zufalls-Tiebreaker) |
+| DEC-JEO-03 | Auto-Judge bei Host-Ausfall? | nein — Pause + Transfer |
