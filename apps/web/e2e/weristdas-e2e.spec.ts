@@ -16,7 +16,11 @@ async function join(page: Page, code: string, name: string) {
   await expect(page.getByRole('button', { name: 'Nicht mehr bereit' })).toBeVisible();
 }
 
-test('W1-W10: setup, image, private solution, buzzer, scores, reconnect, viewer and results', async ({ browser }) => {
+// Langer E2E-Flow (2 echte Uploads + 2 echte Composites + 4 Browser-Kontexte +
+// Buzzer/Hinweis/Reveal/Reload). Die kalte Erstausführung (Vite-Cold-Compile +
+// sharp-Nativ-Warmup) braucht deutlich länger als die globale 30 s-Grenze,
+// daher ein eigenes, großzügiges Timeout pro Test.
+test('W1-W10: setup, image, private solution, buzzer, scores, reconnect, viewer and results', { timeout: 90_000 }, async ({ browser }) => {
   const contexts = await Promise.all(Array.from({ length: 4 }, () => browser.newContext()));
   const [moderator, alice, bob, viewer] = await Promise.all(contexts.map(context => context.newPage()));
   const secret = 'E2E_PERSON_ONLY_MODERATOR';
@@ -33,17 +37,31 @@ test('W1-W10: setup, image, private solution, buzzer, scores, reconnect, viewer 
     await expect(moderator).toHaveURL(`${BASE}/moderator/vorbereitung/wer-ist-das`);
     await expect(moderator.getByRole('heading', { name: 'Wer ist das? einrichten' })).toBeVisible();
     await moderator.getByRole('button', { name: 'Runde hinzufügen' }).click();
+    // v2-Setup: pro Runde zwei Originale (Bild A/B), dann ein fusioniertes Spielbild.
+    // Das erste Bild trägt den Solution-Namen als Dateiname → prüft, dass der
+    // Filename/OriginalName nie in HTTP-Headern des ausgelieferten Spielbilds steht.
+    const imageNames = [`${secret}.png`, 'bild-b0.png', 'bild-a1.png', 'bild-b1.png'];
     for (let index = 0; index < 2; index++) {
-      await moderator.locator('input[type="file"]').nth(index).setInputFiles({
-        name: index === 0 ? `${secret}.png` : `image-${index}.png`,
-        mimeType: 'image/png', buffer: Buffer.from(images[index], 'base64'),
+      await moderator.locator('input[type="file"]').nth(index * 2).setInputFiles({
+        name: imageNames[index * 2], mimeType: 'image/png',
+        buffer: Buffer.from(images[index % images.length], 'base64'),
       });
-      await expect(moderator.getByText(`Hochgeladen: ${index === 0 ? secret : `image-${index}`}.png`)).toBeVisible();
+      await moderator.locator('input[type="file"]').nth(index * 2 + 1).setInputFiles({
+        name: imageNames[index * 2 + 1], mimeType: 'image/png',
+        buffer: Buffer.from(images[(index + 1) % images.length], 'base64'),
+      });
+      await expect(moderator.getByText(`Bild A: ${imageNames[index * 2]}`)).toBeVisible();
+      await expect(moderator.getByText(`Bild B: ${imageNames[index * 2 + 1]}`)).toBeVisible();
     }
-    await moderator.getByLabel('Person 1').nth(0).fill(secret);
-    await moderator.getByLabel('Person 2').nth(0).fill('Andere Person');
-    await moderator.getByLabel('Person 1').nth(1).fill('Dritte Person');
-    await moderator.getByLabel('Person 2').nth(1).fill('Vierte Person');
+    await moderator.getByLabel('Name A').nth(0).fill(secret);
+    await moderator.getByLabel('Name B').nth(0).fill('Andere Person');
+    await moderator.getByLabel('Name A').nth(1).fill('Dritte Person');
+    await moderator.getByLabel('Name B').nth(1).fill('Vierte Person');
+    // Spielbild pro Runde erzeugen → je eine Vorschau erscheint.
+    for (let index = 0; index < 2; index++) {
+      await moderator.getByRole('button', { name: 'Spielbild aus beiden Bildern erzeugen' }).first().click();
+      await expect(moderator.getByRole('img', { name: 'Vorschau des Spielbilds' })).toHaveCount(index + 1);
+    }
     await moderator.getByRole('button', { name: 'Raum erstellen' }).click();
     await moderator.waitForURL(/\/moderator\/raum\/\d{3}-\d{3}\/lobby$/);
     const code = moderator.url().match(/(\d{3}-\d{3})\/lobby$/)?.[1];

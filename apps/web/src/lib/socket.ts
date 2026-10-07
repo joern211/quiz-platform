@@ -13,6 +13,10 @@ export interface WerIstDasView {
   roundCount: number;
   roundId: string;
   imageAssetId: string;
+  /** Signed URL des freigegebenen Spielbilds (PR11; fehlt in v1-Legacy-States). */
+  gameImageUrl?: string;
+  /** NUR Host: Signed-URLs der beiden Originale (Reveal-Vorschau). */
+  hostImageUrls?: string[];
   scores: Record<string, number>;
   playerNames: Record<string, string>;
   buzzerOpen: boolean;

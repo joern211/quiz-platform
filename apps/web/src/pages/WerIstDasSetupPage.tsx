@@ -3,8 +3,33 @@ import { useNavigate } from 'react-router-dom';
 import { GAME_SLUGS } from '@quiz/shared';
 import styles from './WerIstDasSetupPage.module.css';
 
-interface RoundDraft { id: string; imageAssetId: string; person1: string; person2: string; fileName?: string }
-const newRound = (): RoundDraft => ({ id: crypto.randomUUID(), imageAssetId: '', person1: '', person2: '' });
+interface RoundDraft {
+  id: string;
+  personAImageAssetId: string;
+  personBImageAssetId: string;
+  gameImageAssetId: string;
+  gameImageUrl: string;
+  personAName: string;
+  personBName: string;
+  fileNameA?: string;
+  fileNameB?: string;
+  statusA: 'idle' | 'uploading' | 'done' | 'error';
+  statusB: 'idle' | 'uploading' | 'done' | 'error';
+  fusionStatus: 'idle' | 'generating' | 'ready' | 'error';
+}
+
+const newRound = (): RoundDraft => ({
+  id: crypto.randomUUID(),
+  personAImageAssetId: '',
+  personBImageAssetId: '',
+  gameImageAssetId: '',
+  gameImageUrl: '',
+  personAName: '',
+  personBName: '',
+  statusA: 'idle',
+  statusB: 'idle',
+  fusionStatus: 'idle',
+});
 
 export function WerIstDasSetupPage() {
   const navigate = useNavigate();
@@ -13,37 +38,103 @@ export function WerIstDasSetupPage() {
   const [pin, setPin] = useState('');
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
-  const update = (index: number, patch: Partial<RoundDraft>) => setRounds(previous =>
-    previous.map((round, i) => i === index ? { ...round, ...patch } : round));
 
-  async function upload(index: number, file?: File) {
+  const update = (index: number, patch: Partial<RoundDraft>) =>
+    setRounds(previous => previous.map((round, i) => (i === index ? { ...round, ...patch } : round)));
+
+  async function upload(index: number, which: 'A' | 'B', file?: File) {
     if (!file) return;
     setError('');
+    update(index, which === 'A' ? { statusA: 'uploading' } : { statusB: 'uploading' });
     const body = new FormData();
     body.set('file', file);
     try {
       const response = await fetch('/api/v1/media', { method: 'POST', credentials: 'include', body });
       const result = await response.json();
-      if (!response.ok || !result.success || result.data?.type !== 'image') throw new Error(result.error?.message ?? 'Bild nicht akzeptiert');
-      update(index, { imageAssetId: result.data.id, fileName: file.name });
-    } catch (cause) { setError(cause instanceof Error ? cause.message : 'Upload fehlgeschlagen'); }
+      if (!response.ok || !result.success || result.data?.type !== 'image') {
+        throw new Error(result.error?.message ?? 'Das Bild konnte nicht verarbeitet werden.');
+      }
+      update(index, which === 'A'
+        ? { personAImageAssetId: result.data.id, fileNameA: file.name, statusA: 'done' }
+        : { personBImageAssetId: result.data.id, fileNameB: file.name, statusB: 'done' });
+      // Ersetzte Quelle → altes Fusion-Bild gilt für diese Runde nicht mehr.
+      update(index, { gameImageAssetId: '', gameImageUrl: '', fusionStatus: 'idle' });
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Upload fehlgeschlagen');
+      update(index, which === 'A' ? { statusA: 'error' } : { statusB: 'error' });
+    }
+  }
+
+  async function createFusion(index: number) {
+    const round = rounds[index];
+    if (!round.personAImageAssetId || !round.personBImageAssetId) return;
+    setError('');
+    update(index, { fusionStatus: 'generating' });
+    try {
+      const response = await fetch('/api/v1/media/composite', {
+        method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          personAImageAssetId: round.personAImageAssetId,
+          personBImageAssetId: round.personBImageAssetId,
+          roundId: round.id,
+        }),
+      });
+      const result = await response.json();
+      if (!response.ok || !result.success) {
+        throw new Error(result.error?.message ?? 'Das Spielbild konnte nicht erzeugt werden.');
+      }
+      update(index, {
+        gameImageAssetId: result.data.gameImageAssetId,
+        gameImageUrl: result.data.gameImageUrl,
+        fusionStatus: 'ready',
+      });
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Fusion fehlgeschlagen');
+      update(index, { fusionStatus: 'error' });
+    }
+  }
+
+  function validate(): string | null {
+    if (rounds.length === 0) return 'Bitte mindestens eine Runde anlegen.';
+    for (const [i, round] of rounds.entries()) {
+      if (!round.personAImageAssetId || !round.personBImageAssetId) {
+        return `Runde ${i + 1}: Bitte beide Bilder auswählen.`;
+      }
+      if (!round.personAName.trim() || !round.personBName.trim()) {
+        return `Runde ${i + 1}: Bitte beide Namen eingeben.`;
+      }
+      if (!round.gameImageAssetId) {
+        return `Runde ${i + 1}: Bitte zuerst das Spielbild aus beiden Bildern erzeugen.`;
+      }
+    }
+    return null;
   }
 
   async function create() {
-    if (rounds.some(round => !round.imageAssetId || !round.person1.trim() || !round.person2.trim())) {
-      setError('Bitte für jede Runde ein Bild und beide Personen angeben.'); return;
-    }
+    const problem = validate();
+    if (problem) { setError(problem); return; }
     setBusy(true); setError('');
     try {
       const response = await fetch('/api/v1/rooms', {
         method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ gameSlug: GAME_SLUGS.werIstDas, roomName, pin: pin || undefined,
+        body: JSON.stringify({
+          gameSlug: GAME_SLUGS.werIstDas, roomName, pin: pin || undefined,
           maxPlayers: 10, allowViewers: true, viewerRequiresPin: false,
-          setupSnapshotJson: { rounds: rounds.map(({ id, imageAssetId, person1, person2 }) =>
-            ({ id, imageAssetId, person1: person1.trim(), person2: person2.trim() })) } }),
+          setupSnapshotJson: {
+            setupVersion: 2,
+            rounds: rounds.map(round => ({
+              id: round.id,
+              personAImageAssetId: round.personAImageAssetId,
+              personBImageAssetId: round.personBImageAssetId,
+              gameImageAssetId: round.gameImageAssetId,
+              personAName: round.personAName.trim(),
+              personBName: round.personBName.trim(),
+            })),
+          },
+        }),
       });
       const result = await response.json();
-      if (!response.ok || !result.success) throw new Error(result.error?.message ?? 'Raum konnte nicht erstellt werden');
+      if (!response.ok || !result.success) throw new Error(result.error?.message ?? 'Raum konnte nicht erstellt werden.');
       navigate(`/moderator/raum/${result.data.code}/lobby`);
     } catch (cause) { setError(cause instanceof Error ? cause.message : 'Verbindungsfehler'); }
     finally { setBusy(false); }
@@ -51,19 +142,43 @@ export function WerIstDasSetupPage() {
 
   return <div className={styles.page}>
     <h1>Wer ist das? einrichten</h1>
-    <p>Für jede Runde ein vorbereitetes Bild und die beiden gesuchten Personen hochladen.</p>
+    <p>Für jede Runde zwei Bilder und zwei Namen angeben. Aus den beiden Bildern wird ein
+      fusioniertes Spielbild erzeugt — dieses sehen die Spieler, die Originale und Namen
+      bleiben bis zur Auflösung geheim.</p>
     <label>Raumname <input value={roomName} onChange={event => setRoomName(event.target.value)} /></label>
     <label>Spieler-PIN (optional) <input value={pin} onChange={event => setPin(event.target.value)} /></label>
     {rounds.map((round, index) => <fieldset key={round.id} className={styles.round}>
       <legend>Runde {index + 1}</legend>
-      <label>Bild <input type="file" accept="image/jpeg,image/png,image/webp" onChange={event => void upload(index, event.target.files?.[0])} /></label>
-      {round.fileName && <p>Hochgeladen: {round.fileName}</p>}
-      <label>Person 1 <input value={round.person1} onChange={event => update(index, { person1: event.target.value })} /></label>
-      <label>Person 2 <input value={round.person2} onChange={event => update(index, { person2: event.target.value })} /></label>
+      <div className={styles.imagePair}>
+        <label>Bild A <input type="file" accept="image/jpeg,image/png,image/webp"
+          onChange={event => void upload(index, 'A', event.target.files?.[0])} /></label>
+        {round.fileNameA && <p className={round.statusA === 'error' ? styles.errorText : styles.okText}>
+          {round.statusA === 'uploading' ? 'Bild A wird verarbeitet …' : `Bild A: ${round.fileNameA}`}</p>}
+        <label>Bild B <input type="file" accept="image/jpeg,image/png,image/webp"
+          onChange={event => void upload(index, 'B', event.target.files?.[0])} /></label>
+        {round.fileNameB && <p className={round.statusB === 'error' ? styles.errorText : styles.okText}>
+          {round.statusB === 'uploading' ? 'Bild B wird verarbeitet …' : `Bild B: ${round.fileNameB}`}</p>}
+      </div>
+      <div className={styles.namePair}>
+        <label>Name A <input value={round.personAName} onChange={event => update(index, { personAName: event.target.value })} /></label>
+        <label>Name B <input value={round.personBName} onChange={event => update(index, { personBName: event.target.value })} /></label>
+      </div>
+      {round.personAImageAssetId && round.personBImageAssetId &&
+        <button type="button" disabled={round.fusionStatus === 'generating'}
+          onClick={() => void createFusion(index)}>
+          {round.fusionStatus === 'ready' ? 'Spielbild neu erzeugen'
+            : round.fusionStatus === 'generating' ? 'Spielbild wird erzeugt …'
+            : 'Spielbild aus beiden Bildern erzeugen'}
+        </button>}
+      {round.fusionStatus === 'ready' && round.gameImageUrl &&
+        <p className={styles.okText}>
+          <img className={styles.preview} src={round.gameImageUrl} alt="Vorschau des Spielbilds" />
+          Das ist das Spielbild, das die Spieler in dieser Runde sehen.
+        </p>}
       {rounds.length > 1 && <button type="button" onClick={() => setRounds(previous => previous.filter((_, i) => i !== index))}>Runde entfernen</button>}
     </fieldset>)}
     {rounds.length < 50 && <button type="button" onClick={() => setRounds(previous => [...previous, newRound()])}>Runde hinzufügen</button>}
-    {error && <p role="alert">{error}</p>}
+    {error && <p role="alert" className={styles.errorText}>{error}</p>}
     <button type="button" disabled={busy} onClick={() => void create()}>{busy ? 'Erstelle Raum …' : 'Raum erstellen'}</button>
   </div>;
 }

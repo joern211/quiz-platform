@@ -1,6 +1,8 @@
 .layout { display: grid; grid-template-columns: minmax(0, 2fr) minmax(12rem, 1fr); gap: 1.5rem; width: 100%; }
 .main { min-width: 0; }
 .image { display: block; width: 100%; max-height: 65vh; object-fit: contain; border-radius: 1rem; background: #172035; }
+.originals { margin-top: 1rem; padding: 1rem; border-radius: 1rem; background: var(--color-surface, #252b38); }
+.originals img { max-width: 11rem; max-height: 11rem; border-radius: .5rem; margin: .3rem; vertical-align: middle; }
 .scores, .solution, .controls { padding: 1rem; border-radius: 1rem; background: var(--color-surface, #252b38); margin-top: 1rem; }
 .hint, .turn { font-weight: 700; padding: 1rem; border-radius: .6rem; background: #544118; color: white; }
 .controls, .judges { display: flex; flex-wrap: wrap; align-items: center; gap: .75rem; }

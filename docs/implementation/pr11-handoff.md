@@ -8,17 +8,18 @@
 
 - **Basis-Commit:** `411a5b783e5857bca5b208598fade43affc108b5` (PR #10, verifiziert = origin/main)
 - **Branch:** `feature/wer-ist-das-fusion-media`
-- **Letzter Commit:** `1236d06` (Etappe 2) gepusht + **Etappe 3 (uncommittiert im Arbeitsbaum, Tests grün, wartet auf Commit/Push)**
-- **Etappe:** 3/5 (Composite/Modell) — Implementierung + Tests fertig, Commit/Push folgt
+- **Letzter Commit:** Etappe 3 `1470894` gepusht + **Etappe 4 fertig im Arbeitsbaum (dieser Eintrag), Commit/Push folgt**
+- **Etappe:** 4/5 (Setup-UI/Engine/Recovery) — Implementierung + E2E verifiziert
 - **PR:** **Draft-PR #11** → https://github.com/joern211/quiz-platform/pull/11 (Basis main)
-- **Tests:** Komplette Server-Suite **228/228 grün** (CI-Reihenfolge: prisma generate → migrate deploy →
-  typecheck → lint → build → `pnpm --filter @quiz/server test`), inkl. neuer
-  `composite.test.ts` (5) + `fusion.integration.test.ts` (4) + bestehende
-  `socket-flow` v1-Regression (3) + `media.integration` (14) + `catalog-consistency` (26) +
-  `seed-partial-db` (2). Typecheck 0 Fehler, Lint 0 Errors (97 pre-existing Warnings).
-- **Nächster Schritt:** Etappe 3 committen + pushen, dann Etappe 4: `WerIstDasSetupPage`
-  (2 Bilder + Namen + Fusion-Trigger + Vorschau), `WerIstDasGamePage` auf `gameImageUrl`
-  (Signed URL) umstellen, Web-Typecheck/Test, E2E-Update.
+- **Tests:** Server-Suite **228/228 grün** (HIER verifiziert, 2026-10-07, `pnpm --filter @quiz/server test`-Pendant:
+  frische DB via `test-database.ts` + Seed, alle 26 Dateien). Web-Unit **52/52 grün**. Web-Typecheck ✅,
+  Build ✅, Lint 0 errors (97 pre-existing warnings). **E2E: Vollsuite 17/18 first-pass + W1-W10 retry-grün
+  (flaky: 30s-Cold-Timeout); Fix = `{ timeout: 90_000 }` pro Test → W1-W10 dann FIRST-PASS grünstehend
+  (16,5 s, kalte DB, CI=true, Chromium)** — v2-Setup (2 Bilder, Fusion-Button, Vorschau), privater
+  Lösungsschutz (secret in keinem Player/Viewer/Header), Image-laden über Signed `gameImageUrl`,
+  Buzzer/Scores/Reload/Rejoin/Viewer/Ergebnis.
+- **Nächster Schritt:** Etappe 4 committen + pushen → PR-Beschreibung aktualisieren → CI am PR-Head
+  beobachten (GitHub) → Report.
 
 ---
 
