@@ -1,7 +1,7 @@
 # PR12 — Handoff: Regelwerk Mapping & V1-Spezifikation (19 Spiele)
 
 **Stand dieses Dokuments:** wird nach jeder Etappe aktualisiert.
-**Zuletzt aktualisiert:** Etappe A (Isolation + erster Checkpoint)
+**Zuletzt aktualisiert:** Etappe E (Konsistenzprüfung + Doku-Draft vollständig; Rest: Push/Draft-PR)
 
 ## Auftrag (Kurzform)
 
@@ -55,11 +55,11 @@ bzw. via `.git/info/exclude` lokal ignoriert — siehe Validierung).
 - [x] **B — Anforderungen + Iststand:** Vollständige Erfassung der Regelwerk-Unterpunkte (§1–§20);
       main-Iststand (Shared-Typen, Prisma, Cores, Registry, HTTP/Socket, Media, Tests, CI);
       PR11-Delta separat. → Detail-Befunde in `requirements-matrix.md` + unten.
-- [ ] **C — Zielverträge + Spieldetails:** ✅ requirements-matrix.md (280 MR-Zeilen);
-      verbleibend: technical-mapping.md, 19 Spielespezifikationen, decision-register.md.
-- [ ] **D — Abhängigkeiten:** dependencies-and-parallel-work.md.
-- [ ] **E — Konsistenz, Draft, Handoff:** README, verification.md, pr-body.md, Link-/ID-Prüfung,
-      Commit, Push, Draft-PR gegen main.
+- [x] **C — Zielverträge + Spieldetails:** ✅ requirements-matrix.md (275 MR-Zeilen),
+      technical-mapping.md, 19 Spielespezifikationen + index.md, decision-register.md.
+- [x] **D — Abhängigkeiten:** ✅ dependencies-and-parallel-work.md.
+- [x] **E — Konsistenz, Draft, Handoff:** ✅ Link-/ID-Prüfung (275/275 MR, 57/57 DEC),
+      README, verification.md, pr-body.md. **Rest: Push + Draft-PR (Auth-Check).**
 
 ## Erste Befunde (Etappe A/B, vorläufig — werden in der Matrix finalisiert)
 
@@ -151,7 +151,8 @@ konsistent mit „Nutzerergänzung, Slug-Vorschlag, separat zu spezifizieren".
 
 ## Etappe B abgeschlossen (Anforderungsmatrix)
 
-`docs/specs/pr12/requirements-matrix.md` geschrieben: **280 MR-/ADD-Zeilen**,
+`docs/specs/pr12/requirements-matrix.md` geschrieben: **275 MR-Zeilen** +
+5 ADD-DDF-Zeilen,
 deckend alle Unterabschnitte §1–§20 + DDF-Nutzerergänzung. Jede Zeile: ID,
 Quelle, Scope-Klasse (P/O/L/X), Entscheidungsstatus (F/N/V/O), Ist-Status
 (I/P/M/NV) mit konkreten Referenzen, PR11-Vergleich, Core/Rollen, Ziel-PR,
@@ -166,12 +167,21 @@ Round-Transition/Progress/Leaderboard/Result-Screen/Notification), Team-Core,
 
 ## Nächster Schritt
 
-Etappe C: `technical-mapping.md` (Fachbereiche, Zielmodelle, Migration,
-Recovery, Monitoring), danach 19 Spielespezifikationen + `games/index.md`,
-`decision-register.md`, `dependencies-and-parallel-work.md`.
+**Push + Draft-PR:** `git push origin docs/pr12-master-spec-preparation`
+und Draft-PR „Regelwerk Mapping und V1 Spezifikation für 19 Spiele
+vorbereiten" (Body: pr-body.md). Auth: `gh auth status` → not logged in;
+Push-Versuch mit Remote-Config, bei Block: Commit-SHA halten, lokalen
+Zustand gesichert melden. **Kein Merge, kein Ready-for-review.**
+Nach PR11-Merge: Abgleich (SHAs, PR11-Spalte, Links) je
+dependencies-and-parallel-work.md §7.
 
 ## Commit-Log (eigener Branch)
 
-| SHA | Inhalt |
-|---|---|
-| (1. Commit) | Etappe A: Handoff, Worktree-Basis |
+| SHA | Etappe | Inhalt |
+|---|---|---|
+| 30e983c | A | Worktree/Isolation, Handoff, Master-Extraktion nachweisen |
+| 4d231e7 | B | requirements-matrix.md (275 MR-Zeilen + 5 ADD-DDF) |
+| 7760b6e | C | technical-mapping.md (Zielmodell) |
+| 00d0b66 | C | 19 Spielespezifikationen + games/index.md |
+| fcfc48e | D | dependencies-and-parallel-work.md, decision-register.md (RUT-16..18) |
+| (final) | E | README, verification.md, pr-body.md, Handoff-Finalisierung |
