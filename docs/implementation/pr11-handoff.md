@@ -7,19 +7,59 @@
 ## Status-Übersicht (lebendig halten)
 
 - **Basis-Commit:** `411a5b783e5857bca5b208598fade43affc108b5` (PR #10, verifiziert = origin/main)
-- **Branch:** `feature/wer-ist-das-fusion-media`
-- **Letzter Commit:** Etappe 3 `1470894` gepusht + **Etappe 4 fertig im Arbeitsbaum (dieser Eintrag), Commit/Push folgt**
-- **Etappe:** 4/5 (Setup-UI/Engine/Recovery) — Implementierung + E2E verifiziert
+- **Branch:** `feature/wer-ist-das-fusion-media` (lokal = remote = `7d50381`, Arbeitsbaum sauber, 07.10. verifiziert)
+- **Letzter Commit:** `cd2ec0f` — **A erledigt** (Composite überlebt Wiederholungsaufruf, atomar, 232/232 grün)
+- **Etappe:** **Nacharbeit A–E** (Merge-Blocker aus Codex-Review) — in Arbeit
 - **PR:** **Draft-PR #11** → https://github.com/joern211/quiz-platform/pull/11 (Basis main)
-- **Tests:** Server-Suite **228/228 grün** (HIER verifiziert, 2026-10-07, `pnpm --filter @quiz/server test`-Pendant:
-  frische DB via `test-database.ts` + Seed, alle 26 Dateien). Web-Unit **52/52 grün**. Web-Typecheck ✅,
-  Build ✅, Lint 0 errors (97 pre-existing warnings). **E2E: Vollsuite 17/18 first-pass + W1-W10 retry-grün
-  (flaky: 30s-Cold-Timeout); Fix = `{ timeout: 90_000 }` pro Test → W1-W10 dann FIRST-PASS grünstehend
-  (16,5 s, kalte DB, CI=true, Chromium)** — v2-Setup (2 Bilder, Fusion-Button, Vorschau), privater
-  Lösungsschutz (secret in keinem Player/Viewer/Header), Image-laden über Signed `gameImageUrl`,
-  Buzzer/Scores/Reload/Rejoin/Viewer/Ergebnis.
-- **Nächster Schritt:** Etappe 4 committen + pushen → PR-Beschreibung aktualisieren → CI am PR-Head
-  beobachten (GitHub) → Report.
+
+### Nacharbeit: verifizierte Befunde (am Head `7d50381`, 07.10.)
+- **A (Composite-Datenverlust):** `composite.ts` schreibt `fusion-<round>-<digest>.webp` (deterministisch),
+  sucht dann per sha256 ein vorhandenes Asset und **löscht bei Treffer denselben Pfad** → zweiter Aufruf
+  (UI-Button „Spielbild neu erzeugen") kann die einzige persistierte Datei löschen. Verifiziert: Code +
+  Idempotenztest liest Datei nach Wiederholungsaufruf nicht erneut.
+- **B (Upload-Dedupe/500/Cleanup):** `sha256 @unique` global; bei gleichem Content eines ANDEREN Hosts
+  → Insert mit gleichem Hash → P2002 → 500; `catch` räumt nur `uploadedPath` auf, `outPath` bleibt liegen.
+  Verifiziert: `media.ts` L.178-213. Parallel-Race desselben Hosts zwischen Lookup und Insert gleich.
+- **C (Host-Routen):** `GET /media/host/:id` existiert OHNE Signed-URL-Prüfung (nur Session + Eigentum),
+  und dort wie im `host`-Pfad von `/:id` werden `revokedAt`/`expiresAt` der Session **nicht** geprüft.
+  `/media/host/:id` wird nirgends im Web/E2E genutzt (verifiziert via grep) → Kandidat für Entfernung.
+  `game`-Audience am Endpunkt: Signatur prüft nur assetId|audience|exp — es fehlt ein Endpunkt-Check,
+  dass das Asset tatsächlich ein als Spielbild freigegebenes Bild ist (z. B. Original mit game-Signatur).
+- **D (Versionen/Recovery):** Setup-UI schreibt `setupVersion: 2` (Runden-ebene), Schema liest
+  `setupSchemaVersion` (Top-Level, Default 1) → Felder inkonsistent; `rooms.ts` setzt
+  `Room.setupSchemaVersion` nie (Default 1). `engineVersion=2` wird gespeichert, aber in
+  `act()`/`resync()` nicht gelesen → keine geprüfte Kompatibilitätsentscheidung. Der „Recovery"-Test
+  (fusion.integration) nutzt denselben laufenden Server — kein Prozessneustart.
+- **E (Lebenszyklus):** UI erzeugt Composite VOR der Raumerstellung ohne roomId → API setzt
+  `roomId = tmp-<hostUserId>`; nach `POST /rooms` gibt es keine Re-Bindung an die echte Raum-ID.
+  Abbruch/Quelltausch hinterlässt verwaiste `ROOM_TEMP`-Assets mit Pseudo-RoomIds.
+
+### Nacharbeit: Plan & Datenstrategie-Entscheidungen
+- **A:** sha256-Lookup VOR dem Schreiben; bei Treffer: Datei niemals löschen, stattdessen (i) wiederverwenden
+  und (ii) bei fehlender Datei kontrolliert re-materialisieren (deterministische Bytes → bytegleich).
+  Schreiben nur bei Neu; bei P2002-Race: eigene (unterschiedliche) Datei löschen, fremde nie.
+- **B:** `sha256 @unique` → `@@unique([sha256, uploadedBy])` (additive Migration; Content-Identität ist
+  je Owner). Gleicher Host+Content → Dedupe (200); fremder Host+Content → eigenes Asset (201), kein 500,
+  kein Ownership-Leak. P2002-Race → kontrolliert auf bestehendes Asset desselben Owners auflösen.
+  Cleanup für `uploadedPath` UND `outPath` auf allen Pfade (fremde Dateien nie löschen).
+- **C:** `/media/host/:id` entfernen (unused); `host`-Pfad von `/:id`: Session auf `revokedAt`/`expiresAt`
+  prüfen. `game`-Audience am Endpunkt nur für Assets, die in einem Raumsnapshot als freigegebenes
+  Spielbild referenziert sind (`imageAssetId` v1 / `gameImageAssetId` v2) — verhindert, dass eine
+  game-Signatur versehentlich ein Original oder fremdes Rundenbild freigibt.
+- **D:** Setup-UI sendet zusätzlich `setupSchemaVersion: 2` (Top-Level); `rooms.ts` setzt bei wer-ist-das
+  `Room.setupSchemaVersion` aus dem Snapshot (nur bei Create, alte Räume unangetastet). Engine-Versionen:
+  gemeinsame Reader unterstützt v1+v2 State exakt (gleiche State-Form); `SUPPORTED = [1,2]`; alles andere
+  → kontrollierter Fehler (`ENGINE_VERSION_MISMATCH`) statt falschem State. ECHTER Prozess-Restart-Test
+  (Child-Process-Server stoppen/neu starten, dieselbe DB) für v1-Raum (engineVersion=1) UND v2-Raum.
+- **E:** Bei wer-ist-das-Raumerstellung: referenzierte `gameImageAssetId`-Assets mit `roomId = tmp-<host>`
+  bzw. null und `uploadedBy = host` werden an den echten Raum gebunden (kompensierend, keine
+  Überschreibung echter Bindungen). Nach erfolgreicher Raumerstellung: verwaiste `tmp-<host>`-Composites
+  des Hosts, die in KEINEM Raumsnapshot referenziert sind, werden bereinigt (Datei + Zeile). Verbleibende
+  BETA-Grenze (Crash zwischen Composite und Raumerstellung) ehrlich dokumentiert.
+
+- **Nächster Schritt:** A implementieren (Test-first), dann B, C, D, E. Nach jedem Fix: Tests, Commit,
+  Handoff-Update, Push. Am Ende: Doku + PR-Beschreibung (falsche Behauptungen zu Dedupe/Signaturen/
+  Recovery korrigieren) + CI am finalen Head + Report mit Abnahme-Matrix A–E.
 
 ---
 
