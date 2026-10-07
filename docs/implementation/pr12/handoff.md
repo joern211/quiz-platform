@@ -167,13 +167,14 @@ Round-Transition/Progress/Leaderboard/Result-Screen/Notification), Team-Core,
 
 ## Nächster Schritt
 
-**Push + Draft-PR:** `git push origin docs/pr12-master-spec-preparation`
-und Draft-PR „Regelwerk Mapping und V1 Spezifikation für 19 Spiele
-vorbereiten" (Body: pr-body.md). Auth: `gh auth status` → not logged in;
-Push-Versuch mit Remote-Config, bei Block: Commit-SHA halten, lokalen
-Zustand gesichert melden. **Kein Merge, kein Ready-for-review.**
-Nach PR11-Merge: Abgleich (SHAs, PR11-Spalte, Links) je
-dependencies-and-parallel-work.md §7.
+**Push + Draft-PR:** ✅ DONE (2026-10-07)
+- Branch `docs/pr12-master-spec-preparation` gepusht (Keychain-Credential `x-access-token`;
+  Remote-URL-Nutzer blieb unverändert).
+- **Draft-PR #12** erstellt: https://github.com/joern211/quiz-platform/pull/12
+  (GitHub vergab zufällig genau die Plannummer 12). Base: main, Draft: ja.
+  Body = pr-body.md. **Nicht** auf Ready-for-review umstellen, **nicht** mergen.
+- Nach PR11-Merge: Abgleich (SHAs, PR11-Spalte, Links) je
+  dependencies-and-parallel-work.md §7.
 
 ## Commit-Log (eigener Branch)
 
@@ -184,4 +185,5 @@ dependencies-and-parallel-work.md §7.
 | 7760b6e | C | technical-mapping.md (Zielmodell) |
 | 00d0b66 | C | 19 Spielespezifikationen + games/index.md |
 | fcfc48e | D | dependencies-and-parallel-work.md, decision-register.md (RUT-16..18) |
-| (final) | E | README, verification.md, pr-body.md, Handoff-Finalisierung |
+| f9421fc | E | README, verification.md, pr-body.md, Handoff-Finalisierung |
+| 56cc212 | E | Push + Draft-PR #12 (https://github.com/joern211/quiz-platform/pull/12) |
