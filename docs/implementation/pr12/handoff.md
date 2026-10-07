@@ -52,11 +52,11 @@ bzw. via `.git/info/exclude` lokal ignoriert — siehe Validierung).
 ## Etappen-Plan
 
 - [x] **A — Isolation und Checkpoint:** Worktree/Branch angelegt, Master extrahiert, erster Commit.
-- [ ] **B — Anforderungen + Iststand:** Vollständige Erfassung der Regelwerk-Unterpunkte (§1–§20);
+- [x] **B — Anforderungen + Iststand:** Vollständige Erfassung der Regelwerk-Unterpunkte (§1–§20);
       main-Iststand (Shared-Typen, Prisma, Cores, Registry, HTTP/Socket, Media, Tests, CI);
-      PR11-Delta separat.
-- [ ] **C — Zielverträge + Spieldetails:** technical-mapping.md; 19 Spielespezifikationen;
-      decision-register.md.
+      PR11-Delta separat. → Detail-Befunde in `requirements-matrix.md` + unten.
+- [ ] **C — Zielverträge + Spieldetails:** ✅ requirements-matrix.md (280 MR-Zeilen);
+      verbleibend: technical-mapping.md, 19 Spielespezifikationen, decision-register.md.
 - [ ] **D — Abhängigkeiten:** dependencies-and-parallel-work.md.
 - [ ] **E — Konsistenz, Draft, Handoff:** README, verification.md, pr-body.md, Link-/ID-Prüfung,
       Commit, Push, Draft-PR gegen main.
@@ -149,11 +149,26 @@ konsistent mit „Nutzerergänzung, Slug-Vorschlag, separat zu spezifizieren".
 - PR11-Delta: `git diff --stat 411a5b7..1470894` (18 Dateien, +1946/−125) —
   bestätigt PR11-Scope (Media, weristdas, schema, seed, shared, docs/pr11-handoff).
 
+## Etappe B abgeschlossen (Anforderungsmatrix)
+
+`docs/specs/pr12/requirements-matrix.md` geschrieben: **280 MR-/ADD-Zeilen**,
+deckend alle Unterabschnitte §1–§20 + DDF-Nutzerergänzung. Jede Zeile: ID,
+Quelle, Scope-Klasse (P/O/L/X), Entscheidungsstatus (F/N/V/O), Ist-Status
+(I/P/M/NV) mit konkreten Referenzen, PR11-Vergleich, Core/Rollen, Ziel-PR,
+Abnahmekriterium, Lücke/Decision-ID.
+
+**Ist-Verteilung (Kurzform):** I ≈ 18 · P ≈ 60 · M ≈ ~190 · NV = 0.
+Größte MISSING-Blöcke: zentrale Game-Cores (Timer/Judge/Turn/Tie/Matching/
+Submission/Visibility/Random/Event/Invariants/Undo/Finalisierung/Next-Action/
+Round-Transition/Progress/Leaderboard/Result-Screen/Notification), Team-Core,
+§6 Content-System, §7 Media-Vollsystem + Voice/Camera/Broadcast, §8 Event (voll),
+§9 Profile/Stats/XP (voll), §10 Integrity, §11 Plattformbetrieb.
+
 ## Nächster Schritt
 
-Etappe B abschließen: verbleibende main-Module im Detail lesen (geo/jeopardy/weristdas
-Engine+Events, sockets/room.ts, http/rooms.ts, media.ts, e2e.ts, seed.ts, tests),
-dann `docs/specs/pr12/requirements-matrix.md` mit stabilen MR-IDs aufbauen.
+Etappe C: `technical-mapping.md` (Fachbereiche, Zielmodelle, Migration,
+Recovery, Monitoring), danach 19 Spielespezifikationen + `games/index.md`,
+`decision-register.md`, `dependencies-and-parallel-work.md`.
 
 ## Commit-Log (eigener Branch)
 
