@@ -180,10 +180,10 @@ Round-Transition/Progress/Leaderboard/Result-Screen/Notification), Team-Core,
 
 | SHA | Etappe | Inhalt |
 |---|---|---|
-| 30e983c | A | Worktree/Isolation, Handoff, Master-Extraktion nachweisen |
+| 604cab1 | A | Worktree/Isolation, Handoff, Master-Extraktion nachweisen |
 | 4d231e7 | B | requirements-matrix.md (275 MR-Zeilen + 5 ADD-DDF) |
 | 7760b6e | C | technical-mapping.md (Zielmodell) |
 | 00d0b66 | C | 19 Spielespezifikationen + games/index.md |
 | fcfc48e | D | dependencies-and-parallel-work.md, decision-register.md (RUT-16..18) |
 | f9421fc | E | README, verification.md, pr-body.md, Handoff-Finalisierung |
-| 56cc212 | E | Push + Draft-PR #12 (https://github.com/joern211/quiz-platform/pull/12) |
+| 6268d6e | E | Push + Draft-PR #12 (https://github.com/joern211/quiz-platform/pull/12) |
