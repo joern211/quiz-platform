@@ -1,4 +1,4 @@
-import { join } from 'node:path';
+import path, { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { mkdtemp, mkdir, readdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -116,6 +116,117 @@ describe('Wer ist das? — Composite/Fusion (Regelwerk §15.3)', () => {
     // Genau EINE gespeicherte Instanz.
     const count = await ctx.prisma.mediaAsset.count({ where: { derivedFromAssetIds: { contains: a.id } } });
     expect(count).toBe(1);
+  });
+
+  it('A-Regression: die gespeicherte Composite-Datei überlebt wiederholte Aufrufe (Button „Spielbild neu erzeugen")', async () => {
+    const a = await seedImageAsset(ctx.hostId, 240, 200, { r: 200, g: 100, b: 10 });
+    const b = await seedImageAsset(ctx.hostId, 200, 240, { r: 10, g: 100, b: 200 });
+    const params = { personAImageAssetId: a.id, personBImageAssetId: b.id, hostUserId: ctx.hostId, roomId: 'room-regress', roundId: 'rr-1' };
+    const first = await createGameImage(params);
+    const asset = await ctx.prisma.mediaAsset.findUniqueOrThrow({ where: { id: first.gameImageAssetId } });
+    const expectedBytes = await readFile(asset.storagePath);
+    // Wiederholte Aufrufe (identisch zur UI: „Spielbild neu erzeugen"):
+    for (let i = 0; i < 2; i++) {
+      const again = await createGameImage(params);
+      expect(again.gameImageAssetId).toBe(first.gameImageAssetId);
+      // DIE IM DB-ASSET REFERENZIERTE DATEI muss existieren, dekodierbar
+      // und bytegleich (deterministische Bytes, §7.4 unveränderlich).
+      const onDisk = await readFile(asset.storagePath);
+      expect(onDisk.equals(expectedBytes)).toBe(true);
+      expect((await sharp(asset.storagePath).metadata()).width).toBe(COMPOSITE_SIZE);
+      // Asset-Zeile unverändert (kein zweites Asset, kein Pfadwechsel).
+      const after = await ctx.prisma.mediaAsset.findUniqueOrThrow({ where: { id: first.gameImageAssetId } });
+      expect(after.storagePath).toBe(asset.storagePath);
+      expect(await ctx.prisma.mediaAsset.count({ where: { derivedFromAssetIds: { contains: a.id } } })).toBe(1);
+    }
+  });
+
+  it('A-Reparatur: fehlt die Composite-Datei (alter Bug/verlust), stellt der normale Ablauf sie kontrolliert wieder her', async () => {
+    const a = await seedImageAsset(ctx.hostId, 180, 180, { r: 30, g: 180, b: 250 });
+    const b = await seedImageAsset(ctx.hostId, 180, 180, { r: 250, g: 30, b: 60 });
+    const params = { personAImageAssetId: a.id, personBImageAssetId: b.id, hostUserId: ctx.hostId, roomId: 'room-repair', roundId: 'rp-1' };
+    const first = await createGameImage(params);
+    const asset = await ctx.prisma.mediaAsset.findUniqueOrThrow({ where: { id: first.gameImageAssetId } });
+    const expectedBytes = await readFile(asset.storagePath);
+    // Simuliert den alten Datenverlust: Datei weg, DB-Zeile intakt.
+    await rm(asset.storagePath);
+    const again = await createGameImage(params);
+    expect(again.gameImageAssetId).toBe(first.gameImageAssetId);
+    const repaired = await readFile(asset.storagePath);
+    expect(repaired.equals(expectedBytes)).toBe(true);
+    expect((await sharp(asset.storagePath).metadata()).format).toBe('webp');
+    // Kein zusätzliches Asset, keine fremden Dateien.
+    expect(await ctx.prisma.mediaAsset.count({ where: { derivedFromAssetIds: { contains: a.id } } })).toBe(1);
+  });
+
+  it('A-Race: parallele identische Aufrufe liefern dasselbe Asset; die Datei bleibt vorhanden', async () => {
+    const a = await seedImageAsset(ctx.hostId, 300, 220, { r: 90, g: 10, b: 190 });
+    const b = await seedImageAsset(ctx.hostId, 220, 300, { r: 190, g: 190, b: 10 });
+    const params = { personAImageAssetId: a.id, personBImageAssetId: b.id, hostUserId: ctx.hostId, roomId: 'room-parallel', roundId: 'par-1' };
+    const results = await Promise.all([createGameImage(params), createGameImage(params), createGameImage(params)]);
+    const ids = [...new Set(results.map(r => r.gameImageAssetId))];
+    expect(ids).toHaveLength(1);
+    const asset = await ctx.prisma.mediaAsset.findUniqueOrThrow({ where: { id: ids[0] } });
+    const bytes = await readFile(asset.storagePath); // existiert + lesbar
+    expect(bytes.length).toBeGreaterThan(0);
+    expect((await sharp(asset.storagePath).metadata()).width).toBe(COMPOSITE_SIZE);
+    expect(await ctx.prisma.mediaAsset.count({ where: { derivedFromAssetIds: { contains: a.id } } })).toBe(1);
+    // Keine verwaisten tmp-Dateien im echten Upload-Verzeichnis (composite
+    // schreibt dorthin, nicht nach ctx.tmpDir).
+    const { config } = await import('../../config/index.js');
+    const uploadsDir = path.resolve(config.storagePaths.uploads);
+    const leftovers = (await readdir(uploadsDir).catch(() => [] as string[])).filter(f => f.endsWith('.tmp'));
+    expect(leftovers).toEqual([]);
+  });
+
+  it('A-Konflikt: ein DB-Unique-Konflikt bei der Anlage löscht NIE die finale Composite-Datei und hinterlässt keine tmp-Datei', async () => {
+    const a = await seedImageAsset(ctx.hostId, 260, 180, { r: 150, g: 60, b: 20 });
+    const b = await seedImageAsset(ctx.hostId, 180, 260, { r: 20, g: 150, b: 60 });
+    const params = { personAImageAssetId: a.id, personBImageAssetId: b.id, hostUserId: ctx.hostId, roomId: 'room-conflict', roundId: 'cf-1' };
+    const first = await createGameImage(params);
+    const asset = await ctx.prisma.mediaAsset.findUniqueOrThrow({ where: { id: first.gameImageAssetId } });
+    const expectedBytes = await readFile(asset.storagePath);
+    // Simuliert den Parallel-Fall: findFirst (idempotenter Lookup) findet
+    // nichts, aber create kollidiert (P2002). Der Race-Auflösungs-Lookup
+    // (auch findFirst) findet dann das Gewinner-Asset.
+    const originalFindFirst = ctx.prisma.mediaAsset.findFirst.bind(ctx.prisma.mediaAsset);
+    const originalCreate = ctx.prisma.mediaAsset.create.bind(ctx.prisma.mediaAsset);
+    let firstFindCalls = 0;
+    (ctx.prisma.mediaAsset as { findFirst: unknown }).findFirst = async (args: { where: { sha256?: string } }) => {
+      if (args.where?.sha256) {
+        firstFindCalls += 1;
+        // Erster Lookup (vor Create): nichts gefunden → Create wird laufen.
+        // Zweiter Lookup (nach P2002): das Gewinner-Asset.
+        return firstFindCalls === 1 ? null : originalFindFirst(args as never);
+      }
+      return originalFindFirst(args as never);
+    };
+    (ctx as { conflictArmed?: boolean }).conflictArmed = true;
+    (ctx.prisma.mediaAsset as { create: unknown }).create = async (args: unknown) => {
+      if ((ctx as { conflictArmed?: boolean }).conflictArmed) {
+        (ctx as { conflictArmed?: boolean }).conflictArmed = false;
+        const e = new Error('Unique constraint failed') as Error & { code?: string };
+        e.code = 'P2002';
+        throw e;
+      }
+      return originalCreate(args as never);
+    };
+    try {
+      const again = await createGameImage(params);
+      // Nach dem Konflikt auf das vorhandene Asset auflösen (kein 500).
+      expect(again.gameImageAssetId).toBe(first.gameImageAssetId);
+    } finally {
+      (ctx.prisma.mediaAsset as { findFirst: unknown }).findFirst = originalFindFirst;
+      (ctx.prisma.mediaAsset as { create: unknown }).create = originalCreate;
+    }
+    // Die finale Datei bleibt exakt erhalten; keine tmp-Datei übrig.
+    const onDisk = await readFile(asset.storagePath);
+    expect(onDisk.equals(expectedBytes)).toBe(true);
+    const { config } = await import('../../config/index.js');
+    const uploadsDir = path.resolve(config.storagePaths.uploads);
+    const leftovers = (await readdir(uploadsDir).catch(() => [] as string[])).filter(f => f.endsWith('.tmp'));
+    expect(leftovers).toEqual([]);
+    expect(await ctx.prisma.mediaAsset.count({ where: { derivedFromAssetIds: { contains: a.id } } })).toBe(1);
   });
 
   it('verhindert, dass ein fremder Host fremde Bild-IDs verwendet (Ownership)', async () => {
