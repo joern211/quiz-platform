@@ -7,9 +7,15 @@
 ## Status-Übersicht (lebendig halten)
 
 - **Basis-Commit:** `411a5b783e5857bca5b208598fade43affc108b5` (PR #10, verifiziert = origin/main)
-- **Branch:** `feature/wer-ist-das-fusion-media` (lokal = remote = `7d50381`, Arbeitsbaum sauber, 07.10. verifiziert)
-- **Letzter Commit:** `fb6c134` — **B + C erledigt** (Dedupe je Owner + Migration + Host-Policy; 242/242 grün, 3× stabil)
-- **D: ERFOLGREICH (Checkpoint vor diesem Eintrag):**
+- **Branch:** `feature/wer-ist-das-fusion-media` (lokal = remote = `c56c8bd`; Arbeitsbaum: E-Änderungen uncommitted — lifecycle.ts, rooms.ts, server.ts, engine.ts, media-lifecycle.integration.test.ts, Doku)
+- **Letzter Commit:** `c56c8bd` — **D erledigt & gepusht** (Versionen ehrlich + engineVersion-Gate + echter Prozess-Restart-Test; Volllauf 247/247 grün, tsc server+web OK)
+- **E: ERFOLGREICH (lokal fertig, wartet auf Commit/Push):**
+  - Befund bestätigt: Composites entstehen VOR der Raumerstellung → `roomId = tmp-<host>`; nach `POST /rooms` keine Re-Bindung → verwaiste `ROOM_TEMP`-Assets bei Abbruch/Quelltausch/Retry/Prozessabbruch.
+  - `media/lifecycle.ts` (neu): `bindSnapshotAssetsToRoom()` — bindet NUR `ROOM_TEMP` + `uploadedBy=Host` + im Raumsnapshot referenzierte Assets an die echte Raum-ID; idempotent; fremde/bereits gebundene Assets NICHT gestohlen; Originale (PRIVATE) unangetastet. `cleanupOrphanedTempAssets()` — löscht nur unreferenzierte `tmp-`-Assets (in KEINEM Snapshot, auch nicht ENDED) älter als 24 h.
+  - Wiring: `rooms.ts` bindet nach erfolgreicher Raumerstellung (fail-tolerant try/catch — Bindungsfehler macht Raum NICHT unbrauchbar); `server.ts` räumt beim Start auf; `engine.ts` heilt beim Spielstart (Crash zwischen Create und Bindung); `createLimiter` (nur production) begrenzt POST /rooms gegen Doppelklick.
+  - Tests `media-lifecycle.integration.test.ts` (8): Bindung nach POST /rooms, Idempotenz (doppelte POST), fremde Assets nicht gestohlen, fehlgeschlagene Raumerstellung → kein Bindungsnebenprodukt, Orphan-Cleanup (alt+unreferenziert gelöscht, neu/aktive/historische ENDED geschont), Heilung nach Prozessunterbrechung, Doppelklick-Stealing-Abwehr. **25/25 grün** (lifecycle + recovery + rooms).
+  - BETA-Grenze ehrlich dokumentiert (wer-ist-das.md): Cleanup läuft beim Serverstart, nicht proaktiv während des Betriebs; allgemeiner Storage-GC (auch PRIVATE) = separater Folgeauftrag.
+- **D: ERFOLGREICH (Checkpoint, gepusht `c56c8bd`):**
   - Verifizierte Befunde: Web-SetupPage schrieb `setupVersion:2`, Schema liest `setupSchemaVersion` (→Default 1); `rooms.ts` setzte `Room.setupSchemaVersion` nie; `engineVersion` wurde gepinnt aber nie für eine Kompatibilitätsentscheidung gelesen. **Kernbefund: v1- und v2-Engine-State haben identische Form** (Versions-Differenz = Setup-Rundenformat, das `normalizeRound` version-agnostisch liest) → ein gemeinsamer Reader unterstützt beide exakt.
   - Fixes: SetupPage schreibt jetzt `setupSchemaVersion:2` (top-level) + `setupVersion:2` pro Runde; `rooms.ts` leitet `Room.setupSchemaVersion` ehrlich ab (nur beim Erstellen, additiv, keine stille Umschreibung); `SUPPORTED_ENGINE_VERSIONS=[1,2]` + `isSupportedEngineVersion()`; Versions-Gate in `act()`+`resync()` → `UNSUPPORTED_ENGINE_VERSION` (kontrolliert, kein falscher State).
   - **Echter Prozess-Restart-Test** (`recovery.integration.test.ts`): Server startet als eigenes OS-Kind auf derselben DB; v1-Raum (engineVersion=1, „vor Upgrade“) UND v2-Raum (engineVersion=2, „prozesstot“) werden VOR dem Start persistiert, nach dem (echten) Neustart wiederbetrieben: Phase, Bild-ID, Punkte, Buzz-Rechte (ausgedrängter Spieler), Geheimhaltung (Namen/Original-IDs vor Reveal unsichtbar, Host sieht sie) — beide Runden normal beendbar; engineVersion wird NICHT umgeschrieben. + Inkompatible Version 3 → kontrollierte `UNSUPPORTED_ENGINE_VERSION`.
@@ -62,9 +68,7 @@
   des Hosts, die in KEINEM Raumsnapshot referenziert sind, werden bereinigt (Datei + Zeile). Verbleibende
   BETA-Grenze (Crash zwischen Composite und Raumerstellung) ehrlich dokumentiert.
 
-- **Nächster Schritt:** A implementieren (Test-first), dann B, C, D, E. Nach jedem Fix: Tests, Commit,
-  Handoff-Update, Push. Am Ende: Doku + PR-Beschreibung (falsche Behauptungen zu Dedupe/Signaturen/
-  Recovery korrigieren) + CI am finalen Head + Report mit Abnahme-Matrix A–E.
+- **Nächster Schritt (FINAL):** E committen + pushen → Volllauf (Server-Tests, Web-Tests, Typecheck server+web, Lint, Build) + Migration auf frischer UND bestehender DB → PR-Beschreibung #11 korrigieren (falsche Behauptungen zu Dedupe/Signaturen/Recovery/Lebenszyklus) → CI/E2E am finalen Head → Report mit Abnahme-Matrix A–E + ehrlichen Risiken. **PR als Draft belassen, NICHT mergen.**
 
 ---
 

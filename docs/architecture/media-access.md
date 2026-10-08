@@ -17,13 +17,22 @@ rohe Asset-IDs geben keine Dateien mehr frei.
 ## Signed-URLs (`?exp=<unix-ts>&sig=<HMAC>`)
 
 - Signatur über `assetId|audience|exp` mit `SESSION_SECRET`, Vergleich timing-safe.
-- **Audience `game`** (TTL 5 Min): das *freigegebene Spielbild* einer aktiven
-  „Wer ist das?“-Runde. Funktioniert **ohne Login** — Player/Viewer/Display haben
-  keine HTTP-Session. In `weristdas:update`/`weristdas:resync` als `gameImageUrl`.
+- **Audience `game`** (TTL 5 Min): das *freigegebene Spielbild*. Funktioniert
+  **ohne Login** — Player/Viewer/Display haben keine HTTP-Session. In
+  `weristdas:update`/`weristdas:resync` als `gameImageUrl`.
+  **Scharfe Grenze (Nacharbeit C):** Eine `game`-Signatur genügt NICHT allein —
+  das Asset muss zusätzlich in einem Raumsnapshot als freigegebenes Spielbild
+  referenziert sein (v1 `imageAssetId`, v2 `gameImageAssetId`; NIE
+  `personA/BImageAssetId`). Damit kann eine `game`-Signatur niemals ein
+  Original oder ein Bild einer anderen Runde freigeben. Snapshot-basiert
+  (statisch): Reveal, `game:end` oder Rejoin ändern die Freigabe nicht.
 - **Audience `host`** (TTL 60 Min): die *Original-Bilder*. Zusätzlich zur
-  gültigen Signed-URL muss die **Session** gültig sein UND der Session-User
-  Upload-Besitzer oder Raum-Host des Assets sein. In der Host-Projektion als
-  `hostImageUrls`.
+  gültigen Signed-URL muss die **Session** gültig sein (existiert, NICHT
+  widerrufene, NICHT abgelaufene) UND der Session-User Upload-Besitzer oder
+  Raum-Host des Assets sein. In der Host-Projektion als `hostImageUrls`.
+  Es gibt keinen separaten `/host/:id`-Pfad mehr (wurde entfernt, weil er die
+  Signatur- und Session-Gültigkeitsprüfung umging); alle nicht-öffentlichen
+  Medien laufen über die einheitliche Policy auf `GET /:id`.
 - Abgelaufene (`exp`), signaturfremde oder auf ein anderes Asset ausgerechnete
   Signatur → `403` (generisch, keine Detailleaks).
 
@@ -36,8 +45,16 @@ rohe Asset-IDs geben keine Dateien mehr frei.
   `MAX_IMAGE_DIMENSION` (4096).
 - Normalisierung: Bilder → WebP, EXIF-Orientierung angewandt, übrige
   Metadaten gestrippt (keine GPS/Personen-/Kamerainfo).
-- Dedupe: identische *normalisierte* Bytes desselben Uploaders → existierendes
-  Asset wird zurückgegeben (200), keine zweite Zeile, kein Ownership-Transfer.
+- Dedupe (Nacharbeit B, je Uploader): identische *normalisierte* Bytes +
+  gleicher Uploader → existierendes Asset wird zurückgegeben (200, keine
+  zweite Zeile, kein Ownership-Transfer). Schema: `@@unique([sha256,
+  uploadedBy])` (additive Migration, ersetzt das alte globale
+  `@unique(sha256)`). Gleiche Bytes + **anderer** Uploader → eigenes Asset
+  (kein 500 durch Unique-Konflikt, kein Zugriff auf fremde Dateien). Parallele
+  identische Uploads desselben Hosts kollidieren kontrolliert (P2002) und
+  werden auf die bestehende Zeile aufgelöst. Eine existierende Zeile mit
+  fehlender Datei / Status `FAILED` wird kontrolliert repariert (gleiche
+  Asset-ID, neues storagePath), statt blind überschrieben zu werden.
 - Fehler (korrupte Datei, Limit, kein Bild) → `4xx` mit verständlicher Meldung
   und **Datei-Cleanup** (keine Orphan-Dateien, keine 500er).
 

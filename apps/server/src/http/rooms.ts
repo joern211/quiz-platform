@@ -12,9 +12,24 @@ import { logger } from '../observability/logger.js';
 import { config } from '../config/index.js';
 import { CreateRoomSchema, JoinRoomSchema, validateBody } from './validators.js';
 import { resolveCanonicalSlug, getGameManifest, type GameManifest } from '@quiz/shared';
+import { bindSnapshotAssetsToRoom } from '../media/lifecycle.js';
 import { isStartableSlug } from '../games/registry.js';
 
 export const roomsRouter : ReturnType<typeof Router> = Router();
+
+// PR11-Nacharbeit E: Doppelklick/Retry bei POST /rooms begrenzen. In der
+// BETA ist die Raumerstellung NICHT vollständig idempotent (ein zweiter
+// Klick erzeugt einen zweiten Raum); ein Rate-Limiter verhindert damit
+// versehentlich mehrere Räume. Wie joinLimiter: nur in Produktion wirksam.
+const createLimiter = process.env.NODE_ENV === 'production'
+  ? rateLimit({
+      windowMs: 15 * 60 * 1000, // 15 Minuten
+      max: 10,
+      standardHeaders: true,
+      legacyHeaders: false,
+      message: { success: false, error: { code: 'RATE_LIMIT', message: 'Zu viele Raum-Erstellungen. Bitte 15 Minuten warten.' } },
+    })
+  : (_req: import('express').Request, _res: import('express').Response, next: import('express').NextFunction) => next();
 
 // ------------------------------------------------------------
 // Startfähigkeit serverseitig prüfen (Regelwerk §13.1, §14).
@@ -148,7 +163,7 @@ roomsRouter.get('/public', async (_req, res) => {
 });
 
 // POST /api/v1/rooms - Create room (Moderator only)
-roomsRouter.post('/', async (req, res) => {
+roomsRouter.post('/', createLimiter, async (req, res) => {
   try {
     const sessionId = verifySession(req, config.sessionSecret);
     if (!sessionId) {
@@ -333,6 +348,19 @@ roomsRouter.post('/', async (req, res) => {
     });
 
     const moderatorToken = moderatorParticipation?.rejoinToken ?? null;
+
+    // PR11-Nacharbeit E: kontrollierte Bindung der vor der Raumerstellung
+    // erzeugten tmp-Composite(s) an den echten Raum. Fail-tolerant: ein
+    // Fehlschlag der Bindung macht die Raumerstellung NICHT ungültig
+    // (Assets bleiben owner-only tmp; Startvalidierung prüft Eigentum +
+    // Provenienz, nicht roomId). Idempotent bei doppelter POST /rooms.
+    try {
+      await bindSnapshotAssetsToRoom(prisma, {
+        roomId: room.id, hostUserId: session.userId, snapshotJson: room.setupSnapshotJson,
+      });
+    } catch (bindError) {
+      logger.warn('Temp-Asset-Bindung fehlgeschlagen (Raum bleibt nutzbar)', { roomId: room.id, error: bindError });
+    }
 
     logger.info('Room created', { roomId: room.id, code, hostId: session.userId });
 

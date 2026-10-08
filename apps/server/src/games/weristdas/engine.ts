@@ -88,6 +88,15 @@ export const werIstDasGame = {
     // zurück und löscht den Teil-Game-State (kein halb gestartetes Spiel).
     const savedRoom = await prisma.room.findUniqueOrThrow({ where: { id: room.id }, select: { hostUserId: true } });
     await validateSetup(setup.rounds, savedRoom.hostUserId);
+    // PR11-Nacharbeit E: Heilung an der kritischen Grenze. Wenn ein Prozess
+    // zwischen Raumerstellung und der tmp-Bindung (POST /rooms) beendet wurde,
+    // liegen die Composites noch unter 'tmp-<Host>'. Beim Spielstart werden
+    // sie idempotent an den echten Raum gebunden — der Raum ist ohnehin
+    // lauffähig (Startvalidierung prüft Eigentum + Provenienz, nicht roomId).
+    try {
+      const { bindSnapshotAssetsToRoom } = await import('../../media/lifecycle.js');
+      await bindSnapshotAssetsToRoom(prisma, { roomId: room.id, hostUserId: savedRoom.hostUserId, snapshotJson: room.setupSnapshotJson ?? '{}' });
+    } catch { /* Bindung ist eine Verbesserung, kein Start-Voraussetzung */ }
     const players = await prisma.participation.findMany({ where: { roomId: room.id, role: 'PLAYER' } });
     const names = Object.fromEntries(players.map(p => [p.id, p.displayName]));
     const scores = Object.fromEntries(players.map(p => [p.id, p.score]));

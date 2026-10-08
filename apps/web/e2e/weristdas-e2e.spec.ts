@@ -62,6 +62,11 @@ test('W1-W10: setup, image, private solution, buzzer, scores, reconnect, viewer 
       await moderator.getByRole('button', { name: 'Spielbild aus beiden Bildern erzeugen' }).first().click();
       await expect(moderator.getByRole('img', { name: 'Vorschau des Spielbilds' })).toHaveCount(index + 1);
     }
+    // PR11-Nacharbeit A: echter Button „Spielbild neu erzeugen" (idempotente
+    // Regeneration mit gleicher roundId): gleiches Asset, keine zweite
+    // Vorschau, und das Spielbild lädt später trotzdem.
+    await moderator.getByRole('button', { name: 'Spielbild neu erzeugen' }).first().click();
+    await expect(moderator.getByRole('img', { name: 'Vorschau des Spielbilds' })).toHaveCount(2);
     await moderator.getByRole('button', { name: 'Raum erstellen' }).click();
     await moderator.waitForURL(/\/moderator\/raum\/\d{3}-\d{3}\/lobby$/);
     const code = moderator.url().match(/(\d{3}-\d{3})\/lobby$/)?.[1];
