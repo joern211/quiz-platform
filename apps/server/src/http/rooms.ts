@@ -268,6 +268,29 @@ roomsRouter.post('/', async (req, res) => {
       pinHash = await argon2.hash(pin, { type: argon2.argon2id });
     }
 
+    // PR11-Nacharbeit D: Raum-Setup-Schema-Version EHRLICH (Regelwerk §5.23).
+    // Wird NUR beim Erstellen gesetzt (bestehende Räume/Zeilen werden nie
+    // hier überschrieben). Ableitung aus dem Snapshot ohne stille
+    // Umschreibung: top-level `setupSchemaVersion` ist maßgeblich (der
+    // Writer v2+ und der Reader `WerIstDasSetupSchema` nutzen denselben
+    // Feldnamen); sonst strukturell — eine Runde in v2-Form
+    // (gameImageAssetId) verlangt Version 2, andernfalls 1 (Legacy).
+    // Für andere Spiele (kein solches Feld) bleibt der Default 1.
+    const roomSetupSchemaVersion = (() => {
+      const raw = typeof setupSnapshotJson === 'string' ? setupSnapshotJson : JSON.stringify(setupSnapshotJson ?? {});
+      try {
+        const parsed = JSON.parse(raw) as {
+          setupSchemaVersion?: unknown;
+          rounds?: Array<Record<string, unknown> | null>;
+        };
+        if (parsed.setupSchemaVersion === 2) return 2;
+        const hasV2Round = Array.isArray(parsed.rounds) && parsed.rounds.some(
+          r => r && (typeof r.gameImageAssetId === 'string' || r.setupVersion === 2),
+        );
+        return hasV2Round ? 2 : 1;
+      } catch { return 1; }
+    })();
+
     // Create room
     const room = await prisma.room.create({
       data: {
@@ -283,6 +306,7 @@ roomsRouter.post('/', async (req, res) => {
         viewerLimit,
         lobbyChatEnabled,
         setupSnapshotJson: JSON.stringify(setupSnapshotJson),
+        setupSchemaVersion: roomSetupSchemaVersion,
         isPublic: isPublic ?? true,
         status: 'LOBBY',
         runPhase: 'OPEN',

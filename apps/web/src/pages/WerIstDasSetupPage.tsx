@@ -121,7 +121,10 @@ export function WerIstDasSetupPage() {
           gameSlug: GAME_SLUGS.werIstDas, roomName, pin: pin || undefined,
           maxPlayers: 10, allowViewers: true, viewerRequiresPin: false,
           setupSnapshotJson: {
-            setupVersion: 2,
+            // PR11-Nacharbeit D: Setup-Schema-Version EHRLICH. Der Reader liest
+            // `setupSchemaVersion` (top-level) — 2 = v1+v2-Runden möglich.
+            // (Fehlerteufel vorher: hieß `setupVersion` und fiel auf 1 zurück.)
+            setupSchemaVersion: 2,
             rounds: rounds.map(round => ({
               id: round.id,
               personAImageAssetId: round.personAImageAssetId,
@@ -129,6 +132,7 @@ export function WerIstDasSetupPage() {
               gameImageAssetId: round.gameImageAssetId,
               personAName: round.personAName.trim(),
               personBName: round.personBName.trim(),
+              setupVersion: 2,
             })),
           },
         }),

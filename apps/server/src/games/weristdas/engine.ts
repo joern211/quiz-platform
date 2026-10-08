@@ -5,11 +5,12 @@ import { authorizeGameContext, type GameRole } from '../core/access.js';
 import { recordScoreMutation } from '../core/score.js';
 import { finishRunningGame, loadGameState, saveGameStateIfRevision, upsertGameState } from '../core/state.js';
 import { WerIstDasPhase, WerIstDasSetupSchema, WER_IST_DAS_ENGINE_VERSION, isV2Round,
+  isSupportedEngineVersion,
   type WerIstDasSetup, type WerIstDasRound } from './contracts.js';
 import { projectWerIstDas } from './resync.js';
 import { resolveCanonicalSlug } from '@quiz/shared';
 import { activateHint, buzz, createWerIstDasState, judge, nextRound, openRoundBuzzer, revealRound,
-  type WerIstDasState } from './state.js';
+  InvalidGameAction, type WerIstDasState } from './state.js';
 
 type Ack = { success: boolean; error?: string; state?: ReturnType<typeof projectWerIstDas> };
 type Action = 'open' | 'buzz' | 'hint' | 'judge' | 'reveal' | 'next';
@@ -107,6 +108,14 @@ export const werIstDasGame = {
     const setup = WerIstDasSetupSchema.parse(JSON.parse(auth.room.setupSnapshotJson));
     const loaded = await loadGameState<WerIstDasState>(roomId);
     if (!loaded) return { success: false, error: 'GAME_NOT_FOUND' };
+    // PR11-Nacharbeit D: Versions-Gate. Der persistierte State wurde von der
+    // Engine-Version `loaded.engineVersion` geschrieben. v1 und v2 erzeugen
+    // die gleiche State-Form und werden vom gemeinsamen Reader exakt gelesen;
+    // eine unbekannte/höhere Version darf NICHT gedeutet werden → kontrollierter
+    // Fehler statt falschem State.
+    if (!isSupportedEngineVersion(loaded.engineVersion)) {
+      throw new InvalidGameAction('UNSUPPORTED_ENGINE_VERSION');
+    }
     let state = loaded.state;
     let scoreMutation: { playerId: string; delta: number; score: number } | undefined;
     if (action === 'open') state = openRoundBuzzer(state);
@@ -146,6 +155,12 @@ export const werIstDasGame = {
     if (!auth.ok) return { success: false, error: auth.error };
     const loaded = await loadGameState<WerIstDasState>(auth.actor.roomId);
     if (!loaded) return { success: false, error: 'GAME_NOT_FOUND' };
+    // PR11-Nacharbeit D: Versions-Gate (siehe act()). Rejoin/Resync nach einem
+    // Neustart liest denselben persistierten State — auch hier nur unterstützte
+    // Engine-Versionen deuten.
+    if (!isSupportedEngineVersion(loaded.engineVersion)) {
+      throw new InvalidGameAction('UNSUPPORTED_ENGINE_VERSION');
+    }
     const setup = WerIstDasSetupSchema.parse(JSON.parse(auth.room.setupSnapshotJson));
     return { success: true, state: projectWerIstDas(loaded.state, setup, auth.actor.role, auth.actor.participationId) };
   },

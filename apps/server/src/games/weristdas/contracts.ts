@@ -20,6 +20,28 @@ export const WER_IST_DAS_ENGINE_VERSION = 2;
 /** Setup-Schema-Versionen (Regelwerk §5.23/§5.24). */
 export const WER_IST_DAS_SETUP_VERSIONS = { v1: 1, v2: 2 } as const;
 
+/**
+ * Engine-State-Versionen, die dieser Reader EXAKT und sicher versteht
+ * (Regelwerk §5.22, PR11-Nacharbeit D).
+ *
+ * WICHTIGE ENTSCHEIDUNG (D): v1 (historisch, ein vorbereitetes Bild) und v2
+ * (Fusion) erzeugen die GLEICHE State-Form `WerIstDasState` — die
+ * Versions-Differenz liegt NICHT im Engine-State, sondern im
+ * Setup-Rundenformat (ein Bild vs. zwei Originale + Composite), das
+ * `normalizeRound` version-agnostisch über die Union liest. Deshalb unterstützt
+ * EIN gemeinsamer Reader beide Versionen exakt. Das wird nicht behauptet,
+ * sondern durch den echten Prozess-Restart-Test (v1- UND v2-Raum) belegt.
+ *
+ * Eine HÖHERE oder unbekannte Version (z.B. 3 aus einer zukünftigen Engine,
+ * die andere State-Felder haben könnte) wird NICHT gedeutet → kontrollierter
+ * Fehler statt falschem State (D: "kontrolliertes Pausieren/Fehler statt
+ * falschem State").
+ */
+export const SUPPORTED_ENGINE_VERSIONS: readonly number[] = [1, WER_IST_DAS_ENGINE_VERSION];
+export function isSupportedEngineVersion(version: number): boolean {
+  return SUPPORTED_ENGINE_VERSIONS.includes(version);
+}
+
 const name = z.string().trim().min(1).max(150);
 const aliases = z.array(z.string().trim().min(1).max(150)).max(20).optional();
 const roundId = z.string().min(1).max(100);

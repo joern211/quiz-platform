@@ -8,6 +8,10 @@ const PUBLIC_CODES = new Set([
   'PHASE_NOT_STEAL_OPEN', 'PLAYER_NOT_IN_GAME', 'STATE_CONFLICT',
   'TIME_EXPIRED',
   'INVALID_SETUP',
+  // PR11-Nacharbeit D: persistierter State von einer Engine-Version, die
+  // dieser Reader nicht exakt versteht → kontrollierte Ablehnung (kein
+  // falscher State, kein crash).
+  'UNSUPPORTED_ENGINE_VERSION',
 ]);
 
 export function gameErrorCode(error: unknown): string {

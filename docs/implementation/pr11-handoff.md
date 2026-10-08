@@ -8,7 +8,12 @@
 
 - **Basis-Commit:** `411a5b783e5857bca5b208598fade43affc108b5` (PR #10, verifiziert = origin/main)
 - **Branch:** `feature/wer-ist-das-fusion-media` (lokal = remote = `7d50381`, Arbeitsbaum sauber, 07.10. verifiziert)
-- **Letzter Commit:** `cd2ec0f` — **A erledigt** (Composite überlebt Wiederholungsaufruf, atomar, 232/232 grün)
+- **Letzter Commit:** `fb6c134` — **B + C erledigt** (Dedupe je Owner + Migration + Host-Policy; 242/242 grün, 3× stabil)
+- **D: ERFOLGREICH (Checkpoint vor diesem Eintrag):**
+  - Verifizierte Befunde: Web-SetupPage schrieb `setupVersion:2`, Schema liest `setupSchemaVersion` (→Default 1); `rooms.ts` setzte `Room.setupSchemaVersion` nie; `engineVersion` wurde gepinnt aber nie für eine Kompatibilitätsentscheidung gelesen. **Kernbefund: v1- und v2-Engine-State haben identische Form** (Versions-Differenz = Setup-Rundenformat, das `normalizeRound` version-agnostisch liest) → ein gemeinsamer Reader unterstützt beide exakt.
+  - Fixes: SetupPage schreibt jetzt `setupSchemaVersion:2` (top-level) + `setupVersion:2` pro Runde; `rooms.ts` leitet `Room.setupSchemaVersion` ehrlich ab (nur beim Erstellen, additiv, keine stille Umschreibung); `SUPPORTED_ENGINE_VERSIONS=[1,2]` + `isSupportedEngineVersion()`; Versions-Gate in `act()`+`resync()` → `UNSUPPORTED_ENGINE_VERSION` (kontrolliert, kein falscher State).
+  - **Echter Prozess-Restart-Test** (`recovery.integration.test.ts`): Server startet als eigenes OS-Kind auf derselben DB; v1-Raum (engineVersion=1, „vor Upgrade“) UND v2-Raum (engineVersion=2, „prozesstot“) werden VOR dem Start persistiert, nach dem (echten) Neustart wiederbetrieben: Phase, Bild-ID, Punkte, Buzz-Rechte (ausgedrängter Spieler), Geheimhaltung (Namen/Original-IDs vor Reveal unsichtbar, Host sieht sie) — beide Runden normal beendbar; engineVersion wird NICHT umgeschrieben. + Inkompatible Version 3 → kontrollierte `UNSUPPORTED_ENGINE_VERSION`.
+  - Tests: `rooms.integration.test.ts` +2 (v2→2, v1→1, strukturell→2, andere Spiele→1). Volllauf **247/247** grün; tsc server+web OK.
 - **Etappe:** **Nacharbeit A–E** (Merge-Blocker aus Codex-Review) — in Arbeit
 - **PR:** **Draft-PR #11** → https://github.com/joern211/quiz-platform/pull/11 (Basis main)
 
