@@ -7,8 +7,12 @@
 ## Status-Übersicht (lebendig halten)
 
 - **Basis-Commit:** `411a5b783e5857bca5b208598fade43affc108b5` (PR #10, verifiziert = origin/main)
-- **Branch:** `feature/wer-ist-das-fusion-media` (lokal = remote = `c56c8bd`; Arbeitsbaum: E-Änderungen uncommitted — lifecycle.ts, rooms.ts, server.ts, engine.ts, media-lifecycle.integration.test.ts, Doku)
-- **Letzter Commit:** `c56c8bd` — **D erledigt & gepusht** (Versionen ehrlich + engineVersion-Gate + echter Prozess-Restart-Test; Volllauf 247/247 grün, tsc server+web OK)
+- **Branch:** `feature/wer-ist-das-fusion-media` (Worktree `~/quiz-platform-pr11`; A `cd2ec0f`, B+C `fb6c134`, D `c56c8bd`, E `8ed0161` gepusht; Arbeitsbaum: Lint-Fix + Doku, Commit in Arbeit)
+- **FINAL (Nachprüfung am 08.10., alle grün):**
+  - **E2E Browser** (lokal, echter Chromium): `weristdas-e2e.spec.ts` **1 passed (11.7s)** — jetzt inkl. echtem Button „Spielbild neu erzeugen" (A-Regenerationspfad) + Zwei-Runden + Reload/Rejoin + Ergebnis.
+  - **Migration:** frische DB ✓ (alle applied); **BESTEHENDE** DB (vor owner-scoped-Migration, Legacy-Zeilen mit `uploadedBy=NULL`) → Migration applied ✓, `media_assets_sha256_uploadedBy_key` existiert ✓, Legacy-NULL-Zeilen lesbar ✓, gleicher Hash + anderer Owner + zweite NULL-Zeile erlaubt ✓.
+  - **Volllauf:** Server **253/253** (28 Dateien), Web **52/52** (6 Dateien), `pnpm typecheck` server+web ✓, `pnpm lint` **0 errors** (97 warnings, bestehend), `pnpm build` ✓.
+- **Letzter Commit (vor Lint-Fix):** `8ed0161` — E (Bild-Lebenszyklus: tmp-Bindung + Orphan-Cleanup + Heilung + createLimiter)
 - **E: ERFOLGREICH (lokal fertig, wartet auf Commit/Push):**
   - Befund bestätigt: Composites entstehen VOR der Raumerstellung → `roomId = tmp-<host>`; nach `POST /rooms` keine Re-Bindung → verwaiste `ROOM_TEMP`-Assets bei Abbruch/Quelltausch/Retry/Prozessabbruch.
   - `media/lifecycle.ts` (neu): `bindSnapshotAssetsToRoom()` — bindet NUR `ROOM_TEMP` + `uploadedBy=Host` + im Raumsnapshot referenzierte Assets an die echte Raum-ID; idempotent; fremde/bereits gebundene Assets NICHT gestohlen; Originale (PRIVATE) unangetastet. `cleanupOrphanedTempAssets()` — löscht nur unreferenzierte `tmp-`-Assets (in KEINEM Snapshot, auch nicht ENDED) älter als 24 h.

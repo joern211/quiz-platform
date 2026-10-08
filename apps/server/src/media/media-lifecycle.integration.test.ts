@@ -14,9 +14,8 @@
 
 import { describe, it, expect, afterAll } from 'vitest';
 import supertest from 'supertest';
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { tmpdir } from 'node:os';
 import { PrismaClient } from '@prisma/client';
 import {
   seedTestUserWithDb,
