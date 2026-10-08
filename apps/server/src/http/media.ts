@@ -11,14 +11,23 @@
 // Zugriff:
 //   - PUBLIC / SYSTEM  → offen, kurz cachebar (Geo/Wissensduell-Public-Medien).
 //   - Sonst            → nur über gültige Signed URL (`?exp=…&sig=…`):
-//        audience "game" → freigegebenes Spielbild (Composite / v1-Bild),
-//                          an Player/Viewer/Display ohne Login.
-//        audience "host" → Originale, NUR zusätzlich mit Session eines
-//                          berechtigten Hosts (uploader == user ODER
-//                          user == Host von asset.roomId).
+//        audience "game" → NUR wenn das Asset in einem Raumsnapshot als
+//                          freigegebenes Spielbild referenziert ist
+//                          (v1: imageAssetId, v2: gameImageAssetId) — an
+//                          Player/Viewer/Display ohne Login. Eine game-Sig
+//                          auf ein Original oder ein fremdes Rundenbild
+//                          taugt NICHTS (Endpunkt-Prüfung, Nacharbeit C).
+//        audience "host" → Originale, NUR zusätzlich mit gültiger, nicht
+//                          widerrufen und nicht abgelaufener Session eines
+//                          berechtigten Hosts (uploader == user ODER user
+//                          == Host von asset.roomId).
+//   - Der separate GET /media/host/:id-Pfad existiert NICHT mehr (Nacharbeit
+//     C): er umging Signed-URL-Prüfung und die Session-Gültigkeitsprüfung;
+//     die Host-Vorschau läuft über die host-audience-Signed-URL von /:id.
 // ============================================================
 
 import { Router } from 'express';
+import type { Request } from 'express';
 import multer from 'multer';
 import path from 'path';
 import crypto from 'crypto';
@@ -61,6 +70,14 @@ const storage = multer.diskStorage({
 });
 
 const upload = multer({ storage, limits: { fileSize: config.maxFileSizes.image } });
+
+/** Erkennt Prisma-Unique-Konflikte (P2002) robust an code/message. */
+function isUniqueConflict(error: unknown): boolean {
+  if (!error) return false;
+  const e = error as { code?: string; message?: string };
+  if (e.code === 'P2002') return true;
+  return typeof e.message === 'string' && /Unique constraint failed|UNIQUE constraint failed/i.test(e.message);
+}
 
 // ------------------------------------------------------------
 // Content-Prüfung: echter Content, keine Client-Claims
@@ -141,17 +158,26 @@ async function processUploaded(filePath: string, fileSize: number): Promise<Proc
 mediaRouter.post('/', upload.single('file'), async (req, res) => {
   const uploadedPath: string | undefined = (req as { file?: { path: string } }).file?.path;
   const uploadedSize: number = (req as { file?: { size: number } }).file?.size ?? 0;
-  const removeUploaded = () => { if (uploadedPath) fs.unlink(uploadedPath).catch(() => {}); };
+  // Alle von UNS erzeugten Pfade zuverlässig aufräumen (Nacharbeit B):
+  // `uploadedPath` (Rohupload) und `outPath` (normalisiertes Ergebnis).
+  // Wir löschen NUR eigene Dateien — nie eine Datei, auf die ein anderer
+  // DB-Eintrag verweist (Dedupe-Winner hat seinen eigenen storagePath).
+  let outPath: string | undefined;
+  const removeUploaded = () => { if (uploadedPath) return fs.unlink(uploadedPath).catch(() => {}); return Promise.resolve(); };
+  // Async + AWAITED auf allen Antwortpfaden (Nacharbeit B): erst wenn die
+  // eigenen Dateien wirklich weg sind, wird geantwortet — kein Fenster, in
+  // dem ein Orphan existiert (sonst racing File-Counts in Tests/Operation).
+  const cleanup = async () => { await removeUploaded(); if (outPath) { const p = outPath; outPath = undefined; await fs.unlink(p).catch(() => {}); } };
 
   try {
     const sessionId = verifySession(req, config.sessionSecret);
     if (!sessionId) {
-      removeUploaded();
+      await cleanup();
       return res.status(401).json({ success: false, error: { code: 'NOT_AUTHENTICATED', message: 'Anmeldung erforderlich.' } });
     }
     const session = await prisma.session.findUnique({ where: { id: sessionId } });
     if (!session || session.revokedAt || session.expiresAt < new Date()) {
-      removeUploaded();
+      await cleanup();
       return res.status(401).json({ success: false, error: { code: 'SESSION_EXPIRED', message: 'Sitzung abgelaufen.' } });
     }
     if (!uploadedPath) {
@@ -160,7 +186,7 @@ mediaRouter.post('/', upload.single('file'), async (req, res) => {
 
     const processed = await processUploaded(uploadedPath, uploadedSize);
     if (!processed.ok || !processed.buffer) {
-      removeUploaded();
+      await cleanup();
       return res.status(415).json({ success: false, error: processed.error });
     }
 
@@ -168,50 +194,163 @@ mediaRouter.post('/', upload.single('file'), async (req, res) => {
     const ext = processed.type === 'image' ? '.webp' : path.extname(
       (req as { file?: { originalname: string } }).file?.originalname ?? ''
     ) || '.bin';
-    const outPath = path.join(path.dirname(uploadedPath), crypto.randomBytes(16).toString('hex') + ext);
+    outPath = path.join(path.dirname(uploadedPath), crypto.randomBytes(16).toString('hex') + ext);
     await fs.writeFile(outPath, processed.buffer);
     await fs.unlink(uploadedPath).catch(() => {});
 
     const sha256 = crypto.createHash('sha256').update(processed.buffer).digest('hex');
+    const ownerId = session.userId;
 
-    // Dedupe: gleiche Bytes + gleicher Uploader → Asset wiederverwenden (kein 500, keine Duplizierung).
-    const existing = await prisma.mediaAsset.findUnique({ where: { sha256 } });
-    if (existing && existing.uploadedBy === session.userId) {
-      await fs.unlink(outPath).catch(() => {});
+    // Dedupe (Nacharbeit B): Content-Identität ist JE UPLOADER eindeutig
+    // (Migration: UNIQUE(sha256, uploadedBy)). Datenstrategie: EXAKT EINE
+    // nutzbare Zeile pro (Owner, Content):
+    //   - Zeile vorhanden + Datei da + READY → wiederverwenden (200),
+    //     unsere Datei wird entsorgt.
+    //   - Zeile vorhanden, aber Datei fehlt oder Status nicht READY
+    //     (z. B. FAILED) → kontrollierte Reparatur/Ersetzung derselben
+    //     Zeile (gleiche ID, neues storagePath, READY) — keine zweite
+    //     Zeile (Unique), keine verwaiste Zeile/Datei.
+    //   - Kein Asset → Anlage (201); P2002-Race (paralleler identischer
+    //     Upload desselben Owners) → kontrollierte Auflösung auf die
+    //     bestehende Zeile (ebenso repariert, falls nötig), nie 500.
+    // EIN ANDERER User mit gleichem Content erhält SEIN eigenes Asset —
+    // niemals das fremde (kein Ownership-Leak über Hash oder ID).
+    const existing = await prisma.mediaAsset.findFirst({
+      where: { sha256, uploadedBy: ownerId },
+    });
+    if (existing) {
+      let fileOk = true;
+      try { await fs.access(existing.storagePath); } catch { fileOk = false; }
+      if (fileOk && existing.processStatus === 'READY') {
+        await fs.unlink(outPath).catch(() => {});
+        outPath = undefined;
+        return res.status(200).json({
+          success: true,
+          data: { id: existing.id, type: existing.type, mimeType: existing.mimeType, filename: existing.filename, fileSize: existing.fileSize, deduplicated: true },
+        });
+      }
+      // Kontrollierte Reparatur derselben Zeile (Datei fehlt bzw. FAILED).
+      const repairFilename = path.basename(outPath);
+      const repair = await repairAssetRow(existing.id, outPath, {
+        type: processed.type!, mimeType: processed.mimeType!,
+        fileSize: processed.buffer.length, width: processed.width ?? null, height: processed.height ?? null,
+        processed: processed.type === 'image',
+      });
+      outPath = undefined; // Datei gehört jetzt zur reparierten Zeile.
+      if (!repair) throw new Error('MEDIA_ASSET_REPAIR_FAILED');
+      logger.info('Media asset repaired in place (dedupe)', { assetId: existing.id });
       return res.status(200).json({
         success: true,
-        data: { id: existing.id, type: existing.type, mimeType: existing.mimeType, filename: existing.filename, fileSize: existing.fileSize, deduplicated: true },
+        data: { id: existing.id, type: processed.type!, mimeType: processed.mimeType!, filename: repairFilename, fileSize: processed.buffer.length, deduplicated: true },
       });
     }
 
-    const asset = await prisma.mediaAsset.create({
-      data: {
-        type: processed.type!,
-        mimeType: processed.mimeType!,
-        filename: path.basename(outPath),
-        originalName: (req as { file?: { originalname: string } }).file?.originalname ?? 'upload', // Audit-only, nie an Client
-        fileSize: processed.buffer.length,
-        width: processed.width ?? null,
-        height: processed.height ?? null,
-        sha256,
-        storagePath: outPath,
-        uploadedBy: session.userId,
-        visibility: 'PRIVATE',
-        processStatus: 'READY',
-        processed: processed.type === 'image',
-      },
-    });
-    logger.info('Media uploaded (validated)', { assetId: asset.id, type: processed.type, size: processed.buffer.length });
+    let asset;
+    try {
+      asset = await prisma.mediaAsset.create({
+        data: {
+          type: processed.type!,
+          mimeType: processed.mimeType!,
+          filename: path.basename(outPath),
+          originalName: (req as { file?: { originalname: string } }).file?.originalname ?? 'upload', // Audit-only, nie an Client
+          fileSize: processed.buffer.length,
+          width: processed.width ?? null,
+          height: processed.height ?? null,
+          sha256,
+          storagePath: outPath,
+          uploadedBy: ownerId,
+          visibility: 'PRIVATE',
+          processStatus: 'READY',
+          processed: processed.type === 'image',
+        },
+      });
+    } catch (error) {
+      // Paralleler identischer Upload desselben Users (Lookup und Insert
+      // liefen parallel): UNIQUE(sha256, uploadedBy) → kontrollierte P2002.
+      // Auf die bereits angelegte Zeile auflösen (reparieren, falls nötig);
+      // unsere eigene Datei (outPath) wird nur entfernt, wenn sie nicht
+      // übernommen wurde. Die Datei des Winners bleibt unberührt.
+      if (isUniqueConflict(error)) {
+        const winner = await prisma.mediaAsset.findFirst({
+          where: { sha256, uploadedBy: ownerId },
+        });
+        if (winner) {
+          let fileOk = true;
+          try { await fs.access(winner.storagePath); } catch { fileOk = false; }
+          if (fileOk && winner.processStatus === 'READY') {
+            await fs.unlink(outPath).catch(() => {});
+          } else {
+            const repaired = await repairAssetRow(winner.id, outPath, {
+              type: processed.type!, mimeType: processed.mimeType!,
+              fileSize: processed.buffer.length, width: processed.width ?? null, height: processed.height ?? null,
+              processed: processed.type === 'image',
+            });
+            if (!repaired) throw error;
+          }
+          outPath = undefined;
+          const final = await prisma.mediaAsset.findUnique({ where: { id: winner.id } });
+          return res.status(200).json({
+            success: true,
+            data: { id: winner.id, type: final?.type ?? winner.type, mimeType: final?.mimeType ?? winner.mimeType, filename: final?.filename ?? winner.filename, fileSize: final?.fileSize ?? winner.fileSize, deduplicated: true },
+          });
+        }
+      }
+      throw error; // → allgemeiner Fehlerpfad (Cleanup unten)
+    }
+    outPath = undefined; // Datei gehört jetzt zum Asset.
+    logger.info('Media uploaded (validated)', { assetId: asset.id, type: asset.type, size: processed.buffer.length });
     return res.status(201).json({
       success: true,
-      data: { id: asset.id, type: processed.type, mimeType: processed.mimeType, filename: asset.filename, fileSize: asset.fileSize },
+      data: { id: asset.id, type: asset.type, mimeType: asset.mimeType, filename: asset.filename, fileSize: asset.fileSize },
     });
   } catch (error) {
-    removeUploaded();
+    await cleanup();
     logger.error('Failed to upload media', { error });
     return res.status(500).json({ success: false, error: { code: 'INTERNAL_ERROR', message: 'Upload fehlgeschlagen.' } });
   }
 });
+
+/**
+ * Kontrollierte In-Place-Reparatur einer Asset-Zeile (Nacharbeit B):
+ * Die Zeile behält ihre ID (stabile Referenzen), ihr storagePath zeigt auf
+ * die neue Datei, Status wird READY. Die alte Datei wird nur gelöscht, wenn
+ * kein ANDERER DB-Eintrag sie referenziert und sie sich von der neuen
+ * unterscheidet. @returns true bei Erfolg.
+ */
+async function repairAssetRow(
+  assetId: string,
+  newStoragePath: string,
+  data: { type: string; mimeType: string; fileSize: number; width: number | null; height: number | null; processed: boolean },
+): Promise<boolean> {
+  try {
+    const current = await prisma.mediaAsset.findUnique({ where: { id: assetId } });
+    if (!current) return false;
+    const oldPath = current.storagePath;
+    await prisma.mediaAsset.update({
+      where: { id: assetId },
+      data: {
+        type: data.type,
+        mimeType: data.mimeType,
+        filename: path.basename(newStoragePath),
+        fileSize: data.fileSize,
+        width: data.width,
+        height: data.height,
+        storagePath: newStoragePath,
+        processStatus: 'READY',
+        processed: data.processed,
+      },
+    });
+    if (oldPath && oldPath !== newStoragePath) {
+      const referencedElsewhere = await prisma.mediaAsset.count({
+        where: { storagePath: oldPath, NOT: { id: assetId } },
+      });
+      if (referencedElsewhere === 0) await fs.unlink(oldPath).catch(() => {});
+    }
+    return true;
+  } catch {
+    return false;
+  }
+}
 
 // ------------------------------------------------------------
 // POST /api/v1/media/composite — Fusion-Spielbild erzeugen (PR11, §15.3)
@@ -297,49 +436,57 @@ mediaRouter.post('/composite', async (req, res) => {
 });
 
 // ------------------------------------------------------------
-// GET /api/v1/media/host/:id — Original-Assets für den Host-Kontext
-// (Reveal-Vorschau, Setup-Korrektur). Zusätzlich zur Signed-URL mit
-// audience "host" ist eine gültige Session + (uploader ODER Raum-Host)
-// erforderlich. Spieler-/Zuschauer-Projektionen nutzen diese Route nie.
-// ------------------------------------------------------------
-
-mediaRouter.get('/host/:id', async (req, res) => {
-  try {
-    const asset = await prisma.mediaAsset.findUnique({ where: { id: req.params.id } });
-    if (!asset || asset.visibility === 'PUBLIC' || asset.visibility === 'SYSTEM') {
-      return res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: 'Medium nicht gefunden.' } });
-    }
-    const sessionId = verifySession(req, config.sessionSecret);
-    const session = sessionId ? await prisma.session.findUnique({ where: { id: sessionId } }) : null;
-    const allowed = Boolean(session && (
-      asset.uploadedBy === session.userId
-      || (asset.roomId ? await isRoomHost(asset.roomId, session.userId) : false)
-    ));
-    if (!allowed) {
-      return res.status(403).json({ success: false, error: { code: 'FORBIDDEN', message: 'Zugriff nicht erlaubt.' } });
-    }
-    try {
-      await fs.access(asset.storagePath);
-    } catch {
-      return res.status(404).json({ success: false, error: { code: 'FILE_MISSING', message: 'Datei nicht gefunden.' } });
-    }
-    res.setHeader('Content-Type', asset.mimeType);
-    res.setHeader('Content-Disposition', 'inline; filename="media"');
-    res.setHeader('Cache-Control', 'no-store');
-    res.sendFile(path.resolve(asset.storagePath));
-  } catch (error) {
-    logger.error('Failed to get host media', { error });
-    res.status(500).json({ success: false, error: { code: 'INTERNAL_ERROR', message: 'Medium konnte nicht geladen werden.' } });
-  }
-});
-
-// ------------------------------------------------------------
-// GET /api/v1/media/:id — Zugriffspolitik + Signed-URL-Prüfung
+// GET /api/v1/media/:id — Zentrale Zugriffspolitik (Nacharbeit C)
+//
+// Eine einzige Policy für alle nicht-öffentlichen Medien:
+//   - audience "game": gültige Signatur + Asset ist in einem Raumsnapshot
+//     als freigegebenes Spielbild referenziert (v1 imageAssetId / v2
+//     gameImageAssetId). Damit kann eine game-Signatur NIEMALS ein
+//     Original oder ein Bild einer anderen Runde freigeben. Der Status ist
+//     snapshot-basiert (statisch) — game:end, Reveal oder Rejoin ändern
+//     daran nichts.
+//   - audience "host": gültige Signatur + gültige Session (existiert, NICHT
+//     widerrufen, NICHT abgelaufen) + Host-Recht (uploader ODER Raum-Host).
+//     Der separate /host/:id-Pfad (ohne Signatur, ohne Gültigkeitsprüfung)
+//     existiert nicht mehr.
 // ------------------------------------------------------------
 
 async function isRoomHost(roomId: string, userId: string): Promise<boolean> {
   const room = await prisma.room.findUnique({ where: { id: roomId }, select: { hostUserId: true } });
   return room?.hostUserId === userId;
+}
+
+/**
+ * Ist das Asset in einem Raumsnapshot als FREIGEGEBENES SPIELBILD
+ * referenziert? (v1: round.imageAssetId, v2: round.gameImageAssetId —
+ * NIE personA/BImageAssetId.) Snapshot-basiert → unabhängig von
+ * Reveal/Phase/game:end (Nacharbeit C).
+ */
+async function isReleasedGameImage(assetId: string): Promise<boolean> {
+  const candidates = await prisma.room.findMany({
+    where: { setupSnapshotJson: { contains: assetId } },
+    select: { setupSnapshotJson: true },
+  });
+  for (const room of candidates) {
+    let snapshot: unknown;
+    try { snapshot = JSON.parse(room.setupSnapshotJson); } catch { continue; }
+    const rounds = (snapshot as { rounds?: unknown[] })?.rounds;
+    if (!Array.isArray(rounds)) continue;
+    for (const round of rounds) {
+      const r = round as Record<string, unknown>;
+      if (r.imageAssetId === assetId || r.gameImageAssetId === assetId) return true;
+    }
+  }
+  return false;
+}
+
+/** Lädt die Session aus dem Cookie + prüft ECHTE Gültigkeit (C). */
+async function loadValidSession(req: Request): Promise<{ userId: string } | null> {
+  const sessionId = verifySession(req, config.sessionSecret);
+  if (!sessionId) return null;
+  const session = await prisma.session.findUnique({ where: { id: sessionId } });
+  if (!session || session.revokedAt || session.expiresAt < new Date()) return null;
+  return { userId: session.userId };
 }
 
 mediaRouter.get('/:id', async (req, res) => {
@@ -366,12 +513,14 @@ mediaRouter.get('/:id', async (req, res) => {
       const hostSigOk = verifySignedAccess({ assetId: asset.id, audience: 'host', exp, sig });
 
       if (gameOk) {
-        // Freigegebenes Spielbild (Composite / v1-Bild) → Player/Viewer/Display.
-        allowed = true;
+        // Freigegebenes Spielbild: die Signatur ALLEIN genügt nicht — das
+        // Asset muss tatsächlich als Spielbild in einem Raumsnapshot
+        // referenziert sein (C: kein Original, kein fremdes Rundenbild).
+        allowed = await isReleasedGameImage(asset.id);
       } else if (hostSigOk) {
-        // Originale: zusätzlich gültige Session + Host-Recht.
-        const sessionId = verifySession(req, config.sessionSecret);
-        const session = sessionId ? await prisma.session.findUnique({ where: { id: sessionId } }) : null;
+        // Originale: gültige, NICHT widerrufene, NICHT abgelaufene Session
+        // + Host-Recht. Bloße Kenntnis von ID/Signatur genügt nicht.
+        const session = await loadValidSession(req);
         if (session && (asset.uploadedBy === session.userId
           || (asset.roomId ? await isRoomHost(asset.roomId, session.userId) : false))) {
           allowed = true;

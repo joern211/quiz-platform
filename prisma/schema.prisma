@@ -323,7 +323,12 @@ model MediaAsset {
   width           Int?
   height          Int?
   duration        Int?     // for audio/video in ms
-  sha256          String   @unique
+  // PR11-Nacharbeit B: Content-Identität ist je Uploader eindeutig (additive
+  // Migration, ersetzt das globale @unique auf sha256). Gleicher Content +
+  // gleicher Uploader → Dedupe; gleicher Content + ANDERER Uploader → eigenes
+  // Asset (kein 500, kein Ownership-Leak, keine gemeinsame Datei).
+  // Legacy-Zeilen mit uploadedBy NULL bleiben lesbar (SQLite: NULL ≠ NULL).
+  sha256          String
   storagePath     String
   uploadedBy      String?
   // PRIVATE | SHARED | PUBLIC | SYSTEM | ROOM_TEMP (Regelwerk §7.3)
@@ -341,10 +346,17 @@ model MediaAsset {
   processStatus       String   @default("READY")
 
   createdAt       DateTime @default(now())
-  
+
+  // PR11-Nacharbeit B: Race-Bremse — gleicher Content + gleicher Uploader ist
+  // einzigartig (parallele identische Uploads desselben Hosts kollidieren
+  // kontrolliert mit P2002 statt blindem 500). Andere Uploader bleiben
+  // unverhindert (eigene Assets). Legacy-Zeilen (uploadedBy NULL) sind in
+  // SQLite vom Unique-Index ausgenommen und bleiben unverändert lesbar.
+  @@unique([sha256, uploadedBy])
+  @@index([sha256])
+
   // Note: GeoQuestion holds the forward relation via mediaAssetId
 
-  @@index([sha256])
   @@map("media_assets")
 }
 
