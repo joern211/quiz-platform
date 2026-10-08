@@ -7,7 +7,8 @@
 ## Status-Übersicht (lebendig halten)
 
 - **Basis-Commit:** `411a5b783e5857bca5b208598fade43affc108b5` (PR #10, verifiziert = origin/main)
-- **Branch:** `feature/wer-ist-das-fusion-media` (Worktree `~/quiz-platform-pr11`; A `cd2ec0f`, B+C `fb6c134`, D `c56c8bd`, E `8ed0161` gepusht; Arbeitsbaum: Lint-Fix + Doku, Commit in Arbeit)
+- **Branch:** `feature/wer-ist-das-fusion-media` (Worktree `~/quiz-platform-pr11`; A `cd2ec0f`, B+C `fb6c134`, D `c56c8bd`, E `8ed0161`/`361f399`, Docs `1ac7e2e` — **alle gepusht**; Arbeitsbaum sauber; CI+E2E am finalen Head `1ac7e2e` ✅)
+- **PR #11:** Draft, offen, MERGEABLE, 0 Review-Kommentare; Beschreibung + Titel auf Nacharbeit A–E aktualisiert (Dedupe je Owner, game-Signatur + Snapshot-Freigabe, Recovery mit echtem Restart-Test, Lebenszyklus, Head/Testzahlen).
 - **FINAL (Nachprüfung am 08.10., alle grün):**
   - **E2E Browser** (lokal, echter Chromium): `weristdas-e2e.spec.ts` **1 passed (11.7s)** — jetzt inkl. echtem Button „Spielbild neu erzeugen" (A-Regenerationspfad) + Zwei-Runden + Reload/Rejoin + Ergebnis.
   - **Migration:** frische DB ✓ (alle applied); **BESTEHENDE** DB (vor owner-scoped-Migration, Legacy-Zeilen mit `uploadedBy=NULL`) → Migration applied ✓, `media_assets_sha256_uploadedBy_key` existiert ✓, Legacy-NULL-Zeilen lesbar ✓, gleicher Hash + anderer Owner + zweite NULL-Zeile erlaubt ✓.
