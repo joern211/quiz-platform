@@ -1,10 +1,15 @@
 # Wer ist das? (`wer-ist-das`) — Spezifikation
 
 **Status main:** BETA (MVP `games/weristdas/`, 2184 Zeilen, E2E W-Tests).
-**PR11 (offener Draft, Head 1470894):** Composite-Fusion, Setup v2,
-Medien-Geheimhaltung, Originals/Names als Secrets, Host-Mitspiel-Gate,
+**PR11 (offener Draft):** Composite-Fusion, Setup v2, Medien-Geheimhaltung,
+Originals/Names als Secrets, `HOST_CANNOT_PLAY_OWN_ROUND`-Gate,
 `gameImageUrl`-Resync, `/api/v1/media/composite`, sichere Uploads.
 **Ziel-PR:** PR11 (Abschluss) + PR37 (V1-Verträge).
+
+> **12-04 Abgleichsnachweis:** Die Ist-Aussagen (BESTEHEND/FEST) wurden
+> gegen den gepinnten PR11-Stand (Snapshot `1470894` als PR11-Vergleich,
+> **getrennt von main**) abgeglichen. Nach dem PR11-Merge ist ein erneuter
+> main-Abgleich erforderlich (12-11).
 
 ## 1. Kurzbeschreibung & Regelquellen
 
@@ -40,7 +45,7 @@ Originals und Namen bleiben geheim.
 |---|---|---|
 | min/max | 2 / 10 | FEST (Manifest) |
 | Teams | optional (Team-Buzzer via Core) | O |
-| Host-Mitspiel | **nur wenn Setup vollständig** (personA+B + Spielbild hochgeladen) — PR11-Gate; Host sieht als Player vor Reveal nichts Mehr als andere (Originals/Names sind `HOST_PRIVATE`, aber das Gameplay-Geheimnis gilt für alle bis Reveal; der Informationsvorteil durch Upload-Rechte wird durch die feste Reveal-Regel neutralisiert) | FEST (PR11) |
+| Host-Mitspiel | **`HOST_CANNOT_PLAY_OWN_ROUND` (BESTEHEND, gepinnter PR11):** Das Host-Konto, das die Originale + Namen eingegeben hat, kann in der eigenen wer-ist-das-Runde **serverseitig nicht** blind mitspielen (Join mit 403 abgewehrt). **Nicht** durch Reveal neutralisiert — der Wissensvorteil durch die Upload-/Namen-Eingabe bleibt bestehen. Anonyme (ohne Login) Mitspieler sind nicht betroffen — das ist der vorgesehene faire Modus. | FEST (PR11, gepinnt) |
 | Secrets | Originals + Namen: `HOST_PRIVATE` vor Reveal (Player/Viewer/Display nie); eigene Buzz-Antwort `PLAYER_PRIVATE` | FEST §5.15, PR11 |
 
 ## 4. Setup (Ziel = PR11 Setup v2)
@@ -61,17 +66,25 @@ setupVersion = 2 (v1-MVP bleibt lauffähig — PR11)
 
 - **Preflight:** beide Personen vollständig (Name + Bild), Spielbild
   vorhanden (sonst `MISSING_GAME_IMAGE`), Spieler ≥2.
-- **Medien-Pipeline (PR11, offen):** Uploads (JPG/PNG/WebP, ≤5MB, 512×512
-  Min, EXIF-Strip, Dedupe, ROOM_TEMP), Composite-Endpoint (idempotent,
-  1024×1024, crossfade-v1), Signed URLs (shortlived, no-store),
-  `visibility=SHARED` für gameImage, Originals `HOST_PRIVATE`.
+- **Medien-Pipeline (PR11, offen — Ist-Limits verifiziert):** Uploads
+  (JPG/PNG/WebP, **konfigurierbarer Standard 10 MB** (`MAX_IMAGE_SIZE_MB`),
+  **maximale Dimension 4096 px** (`MAX_IMAGE_DIMENSION`), **keine
+  Mindestdimension**, EXIF-Strip, Dedupe, ROOM_TEMP), Composite-Endpoint
+  (idempotent, 1024×1024, crossfade-v1), Signed URLs (shortlived,
+  no-store), `visibility=ROOM_TEMP` für gameImage, Originals
+  `HOST_PRIVATE`/eigentümergesichert.
 - **Recovery:** `gameImageUrl` wird im Resync neu ausgeteilt (PR11),
   Originals nie.
 
 ## 5. Content-/Editor-Schema
 
-- Keine Content-Pool-Items — Setup-basiert (Prozedural-Pool-Modell,
-  wie heute; Personen bleiben Session-Daten, nicht ContentLibrary).
+- **IST (MVP/PR11):** Setup-basiert (Runden als Setup-Snapshot,
+  Personen bleiben Session-Daten) — **prozedural**, keine ContentLibrary.
+- **ZIEL (Master §6.1):** `WerIstDasPack/Round` ist im Master-
+  Contentmodell ein expliziter Content-Pool-Typ. Das prozedurale Setup
+  darf dieses Ziel **nicht still streichen** — V1-Ziel bleibt das
+  Pack/Round-Modell, das Setup ist die V1-/BETA-Eingabeform (Target/
+  Gap, nicht Vertragsänderung; Umsetzung in PR37-Katalog).
 - **VORSCHLAG DEC-WID-01:** optionale SYSTEM-„Beispielpersonen" als
   Quick-Setup-Vorlage (nur Demo, keine Rechte-Daten).
 - Quick Setup: 2× (Name + Bild-Upload) → Spielbild-Generierung → Start.
@@ -91,9 +104,14 @@ SETUP (Setup v2) → INTRO → (je Runde) BUZZ_OPEN → BUZZ_LOCKED → JUDGING 
 | `hint.grant` | HOST | JUDGING |
 | `round.next` / `timer.*` / `pause`/`resume` / `emergency.*` | HOST | — |
 
-- **Ablaufbeispiel:** Runde 3, Player B buzzt → „Da ist Angela Merkel
-  drin!" → Host: nur eine korrekt → +1 B. Player C buzzt daneben
-  („Das ist ein Roboter") → −1 C, für Runde 4 gesperrt.
+- **Ablaufbeispiel (Ist-Stand, gepinnter PR11):** Runde 3, Player B
+  buzzt → „Da ist Angela Merkel drin!" → Host erteilt den Hint
+  („Eine Person reicht") → Host-Judge: nur eine korrekt → **+1 B**
+  (ohne gültig erteilten Hint ist `ONE_CORRECT` serverseitig
+  abgelehnt — `HINT_REQUIRED`). Player C buzzt danach daneben
+  („Das ist ein Roboter") → **−1 C**, und C ist für **dieselbe
+  Runde 3** vom Buzzer ausgeschlossen (`excludedPlayerIds`; bei
+  erneutem Öffnen des Buzzers in Runde 3 → `PLAYER_EXCLUDED`).
 
 ## 7. Wertung & Endgründe
 

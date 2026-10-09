@@ -23,9 +23,13 @@ Secret/Projection-Regeln.
 - Buzzer: erster gültiger Servereingang (SERVER_ARRIVAL), falsche Antwort
   → optional Runden-Ausschluss (Buzzer-Core `excludedPlayerIds`, bestehend).
 - Punkte über ScoreEvent-Ledger (`recordScoreMutation`, bestehend).
-- Geheimhaltung: Frage/Lösung nur im `BUZZ_LOCKED`/Judge-Kontext an den
-  Buzzer-Winner + Host; Viewer/andere Player sehen Feld + Kategorie,
-  keine Lösung (E2E J9 grün).
+- **Geheimhaltung (BESTEHEND, Ist — Engine `handleFieldOpen`, E2E J9
+  grün):** Beim **Feldöffnen** geht die **Frage an ALLE**
+  (`jeopardy:field:open` → Raum-Kanal); die **Lösung geht NUR an den
+  Host** (`jeopardy:answer:secret` → Moderator-Socket). **Nicht**
+  „Frage + Lösung an Winner + Host" — der Buzzer-Winner sieht die
+  Frage bereits im öffentlichen Feld-Event; die Lösung bleibt
+  Judge-only. (12-05: Projektion korrekt übernommen.)
 
 ## 3. Spieler/Teams/Rollen
 
@@ -33,8 +37,8 @@ Secret/Projection-Regeln.
 |---|---|---|
 | min/max | 2 / 10 (Manifest) | FEST |
 | Teams | heute false; Team-Buzzer über Buzzer-Core (PR15) möglich | O |
-| Host-Mitspiel | erlaubt; Host-Judge bleibt getrennt — als Player sieht Host keine Lösung vor dem eigenen Buzzer, da Lösung erst im Judge-Kontext an Winner+Host geht (Gleichzeitigkeit: Host sieht Lösung als Judge, wenn er selbst buzzt → **Einschränkung dokumentieren**: Host-Judge und Host-Player sind in derselben Sitzung; VORSCHLAG DEC-JEO-01: Host darf mitbuzzen, Lösung wird ihm als Judge sofort sichtbar — akzeptabler Vorteil? Alternative: Host wird in der Runde automatisch aus dem Buzzer-Pool ausgeschlossen) | OFFEN |
-| Secrets | Frage+Lösung `PLAYER_PRIVATE` (nur Winner) + `HOST_PRIVATE` (Judge) bis Feld abgeschlossen | FEST §5.15 |
+| Host-Mitspiel | erlaubt; **administrierende Rolle ≠ Informationsrecht** (FEST, Master §2/§10): Die Trennung von Verwaltung (Judge) und Gameplay-Information ist **keine freigabefähige Alternative** — ein „akzeptabler Wissensvorteil" ist keine zulässige Option. Ist: Host sieht die Lösung als Judge bei jedem Feld (Judge-only-Kanal, §2). Konkrete faire Rollenlösung für den mitspielenden Host → **VORSCHLAG DEC-JEO-01** (Host wird in eigenen Runden aus dem Buzzer-Pool ausgeschlossen — kein Rollenmodell-Bruch) | IST + Vorschlag |
+| Secrets | **Frage: PUBLIC** ab Feldöffnen (alle, E2E J9); **Lösung: Judge-only** (`HOST_PRIVATE`-Kanal, nur Host) bis Feld abgeschlossen | FEST §5.15, IST |
 
 ## 4. Setup (Ziel)
 
@@ -80,14 +84,27 @@ SELECTING → BUZZ_OPEN → BUZZ_LOCKED → FIELD_DONE | (WRONG) STEAL_OPEN → 
 | `timer.*` | HOST | während Feld |
 | `board.next` / `game.start` / `pause`/`resume` / `emergency.*` | HOST | — |
 
-- **Ablaufbeispiel:** Feld „Geografie 400" → Player A buzzt → Host zeigt
-  Frage nur A + sich → A falsch → STEAL_OPEN → Player B buzzt → korrekt
-  → +400 B, (Steal) A unverändert.
+- **Ablaufbeispiel (Ist-Wertung, gepinnter Stand):** Feld „Geografie
+  400" → Frage an alle, Lösung nur Host → Player A buzzt → A falsch →
+  **A −200** (`pointsForWrongFirst(400) = −Math.round(400/2)`) →
+  STEAL_OPEN → Player B buzzt → korrekt → **B +200**
+  (`pointsForCorrectSteal(400) = Math.round(400/2)`). (Steal-Ausschluss
+  für Folge-Steals bleibt bestehen.)
 
-## 7. Wertung & Endgründe
+## 7. Wertung & Endgründe (IST — aus `contracts.ts` abgeleitet, 12-05)
 
-- Korrekt: +Feldwert; falsch (Steal verloren): −Feldwert (bestehend).
-  Ledger-Events: `ANSWER_CORRECT`, `ANSWER_WRONG`.
+- **Korrekt zuerst:** **+Feldwert** (`pointsForCorrect` → `value`).
+- **Falsch zuerst:** **−halber Feldwert**, gerundet
+  (`pointsForWrongFirst` → `−Math.round(value/2)`).
+- **Korrekter Steal:** **+halber Feldwert**, gerundet
+  (`pointsForCorrectSteal` → `Math.round(value/2)`).
+- **Falscher Steal:** **−halber Feldwert**, gerundet, kein weiterer
+  Steal (`pointsForWrongSteal` → `−Math.round(value/2)`).
+- (Ist-Befund 12-05: Der Entwurf behauptete „falsch (Steal verloren):
+  −Feldwert" und „+400 für Steal auf ein 400er-Feld" — beides **falsch**;
+  die bestehenden Funktionen geben jeweils ±halben Wert.)
+- Ledger-Events: `ANSWER_CORRECT`, `ANSWER_WRONG` (Score-Mutation via
+  `recordScoreMutation`).
 - Ties: möglich → Leaderboard zeigt Gleichstand (Tie-Core `ALLOW_TIE` Default,
   Endplatzierung mit geteiltem Platz — VORSCHLAG DEC-JEO-02).
 - Endgründe: `COMPLETED` (alle Felder), `HOST_ABORTED`, `TECHNICAL_ABORT`,
@@ -96,9 +113,9 @@ SELECTING → BUZZ_OPEN → BUZZ_LOCKED → FIELD_DONE | (WRONG) STEAL_OPEN → 
 
 ## 8. Projektionen & Secrets
 
-- PLAYER: Board, gewählte Felder, eigene Punkte, Timer; Frage/Lösung
-  **nur** Winner (bzw. Steal-Winner) + Host.
-- HOST: Judge-Ansicht (Frage/Lösung bei Locked), Scoreboard, Steuerung.
+- PLAYER: Board, gewählte Felder, eigene Punkte, Timer; **Frage: alle**
+  ab Feldöffnen; **Lösung: NUR Host** (Judge-only).
+- HOST: Judge-Ansicht (Lösung bei jedem Feld), Scoreboard, Steuerung.
 - VIEWER: Board, Werte, „Feld offen/besetzt", Scoreboard; keine Lösung.
 - DISPLAY: große Board-Ansicht (PR20).
 - Preloading: nächste Feldtexte nie (leak-safe).
