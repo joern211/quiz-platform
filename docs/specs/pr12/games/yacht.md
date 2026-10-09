@@ -22,16 +22,21 @@ Upper/Lower Block, Solo/1v1/FFA/Team.
   Browser-Manipulation.
 - **Zug:** max 3 Würfe, beliebig Hold/Unhold zwischen Würfen
   (serverseitig validiert), frühe Wertung erlaubt (nach 1./2. Wurf).
-- **Scorecard CLASSIC:** Upper Block (Einer 1–6, Bonus ab 63) +
-  Lower Block (Dreierpasch 11, Viererpasch 15, Full House 25,
-  Kleine Straße 30, Große Straße 40, Yacht 50, Chance).
+- **Scorecard CLASSIC (§16.6):** Upper Block (Einer 1–6, Bonus ab 63) +
+  Lower Block (Dreierpasch = **Würfelsumme**, Viererpasch = **Würfelsumme**,
+  Full House 25, Kleine Straße 30, Große Straße 40, Yacht 50, Chance =
+  Würfelsumme).
 - **Eine freie Kategorie pro Zug** (beliebige offene, auch 0 streichen);
   Game bei kompletter Scorecard.
-- **Mehrfach-Yacht:** Bonus (konkrete Werte → DEC-YAC-01).
+- **Mehrfach-Yacht:** Zusatzbonus, klassische Joker-Regeln; eigene Presets
+  dürfen verändern/deaktivieren (konkrete Werte → DEC-YAC-01).
 - **Modi:** Solo, 1v1, FFA, Team.
-- **Team-Scorecard:** `SHARED_SCORECARD` (Default: alle werfen, eine
-  Scorecard) + `INDIVIDUAL_SCORECARDS` (je Spieler, Teamendwert = Summe,
-  später AVERAGE — DEC-YAC-01).
+- **Team-Scorecard (§16.4):** `SHARED_SCORECARD` (Default: **ein aktiver
+  Player pro Teamzug** würfelt und trägt final ein, Team darf beraten,
+  aktiver Player **rotiert** innerhalb des Teams, gemeinsame Scorecard) +
+  `INDIVIDUAL_SCORECARDS` (je Spieler eigene komplette Partie,
+  Teamendwert = Summe). `AVERAGE_SCORE` bei ungleichen Teamgrößen ist
+  **ausdrücklich später** — keine V1-Option.
 - **Turn Order:** random Start, dann reihum; Host editierbar
   (CUSTOM_HOST_ORDER), Override, Rotation zwischen Runden.
 - **Presets:** CLASSIC (komplett), QUICK (reduzierte Scorecard —
@@ -70,7 +75,8 @@ YachtSetup {
   scorecard: {categories: string[] (CLASSIC: alle 13; QUICK: subset,
                DEC-YAC-01; CUSTOM: Host-Auswahl)}
   mode: SOLO|ONE_V_ONE|FFA|TEAM
-  teamScoring: SHARED_SCORECARD|INDIVIDUAL_SCORECARDS (teamEndValue: SUM|AVERAGE)
+  teamScoring: SHARED_SCORECARD|INDIVIDUAL_SCORECARDS (teamEndValue: SUM;
+               AVERAGE_SCORE ausdrücklich später, nicht V1)
   turnsPerGame: 13 (CLASSIC) | reduced (QUICK)
   turnOrder: {mode: RANDOM_START|HOST_ORDER, rotation: true}
   turnTimer: {enabled: false, presets: [30000,45000,60000], onTimeout: 'SKIP_AFTER_HOST_CONFIRM'}
@@ -107,17 +113,18 @@ INTRO → (je Zug) ROLLING (max 3 Würfe, Hold/Unhold) → SCORING (Kategorie w�
 | `game.end` (auto bei Scorecard voll) | SYSTEM | — |
 | `pause`/`resume` / `emergency.*` | HOST | — |
 
-- **Ablaufbeispiel:** Player A würfelt 2×(3,3,4,5,6) → hält 3,3,4 →
-  3. Wurf (3,3,4,3,6) → Dreierpasch → Wert 3 in „Dreierpasch" (11)
-  → Live-Preview zeigte: Dreierpasch=11, Chance=19, Yacht? nein.
-  Nächster Zug B.
+- **Ablaufbeispiel (§16.6):** Player A (aktiver Spieler des Teams bei
+  SHARED_SCORECARD) würfelt 2× (3,3,4,5,6) → hält 3,3,4 → 3. Wurf
+  (3,3,4,3,6) → Dreierpasch → **Würfelsumme 19** in „Dreierpasch" →
+  Live-Preview zeigte u. a.: Dreierpasch=19, Chance=19, Yacht? nein.
+  Nächster Zug B (nächster rotierender aktiver Spieler).
 
 ## 7. Wertung & Endgründe (FEST §16)
 
 - Scorecard-Werte: Upper (Würfelsumme je Augenzahl, Bonus ab 63),
-  Lower (Dreierpasch 11, Viererpasch 15, Full House 25, Kleine Straße
-  30, Große Straße 40, Yacht 50, Chance = Summe), Mehrfach-Yacht
-  Bonus (DEC-YAC-01).
+  Lower (Dreierpasch = **Würfelsumme**, Viererpasch = **Würfelsumme**,
+  Full House 25, Kleine Straße 30, Große Straße 40, Yacht 50, Chance =
+  Würfelsumme), Mehrfach-Yacht-Bonus (DEC-YAC-01).
 - **Ledger-Events:** `TURN_COMPLETED` (Value je Kategorie),
   `SCORECARD_COMPLETE`, `GAME_WON`, `TIE_RESOLVED`.
 - **Ties:** Default TIE (geteilt); Host-Optionen: Higher-Upper /
@@ -176,4 +183,8 @@ INTRO → (je Zug) ROLLING (max 3 Würfe, Hold/Unhold) → SCORING (Kategorie w�
 
 | ID | Frage | Vorschlag (default) |
 |---|---|---|
-| DEC-YAC-01 | Mehrfach-Yacht-Bonuswerte, QUICK-Modus-Kategorien, AVERAGE_SCORE-Zeitpunkt, Turn-Timer-Timeout-Verhalten bei Host-Ausfall | 2nd=25, 3rd=50; QUICK = 8 Kategorien (Einer 1–6 + Yacht + Chance); AVERAGE = Team-Endwert nach Spielende; Auto-Skip nach 2×30s bei Host-Ausfall |
+| DEC-YAC-01 | Mehrfach-Yacht-Bonuswerte, QUICK-Modus-Kategorien, Turn-Timer-Timeout-Verhalten bei Host-Ausfall | 2nd=25, 3rd=50; QUICK = 8 Kategorien (Einer 1–6 + Yacht + Chance); Auto-Skip nach 2×30s bei Host-Ausfall |
+
+> **Nicht mehr offen (Master §16.4):** `AVERAGE_SCORE` ist ausdrücklich
+> **später** — keine V1-Option und keine Nutzerentscheidung. `teamEndValue`
+> ist in V1 ausschließlich `SUM`.

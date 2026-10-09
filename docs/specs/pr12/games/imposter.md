@@ -8,23 +8,35 @@
 Rundenspiel mit einer geheimen echten Antwort: pro Runde gibt es eine
 **geheime korrekte Antwort** auf eine Frage; jeder Spieler schreibt eine
 plausible Antwort (die echte oder eine Lüge). Alle Antworten werden
-gezeigt, dann wird abgestimmt. Die gewählte echte Antwort bringt +1 ihrem
-Autor; der Autor einer Lüge bekommt +1 pro Spieler, der darauf (gefehlt)
-gestimmt hat.
+gezeigt, dann wird abgestimmt.
 
-- FEST §15.4: Scoring +1 echte Antwort, +1 pro getäuschtem Vote für
-  Lügenautor; getrennt von Undercover.
+- **Scoring (FEST §15.4):**
+  - **+1 an jeden Spieler, der die echte Antwort korrekt wählt** (der
+    Punkt geht an den *richtig votierenden Spieler*, nicht an einen
+    „Autor der echten Antwort" — die echte Antwort stammt aus dem
+    Content, sie hat **keinen Spieler-Autor**).
+  - **+1 an den Autor einer Lüge pro getäuschtem Vote** (jede Stimme,
+    die auf seine Lüge fällt).
+
+> **Korrektur 12-03:** Der Entwurf gab +1 einem „Autor der echten
+> Antwort". Das ist falsch: die echte Antwort ist Content, nicht eine
+> Spieler-Submission. Empfänger ist der Spieler, der **korrekt auf die
+> echte Antwort votiert**.
+
+- FEST §15.4: Scoring +1 echte Antwort (an den Wählenden), +1 pro
+  getäuschtem Vote für Lügenautor; getrennt von Undercover.
 - OFFEN (Decision): exakte Teilwertung, Duplikate, Nichtabgabe,
   Gleichstand-Regel → DEC-SPI-01.
 
 ## 2. Feste Regeln
 
-- Eine echte Antwort pro Runde (geheim, `HOST_PRIVATE` bis Reveal).
+- Eine echte Antwort pro Runde (geheim, **auch vom mitspielenden Host
+  verborgen bis Reveal** — 12-03).
 - Spieler reichen verbale Antworten ein (plausible Lügen erlaubt/erwartet).
 - Reveal: alle Antworten + welche die echte war.
 - Voting: jeder (außer Autor? — siehe Vorschlag) stimmt auf eine Antwort.
-- Scoring: +1 Autor der gewählten echten Antwort; +1 Lügenautor pro
-  getäuschtem Vote (FEST).
+- Scoring: +1 an jeden Spieler, der die echte Antwort korrekt wählt;
+  +1 an den Autor einer Lüge pro getäuschtem Vote (FEST §15.4).
 - Getrennt von Undercover (keine Rollen, kein Eliminations-Charakter).
 
 ## 3. Spieler/Teams/Rollen
@@ -33,8 +45,8 @@ gestimmt hat.
 |---|---|---|
 | min/max | 3 / 12 (Vorschlag DEC-SPI-01) | V |
 | Teams | nein (individuell) | V |
-| Host-Mitspiel | erlaubt; Host sieht die echte Antwort als Content-Ersteller **erst im Reveal** — VORSCHLAG: Host-Content-Visibility `HOST_PREVIEW` (Host erkennt eigene Lüge nicht, wenn er nicht Autor ist) | V |
-| Secrets | echte Antwort: `HOST_PRIVATE` (nur Host + Autor nach Reveal); eigene Antwort: `PLAYER_PRIVATE` bis Reveal; **keine Autoreninfo im Voting** (Vorschlag: Antworten ohne Namenszuordnung bis Reveal — siehe DEC-SPI-01) | V/F (Secret-Prinzip) |
+| Host-Mitspiel | erlaubt; **blind mitspielend** — Host sieht die echte Antwort wie jeder andere **erst im Reveal** (`HOST_PREVIEW=false`, keine Voreinstellung, die vor Reveal zeigt; 12-03) | F/V |
+| Secrets | echte Antwort: `PLAYER_PRIVATE`/Content (bis Reveal — **auch für den Host blind mitspielend**; 12-03); eigene Antwort: `PLAYER_PRIVATE` bis Reveal; **keine Autoreninfo im Voting** (Vorschlag: Antworten ohne Namenszuordnung bis Reveal — siehe DEC-SPI-01) | F/V (Secret-Prinzip) |
 
 ## 4. Setup (Ziel)
 
@@ -76,25 +88,45 @@ INTRO → (je Runde) QUESTION_REVEAL → ANSWER_OPEN → ANSWER_LOCKED → VOTE_
 | `reveal` | HOST (REVEAL_CONTENT) | VOTE_LOCKED |
 | `round.next` / `timer.*` / `pause`/`resume` | HOST | — |
 
-- **Ablaufbeispiel:** 4 Spieler, Frage „Welches Tier kann fliegen?".
-  Echte Antwort (geheim): „Pinguin" (absichtlich absurd? — nein: die echte
-  Antwort ist faktisch korrekt, z. B. „Adler"; Lügen: „Giraffe", „Kaulquappe").
-  Alle Antworten werden anonymisiert gezeigt; Abstimmung; „Adler" wird
-  gewählt → +1 an Adler-Autor; „Kaulquappe" erhält 2 Stimmen → +2 an
-  Kaulquappe-Autor (wenn der eine Lüge war und gewählt wurde).
+- **Ablaufbeispiel (FEST-Wertung):** 4 Spieler (P1–P4), Frage
+  „Welches Tier kann fliegen?". Echte Antwort (Content, geheim):
+  „Adler". P1 schreibt „Adler" (= die echte Antwort), P2 „Giraffe",
+  P3 „Kaulquappe", P4 „Eichelhäher" (Lügen, alle eindeutig).
+  Abstimmung:
+  P1 → „Giraffe", P2 → „Adler" (**korrekt**), P3 → „Giraffe",
+  P4 → „Eichelhäher" (eigene Antwort = **Selbst-Vote**, nicht getäuscht).
+  - **Korrekt votierend:** P2 (wählte „Adler") → **P2 +1**.
+  - **Getäuschte Votes:** P1 und P3 votierten auf „Giraffe" (Lüge von
+    P2) → **P2 (Giraffen-Autor) +2** (je 1 pro getäuschtem Vote).
+  - „Eichelhäher": nur P4 selbst votiert darauf (Selbst-Vote) →
+    **0** getäuschte Votes → kein Bonus.
+  - Ergebnis: P2 = 1 + 2 = **3 Punkte**.
+  - Keiner der Punkte geht an einen „Autor der echten Antwort" —
+    „Adler" hat keinen Spieler-Autor.
+  - **Tie-Grenze (12-03):** selbst wenn z. B. „Adler" und „Giraffe"
+    exakt gleich viele Stimmen bekämen (2:2), bliebe die je-Stimme-
+    Wertung bestehen: P2 erhielte weiterhin +1 (korrekt) und
+    +2 (getäuscht).
 
-## 7. Wertung & Endgründe (Vorschläge, DEC-SPI-01)
+## 7. Wertung & Endgründe (FEST + Vorschläge, DEC-SPI-01)
 
-- **FEST:** +1 für die gewählte echte Antwort (Autor); +1 pro getäuschtem
-  Vote für den Lügenautor.
-- **VORSCHLAG:** Nichtabgabe (Antwort) = automatisch 0, Voting mit Platzhalter
-  „(keine Antwort)" erlaubt, aber nicht wählbar; Nichtabgabe (Vote) =
-  kein Punkt, aber andere zählen; Duplikat-Antworten: werden zusammengeführt,
-  Stimmen addiert, Autor des zuerst Abgebenden behält die Zuschreibung;
-  Tie bei Voting: keine zweite Runde — Punkt geht an beide Autoren
-  (geteilt), alternativ: keine Punkte (empfohlen: **keine Punkte** bei
-  vollständigem 2-Wege-Tie, da kein „Gewinner").
-- Ledger-Events: `ROUND_BONUS (+1/…)` pro Spieler, `ANSWER_REVEALED`.
+- **FEST (pro Stimme):** +1 an jeden Spieler, der die echte Antwort
+  korrekt wählt; +1 an den Autor einer Lüge je getäuschtem Vote.
+  Die Wertung ist **je einzelner Stimme** definiert.
+- **Tie-Grenze (12-03):** Eine vorgeschlagene **globale** Nullwertung
+  bei Vote-Gleichstand (z. B. „bei vollständigem 2-Wege-Tie gibt es
+  keine Punkte") gilt **nur** für die Frage „welche Antwort gewinnt
+  die Runde" und **darf die feste je-Stimme-Wertung nicht aufheben**.
+  Auch bei einem Gesamt-Tie erhalten die korrekt votierenden Spieler
+  ihren +1 und die Lügenautoren +1 pro getäuschtem Vote.
+- **VORSCHLAG (nur Details, DEC-SPI-01):** Nichtabgabe (Antwort) =
+  automatisch 0, Voting mit Platzhalter „(keine Antwort)" erlaubt, aber
+  nicht wählbar; Nichtabgabe (Vote) = kein Punkt, aber andere zählen;
+  Duplikat-Antworten: werden zusammengeführt, Stimmen addiert, Autor des
+  zuerst Abgebenden behält die Zuschreibung.
+- **Ledger-Events (empfohlen, 12-03):** pro korrektem Voter
+  `CORRECT_VOTE_BONUS` (+1 an den Wählenden); pro getäuschtem Vote
+  `LIE_TRICK_BONUS` (+1 an den Lügenautor); `ANSWER_REVEALED`.
 - Endgründe: `COMPLETED`, `HOST_ABORTED`, `TECHNICAL_ABORT`,
   `INSUFFICIENT_PLAYERS`.
 

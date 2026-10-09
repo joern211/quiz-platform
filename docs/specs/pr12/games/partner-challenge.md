@@ -6,17 +6,24 @@ Master** — §15.9 enthält nahezu alle Mechanik-Details.
 
 ## 1. Kurzbeschreibung & Regelquellen
 
-Kooperations-/Wettbewerbs-Hybride mit 2er-Teams: pro Runde ist ein Team
-„Bidder" (verhandelt ein Gebot), das andere „Performer" (versucht die
-Aufgabe mit dem Ziel). **Wichtig:** Der Performer sieht beim Bidding
+Kooperations-/Wettbewerbs-Hybride mit 2er-Teams: **Innerhalb jedes Teams**
+gibt es je einen **Bidder** und einen **Performer** (Master §15.9: „pro
+Team Bidder + Performer"). Pro Teamzug verhandelt der Bidder **für seinen
+eigenen Partner** (Performer) ein Ziel; der Performer sieht beim Bidding
 **weder Kategorie noch Gebote/Ziel** — nur „Dein Partner verhandelt
-gerade". Erfolg → +2 (Performer-Team), Misserfolg → +1 nur für das
-Team, das **zuletzt ausgestiegen** ist (keine Minuspunkte).
+gerade". Erfolg → +2 (Team des Performers), Misserfolg → +1 **nur** für
+das Team, das **zuletzt gegen den Gewinner-Bidder ausgestiegen/passiert**
+ist, frühere Teams 0 (keine Minuspunkte).
+
+> **Korrektur 12-02:** Die Rollen sind **keine Teamaufteilung**
+> („Bidder-Team vs. Performer-Team"), sondern Rollen **innerhalb** jedes
+> Teams. Der Gewinner-Bidder setzt das Ziel für **seinen Partner**, nicht
+> für ein anderes Team.
 
 - FEST §15.9 (vollständig in requirements-matrix MR-15-09-01):
-  Bidder/Performer-Rotation, freie Gebote, Pass-Regeln, verdeckte
-  Kategorie/Gebote, Challenge-Ablauf, Zielzähler, Validierung,
-  Scoring +2/+1, Task-DB-Pflichtfelder.
+  Bidder/Performer **je Team**, Rollen- und Startteam/-bidder-Rotation,
+  freie Gebote, Pass-Regeln, verdeckte Kategorie/Gebote, Challenge-Ablauf,
+  Zielzähler, Validierung, Scoring +2/+1, Task-DB-Pflichtfelder.
 
 ## 2. Feste Regeln (Master §15.9)
 
@@ -26,10 +33,16 @@ Team, das **zuletzt ausgestiegen** ist (keine Minuspunkte).
 - **Bidding (frei):** Startgebot, Erhöhungen, Sprünge erlaubt;
   Pass: bei 2 Teams → Bidding-Ende; bei >2 Teams → bis nur ein Team
   übrig ist. Gebote sind Ziele (z. B. „5 Mal", „30 Sekunden").
-- **Geheimhaltung:** Performer-Team sieht während Bidding nur
-  „Dein Partner verhandelt gerade" (keine Kategorie, kein Bid,
-  kein Target). **Viewer darf Category/Bids sehen** (sofern Projection
-  es erlaubt). Host sieht alles (Judge-Notwendigkeit).
+- **Geheimhaltung:** Der **Performer eines Teams** sieht während des
+  Biddings nur „Dein Partner verhandelt gerade" (keine Kategorie,
+  kein Bid, kein Target). **Viewer darf Category/Bids sehen** (sofern
+  Projection es erlaubt).
+- **Host-Performer ohne Wissensvorteil (FEST, 12-02):** Administrative
+  Rechte sind **kein Gameplay-Informationsrecht**. Ein mitspielender
+  Host, der in der Rolle des **Performers** steckt, sieht bei dem
+  Bidding, an dem er nicht selbst Bidder ist, genau das wie jeder andere
+  Performer (nur „Partner verhandelt"). „Host sieht alles" gilt nur für
+  **andere** Teams, nicht für den eigenen Team-Geheimhaltungsrahmen.
 - **Challenge:** nach Bidding bekommt Performer Task + Ziel; Host
   startet („Los"); Timer unlimited oder Presets (während/nach Bidding
   setzbar, vor Challenge).
@@ -41,9 +54,12 @@ Team, das **zuletzt ausgestiegen** ist (keine Minuspunkte).
   Performer sieht eigene Fortschritt (n) und Ziel (target);
   target erreicht = immediate success; Timer abgelaufen = loss;
   Give up erlaubt; Host kann manuell beenden.
-- **Scoring (FEST):** Success → **+2** an Performer-Team; Failure →
-  **+1 nur an das zuletzt ausgestiegene Gegnerteam**; früher
-  Ausgestiegene: 0; **keine Minuspunkte**.
+- **Scoring (FEST §15.9):** Success → **+2** an das Team des
+  Performers; Failure → **+1 an genau das Team, das zuletzt gegen den
+  Gewinner-Bidder ausgestiegen/passiert** ist; alle früher
+  ausgestiegenen Teams: **0**; **keine Minuspunkte**. Die Regel gilt
+  für zwei **und** mehr Teams (Master-Formel, keine separate
+  Zwei-Teams-Variante).
 - **Task-DB (Pflicht):** prompt, category, **difficulty REQUIRED**,
   **tags REQUIRED**; optional: valid answers/synonyms, timer,
   suggested bid, moderator notes, beta config.
@@ -54,9 +70,10 @@ Team, das **zuletzt ausgestiegen** ist (keine Minuspunkte).
 | Aspekt | Wert | Status |
 |---|---|---|
 | min/max | 4 / 12 (2er-Teams) | F (gerade Zahl) |
-| Teams | **Pflicht**, 2er (Bidder/Performer) | F |
-| Host-Mitspiel | erlaubt; dann validieren Gegner + Host-Override | F |
-| Secrets | Kategorie + Gebote: **vom Performer-Team verborgen** (nur Bidder-Team + Host + Viewer); Performer sieht erst nach Bidding Task+Ziel | F §15.9 |
+| Teams | **Pflicht**, 2er; **je Team 1 Bidder + 1 Performer** | F §15.9 |
+| Rollen pro Team | Bidder + Performer (rotierend); Startteam/-bidder rotiert | F §15.9 |
+| Host-Mitspiel | erlaubt; Host-Performer ohne Wissensvorteil (siehe §2) | F |
+| Secrets | **pro Spielerrolle**: Kategorie + Gebote + Ziel sind dem **Performer** verborgen (Bidder seines Teams weiß um seine eigene Bietaktion; Viewer/Host-Sicht für **andere** Teams erlaubt); Performer sieht erst nach Bidding Task + Ziel | F §15.9 |
 
 ## 4. Setup (Ziel)
 
@@ -110,46 +127,62 @@ INTRO → (je Runde) BIDDING_OPEN (Bidder-Teams sichtbar, Performer-Teams: „Pa
 | `host.override` (SUCCESS\|FAILURE + reason) | HOST | VALIDATION |
 | `round.next` / `pause`/`resume` / `emergency.*` | HOST | — |
 
-- **Ablaufbeispiel:** Team A bidet 5, Team B (Performer) sieht nur
-  „verhandeln". Bidding-Ende: Ziel 5. Team B bekommt Task + Ziel 5.
-  Host: „Los". Team B zählt (progress 1…5). Team A validiert: SUCCESS
-  → Team B +2. (Bei Failure: Team A — zuletzt ausgestiegen? — nein:
-  Team A ist Bidder und blieb; das zuletzt ausgestiegene Team wäre
-  ein drittes Team. Bei 2 Teams: Bidder-Team ist „zuletzt
-  ausgestiegen" = +1 an Team A.)
+- **Ablaufbeispiel (2 Teams):** Team 1 = Bidder A + Performer B;
+  Team 2 = Bidder C + Performer D. Startteam 1: **A bietet 3** (für
+  seinen Partner B). Team 2: **C erhöht auf 5** (für seinen Partner D).
+  Team 1: **A passt** (ausgestiegen). Bidding endet → **C ist
+  Gewinner-Bidder**, Ziel 5 für **seinen Partner D**. D bekommt
+  Task + Ziel 5. Host: „Los". D zählt (progress 1…5). Team 1 validiert.
+  - **Erfolg:** Team 2 +2.
+  - **Misserfolg:** +1 an **Team 1** — es ist das Team, das zuletzt
+    (und als einziges) gegen den Gewinner C ausgestiegen ist.
+
+- **Ablaufbeispiel (3 Teams):** Team 1 (A1/B1), Team 2 (A2/B2),
+  Team 3 (A3/B3). A1 bietet 3 → A2 erhöht 5 → **A1 passt**
+  (Ausstieg 1, gegen A2) → A3 erhöht 8 → **A2 passt** (Ausstieg 2,
+  gegen A3). Bidding endet → A3 gewinnt mit Ziel 8 für Partner B3.
+  B3 **fehlschlägt**:
+  - +1 an **Team 2** (A2 ist das zuletzt **gegen den Gewinner A3**
+    ausgestiegene Team).
+  - **Team 1 = 0** (früher ausgestiegen, und gegen A2, nicht gegen
+    den Gewinner).
 
 ## 7. Wertung & Endgründe (FEST + Vorschläge, DEC-PCH-01)
 
-- **FEST:** Success +2 (Performer), Failure +1 (zuletzt ausgestiegen),
-  0 sonst, keine Minus.
-- **Zwei-Teams-Sonderfall (FEST-Analogie):** bei 2 Teams ist das
-  Bidder-Team bei Failure „zuletzt ausgestiegen" (es ist das einzige
-  Gegnerteam) → +1 an Bidder. (DEC-PCH-01: Bestätigung gewünscht.)
+- **FEST §15.9:** Success +2 (Team des Performers), Failure +1
+  (**genau** das Team, das zuletzt gegen den Gewinner-Bidder
+  ausgestiegen/passiert ist), alle anderen Teams 0, keine Minus.
+- **Zwei Teams (FEST-Anwendung, keine Sonderregel):** Bei 2 Teams ist
+  das gegnerische Team per Definition das Team, das zuletzt gegen den
+  Gewinner ausgestiegen ist → +1 an dieses Team. (Die Master-Formel
+  deckt beide Fälle; 12-02: keine separate „Zwei-Teams-Freigabe".)
 - Endgründe: `COMPLETED`, `HOST_ABORTED`, `TECHNICAL_ABORT`,
   `INSUFFICIENT_PLAYERS` (unter 4 → Pause).
 - Ties: Team-Platzierungen (integer).
 
 ## 8. Projektionen & Secrets
 
-- Bidder-Team: eigene Gebote, Gebote anderer Teams, Kategorie
-  (nach Bidding: Task sichtbar), Timer.
-- **Performer-Team (während Bidding):** nur „Dein Partner verhandelt
+- **Bidder (eigens):** eigenes Gebot, Gebote der anderen Bidder,
+  Fortschritt der Challenge (seine eigene Aktion zählt mit).
+- **Performer (während Bidding):** nur „Dein Partner verhandelt
   gerade" + Timer; **keine** Kategorie, **keine** Gebote, **kein** Ziel.
-- **Performer-Team (nach Bidding):** Task + Ziel + eigene
+- **Performer (nach Bidding):** Task + Ziel + eigene
   Fortschritte (n/target).
-- Host: alles (Bids, Task, Fortschritt), Override-Tools.
+- **Host:** Bids + Task + Fortschritt **für andere Teams** (Override-,
+  Go-, Validierungs-Tools); für den **eigenen Team-Geheimhaltungsrahmen**
+  gilt als mitspielender Host die Performer-/Bidder-Sicht (kein
+  Wissensvorteil über das eigene Bidding/Task).
 - **Viewer:** Kategorie + Bids + Fortschritt (sofern Projection erlaubt
-  — Vorschlag: Viewer sieht Bids, aber nicht die Task-Prompt-Details?
-  → VORSCHLAG: Viewer sieht Bids + Ziel, **nicht** den Task-Prompt
-  (sonst könnte man per Zuschauer tippen — DEC-PCH-01).
-- DISPLAY: Bidding-Übersicht + Challenge-Status (ohne Task-Text,
+  — Vorschlag: Viewer sieht Bids + Ziel, **nicht** den Task-Prompt
+  (sonst könnte man per Zuschauer tippen) → DEC-PCH-01).
+- **DISPLAY:** Bidding-Übersicht + Challenge-Status (ohne Task-Text,
   wenn Viewer-Regel greift).
 
 ## 9. Rejoin/Pause/Host-Ausfall/Recovery
 
-- Rejoin: Rolle (Bidder/Performer), Phase, eigene Gebote, Punkte;
-  Geheimhaltung bleibt (Performer sieht bei Rejoin während Bidding
-  wieder nur „verhandelt").
+- Rejoin: eigene Rolle im Team (Bidder/Performer), Phase, eigene Gebote,
+  Punkte; Geheimhaltung bleibt (Performer sieht bei Rejoin während
+  Bidding wieder nur „verhandelt").
 - Pause: Timer stoppt, Input gesperrt (Bidding wie Challenge).
 - Host-Ausfall: Pause (Host braucht Override/Go); Transfer nach Frist.
 - Recovery: Bids + Ziel + Fortschritt persistiert; Rotation-Zustand
@@ -179,6 +212,12 @@ INTRO → (je Runde) BIDDING_OPEN (Bidder-Teams sichtbar, Performer-Teams: „Pa
 
 ## 12. Offene Punkte
 
+> **12-02 bereinigt:** Die 2-Teams-Failure-Regel ist **FEST** (§15.9:
+> +1 an das zuletzt gegen den Gewinner ausgestiegene Team — bei 2 Teams
+> das gegnerische Team). Sie wird **nicht** erneut freigegeben. Die
+> Pass-Regeln für >2 Teams sind ebenfalls FEST (§15.9: weiter bis ein
+> Team übrig).
+
 | ID | Frage | Vorschlag (default) |
 |---|---|---|
-| DEC-PCH-01 | 2-Teams-Failure-Regel (Bidder = zuletzt ausgestiegen?), Viewer-Task-Sichtbarkeit, >2 Teams Bidding-Ende | Bidder +1 bei 2 Teams, Viewer: Bids+Ziel ohne Task-Text, Bidding-Ende bei 1 Team übrig |
+| DEC-PCH-01 | Viewer-Task-Sichtbarkeit (einziger verbleibender offen Punkt) | Viewer sieht Bids + Ziel, **nicht** den Task-Text (Anti-Tippen-via-Zuschauer) |
