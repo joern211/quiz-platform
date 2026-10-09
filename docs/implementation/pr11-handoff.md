@@ -6,14 +6,37 @@
 
 ## Status-Übersicht (lebendig halten)
 
-- **Basis-Commit:** `411a5b783e5857bca5b208598fade43affc108b5` (PR #10, verifiziert = origin/main)
-- **Branch:** `feature/wer-ist-das-fusion-media` (Worktree `~/quiz-platform-pr11`; A `cd2ec0f`, B+C `fb6c134`, D `c56c8bd`, E `8ed0161`/`361f399`, Docs `1ac7e2e` — **alle gepusht**; Arbeitsbaum sauber; CI+E2E am finalen Head `1ac7e2e` ✅)
-- **PR #11:** Draft, offen, MERGEABLE, 0 Review-Kommentare; Beschreibung + Titel auf Nacharbeit A–E aktualisiert (Dedupe je Owner, game-Signatur + Snapshot-Freigabe, Recovery mit echtem Restart-Test, Lebenszyklus, Head/Testzahlen).
-- **FINAL (Nachprüfung am 08.10., alle grün):**
-  - **E2E Browser** (lokal, echter Chromium): `weristdas-e2e.spec.ts` **1 passed (11.7s)** — jetzt inkl. echtem Button „Spielbild neu erzeugen" (A-Regenerationspfad) + Zwei-Runden + Reload/Rejoin + Ergebnis.
-  - **Migration:** frische DB ✓ (alle applied); **BESTEHENDE** DB (vor owner-scoped-Migration, Legacy-Zeilen mit `uploadedBy=NULL`) → Migration applied ✓, `media_assets_sha256_uploadedBy_key` existiert ✓, Legacy-NULL-Zeilen lesbar ✓, gleicher Hash + anderer Owner + zweite NULL-Zeile erlaubt ✓.
-  - **Volllauf:** Server **253/253** (28 Dateien), Web **52/52** (6 Dateien), `pnpm typecheck` server+web ✓, `pnpm lint` **0 errors** (97 warnings, bestehend), `pnpm build` ✓.
-- **Letzter Commit (vor Lint-Fix):** `8ed0161` — E (Bild-Lebenszyklus: tmp-Bindung + Orphan-Cleanup + Heilung + createLimiter)
+> **⭐ AUDIT-NACHARBEIT (09.10.2026) — FINAL, gepusht.** Die sieben reproduzierten
+> Audit-Befunde (11-01..11-07) sind geschlossen und verifiziert. Der WIP-Commit
+> wurde zu einem sauberen Abschluss-Commit gebündelt (kein veralteter
+> „Stand vor Konsistenzfixes" in der History).
+
+- **Basis-Commit:** `411a5b783e5857bca5b208598fade43affc108b5` (PR #10, = origin/main)
+- **Branch:** `feature/wer-ist-das-fusion-media` (Worktree `~/quiz-platform-pr11`)
+- **Lokaler = Remote-HEAD:** `1c43ef2` („PR11 Audit-Nacharbeit (11-01..11-07) — konsistent & verifiziert") — **gepusht**, Arbeitsbaum sauber.
+- **PR #11:** Draft, offen; Beschreibung/Handoff auf den Audit-Final-Stand angepasst.
+- **Audit-Closure (lokal verifiziert):**
+  - 11-01 Pfad-Traversing: `roundId` nicht mehr im Pfad; content-geleiteter Pfad + Verzeichnis-Check + Validierung. ✅
+  - 11-02 Unveränderlichkeit: ordnungs-sensitive `assetKey`; vertauschte A/B überschreiben keine Bytes (Muster-Byte-Gegenprobe). ✅
+  - 11-03 Provenienz: `assetKey` trennt Byte-Dedupe von logischer Identität; Upload-Backfill vs. Legacy-Composites getrennt. ✅
+  - 11-04 PRIVATE bleibt privat: Unique-Key `[assetKey, uploadedBy, visibility]`; PRIVATE-Upload erbt keine PUBLIC-Sichtbarkeit. ✅
+  - 11-05 Setup-Vorschau: Host-Audience-URL (Session/Owner) lädt vor Raumerstellung; E2E prüft `naturalWidth > 0` vor Raumerstellung + nach Regeneration. ✅
+  - 11-06 Raum-Retry: serverseitige Idempotenz (`Room.idempotencyKey`) + stabiles Client-Token; atomar Raum+Host; Fingerprint-Fallback mit Zeitfenster + exaktem Fingerprint-Vergleich. ✅
+  - 11-07 Reparatur-Cleanup: Datei-Zuständigkeit erst nach DB-Erfolg; keine Orphans, keine Gewinner-Datei gelöscht. ✅
+  - Shared-File-Schutz: Startup-Cleanup/Reparatur/Konflikt-Pfade schützen gemeinsame physische Dateien. ✅
+- **Migration-Nachweis:** `20261008183000_audit_p1_logical_asset_identity_and_room_idempotency`
+  - **Frische DB:** `prisma migrate deploy` → „All migrations have been successfully applied" (kein `duplicate column name: assetKey` — der frühere Fehler stammte von einer halb-migrierten Stal-DB). ✅
+  - **Bestandskopie** (Legacy-Uploads `uploadedBy=NULL`, PUBLIC/PRIVATE, Legacy-Composite mit `derivedFromAssetIds`, v1-/v2-Räume): applied + **9 Invariants-Checks OK** — Uploads (inkl. NULL-Owner) backfilled `assetKey=sha256`; **Legacy-Composite behält `assetKey=NULL`** (Provenienz NICHT überschrieben); alter Index `media_assets_sha256_uploadedBy_key` entfernt, neuer `[assetKey, uploadedBy, visibility]` + Lookup-Index `[assetKey]` vorhanden; v1-`setupSchemaVersion=1`/v2`=2` unverändert; `rooms.idempotencyKey` vorhanden (NULL). ✅
+- **Tests (CI-Workflow: `prisma migrate deploy` + `pnpm --filter @quiz/server test`):**
+  - Server-Suite **271/271** (29 Dateien), inkl. **18 Audit-Regressionen** (`audit-review.test.ts`). ✅
+  - Web **52/52** (6 Dateien) ✅ · `pnpm typecheck` (5 Pakete) ✅ · `pnpm lint` **0 errors** (97 warnings, bestehend) ✅ · `pnpm build` ✅
+  - **CI am Remote-Head `1c43ef2`: CI ✅ success; E2E** läuft/ablaufend (GitHub Actions).
+- **BETA-Grenzen (ehrlich, unverändert):** Cleanup `ROOM_TEMP` nur beim Serverstart + >24 h; Recovery über Rejoin/Re-Start derselben DB; allgemeiner Storage-GC (auch PRIVATE) = separater Folgeauftrag.
+- **Nächster Schritt:** PR #11-Beschreibung an `1c43ef2` + Audit-Closure-Tabelle + Test-/CI-Links anpassen; Draft beibehalten, **nicht mergen**. Danach PR12-12-11 (Handoff/Verifikation) und Abschlussmeldung.
+
+---
+
+## (historisch) Nacharbeit A–E — verifiziert & erledigt (vor Audit)
 - **E: ERFOLGREICH (lokal fertig, wartet auf Commit/Push):**
   - Befund bestätigt: Composites entstehen VOR der Raumerstellung → `roomId = tmp-<host>`; nach `POST /rooms` keine Re-Bindung → verwaiste `ROOM_TEMP`-Assets bei Abbruch/Quelltausch/Retry/Prozessabbruch.
   - `media/lifecycle.ts` (neu): `bindSnapshotAssetsToRoom()` — bindet NUR `ROOM_TEMP` + `uploadedBy=Host` + im Raumsnapshot referenzierte Assets an die echte Raum-ID; idempotent; fremde/bereits gebundene Assets NICHT gestohlen; Originale (PRIVATE) unangetastet. `cleanupOrphanedTempAssets()` — löscht nur unreferenzierte `tmp-`-Assets (in KEINEM Snapshot, auch nicht ENDED) älter als 24 h.
