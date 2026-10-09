@@ -153,3 +153,21 @@ SELECTING → BUZZ_OPEN → BUZZ_LOCKED → FIELD_DONE | (WRONG) STEAL_OPEN → 
 | DEC-JEO-01 | Host-Mitspiel bei Judge-Rolle (Info-Vorteil durch sofortige Lösungsansicht)? | Host wird in eigenen Runden aus Buzzer-Pool ausgeschlossen (engine-/phasenbezogene Einschränkung, kein Rollenmodell-Bruch) |
 | DEC-JEO-02 | End-Tie: geteilte Plätze oder Tie-Breaker-Feld? | `ALLOW_TIE` + geteilte Plätze (kein Zufalls-Tiebreaker) |
 | DEC-JEO-03 | Auto-Judge bei Host-Ausfall? | nein — Pause + Transfer |
+
+---
+
+## 13. Engine-Vertrag, Late Join & Rollen-Policy (12-08)
+
+- **Gemeinsamer Vertrag:** `jeopardy` referenziert `../technical-mapping.md §3.4`
+  (Zustandsmaschine, Command-Guards 1–4, Projektionen/`availableActions`,
+  Persistenz/Version/Recovery, Medien-/Voice-/Camera-/Mic-/Display-Defaults)
+  und weicht **nur** in den folgenden Punkten ab. `INSUFFICIENT_PLAYERS`
+  gilt nur an Start-/Transition-Gates, nie gegen das absichtlich sinkende
+  aktive Teilnehmerfeld im Spielverlauf (§12-10).
+- **Late-Join-Policy (engine-spezifisch):** Nein im laufenden Feld (`BUZZ_OPEN`/`STEAL_OPEN`/`BUZZ_LOCKED`) → `PENDING_JOIN`, ab dem **nächsten** Feld aktiv; Board-Fortschritt via Resync (Frage PUBLIC, Lösung Host-only).
+- **Ausscheidende Teilnehmer:** keine Ausscheidung im Feldverlauf; Steal-Ausschluss ist field-begrenzt (§2).
+- **Teamrollen/Rotation:** keine (Team-Buzzer ab PR15, Default individual).
+- **Voice/Camera/Mic (Abweichung von den Defaults):** Mikrofon MUTED (Default). ·
+  Camera: OFF (Default).
+- **Medien in Phasen:** keine Standard; Media-Felder optional (leak-safe).
+- **RESULT_REVIEW:** ausgewiesen (§6).

@@ -79,15 +79,28 @@ INTRO → (je Runde) PROMPT_REVEAL (Frage + Einheit) → INPUT_OPEN → INPUT_LO
 | `round.reveal` | HOST / auto | INPUT_LOCKED |
 | `round.next` / `pause`/`resume` | HOST | — |
 
-- **Ablaufbeispiel:** „Wie hoch ist der höchste Punkt Deutschlands?"
-  (Einheit: m) → A: 2.970, B: 2.500, C: 3.500 → Reveal: 2.962 m
-  (Zugspitze) → A: within1pct → +100, B: within18pct → +40, C: +0.
+- **Ablaufbeispiel (12-10: aus dem Setup-Tier-Modell abgeleitet):**
+  „Wie hoch ist der höchste Punkt Deutschlands?" (Einheit: m,
+  trueValue = 2.962 m, Zugspitze) → A: 2.970, B: 2.500, C: 3.500
+  → Reveal:
+  - A: |2970−2962|/2962 = 0,3 % → within5pct → **+80** (nicht „exact 100"
+    — exact = 0,0 %; früher hieß es fälschlich 100).
+  - B: |2500−2962|/2962 = 15,6 % → within25pct → **+40**.
+  - C: |3500−2962|/2962 = 18,2 % → within25pct → **+40** (nicht 0;
+    18,2 % < 25 %; früher hieß es fälschlich 0).
+  **Ergebnis: 80 / 40 / 40** (statt des fehlerhaften 100/40/0).
 
 ## 7. Wertung & Endgründe (Vorschläge, DEC-SCH-01)
 
 - **TIERED-Default** (siehe Setup): relative Distanz zum trueValue.
   Alternative **LOGARITHMIC** (Punkte = max(0, 100 − 20·log10(1+relDistanz)))
   — für sehr große Wertebereiche (Vorschlag als Preset).
+- **12-10 trueValue = 0 / negativ:** relative Distanz ist bei trueValue=0
+  nicht definiert (Division durch 0). Dann gilt **ABSOLUTE Distanz** in
+  der Einheit des Items (Tier-Grenzen als absolute Werte, z. B.
+  „exact = ±0", „within5pct" wird zu einem festen ±Δ); der Editor
+  (Content-Schema §5) erfordert für trueValue=0 einen `absTiers`-Override.
+  Negative trueValue: relative Distanz auf |trueValue| beziehen.
 - Ungültig (außerhalb min/max, NaN): 0 Punkte, `INVALID_SUBMISSION`
   (kein Minus).
 - Nichtabgabe: 0.
@@ -139,3 +152,21 @@ INTRO → (je Runde) PROMPT_REVEAL (Frage + Einheit) → INPUT_OPEN → INPUT_LO
 | ID | Frage | Vorschlag (default) |
 |---|---|---|
 | DEC-SCH-01 | Toleranz-Modus (TIERED/LOGARITHMIC/LINEAR), Einheiten-Hinweis, Gleichstand, Dezimalstellen | TIERED, showUnitHint=true, gleiche Tier = gleiche Punkte, 0–1 Dezimalstellen |
+
+---
+
+## 13. Engine-Vertrag, Late Join & Rollen-Policy (12-08)
+
+- **Gemeinsamer Vertrag:** `schaetz-mal` referenziert `../technical-mapping.md §3.4`
+  (Zustandsmaschine, Command-Guards 1–4, Projektionen/`availableActions`,
+  Persistenz/Version/Recovery, Medien-/Voice-/Camera-/Mic-/Display-Defaults)
+  und weicht **nur** in den folgenden Punkten ab. `INSUFFICIENT_PLAYERS`
+  gilt nur an Start-/Transition-Gates, nie gegen das absichtlich sinkende
+  aktive Teilnehmerfeld im Spielverlauf (§12-10).
+- **Late-Join-Policy (engine-spezifisch):** Nein während `INPUT_*` der laufenden Runde → `PENDING_JOIN`, ab der **nächsten** Runde aktiv.
+- **Ausscheidende Teilnehmer:** keine (alle bleiben aktiv).
+- **Teamrollen/Rotation:** keine (individuell).
+- **Voice/Camera/Mic (Abweichung von den Defaults):** Mikrofon MUTED (Default). ·
+  Camera: OFF (Default).
+- **Medien in Phasen:** keine (numerische Schätzungen).
+- **RESULT_REVIEW:** geerbt (§3.4).

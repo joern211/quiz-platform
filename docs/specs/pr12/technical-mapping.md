@@ -162,6 +162,132 @@ interface ClientCommand<T> {
 
 ---
 
+### 3.4 Gemeinsamer Engine-Vertrag (GELT FÜR ALLE 19 ENGINES, 12-08)
+
+> **Verbindlich:** Jede Spielespezifikation in `games/<slug>.md` referenziert
+> diesen Vertrag (§13 dort) und ergänzt **nur** ihre konkreten Abweichungen.
+> Reine Entity-/API-Stichworte genügen nicht; jeder Zustand, jedes Command
+> und jede Projektion ist dadurch eindeutig entscheidbar. (12-08: ersetzt
+> „Entity-Namen + Teststichworte" durch den konkreten gemeinsamen Vertrag.)
+
+**A. Lebenszyklus-Zustandsmaschine (alle Engines, Master §5.1/§5.31/§12.9):**
+
+```
+LOBBY ──game.start (Preflight ok)──▶ INTRO ──▶ [Rundenzyklus] ──▶ GAME_END
+  │                                      │  (engine-spezifische Phasen,        │
+  │  HOST_ABORTED / INSUFFICIENT_PLAYERS │   siehe games/<slug>.md §6)          ▼
+  │                                      │                            RESULT_REVIEW
+  ▼                                      ▼                                     │
+PAUSED ◀──── pause/resume ────────── ERROR_RECOVERY (unsicher → Pause)          ▼ (Host-Review, Amendments)
+                                                                           FINALIZED (GameResult, einmalig, idempotent)
+```
+
+- **`RESULT_REVIEW` ist verbindlich geerbt** — **jede** Engine durchläuft
+  `GAME_END → RESULT_REVIEW → FINALIZED` (Finalisierung §5.31). Engines,
+  deren §6-Flow es nicht ausweist, **erben es aus diesem Vertrag**; es
+  wird dort als „geerbt (12-08)" gekennzeichnet. In `RESULT_REVIEW`:
+  Host prüft Ergebnis, `ResultAmendment` möglich (vor FINALIZED),
+  `game.finalize`-Command (HOST, nur aus RESULT_REVIEW) → FINALIZED.
+  Ab FINALIZED: nur noch Amendments (§5.31), nie stille Korrektur.
+- **Zulässige Übergänge** sind die einzigen, die gelten; jede andere
+  Kombination → `INVALID_PHASE`. Übergänge sind **atomar**
+  (CAS-Revision, persistiert vor Broadcast).
+- **Phasen pro Engine** (einzige Quellen für engine-spezifische Phasen,
+  Guards und `availableActions`): `games/<slug>.md` §6. Dieser Vertrag
+  ergänzt die **gemeinsamen** Guards (B–D) über allen engine-spezifischen.
+- **Pause:** von LOBBY/INTRO/jeder Rundenphase/RESULT_REVIEW erreichbar;
+  Timer stoppt (echte Zeitpunkte, keine Restwerte), Input gesperrt,
+  Resync liefert `PAUSED`.
+- **Abort:** `game.abort` (HOST, bis GAME_END) → `HOST_ABORTED`;
+  technischer Abort (Invariants-Verletzung, ERROR_RECOVERY nach Frist)
+  → `TECHNICAL_ABORT`. Ergebnis = Teilergebnis + Endgrund, FINALIZED
+  bleibt möglich (Historie nachvollziehbar, §5.10).
+
+**B. Command-Vertrag (alle Commands, Master §5.17/§5.14/§10.6):**
+
+Jeder Command (gemeinsam + engine-spezifisch) trägt vier **vollständige
+Zulässigkeitsbedingungen** — die Tabellen in `games/<slug>.md` §6 nennen
+Rolle + Phase, dieses Paar ist durch den Server-Check **ergänzt**:
+
+1. **Phasen-Guard:** der §6-Automat der Engine (exakt die eine Phase).
+2. **Rollen-/Teilnehmer-Guard:** Rolle **und** Teilnehmerlage
+   (aktiv/ausgeschieden/Teamrolle/Turn-Besitzer) — engine-spezifisch in
+   `games/<slug>.md` §6-Spalte „Guard" bzw. §13.
+3. **State-Prädikat:** engine-spezifisch (z. B. „kein existing
+   buzzWinner", „Timer läuft", „kein Lock", „Rolle = Bidder").
+4. **Idempotenz + Drosselung:** `commandId`-Dedup (`CommandReceipt` →
+   `ALREADY_PROCESSED` mit gleichem Ergebnis), Rate-Limit pro
+   participant/session/command (§5.26).
+
+Fehlerantworten (alle Commands, `ApiResponse`-Vertrag §2 + §5.25):
+
+| Code | Bedeutung |
+|---|---|
+| `INVALID_PHASE` | Phasen-Guard verletzt (auch nach Resync) |
+| `PERMISSION_DENIED` | Rollen-/Teilnehmer-Guard (mit `requiredCapability`) |
+| `INVALID_PAYLOAD` | Zod-Validierung des `payload` |
+| `REVISION_CONFLICT` | erwartete State-Version veraltet → Client resync |
+| `ALREADY_PROCESSED` | `commandId`-Replay (idempotente Wiederholung) |
+| `RATE_LIMITED` | Drosselung (mit `retryAfterMs`) |
+| `NO_ELIGIBLE_PLAYERS` | Transition kann nicht stattfinden |
+| `ERROR_RECOVERY` | Invariants-Verletzung/unsicher → Pause |
+| `INSUFFICIENT_PLAYERS` | Mindestzahl nicht (nur bei Start/Transition, nie im laufenden Ausscheidungsverlauf — §12-10) |
+
+**C. Projektions-/Secret-Vertrag (Master §5.15/§2.2):**
+
+- `createProjection(role, participantId?, teamId?)` — **einzige**
+  Ausgang für Client-State (API GET, Socket-Event, Resync, Preloading).
+  Keine Engine sendet Secrets „außerhalb" der Projektion.
+- Sichtbarkeits-Klassen: `PUBLIC | TEAM_PRIVATE | PLAYER_PRIVATE |
+  HOST_PRIVATE`; Secrets werden nie vorsorglich an falsche Clients
+  gesendet; Leak-Prüfung (PR41) über API, Socket, Snapshot, Medien,
+  Preloading.
+- **`availableActions`** = `computeAvailableActions(state, role,
+  participantId?, teamId?)` **serverseitig** — dieselben Guards wie B
+  (keine zweite Logik im Client). Das Feld enthält Command-Names +
+  minimale Parameter-Hinweise, nie Secret-Werte.
+- **DISPLAY-Projektion** (G1, neu): PUBLIC-Daten ohne Secrets, große
+  Lesbarkeit; eigene Route `ViewerSession`-analog (§5.6).
+
+**D. Persistenz-/Versionierungs-/Recovery-Vertrag (Master §5.19/§5.20/§5.21/§5.22):**
+
+- **Persistenz:** State-CAS (`revision`) + `RoomGameState.stateJson`
+  (effective values, `engineVersion`-gepinnt) + ScoreEvent-Ledger +
+  Timer als echte Zeitpunkte + Random-State als `seedRef`. Jede
+  fachliche Änderung: Persist → Broadcast (nie umgekehrt).
+- **Versionierung:** `engineVersion` wird bei `game.start` gepinnt
+  (`RoomConfigSnapshot`); Recovery/Restart nutzt dieselbe Version;
+  inkompatible Client-Version → `CLIENT_VERSION_UNSUPPORTED`.
+- **Recovery (Restart):** State + Timer (rekonstruiert aus Zeitpunkten,
+  abgelaufen → kontrollierte Weiterverarbeitung) + Buzzer/Random/Reveal/
+  Score **nie neu oder doppelt** (commandId, seedRef, CAS); unsicher →
+  `ERROR_RECOVERY` (Pause), nie stille „Reparatur" mit neuem Zufall.
+- **Rejoin:** vollständiger rollenbezogener Snapshot (C) + eigene
+  `rejoinToken`; Geheimhaltung bleibt auch nach Rejoin bestehen.
+- **Late Join (gemeinsamer Rahmen, Master §4.12; engine-spezifisch in
+  `games/<slug>.md` §13):** `Room.allowLateJoin` ist nur die
+  **Raum-Voraussetzung** — ob der Spätbeitretende **aktiv**, **wartend**
+  (`PENDING_JOIN` ab nächster Runden-Grenze) oder **nur Zuschauer** wird,
+  bestimmt die **engine-spezifische Policy** (kein globales Flag als
+  Antwort). Ausscheidungs-Spiele: aktive Teilnehmerzahl darf absichtlich
+  sinken; `INSUFFICIENT_PLAYERS` greift nur an Start-/Transition-Gates
+  der Engine (§12-10), nie gegen das geplante Finale.
+
+**E. Medien-/Voice-/Camera-/Mic-/Display-Defaults (alle Engines, §7):**
+
+| Aspekt | V1-Default |
+|---|---|
+| Camera | **OFF** (Opt-in, `cameraEnabled` Raum-Flag; Sichtbarkeit §7.17) |
+| Mic | **MUTED** (Opt-in, PTT optional §7.19; Viewer nie im Voice-Channel) |
+| Voice-Channel | `MAIN` (+ `TEAM` nur bei Team-Engines, Viewer ausgeschlossen §7.18) |
+| Display | Broadcast-Route, PUBLIC-Projektion, mehrere Displays, keine Secrets (§5.6) |
+| Medien in Phasen | nur über signed/leak-safe URLs (PR11-Grundlage); Preloading nie Secrets |
+
+Engine-Abweichungen (z. B. Voice-Pflicht in `secret-agent`) werden in
+`games/<slug>.md` §13 als **einzige** Abweichung ausgeschrieben.
+
+---
+
 ## 4. Game-Cores (Zielmodell, Umsetzung PR15/PR16)
 
 | Core | Zustand in main | Ziel (API-Skizze) |
@@ -202,6 +328,19 @@ Error/Fallback, Tests, Monitoring/Logging, Doku + **Nutzung durch ≥2 Engines**
 Die bestehenden drei Engines (wissensduell, jeopardy, wer-ist-das) sind die
 natürlichen ersten Nutzer — deshalb gehören Core-Vollständigung (PR15/16)
 vor den meisten neuen Spielen, und PR37 bringt die Bestands-Engines nach.
+
+**Kein zirkuläres DONE-Kriterium (12-09):** Der „≥2 Engines"-Nachweis wird
+**früh** erbracht — bei der Core-Vollständigung selbst:
+- **PR15** (Buzzer/Turn/Tie/Matching/Submission/Reveal/Random): DoD-Nachweis
+  = Migration von **jeopardy + wissensduell** (beide nutzen die Cores
+  bereits teilweise; volle Übernahme ist Teil von PR15, nicht PR37).
+- **PR16** (Score-Ledger/Results/Finalisierung/Leaderboard): DoD-Nachweis =
+  Migration von **wer-ist-das + jeopardy**.
+- **PR37** konsolidiert dann **alle** Bestands-Engines auf den
+  vollständigen Vertrag (3.4) + V1-Verträge (Display, Stats,
+  Finalisierung). Damit ist „≥2 Consumer je Core-PR" ein tatsächlicher,
+  zeitlich vor PR37 liegender Nachweis — nicht zirkulär auf PR37
+  verwiesen.
 
 ---
 

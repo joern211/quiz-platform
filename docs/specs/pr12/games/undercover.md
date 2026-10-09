@@ -150,3 +150,21 @@ INTRO (Rollen-Zuteilung, Privat-Ansicht) → (je Runde) HINT_TURN_1 → … → 
 | ID | Frage | Vorschlag (default) |
 |---|---|---|
 | DEC-UND-01 | Undercover-Anzahl (1 vs. mehr), Tie-Regel, Win nach max Runden, Host-Blind-Modus, Hinweis-Regeln (Länge, Filter) | 1 Undercover, Tie = keine Elimination, 3 Runden → Agenten, Host blind, 20 Zeichen, keine Zahlen |
+
+---
+
+## 13. Engine-Vertrag, Late Join & Rollen-Policy (12-08)
+
+- **Gemeinsamer Vertrag:** `undercover` referenziert `../technical-mapping.md §3.4`
+  (Zustandsmaschine, Command-Guards 1–4, Projektionen/`availableActions`,
+  Persistenz/Version/Recovery, Medien-/Voice-/Camera-/Mic-/Display-Defaults)
+  und weicht **nur** in den folgenden Punkten ab. `INSUFFICIENT_PLAYERS`
+  gilt nur an Start-/Transition-Gates, nie gegen das absichtlich sinkende
+  aktive Teilnehmerfeld im Spielverlauf (§12-10).
+- **Late-Join-Policy (engine-spezifisch):** **Nein nach Start** — Rollenverteilung (Undercover/Agenten) ist nicht nachträglich integrierbar → Zuschauer bis Spielende (Vorschlag DEC-UND-01).
+- **Ausscheidende Teilnehmer:** Ausgeschiedene → `LEFT`, Zuschauer; Rolle bleibt geheim (keine Reveal vor `GAME_END`, außer WIN_CHECK).
+- **Teamrollen/Rotation:** keine (individuell, geheime Rollen).
+- **Voice/Camera/Mic (Abweichung von den Defaults):** Mikrofon MUTED (Default); Discussion-Phase optional (Voice). ·
+  Camera: OFF (Default).
+- **Medien in Phasen:** keine.
+- **RESULT_REVIEW:** geerbt (§3.4).

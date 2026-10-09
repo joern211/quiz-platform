@@ -86,7 +86,11 @@ INTRO → (je Runde) PROMPT_REVEAL → INPUT_OPEN (alle parallel, privat) → IN
 
 ## 7. Wertung & Endgründe (Vorschläge, DEC-SAM-01)
 
-- +100 Team-Score bei Match, +50 je Partner; Nicht-Match 0.
+- **12-10: eine konsistente Formel.** Bei Match (beide Assoziationen
+  gleich/EXACT_SYNONYM): **Team-Gesamt +100** und **je +50 zu den
+  individuellen Punkten der 2 Partner** (50+50 = 100 = Team-Inkrement;
+  keine zusätzliche +100 pro Mitglied). Nicht-Match: 0 (Team UND
+  individuell).
 - Nichtabgabe (1 Partner): Team-Resultat für die Runde = 0 (der
   andere kann trotzdem matchen, wenn 2. Team auch 1 fehlt? — nein:
   **Match nur bei 2 Abgaben je Team**, sonst 0 — Vorschlag).
@@ -136,3 +140,21 @@ INTRO → (je Runde) PROMPT_REVEAL → INPUT_OPEN (alle parallel, privat) → IN
 | ID | Frage | Vorschlag (default) |
 |---|---|---|
 | DEC-SAM-01 | Teamgröße, Paarwechsel, Scoring (Team+Bonus), Nichtabgabe-Regel, Match-Modus | 2er, optional rotierend, 100+50, Match nur bei 2 Abgaben, EXACT_SYNONYM |
+
+---
+
+## 13. Engine-Vertrag, Late Join & Rollen-Policy (12-08)
+
+- **Gemeinsamer Vertrag:** `same-thought` referenziert `../technical-mapping.md §3.4`
+  (Zustandsmaschine, Command-Guards 1–4, Projektionen/`availableActions`,
+  Persistenz/Version/Recovery, Medien-/Voice-/Camera-/Mic-/Display-Defaults)
+  und weicht **nur** in den folgenden Punkten ab. `INSUFFICIENT_PLAYERS`
+  gilt nur an Start-/Transition-Gates, nie gegen das absichtlich sinkende
+  aktive Teilnehmerfeld im Spielverlauf (§12-10).
+- **Late-Join-Policy (engine-spezifisch):** Nein während `INPUT_*`/`REVEAL` der laufenden Runde → `PENDING_JOIN`, ab der **nächsten** Runde aktiv; Paarwechsel berücksichtigt neue Teilnehmer.
+- **Ausscheidende Teilnehmer:** keine (alle bleiben aktiv).
+- **Teamrollen/Rotation:** **Pflicht:** 2er-Paare (Vorschlag DEC-SAM-01), optional rotierend.
+- **Voice/Camera/Mic (Abweichung von den Defaults):** Mikrofon MUTED (Default). ·
+  Camera: OFF (Default).
+- **Medien in Phasen:** keine.
+- **RESULT_REVIEW:** geerbt (§3.4).

@@ -40,8 +40,12 @@ HigherLowerSetup {
   pools: ContentPoolRef[]           // Vergleichs-Paare (A, B, richtiger Wert)
   roundCount: number (default 10)
   perRound: {inputTimerMs (default 10000), revealDelayMs (default 1500)}
-  showUnitA: boolean (default true)  // A-Wert + Einheit sichtbar
-  showUnitB: boolean (default true)  // B-Wert + Einheit sichtbar (vor Reveal)
+  showUnitA: boolean (default true)  // A = sichtbarer ANKER: Wert + Einheit
+                                     //   + Label immer vor Reveal (Gameplay)
+  showUnitB: boolean (default true)  // B-EINHEIT + Label sichtbar (vor Reveal),
+                                     //   B-WERT selbst NIE vor Reveal (12-10:
+                                     //   Setup-Kommentar veröffentlichte B-Wert,
+                                     //   Projektion §8 verbirgt ihn → B geheim)
   tiePolicy: ALLOW_TIE (beide korrekt — VORSCHLAG)
   points: {correct: 100, streakBonus: 50 (je 3 in Folge) — VORSCHLAG}
   hostCanPlay: boolean (default true)
@@ -129,3 +133,21 @@ INTRO → (je Runde) A_REVEAL (nur A) → INPUT_OPEN (HÖHER/NIEDRIGER) → INPU
 | ID | Frage | Vorschlag (default) |
 |---|---|---|
 | DEC-HOL-01 | Datenmodell (NUMERIC/RANKING), Tie-Content, Streak-Bonus, Einheiten, Reveal-Delay | NUMERIC+RANKING, Tie-Content = beide korrekt, +50 je 3, einheitliche Einheit, 1.5s Delay |
+
+---
+
+## 13. Engine-Vertrag, Late Join & Rollen-Policy (12-08)
+
+- **Gemeinsamer Vertrag:** `higher-lower` referenziert `../technical-mapping.md §3.4`
+  (Zustandsmaschine, Command-Guards 1–4, Projektionen/`availableActions`,
+  Persistenz/Version/Recovery, Medien-/Voice-/Camera-/Mic-/Display-Defaults)
+  und weicht **nur** in den folgenden Punkten ab. `INSUFFICIENT_PLAYERS`
+  gilt nur an Start-/Transition-Gates, nie gegen das absichtlich sinkende
+  aktive Teilnehmerfeld im Spielverlauf (§12-10).
+- **Late-Join-Policy (engine-spezifisch):** Nein während `A_REVEAL`/`B_REVEAL`/`INPUT_*` der laufenden Runde → `PENDING_JOIN`, ab der **nächsten** Runde aktiv (A-Basiswert via Resync, B geheim bis Reveal).
+- **Ausscheidende Teilnehmer:** keine (alle bleiben aktiv, Streak-System optional).
+- **Teamrollen/Rotation:** keine (1v1- oder FFA-Team-Core, optional).
+- **Voice/Camera/Mic (Abweichung von den Defaults):** Mikrofon MUTED (Default). ·
+  Camera: OFF (Default).
+- **Medien in Phasen:** keine (numerische Inhalte).
+- **RESULT_REVIEW:** geerbt (§3.4).

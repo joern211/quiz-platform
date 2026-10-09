@@ -49,8 +49,14 @@ aber diese Detailregeln sind **im Master nicht vollständig ausformuliert**
 ```
 SecretAgentSetup {
   pools: ContentPoolRef[]           // Rollendefinitionen + Begriffe
-  roleConfig: {agentCount: 'AUTO' (n-2), undercoverCount: 1,
+  roleConfig: {agentCount: 'AUTO' (n - 1 - saboteurCount),
+               undercoverCount: 1,
                saboteurCount: 0|1, …}   // VORSCHLAG DEC-AGT-01
+  // 12-10: Rollenverteilung muss EXAKT n Spieler abdecken:
+  //   ohne Saboteur: Agent (n-1) + Undercover (1) = n
+  //   mit Saboteur:  Agent (n-2) + Undercover (1) + Saboteur (1) = n
+  // (früher stand hier pauschal „agentCount: n-2" → ohne Saboteur nur
+  //  n-1 Rollen, ein Spieler ohne Rolle)
   roundMax: number (default 4)
   perRound: {hintTimerMs (default 30000), voteTimerMs (default 30000),
              discussionMs (default UNLIMITED, Voice)}
@@ -62,9 +68,12 @@ SecretAgentSetup {
 }
 ```
 
-- Quick: SYSTEM-Rollen-Preset „Klassiker (3 Agenten + 1 Undercover)",
-  4 Runden, Voice optional.
-- Preflight: ≥5 Spieler, Rollen-Pool READY.
+- Quick: SYSTEM-Rollen-Preset „Klassiker" — **5 Spieler: 4 Agenten +
+  1 Undercover** (Agent = n-1 ohne Saboteur, exakt n Rollen, 12-10;
+  frühere Formulierung „3 Agenten + 1 Undercover" deckte nur 4 von
+  5 Spielern ab), 4 Runden, Voice optional.
+- Preflight: ≥5 Spieler, Rollen-Pool READY, **Rollenverteilung deckt exakt
+  n ab** (sonst `INVALID_ROLE_CONFIG`).
 
 ## 5. Content-/Editor-Schema
 
@@ -72,9 +81,11 @@ SecretAgentSetup {
   winConditions (JSON: rollenabhängig), category?, difficulty, tags.
 - READY: ≥2 Rollentypen, Win-Conditions definiert, Sprache.
 - **VORSCHLAG DEC-AGT-01 (Rollen-Satz):**
-  - **Agent** (n−2): gemeinsamer Begriff A.
+  - **Agent** (n−1−saboteurCount): gemeinsamer Begriff A.
   - **Undercover** (1): eigener Begriff B (ähnlich).
   - **Saboteur** (optional 0–1): weiß A und B, darf beide „tippen".
+  - **Rollen-Check (12-10):** Summe muss exakt n ergeben (Preflight
+    `INVALID_ROLE_CONFIG`).
   - Win: Undercover + Saboteur überleben bis max Runden → Team
     Undercover gewinnt; sonst Agenten.
   - **Alternative (einfacher, V1-Default):** nur Agent + Undercover
@@ -164,3 +175,21 @@ INTRO (Rollen-Zuteilung, Privat) → (je Runde) HINT_TURN_1 (Voice/Text) → …
 > **Wichtig:** „Geheim Agent" ist das am wenigsten ausformulierte
 > Spiel im Master. **DEC-AGT-01 muss vor PR33-Start entschieden sein.**
 > Bis dahin: Spezifikation als Entwurf, keine Engine.
+
+---
+
+## 13. Engine-Vertrag, Late Join & Rollen-Policy (12-08)
+
+- **Gemeinsamer Vertrag:** `secret-agent` referenziert `../technical-mapping.md §3.4`
+  (Zustandsmaschine, Command-Guards 1–4, Projektionen/`availableActions`,
+  Persistenz/Version/Recovery, Medien-/Voice-/Camera-/Mic-/Display-Defaults)
+  und weicht **nur** in den folgenden Punkten ab. `INSUFFICIENT_PLAYERS`
+  gilt nur an Start-/Transition-Gates, nie gegen das absichtlich sinkende
+  aktive Teilnehmerfeld im Spielverlauf (§12-10).
+- **Late-Join-Policy (engine-spezifisch):** **Nein nach Start** — Rollenverteilung ist nicht nachträglich integrierbar → Zuschauer bis Spielende (Vorschlag DEC-AGT-01).
+- **Ausscheidende Teilnehmer:** Ausgeschiedene → Zuschauer; Rollen-Geheimhaltung bleibt bis `GAME_END`.
+- **Teamrollen/Rotation:** keine (individuell, geheime Rollen).
+- **Voice/Camera/Mic (Abweichung von den Defaults):** **Voice-PFlicht in `DISCUSSION`** (Abweichung; Mute-Opt-in als Vorschlag DEC-AGT-01) — einzige Voice-Abweichung im Katalog. ·
+  Camera: OFF (Default).
+- **Medien in Phasen:** keine.
+- **RESULT_REVIEW:** geerbt (§3.4).

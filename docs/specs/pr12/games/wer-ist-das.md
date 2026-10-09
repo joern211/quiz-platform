@@ -167,3 +167,21 @@ SETUP (Setup v2) → INTRO → (je Runde) BUZZ_OPEN → BUZZ_LOCKED → JUDGING 
 | DEC-WID-01 | SYSTEM-Beispielpersonen für Quick Setup? | nein für V1 (Rechte-Risiko); nur eigene Uploads |
 | DEC-WID-02 | Echter Bild-Morph (Interpolation)? | **ausdrücklich später** (Master) — Composite crossfade bleibt V1 |
 | DEC-WID-03 | Wer sieht Originals nach Reveal? | alle (PUBLIC), Master: „Reveal darf es zeigen" |
+
+---
+
+## 13. Engine-Vertrag, Late Join & Rollen-Policy (12-08)
+
+- **Gemeinsamer Vertrag:** `wer-ist-das` referenziert `../technical-mapping.md §3.4`
+  (Zustandsmaschine, Command-Guards 1–4, Projektionen/`availableActions`,
+  Persistenz/Version/Recovery, Medien-/Voice-/Camera-/Mic-/Display-Defaults)
+  und weicht **nur** in den folgenden Punkten ab. `INSUFFICIENT_PLAYERS`
+  gilt nur an Start-/Transition-Gates, nie gegen das absichtlich sinkende
+  aktive Teilnehmerfeld im Spielverlauf (§12-10).
+- **Late-Join-Policy (engine-spezifisch):** Nein während `BUZZ_OPEN`/`JUDGING` der laufenden Runde → `PENDING_JOIN`, ab der **nächsten** Runde aktiv; Fusion + Punkte via Resync.
+- **Ausscheidende Teilnehmer:** keine (Rundenbuzzer, keine Dauer-Ausscheidung).
+- **Teamrollen/Rotation:** keine (Team-Buzzer via Core, optional).
+- **Voice/Camera/Mic (Abweichung von den Defaults):** Mikrofon MUTED (Default); Reveal-Äußerungen verbal (Host-Judge). ·
+  Camera: OFF (Default).
+- **Medien in Phasen:** Fusion via signed `gameImageUrl` (PR11); Originals nie in Projektionen vor Reveal.
+- **RESULT_REVIEW:** ausgewiesen (§6).

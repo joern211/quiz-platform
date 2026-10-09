@@ -126,3 +126,21 @@ INTRO → (je Runde) STATEMENT_REVEAL → INPUT_OPEN (WAHR/FAKE) → INPUT_LOCKE
 | ID | Frage | Vorschlag (default) |
 |---|---|---|
 | DEC-WOF-01 | Punkte/Streak, Verhältnis WAHR/FAKE, Quellen-Pflicht, Team-Mehrheit | 100/0/+50, 50/50 balanced, Quellen Pflicht (PUBLIC), Team = Mehrheit |
+
+---
+
+## 13. Engine-Vertrag, Late Join & Rollen-Policy (12-08)
+
+- **Gemeinsamer Vertrag:** `wahr-oder-fake` referenziert `../technical-mapping.md §3.4`
+  (Zustandsmaschine, Command-Guards 1–4, Projektionen/`availableActions`,
+  Persistenz/Version/Recovery, Medien-/Voice-/Camera-/Mic-/Display-Defaults)
+  und weicht **nur** in den folgenden Punkten ab. `INSUFFICIENT_PLAYERS`
+  gilt nur an Start-/Transition-Gates, nie gegen das absichtlich sinkende
+  aktive Teilnehmerfeld im Spielverlauf (§12-10).
+- **Late-Join-Policy (engine-spezifisch):** Nein während `INPUT_*` der laufenden Runde → `PENDING_JOIN`, ab der **nächsten** Runde aktiv.
+- **Ausscheidende Teilnehmer:** keine (alle bleiben aktiv).
+- **Teamrollen/Rotation:** Team = Mehrheit (Vorschlag DEC-WOF-01).
+- **Voice/Camera/Mic (Abweichung von den Defaults):** Mikrofon MUTED (Default). ·
+  Camera: OFF (Default).
+- **Medien in Phasen:** keine (Fakten/Quellen als Text).
+- **RESULT_REVIEW:** geerbt (§3.4).

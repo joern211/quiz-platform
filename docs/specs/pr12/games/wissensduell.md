@@ -148,3 +148,21 @@ INTRO → (je Frage) PROMPT → INPUT_OPEN → INPUT_LOCKED → REVEAL → ROUND
 |---|---|---|
 | DEC-KAT-01 | Buzzer-Option im Wissensduell? | OFF (MC-Duell ohne Buzzer), als Preset-Option offen |
 | DEC-KAT-02 | Auto-Reveal nach Timer-Ende (Host-Ausfall)? | ja, Option `autoRevealOnExpire` default ON |
+
+---
+
+## 13. Engine-Vertrag, Late Join & Rollen-Policy (12-08)
+
+- **Gemeinsamer Vertrag:** `wissensduell` referenziert `../technical-mapping.md §3.4`
+  (Zustandsmaschine, Command-Guards 1–4, Projektionen/`availableActions`,
+  Persistenz/Version/Recovery, Medien-/Voice-/Camera-/Mic-/Display-Defaults)
+  und weicht **nur** in den folgenden Punkten ab. `INSUFFICIENT_PLAYERS`
+  gilt nur an Start-/Transition-Gates, nie gegen das absichtlich sinkende
+  aktive Teilnehmerfeld im Spielverlauf (§12-10).
+- **Late-Join-Policy (engine-spezifisch):** Nein während `INPUT_OPEN` der laufenden Frage → `PENDING_JOIN`, ab der **nächsten** Frage aktiv (Frage PUBLIC, kein Nachteil).
+- **Ausscheidende Teilnehmer:** Keine Ausscheidung — alle bleiben aktiv; Disconnect = `DISCONNECTED`, Rejoin-Regel §9.
+- **Teamrollen/Rotation:** keine (Standard Team-Core, optional).
+- **Voice/Camera/Mic (Abweichung von den Defaults):** Mikrofon MUTED (Default), keine Abweichung. ·
+  Camera: OFF (Default).
+- **Medien in Phasen:** keine (MC-Fragen); Media-Fragen optional über leak-safe URLs.
+- **RESULT_REVIEW:** ausgewiesen (§6) — `GAME_END → RESULT_REVIEW → FINALIZED`.

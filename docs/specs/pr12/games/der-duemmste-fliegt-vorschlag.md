@@ -149,7 +149,9 @@ INTRO → (je Runde) QUESTION_REVEAL → INPUT_OPEN → INPUT_LOCKED → (VOTING
 - **Default:** keine Punkte, nur Platzierung (wie Undercover).
 - **Alternative:** +10 pro Runde (SURVIVAL-Modus).
 - Endgründe: `COMPLETED` (Finale beendet), `HOST_ABORTED`,
-  `TECHNICAL_ABORT`, `INSUFFICIENT_PLAYERS` (unter 4 → Pause/Ende).
+  `TECHNICAL_ABORT`, `INSUFFICIENT_PLAYERS` (nur Start-/Pause-Gate unter
+  der **Start**-Mindestzahl; das absichtlich sinkende aktive Feld bis zum
+  2er-Finale wird NICHT dadurch beendet — 12-10).
 
 ## 8. Projektionen & Secrets
 
@@ -209,3 +211,21 @@ INTRO → (je Runde) QUESTION_REVEAL → INPUT_OPEN → INPUT_LOCKED → (VOTING
 > **Keine dieser Vorschlags-Regeln ist festgelegt.** PR36 (Engine)
 > **darf nicht starten**, bis DEC-DDF-01…06 bestätigt sind.
 > Die Aufnahme in V1.0 selbst (ADD-DDF-01) ist fest (Nutzerergänzung).
+
+---
+
+## 13. Engine-Vertrag, Late Join & Rollen-Policy (12-08)
+
+- **Gemeinsamer Vertrag:** `der-duemmste-fliegt` referenziert `../technical-mapping.md §3.4`
+  (Zustandsmaschine, Command-Guards 1–4, Projektionen/`availableActions`,
+  Persistenz/Version/Recovery, Medien-/Voice-/Camera-/Mic-/Display-Defaults)
+  und weicht **nur** in den folgenden Punkten ab. `INSUFFICIENT_PLAYERS`
+  gilt nur an Start-/Transition-Gates, nie gegen das absichtlich sinkende
+  aktive Teilnehmerfeld im Spielverlauf (§12-10).
+- **Late-Join-Policy (engine-spezifisch):** Nein in der laufenden Runde → `PENDING_JOIN`, ab der **nächsten** Runde aktiv (Vorschlag DEC-DDF-06); Host-Judge-Antworten bleiben anonym.
+- **Ausscheidende Teilnehmer:** Ausgeschiedene → **Viewer-Modus** (Vorschlag DEC-DDF-06), kein Rejoin in dieselbe Partie; Finale (2 Spieler) wird nicht durch `INSUFFICIENT_PLAYERS` abgeschnitten (§12-10).
+- **Teamrollen/Rotation:** keine (individuell).
+- **Voice/Camera/Mic (Abweichung von den Defaults):** Mikrofon MUTED (Default). ·
+  Camera: OFF (Default).
+- **Medien in Phasen:** keine.
+- **RESULT_REVIEW:** geerbt (§3.4).

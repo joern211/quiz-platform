@@ -138,3 +138,21 @@ INTRO → (je Runde) LETTER_REVEAL (Buchstabe + Kategorien) → INPUT_OPEN → I
 | ID | Frage | Vorschlag (default) |
 |---|---|---|
 | DEC-SLF-01 | Kategorien-Satz, Wertung (100), Duplikat-Regel, Serien-Bonus, Pool-Pflicht, Team-Modus | S/L/F + erweiterbar, 100, beide ungültig, Bonus OFF default, Pool optional (Manual-Fallback), Team = Summe bester Einträge |
+
+---
+
+## 13. Engine-Vertrag, Late Join & Rollen-Policy (12-08)
+
+- **Gemeinsamer Vertrag:** `stadt-land-fluss` referenziert `../technical-mapping.md §3.4`
+  (Zustandsmaschine, Command-Guards 1–4, Projektionen/`availableActions`,
+  Persistenz/Version/Recovery, Medien-/Voice-/Camera-/Mic-/Display-Defaults)
+  und weicht **nur** in den folgenden Punkten ab. `INSUFFICIENT_PLAYERS`
+  gilt nur an Start-/Transition-Gates, nie gegen das absichtlich sinkende
+  aktive Teilnehmerfeld im Spielverlauf (§12-10).
+- **Late-Join-Policy (engine-spezifisch):** Nein während `INPUT_*` der laufenden Runde → `PENDING_JOIN`, ab der **nächsten** Runde aktiv.
+- **Ausscheidende Teilnehmer:** keine (alle bleiben aktiv).
+- **Teamrollen/Rotation:** Team = Punkte-Summe (Vorschlag DEC-SLF-01).
+- **Voice/Camera/Mic (Abweichung von den Defaults):** Mikrofon MUTED (Default). ·
+  Camera: OFF (Default).
+- **Medien in Phasen:** keine.
+- **RESULT_REVIEW:** geerbt (§3.4).

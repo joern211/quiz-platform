@@ -46,7 +46,9 @@ TimelineSetup {
              revealDelayMs (default 2000)}
   sortMode: CHRONOLOGICAL|NUMERICAL (default CHRONOLOGICAL)
   direction: ASCENDING|DESCENDING (default ASCENDING)
-  scoring: {fullCorrect: 100, perPosition: 20 (Teilwertung) — VORSCHLAG}
+  scoring: {perPosition: 20, fullCorrectBonus: 50 — VORSCHLAG}
+           // 12-10: EXAKT eine Formel (§7); früher „fullCorrect: 100" +
+           //        „20 je Position plus 50 Bonus" widersprachen sich
   tiesPolicy: TOLERATED (gleiche Werte zählen als korrekt)
   hostCanPlay: boolean (default true)
   language: de-DE
@@ -86,9 +88,12 @@ INTRO → (je Runde) SET_REVEAL (unsortierte Items) → SORTING_OPEN → SORTING
 
 ## 7. Wertung & Endgründe (Vorschläge, DEC-TIM-01)
 
-- **Teilwertungs-Vorschlag:** +`perPosition` (20) je korrekt platziertes
-  Item; +50 Bonus wenn komplett korrekt (`fullCorrect` überschlägt
-  die Summe); nicht eingeordnet (unvollständig) = 0 für die Position.
+- **Teilwertungs-Vorschlag (12-10: eine Formel):** +`perPosition` (20) je
+  korrekt platziertes Item; +`fullCorrectBonus` (50) wenn das Set komplett
+  korrekt sortiert ist.
+  **Beispiel (5 Items, 3 korrekt):** 3×20 = 60 Punkte (kein Bonus, nicht
+  komplett). **Beispiel (5 Items, alle korrekt):** 5×20 + 50 = 150 Punkte.
+  Nicht eingeordnet (unvollständig) = 0 für die Position.
 - **Ties:** Items mit gleichem sortValue (tieGroup): beide Positionen
   gelten als korrekt (Vorschlag `TOLERATED`).
 - Endgründe: `COMPLETED`, `HOST_ABORTED`, `TECHNICAL_ABORT`,
@@ -133,3 +138,21 @@ INTRO → (je Runde) SET_REVEAL (unsortierte Items) → SORTING_OPEN → SORTING
 | ID | Frage | Vorschlag (default) |
 |---|---|---|
 | DEC-TIM-01 | Teilwertungs-Formel, Ties, Speed-Bonus, Items/Runde, Richtung | 20/Position + 50 full-correct, Tolerated Ties, Speed-Bonus optional Preset, 5 Items, ASCENDING default |
+
+---
+
+## 13. Engine-Vertrag, Late Join & Rollen-Policy (12-08)
+
+- **Gemeinsamer Vertrag:** `timeline` referenziert `../technical-mapping.md §3.4`
+  (Zustandsmaschine, Command-Guards 1–4, Projektionen/`availableActions`,
+  Persistenz/Version/Recovery, Medien-/Voice-/Camera-/Mic-/Display-Defaults)
+  und weicht **nur** in den folgenden Punkten ab. `INSUFFICIENT_PLAYERS`
+  gilt nur an Start-/Transition-Gates, nie gegen das absichtlich sinkende
+  aktive Teilnehmerfeld im Spielverlauf (§12-10).
+- **Late-Join-Policy (engine-spezifisch):** Nein während `SET_REVEAL`/`SORTING_*` der laufenden Runde → `PENDING_JOIN`, ab der **nächsten** Runde aktiv.
+- **Ausscheidende Teilnehmer:** keine (alle bleiben aktiv).
+- **Teamrollen/Rotation:** keine (individuell).
+- **Voice/Camera/Mic (Abweichung von den Defaults):** Mikrofon MUTED (Default). ·
+  Camera: OFF (Default).
+- **Medien in Phasen:** keine.
+- **RESULT_REVIEW:** geerbt (§3.4).

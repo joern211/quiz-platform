@@ -221,3 +221,21 @@ INTRO → (je Runde) BIDDING_OPEN (Bidder-Teams sichtbar, Performer-Teams: „Pa
 | ID | Frage | Vorschlag (default) |
 |---|---|---|
 | DEC-PCH-01 | Viewer-Task-Sichtbarkeit (einziger verbleibender offen Punkt) | Viewer sieht Bids + Ziel, **nicht** den Task-Text (Anti-Tippen-via-Zuschauer) |
+
+---
+
+## 13. Engine-Vertrag, Late Join & Rollen-Policy (12-08)
+
+- **Gemeinsamer Vertrag:** `partner-challenge` referenziert `../technical-mapping.md §3.4`
+  (Zustandsmaschine, Command-Guards 1–4, Projektionen/`availableActions`,
+  Persistenz/Version/Recovery, Medien-/Voice-/Camera-/Mic-/Display-Defaults)
+  und weicht **nur** in den folgenden Punkten ab. `INSUFFICIENT_PLAYERS`
+  gilt nur an Start-/Transition-Gates, nie gegen das absichtlich sinkende
+  aktive Teilnehmerfeld im Spielverlauf (§12-10).
+- **Late-Join-Policy (engine-spezifisch):** Nein während `BIDDING_*`/`CHALLENGE_ACTIVE` → `PENDING_JOIN`, ab der **nächsten** Runde; Teams werden dann neu geformt (gerade Spielerzahl; Neu-Teamung mit Rollen-Zuweisung, kein Nachteil für Bestandsspieler).
+- **Ausscheidende Teilnehmer:** keine (Teams bleiben; Bidder/Performer rotieren pro Runde).
+- **Teamrollen/Rotation:** **Pflicht:** je Team 1 Bidder + 1 Performer, Rotation pro Runde (§2); 2er-Teams.
+- **Voice/Camera/Mic (Abweichung von den Defaults):** Mikrofon MUTED während Bidding (Geheimhaltung) und Challenge (Validierung erst danach) — keine Abweichung vom Default, aber explizit. ·
+  Camera: OFF (Default).
+- **Medien in Phasen:** Task-Details nie in Viewer-/Display-Projektion (DEC-PCH-01).
+- **RESULT_REVIEW:** geerbt (§3.4).

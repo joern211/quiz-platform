@@ -87,10 +87,13 @@ INTRO → (je Stufe) QUESTION_REVEAL → INPUT_OPEN → INPUT_LOCKED → REVEAL 
 | `stage.next` / `game.start` / `pause`/`resume` | HOST | — |
 | `emergency.*` | HOST | — |
 
-- **Ablaufbeispiel:** Stufe 4 (gewährleistet: 10 P) → Spieler antwortet
-  korrekt → Bank = 30 P (Stufe 5) → … → Stufe 8 korrekt (Bank 200) →
-  Stufe 9 falsch → **Gewinn = 200** (letzte Bank-Stufe 8), Spielende
-  „Ge knackt".
+- **Ablaufbeispiel (12-10: Bank-Level [3,6,9,10], perStage
+  [10,20,30,50,75,100,150,200,300,400]):**
+  Stufen 1–8 korrekt → nach Stufe 8 hat der Spieler **200 P erreicht**,
+  aber nur bis **Stufe 6 = 100 P gesichert** (Stufe 8 ist **keine**
+  Bank-Stufe; früher hieß es „Bank 200" und „letzte Bank-Stufe 8").
+  Stufe 9 falsch → **Gewinn = 100** (letzte abgeschlossene Bank =
+  **Stufe 6**), Spielende „Geknackt".
 
 ## 7. Wertung & Endgründe
 
@@ -141,3 +144,21 @@ INTRO → (je Stufe) QUESTION_REVEAL → INPUT_OPEN → INPUT_LOCKED → REVEAL 
 | ID | Frage | Vorschlag (default) |
 |---|---|---|
 | DEC-MIL-01 | Leiter-Größe, MC vs. verbal, Joker-Satz, Bank-Level, Punktewerte, Solo-Support | 10 Stufen, MC 4-Option, 50:50+Expert+Zeit, Bank [3,6,9,10], [10..400], Solo ja (minPlayers=1) |
+
+---
+
+## 13. Engine-Vertrag, Late Join & Rollen-Policy (12-08)
+
+- **Gemeinsamer Vertrag:** `millionenfrage` referenziert `../technical-mapping.md §3.4`
+  (Zustandsmaschine, Command-Guards 1–4, Projektionen/`availableActions`,
+  Persistenz/Version/Recovery, Medien-/Voice-/Camera-/Mic-/Display-Defaults)
+  und weicht **nur** in den folgenden Punkten ab. `INSUFFICIENT_PLAYERS`
+  gilt nur an Start-/Transition-Gates, nie gegen das absichtlich sinkende
+  aktive Teilnehmerfeld im Spielverlauf (§12-10).
+- **Late-Join-Policy (engine-spezifisch):** Nein in der laufenden Stufe → `PENDING_JOIN`, ab der **nächsten** Stufe aktiv; Bank-Stand via Resync (nur eigene Bank, `PLAYER_PRIVATE`).
+- **Ausscheidende Teilnehmer:** Solo-Modus: kein Ausscheiden; MC-Runde endet mit GEWONNEN/GEKNACKT (Vorschlag DEC-MIL-01).
+- **Teamrollen/Rotation:** keine (Solo oder FFA).
+- **Voice/Camera/Mic (Abweichung von den Defaults):** Mikrofon MUTED (Default). ·
+  Camera: OFF (Default).
+- **Medien in Phasen:** keine.
+- **RESULT_REVIEW:** geerbt (§3.4).

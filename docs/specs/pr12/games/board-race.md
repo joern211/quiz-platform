@@ -146,3 +146,21 @@ INTRO (Startreihenfolge) → (je Zug) ROLL (serverseitig) → MOVE (Animation, s
 | ID | Frage | Vorschlag (default) |
 |---|---|---|
 | DEC-BRD-01 | Brettgröße, Figuren/Pro-Spieler, Hit-Regel, Heimfeld-Regel, Teammodus, Sonderfelder | 24 Felder, 1 Figur, EXACT_HIT, EXACT_REMAIN, individuell, keine Sonderfelder in V1 |
+
+---
+
+## 13. Engine-Vertrag, Late Join & Rollen-Policy (12-08)
+
+- **Gemeinsamer Vertrag:** `board-race` referenziert `../technical-mapping.md §3.4`
+  (Zustandsmaschine, Command-Guards 1–4, Projektionen/`availableActions`,
+  Persistenz/Version/Recovery, Medien-/Voice-/Camera-/Mic-/Display-Defaults)
+  und weicht **nur** in den folgenden Punkten ab. `INSUFFICIENT_PLAYERS`
+  gilt nur an Start-/Transition-Gates, nie gegen das absichtlich sinkende
+  aktive Teilnehmerfeld im Spielverlauf (§12-10).
+- **Late-Join-Policy (engine-spezifisch):** Nein während der laufenden Zug-Sequenz → `PENDING_JOIN`, ab dem **nächsten Zug-BLOCK** (alle Figuren haben gewürfelt) aktiv, Startfeld-Zuweisung (Vorschlag DEC-BRD-01).
+- **Ausscheidende Teilnehmer:** keine (Rennspiel, keine Ausscheidung).
+- **Teamrollen/Rotation:** individuell (Teammodus Option, Vorschlag DEC-BRD-01).
+- **Voice/Camera/Mic (Abweichung von den Defaults):** Mikrofon MUTED (Default). ·
+  Camera: OFF (Default).
+- **Medien in Phasen:** Brett-Render PUBLIC (Display-freundlich).
+- **RESULT_REVIEW:** geerbt (§3.4).

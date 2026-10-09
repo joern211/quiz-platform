@@ -172,3 +172,21 @@ INTRO → (je Runde) QUESTION_REVEAL → ANSWER_OPEN → ANSWER_LOCKED → VOTE_
 | ID | Frage | Vorschlag (default) |
 |---|---|---|
 | DEC-SPI-01 | Anonymisierung, Selbst-Vote, Tie, Duplikate, Nichtabgabe, min/max Players | anonymisiert ON, Selbst-Vote OFF, 2-Wege-Tie = keine Punkte, Duplikat → erster Autor, 3–12 Spieler |
+
+---
+
+## 13. Engine-Vertrag, Late Join & Rollen-Policy (12-08)
+
+- **Gemeinsamer Vertrag:** `imposter` referenziert `../technical-mapping.md §3.4`
+  (Zustandsmaschine, Command-Guards 1–4, Projektionen/`availableActions`,
+  Persistenz/Version/Recovery, Medien-/Voice-/Camera-/Mic-/Display-Defaults)
+  und weicht **nur** in den folgenden Punkten ab. `INSUFFICIENT_PLAYERS`
+  gilt nur an Start-/Transition-Gates, nie gegen das absichtlich sinkende
+  aktive Teilnehmerfeld im Spielverlauf (§12-10).
+- **Late-Join-Policy (engine-spezifisch):** Nein während `ANSWER_OPEN`/`VOTE_OPEN` der laufenden Runde → `PENDING_JOIN`, ab der **nächsten** Runde aktiv (keine Antworten/Votes nachreichen).
+- **Ausscheidende Teilnehmer:** keine (alle bleiben in jedem Votum).
+- **Teamrollen/Rotation:** keine (individuell).
+- **Voice/Camera/Mic (Abweichung von den Defaults):** Mikrofon MUTED (Default). ·
+  Camera: OFF (Default).
+- **Medien in Phasen:** keine (verbale Antworten).
+- **RESULT_REVIEW:** geerbt (§3.4) — §6-Flow ergänzt `RESULT_REVIEW` vor FINALIZED.

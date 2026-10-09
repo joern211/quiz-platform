@@ -43,8 +43,14 @@ Jede Spezifikation endet mit demselben verbindlichen DoD-Block:
    Rejoin, Resync, Pause/Resume, ungültige Commands, Duplicate Commands,
    Recovery, Secrets/Visibility)
 10. CI vollständig grün, keine übersprungenen Pflicht-Tests
+11. **Gemeinsamer Engine-Vertrag (12-08):** `games/<slug>.md` referenziert
+    `technical-mapping.md §3.4` (Zustandsmaschine inkl. geerbtem
+    `RESULT_REVIEW`, Command-Guards, Projektionen/`availableActions`,
+    Persistenz/Version/Recovery, Medien-/Voice-/Camera-/Mic-/Display-
+    Defaults) und ergänzt **nur** die engine-spezifischen Abweichungen im
+    §13-Block der eigenen Spec.
 
-`AVAILABLE` erst nach 1–10; `BETA` nur mit dokumentierten nichtkritischen
+`AVAILABLE` erst nach 1–11; `BETA` nur mit dokumentierten nichtkritischen
 Einschränkungen. Jede Engine nutzt mindestens die Cores, die in ihrer
 Spezifikation „verwendet" sind — diese Cores erfüllen damit (mit je einer
 zweiten Engine) die 2-Engine-DoD aus §13.2.
@@ -56,5 +62,10 @@ zweiten Engine) die 2-Engine-DoD aus §13.2.
 - **VORSCHLAG** = PR12-Entwurf mit Decision-ID (DEC-…); blockiert nur die
   betroffene Engine-Implementierung, nicht die übrige Roadmap.
 - **OFFEN** = echte Nutzerentscheidung fehlt.
+- **§13 (Pflicht, 12-08):** jede Spec endet mit dem Block
+  „Engine-Vertrag, Late Join & Rollen-Policy" — engine-spezifische
+  Guards, Late-Join-/Ausscheidungs-/Teamrollen-Policy,
+  Voice-/Camera-/Mic-/Display-Abweichungen und die
+  `RESULT_REVIEW`-Kennzeichnung (ausgewiesen oder geerbt).
 - Setup-/State-Beispiele sind Zielmodell-Schemata (kein Runtime-Code).
 - „Host" = Host-Rolle nach G1-Migration (begrifflich: MODERATOR in main).

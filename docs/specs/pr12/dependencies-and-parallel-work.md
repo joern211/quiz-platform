@@ -90,9 +90,18 @@ stabil** existieren (sonst 15× Anpassung):
    Datenfluss, Amendment-korrekturfähig — Abschnitt 1.2 in
    technical-mapping.md).
 
-**Regel:** Ein Core gilt erst als stabil, wenn er die 2-Engine-DoD
-(§13.2) erfüllt — deshalb: PR15/16 vor den meisten neuen Engines;
-PR37 bringt Bestands-Engines nach.
+**Regel (12-09, kein zirkuläres DONE-Kriterium):** Ein Core gilt erst als
+stabil, wenn er die 2-Engine-DoD (§13.2) erfüllt. Der Nachweis wird **früh,
+mit dem jeweiligen Core-PR** erbracht — nicht erst bei PR37:
+- **PR15:** frühe vertikale Integration von **jeopardy + wissensduell**
+  (die Cores nutzen sie bereits teilweise; volle Übernahme ist Teil von
+  PR15).
+- **PR16:** frühe Migration von **wer-ist-das + jeopardy**.
+- **PR37:** konsolidiert dann **alle** Bestands-Engines auf den
+  vollständigen Vertrag (technical-mapping §3.4) + V1-Verträge.
+Damit ist „≥2 Consumer je Core-PR" ein tatsächlicher, zeitlich **vor PR37**
+liegender Nachweis — nicht auf PR37 verwiesen (kein zirkuläres
+DONE-Kriterium).
 
 ## 4. Genau ein zuständiger Arbeitsbereich je zentraler Datei
 
@@ -101,7 +110,7 @@ PR37 bringt Bestands-Engines nach.
 | Prisma-Schema + Migrationen | PR13 (Basis), danach je PR mit explizitem Schema-Commit (ein PR = eine Migration-Datei, keine parallelen Schema-Edits) |
 | Game Registry (`games/registry.ts`) | PR10-Katalog bleibt Referenz; jeder neue Engine-PR registriert sich (1 Datei, Konfliktrisiko hoch → kleine Commits, sofort rebase) |
 | Shared-Typen/Enums/Schemas | PR13 (zentr.), danach additive Änderungen nur im zugeordneten Core-PR |
-| Manifest/Katalog-Datei | PR12 (DDF-Zusatz, erst nach DEC-DDF-01), sonst nur PR37 |
+| Manifest/Katalog-Datei | **PR36 (DDF-Engine-PR)** — die DDF-Katalog-/Manifest-Änderung ist **kein** PR12-Runtime-Auftrag, auch nicht nach Slug-Bestätigung (DEC-DDF-01); PR12 ist **docs-only** und hält den DDF-Slug als getrennten Vorschlag (12-09); sonst nur PR37 |
 | CI-Konfiguration | PR4 (Basis), additive Changes je PR (kein Refactor in Feature-PRs) |
 | `docs/` (gemeinsame Doku) | je PR seinen Bereich (docs/<paket>/) |
 | Medien-Verarbeitung | PR11 (Grundlage) → PR19 (Ausbau) |
@@ -132,9 +141,11 @@ PR37 bringt Bestands-Engines nach.
 
 1. **PR13** → main (Basis-Standards).
 2. **PR14** → main (Team/Room).
-3. **PR15** → main (Cores). Regression: bestehende 3 Engines
+3. **PR15** → main (Cores). **Frühe Consumer-Migration (2-Engine-DoD):
+   jeopardy + wissensduell** (12-09). Regression: bestehende 3 Engines
    (wissensduell/jeopardy/wer-ist-das) müssen grünes CI behalten.
-4. **PR16** → main (Results/Recovery). Regression: E2E-Suite.
+4. **PR16** → main (Results/Recovery). **Frühe Consumer-Migration
+   (2-Engine-DoD): wer-ist-das + jeopardy** (12-09). Regression: E2E-Suite.
 5. **PR17/18** → main (Content). Regression: Content-Integration.
 6. **PR19/20** → main (Media/Voice/Broadcast).
 7. **Spiele-PRs (21–36)** — können **parallel** auf den stabilen

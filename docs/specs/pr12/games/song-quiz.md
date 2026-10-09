@@ -140,3 +140,21 @@ INTRO → (je Runde) AUDIO_LOADING → AUDIO_PLAYING → BUZZ_OPEN → BUZZ_LOCK
 | ID | Frage | Vorschlag (default) |
 |---|---|---|
 | DEC-SNG-01 | Punktwerte (full/partial/wrong), Reopen-Count, Ladefehler-Fallback, min/max, Speed-Bonus | 3/1/0, 1 Reopen, FALLBACK nach 2 Retries, 2–12, Speed-Bonus optional Preset |
+
+---
+
+## 13. Engine-Vertrag, Late Join & Rollen-Policy (12-08)
+
+- **Gemeinsamer Vertrag:** `song-quiz` referenziert `../technical-mapping.md §3.4`
+  (Zustandsmaschine, Command-Guards 1–4, Projektionen/`availableActions`,
+  Persistenz/Version/Recovery, Medien-/Voice-/Camera-/Mic-/Display-Defaults)
+  und weicht **nur** in den folgenden Punkten ab. `INSUFFICIENT_PLAYERS`
+  gilt nur an Start-/Transition-Gates, nie gegen das absichtlich sinkende
+  aktive Teilnehmerfeld im Spielverlauf (§12-10).
+- **Late-Join-Policy (engine-spezifisch):** Nein in der laufenden Runde (Audio-Sync ist rundenbegrenzt) → `PENDING_JOIN`, ab der **nächsten** Runde aktiv; `AUDIO_LOADING`-State wird nicht nachgereicht.
+- **Ausscheidende Teilnehmer:** keine (Buzzer-Runden).
+- **Teamrollen/Rotation:** keine (individuell, Shared-Buzzer).
+- **Voice/Camera/Mic (Abweichung von den Defaults):** Mikrofon MUTED (Default); **Audio-Playback läuft über den MAIN-Channel an alle** (synchronisiert, §7.14). ·
+  Camera: OFF (Default).
+- **Medien in Phasen:** Audio-Assets via signed/leak-safe URLs; Preloading der **nächsten** Spur erlaubt, nie der aktuellen vor Reveal.
+- **RESULT_REVIEW:** geerbt (§3.4).

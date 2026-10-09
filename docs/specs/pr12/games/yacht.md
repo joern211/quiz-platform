@@ -188,3 +188,21 @@ INTRO → (je Zug) ROLLING (max 3 Würfe, Hold/Unhold) → SCORING (Kategorie w�
 > **Nicht mehr offen (Master §16.4):** `AVERAGE_SCORE` ist ausdrücklich
 > **später** — keine V1-Option und keine Nutzerentscheidung. `teamEndValue`
 > ist in V1 ausschließlich `SUM`.
+
+---
+
+## 13. Engine-Vertrag, Late Join & Rollen-Policy (12-08)
+
+- **Gemeinsamer Vertrag:** `yacht` referenziert `../technical-mapping.md §3.4`
+  (Zustandsmaschine, Command-Guards 1–4, Projektionen/`availableActions`,
+  Persistenz/Version/Recovery, Medien-/Voice-/Camera-/Mic-/Display-Defaults)
+  und weicht **nur** in den folgenden Punkten ab. `INSUFFICIENT_PLAYERS`
+  gilt nur an Start-/Transition-Gates, nie gegen das absichtlich sinkende
+  aktive Teilnehmerfeld im Spielverlauf (§12-10).
+- **Late-Join-Policy (engine-spezifisch):** Nein während des laufenden Zuges → `PENDING_JOIN`, ab dem **nächsten Turn** aktiv (Turn-Core, serverseitig); Scorecard wird mit leeren Kategorien angelegt.
+- **Ausscheidende Teilnehmer:** keine (alle bleiben aktiv bis Scorecard voll).
+- **Teamrollen/Rotation:** Teammodus: SHARED/INDIVIDUAL (§2); Team-Neuformung erst zwischen Partien (Vorschlag DEC-YAC-01).
+- **Voice/Camera/Mic (Abweichung von den Defaults):** Mikrofon MUTED (Default). ·
+  Camera: OFF (Default).
+- **Medien in Phasen:** keine (Würfel/Scorecard PUBLIC).
+- **RESULT_REVIEW:** geerbt (§3.4).
