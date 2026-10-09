@@ -1,8 +1,16 @@
-# PR12 — Validierung (Etappe E)
+# PR12 — Validierung (Etappe E + Audit-Nacharbeit)
 
 **Getrennt dokumentiert:** (A) ausgeführte Checks, (B) geplante Tests
 (für spätere Implementierungs-PRs), (C) gelesene alte CI-Ergebnisse
 (nicht neu ausgeführt).
+
+> **12-11 (Abgrenzung):** Die Checks in Abschnitt A sind **strukturelle**
+> ID-/Link-/Scope-/Konsistenzprüfungen (Vollzähligkeit der Referenzen,
+> erlaubter Schreibbereich, fehlende Links). Sie belegen **keine fachliche
+> Regel-Vollständigkeit** — diese wird über den Master-Abgleich in den
+> Spielespezifikationen und der requirements-matrix nachgewiesen (Audit
+> 12-01..12-07). Eine „grüne" Strukturprüfung ersetzt weder Regel- noch
+> Abnahmeprüfung.
 
 ## A. Ausgeführte Checks (dieser Doku-PR)
 
@@ -48,7 +56,14 @@
 
 ## Offene Punkte für die Abschlussmeldung
 
-- Push an origin + Draft-PR-Erstellung: hängt von GitHub-Auth ab
-  (siehe handoff.md → Nächster Schritt).
-- Nach PR11-Merge: SHAs aktualisieren, PR11-Spalte neu klassifizieren,
-  Links erneut validieren (Plan in dependencies §7 Woche 2).
+- **Push an origin + Draft-PR #12: DONE (2026-10-07)** — Branch gepusht,
+  Draft-PR offen (https://github.com/joern211/quiz-platform/pull/12),
+  **nicht** Ready, **nicht** gemerged. (Der frühere Vermerk „hängt von
+  GitHub-Auth ab" ist damit überholt.)
+- **Audit-Nacharbeit 12-01..12-11: DONE (2026-10-09)** — alle Befunde
+  geschlossen (Audit-Closure-Tabelle in handoff.md).
+- **Nach PR11-Merge (noch offen, NICHT vorweg behauptet):** SHAs
+  aktualisieren, PR11-Spalte neu klassifizieren, Links erneut validieren
+  (Plan in `dependencies-and-parallel-work.md` §7 Woche 2). Der gepinnte
+  ältere PR11-Snapshot bleibt bis dahin zulässig; der erneute main-Abgleich
+  wird **erst nach** dem Merge durchgeführt und nicht vorher behauptet.

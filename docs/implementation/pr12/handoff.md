@@ -1,7 +1,7 @@
 # PR12 — Handoff: Regelwerk Mapping & V1-Spezifikation (19 Spiele)
 
 **Stand dieses Dokuments:** wird nach jeder Etappe aktualisiert.
-**Zuletzt aktualisiert:** Etappe E (Konsistenzprüfung + Doku-Draft vollständig; Rest: Push/Draft-PR)
+**Zuletzt aktualisiert:** **09.10.2026 — Audit-Nacharbeit 12-01..12-11 abgeschlossen** (falsche feste Regeln korrigiert, Ist-Aussagen abgeglichen, Entscheidungsregister bereinigt, Matrix atomarisiert, Engine-Vertrag + pro-Spiel-Policy, Scope/Integration, widerspruchsfreie Vorschläge, Handoff/Verifikation bereinigt). Draft-PR #12 offen, **nicht** Ready, **nicht** gemerged.
 
 ## Auftrag (Kurzform)
 
@@ -20,14 +20,15 @@ Abhängigkeitsplan. **Keine** Implementierung, **kein** Touch des PR11-Worktrees
 | **Basis main (festgehalten)** | `411a5b783e5857bca5b208598fade43affc108b5` (PR10 gemerged) |
 | **PR11-Head (gepinnt)** | `14708940246de105b83fdf69501ce373e2c48d21` (Etappe 3, Draft) |
 | PR11-Branch | `feature/wer-ist-das-fusion-media` (remote + local, NICHT angefasst) |
-| **Eigener Worktree (absolut)** | `/Users/joern.r/quiz-platform-pr12-spec` |
+| **Eigener Worktree** | separater Git-Worktree (Branch `docs/pr12-master-spec-preparation`) |
 | **Eigener Branch** | `docs/pr12-master-spec-preparation` (basierend auf origin/main @ 411a5b7) |
 | HEAD beim Start | `411a5b783e5857bca5b208598fade43affc108b5`, sauberer Start |
 
-Vorhandene Worktrees (unberührt, nur read-only Kenntnis):
-- `/Users/joern.r/quiz-platform` → `feature/jeopardy-mvp` (mit uncommitteten Änderungen — NICHT anfassen)
-- `/Users/joern.r/quiz-platform-catalog` → `feature/canonical-game-catalog`
-- `/Users/joern.r/quiz-platform-pr11` → `feature/wer-ist-das-fusion-media` (PR11-Arbeitsbereich — strikt NICHT anfassen)
+> **12-11 (Bereinigung):** Private absolute Rechnerpfade und lokaler
+> Zugangskontext wurden aus diesem öffentlichen Dokument entfernt —
+> Branches, SHAs und relative Projektpfade genügen. Der PR12-Worktree ist
+> strikt von den anderen Arbeitsbereichen getrennt (eigener Branch, eigener
+> Worktree); keine der anderen Worktrees/branches wurde angefasst.
 
 ## Freigegebene Schreibbereiche
 
@@ -59,7 +60,12 @@ bzw. via `.git/info/exclude` lokal ignoriert — siehe Validierung).
       technical-mapping.md, 19 Spielespezifikationen + index.md, decision-register.md.
 - [x] **D — Abhängigkeiten:** ✅ dependencies-and-parallel-work.md.
 - [x] **E — Konsistenz, Draft, Handoff:** ✅ Link-/ID-Prüfung (275/275 MR, 57/57 DEC),
-      README, verification.md, pr-body.md. **Rest: Push + Draft-PR (Auth-Check).**
+      README, verification.md, pr-body.md. **Push + Draft-PR #12: DONE (2026-10-07).**
+- [x] **Audit-Nacharbeit 12-01..12-11 (09.10.2026):** alle Befunde geschlossen —
+      falsche feste Regeln + Ist-Aussagen (12-01..05), Entscheidungsregister (12-06),
+      atomare Matrix (12-07), Engine-Vertrag + pro-Spiel-Policy (12-08),
+      Scope/Integration (12-09), widerspruchsfreie Vorschläge (12-10),
+      Handoff/Verifikation (12-11). Details unten + Audit-Closure-Tabelle.
 
 ## Erste Befunde (Etappe A/B, vorläufig — werden in der Matrix finalisiert)
 
@@ -165,16 +171,39 @@ Round-Transition/Progress/Leaderboard/Result-Screen/Notification), Team-Core,
 §6 Content-System, §7 Media-Vollsystem + Voice/Camera/Broadcast, §8 Event (voll),
 §9 Profile/Stats/XP (voll), §10 Integrity, §11 Plattformbetrieb.
 
-## Nächster Schritt
+## Nächster Schritt (09.10.2026, nach Audit-Nacharbeit)
 
-**Push + Draft-PR:** ✅ DONE (2026-10-07)
-- Branch `docs/pr12-master-spec-preparation` gepusht (Keychain-Credential `x-access-token`;
-  Remote-URL-Nutzer blieb unverändert).
-- **Draft-PR #12** erstellt: https://github.com/joern211/quiz-platform/pull/12
-  (GitHub vergab zufällig genau die Plannummer 12). Base: main, Draft: ja.
-  Body = pr-body.md. **Nicht** auf Ready-for-review umstellen, **nicht** mergen.
-- Nach PR11-Merge: Abgleich (SHAs, PR11-Spalte, Links) je
-  dependencies-and-parallel-work.md §7.
+**Audit-Nacharbeit 12-01..12-11:** ✅ DONE — alle Befunde geschlossen (Tabelle unten).
+Branch `docs/pr12-master-spec-preparation` gepusht, **Draft-PR #12 offen**
+(https://github.com/joern211/quiz-platform/pull/12). **Nicht** auf
+Ready-for-review umstellen, **nicht** mergen.
+
+> **12-11 (Bereinigung):** Lokaler Zugangskontext (Auth-Methode/Credential)
+> wurde aus diesem öffentlichen Dokument entfernt — er gehört nicht in die
+> Repo-Dokumentation. Branch/SHA/PR-Link genügen.
+
+- **Nach PR11-Merge (noch offen, NICHT vorweg behauptet):** erneuter
+  main-Abgleich (SHAs, PR11-Spalte, Links) gemäß
+  `dependencies-and-parallel-work.md` §7. Der gepinnte ältere
+  PR11-Snapshot (`1470894`) bleibt für die parallele Vorbereitung zulässig,
+  muss vor der endgültigen PR12-Abnahme aber gegen den neuen main-Stand
+  aktualisiert werden.
+
+## Audit-Closure-Tabelle (12-01..12-11)
+
+| ID | Befund | Datei(en) | Konkrete Änderung | Nachweis |
+|---|---|---|---|---|
+| 12-01 | Yacht falsche feste Regeln | `games/yacht.md` | Dreier-/Viererpasch = Würfelsumme (Master §16.6), Beispiel 3/3/4/3/6 = 19; SHARED_SCORECARD = 1 aktiver Spieler pro Teamzug; AVERAGE ausdrücklich später | Master-Abgleich, Beispielrechnung |
+| 12-02 | Partner-Challenge Teams ≠ Rollen | `games/partner-challenge.md` | Bidder + Performer IN JEDEM Team; +1 an zuletzt gegen Gewinner ausgeschiedenes Team; Secrets pro Rolle; Host-Performer ohne Wissensvorteil; Beispiele 2 und ≥3 Teams | Master §15.9, Beispiele |
+| 12-03 | Imposter falsch gewertet | `games/imposter.md` | +1 an korrekt votierenden Spieler; +1 an Lügenautor je getäuschtem Vote; kein erfundener Spieler-Autor; Tie-Null hebt feste Stimme-Wertung nicht auf; Host ohne Vorsprung | ScoreEvent-Zuordnung, Beispiel |
+| 12-04 | WID-Iststand falsch | `games/wer-ist-das.md` | `HOST_CANNOT_PLAY_OWN_ROUND`-Iststand korrekt; falscher Buzz sperrt dieselbe Runde; +1 erst nach Hint; Limits 10 MB/4096 (kein 512-Minimum); Master-Contentmodell Packs/Runden erhalten | PR11-Quellen (Code/Config) |
+| 12-05 | Jeopardy-Ist + Rechenbeispiel | `games/jeopardy.md` | Frage an alle, Lösung nur Host; korrekte Wertung (± halber Wert); Ist/Ziel getrennt; Host-Vorteil keine Alternative | PR11 `engine.ts`/`contracts.ts` |
+| 12-06 | Entscheidungsregister öffnet Feste | `decision-register.md` | KICK≠BAN (RUT-17); Host-Account/Player-ohne-Account = FEST; Event-Bonus/Joker = konfigurierbarer V1; Morph+AVERAGE = später; kein globales Minusverbot (RUT-15); Blind/Judge fair | zeilenweise FEST/NUTZERERGÄNZUNG/VORSCHLAG/OFFEN |
+| 12-07 | Matrix nicht atomar | `requirements-matrix.md` | 1 prüfbare Verpflichtung pro Zeile (MR-16-00-01 aufgelöst); 11 Attribute je Zeile; MR-01-00-04/05-06-01/05-08-01 = PARTIAL; NOT_VERIFIED; Split-Mapping | Rückverfolgbarkeit |
+| 12-08 | Verträge nicht implementierungsreif | `technical-mapping.md` + 19 `games/*.md` + `index.md` | gemeinsamer Engine-Vertrag §3.4 (Zustände, Command-Guards, Projektionen, Persistenz/Version/Recovery, Medien/Voice/Camera/Mic/Display, RESULT_REVIEW); pro Spiel §13 (Late-Join, Ausscheiden, Teamrollen, RESULT_REVIEW) | 19/19 §13 vorhanden, §3.4 referenziert |
+| 12-09 | Scope/Integration falsch | `dependencies-and-parallel-work.md` | DDF-Katalog/Manifest = kein PR12-Runtime-Auftrag (PR36), PR12 docs-only; Core-DoD ≥2 Consumer früh je Core-PR (PR15/PR16), kein zirkuläres DONE-Kriterium | Dateibesitz + Integrationsreihenfolge |
+| 12-10 | Widersprüchliche Vorschläge | 6 `games/*.md` + Ausscheidungsspiele | Higher/Lower (B geheim), Timeline (1 Formel), Schätz mal (80/40/40 + trueValue=0/neg), Millionenfrage (Bank [3,6,9,10] → 100), Geheim Agent (Rollen exakt n), Same Thought (+100=je +50); INSUFFICIENT_PLAYERS nur Start-/Pause-Gate | Beispiele aus eigener Regel abgeleitet |
+| 12-11 | Handoff/Verifikation bereinigen | `handoff.md`, `verification.md` | private absolute Pfade/Zugangskontext entfernt; „Rest: Push/Draft-PR" korrigiert; ID-/Linkchecks als solche benannt; PR11-Snapshot getrennt von main; nach PR11-Merge = erneuter Abgleich (nicht vorweg behauptet) | grep: keine `/Users/`-Pfade |
 
 ## Commit-Log (eigener Branch)
 
@@ -187,3 +216,8 @@ Round-Transition/Progress/Leaderboard/Result-Screen/Notification), Team-Core,
 | fcfc48e | D | dependencies-and-parallel-work.md, decision-register.md (RUT-16..18) |
 | f9421fc | E | README, verification.md, pr-body.md, Handoff-Finalisierung |
 | 6268d6e | E | Push + Draft-PR #12 (https://github.com/joern211/quiz-platform/pull/12) |
+| 523c134 | Audit | 12-01/02/03 — Yacht-Wertung (Würfelsumme), Partner-Challenge-Rollen (pro Team), Imposter-Scoring (korrekt votierend) |
+| 4189787 | Audit | 12-04/05 — Wer-ist-das-Iststand + Jeopardy-Projektion/Wertung korrigiert |
+| 1f94a76 | Audit | 12-06/07 — Entscheidungsregister bereinigt, Matrix atomarisiert |
+| a7ff815 | Audit | 12-08/09/10 — Engine-Vertrag + pro-Spiel-Policy, Scope/Integration, widerspruchsfreie Vorschläge |
+| (follow-up) | Audit | 12-11 — Handoff/Verifikation bereinigt |
