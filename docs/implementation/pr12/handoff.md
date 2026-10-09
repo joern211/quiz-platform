@@ -220,4 +220,4 @@ Ready-for-review umstellen, **nicht** mergen.
 | 4189787 | Audit | 12-04/05 — Wer-ist-das-Iststand + Jeopardy-Projektion/Wertung korrigiert |
 | 1f94a76 | Audit | 12-06/07 — Entscheidungsregister bereinigt, Matrix atomarisiert |
 | a7ff815 | Audit | 12-08/09/10 — Engine-Vertrag + pro-Spiel-Policy, Scope/Integration, widerspruchsfreie Vorschläge |
-| (follow-up) | Audit | 12-11 — Handoff/Verifikation bereinigt |
+| (dieser) | Audit | 12-11 — Handoff/Verifikation bereinigt (SHA s. `git log`) |
