@@ -102,36 +102,67 @@ export async function createGameImage(params: CreateGameImageParams): Promise<Cr
     throw new Error('COMPOSITE_FAILED');
   }
 
-  // Persistieren: eindeutiger Name aus Quellen + Algorithmus (keine Namen).
-  const derived = [personAImageAssetId, personBImageAssetId].sort().join('+');
-  const digest = crypto.createHash('sha256').update(`${COMPOSITE_ALGORITHM}:${derived}`).digest('hex').slice(0, 16);
-  const filename = `fusion-${roundId}-${digest}.webp`;
+  // Persistieren (Audit 11-01/11-02/11-03): 
+  //   - LOGISCHE Identität = ordnungs-sensitive Quellen-Menge (A/B ≠ B/A,
+  //     verschiedene Quellen ≠ identische Bytes) → `assetKey`. Dedupe läuft
+  //     über assetKey, NICHT über die Ausgabe-Bytes (sonst würde ein anderes
+  //     Quellpaar mit identischen Bytes die Provenienz eines anderen
+  //     Assets erben, 11-03; und vertauschte Quellen würden denselben
+  //     Pfad/Hash überschreiben, 11-02).
+  //   - Dateipfad = ausschließlich aus den AUSGABE-BYTES (deterministisch)
+  //     abgeleitet, OHNE roundId → kein Pfad-Traversing über roundId (11-01)
+  //     und eindeutiger immutable Blob-Pfad (gleiche Bytes → gleicher Pfad,
+  //     unterschiedliche Bytes → unterschiedlicher Pfad).
+  const assetKey = `fusion:${COMPOSITE_ALGORITHM}:${personAImageAssetId}:${personBImageAssetId}`;
+  const sha256 = crypto.createHash('sha256').update(out).digest('hex');
+  const filename = `fusion-${sha256.slice(0, 32)}.webp`;
   const uploadDir = path.resolve(config.storagePaths.uploads);
   await fs.mkdir(uploadDir, { recursive: true });
   const storagePath = path.join(uploadDir, filename);
-  const sha256 = crypto.createHash('sha256').update(out).digest('hex');
+  // Defensive containment (11-01): der finale Pfad MUSS im Upload-Verzeichnis
+  // liegen. Da der Name ausschließlich aus dem (safe) SHA256-Digest besteht,
+  // ist dies garantiert — die Prüfung ist reine Absicherung.
+  assertPathContained(uploadDir, storagePath);
 
-  // Idempotenz/Reparatur (Nacharbeit A):
-  //   Gleiche Quellen + Algorithmus → gleiche Bytes → eindeutiger sha256.
-  //   Wir suchen VOR dem Schreiben ein vorhandenes Asset und löschen NIEMALS
-  //   die finale Datei:
-  //     - Datei vorhanden  → Asset wiederverwenden (kein Schreibzugriff).
-  //     - Datei fehlt      → kontrollierte Re-Materialisierung (determinische
-  //                          Bytes) am (ggf. neuen) Pfad, storagePath updaten.
-  //   So überlebt die im Asset referenzierte Datei einen Wiederholungsaufruf
-  //   (UI „Spielbild neu erzeugen") und ein fehlendes Bild wird repariert.
+  // Idempotenz/Dedupe über die LOGISCHE Identität (assetKey), NICHT über Bytes:
+  //   Gleiche Quellen (gleiche IDs) + gleicher Host → gleiche assetKey →
+  //   dasselbe Asset wiederverwenden (keine Duplikate, 11-02/11-03).
+  //   Verschiedene Quellen (auch bei identischen Bytes) → andere assetKey →
+  //   eigenes Asset mit eigener Provenienz (11-03).
   const existing = await prisma.mediaAsset.findFirst({
-    where: { sha256, uploadedBy: hostUserId, type: 'image' },
+    where: { assetKey, uploadedBy: hostUserId, visibility: 'ROOM_TEMP' },
   });
   if (existing) {
     let fileExists = true;
     try { await fs.access(existing.storagePath); } catch { fileExists = false; }
+    // Audit 11-02: Integritätsprüfung — die gespeicherte Datei muss zum
+    // gespeicherten Hash passen. Ein Byte-Unterschied (historisch
+    // überschriebene Datei) wird kontrolliert repariert: die Ausgabe-Bytes
+    // sind deterministisch (gleiche Quellen + Algorithmus) → bytegleich zur
+   // gespeicherten sha256. writeAtomic überschreibt bei vorhandenem Ziel
+    // NIE (EEXIST → Abbruch), daher wird die Datei bei Abweichung
+    // punktuell ersetzt und anschließend verifiziert.
     if (fileExists) {
-      logger.info('Composite reused (idempotent)', { assetId: existing.id });
+      let integrityOk = true;
+      try {
+        const stored = await fs.readFile(existing.storagePath);
+        integrityOk = crypto.createHash('sha256').update(stored).digest('hex') === existing.sha256;
+      } catch { integrityOk = false; }
+      if (integrityOk) {
+        logger.info('Composite reused (idempotent)', { assetId: existing.id });
+        return { gameImageAssetId: existing.id, width: existing.width ?? COMPOSITE_SIZE, height: existing.height ?? COMPOSITE_SIZE };
+      }
+      // Abweichende Bytes → deterministische Reparatur (gleiche Byte-Folge,
+      // weil dieselbe Quellen-ID-Paarung denselben assetKey trägt).
+      await fs.unlink(existing.storagePath).catch(() => {});
+      await writeAtomic(existing.storagePath, out);
+      logger.info('Composite file repaired (integrity mismatch)', { assetId: existing.id, path: existing.storagePath });
       return { gameImageAssetId: existing.id, width: existing.width ?? COMPOSITE_SIZE, height: existing.height ?? COMPOSITE_SIZE };
     }
-    // Datei fehlte (alter Bug/verlust) → deterministisch wiederherstellen
-    // am Pfad des Assets (Bytes sind deterministisch → bytegleich).
+    // Datei fehlte (Verlust) → deterministisch wiederherstellen am Pfad des
+    // Assets (Bytes sind deterministisch → bytegleich). writeAtomic ist
+    // EEXIST-sicher; bei einem geteilten Blob (identische Bytes, anderes
+    // Quellpaar) bleibt die vorhandene Datei unverändert.
     try {
       await writeAtomic(existing.storagePath, out);
     } catch {
@@ -141,7 +172,7 @@ export async function createGameImage(params: CreateGameImageParams): Promise<Cr
     return { gameImageAssetId: existing.id, width: existing.width ?? COMPOSITE_SIZE, height: existing.height ?? COMPOSITE_SIZE };
   }
 
-  // Neues Asset: Datei ATOMAR an den Final-Pfad (tmp + rename).
+  // Neues Asset: Datei ATOMAR an den (content-geleiteten) Final-Pfad.
   await writeAtomic(storagePath, out);
 
   let gameImage;
@@ -156,6 +187,7 @@ export async function createGameImage(params: CreateGameImageParams): Promise<Cr
         width: COMPOSITE_SIZE,
         height: COMPOSITE_SIZE,
         sha256,
+        assetKey,
         storagePath,
         uploadedBy: hostUserId,
         visibility: 'ROOM_TEMP',
@@ -166,13 +198,12 @@ export async function createGameImage(params: CreateGameImageParams): Promise<Cr
       },
     });
   } catch (error) {
-    // Parallel-Race (P2002): ein paralleler identischer Aufruf hat das Asset
-    // angelegt. Wir löschen NIE die finale Datei (deterministisch, von beiden
-    // Aufrufen gleich); wir lösen auf das bestehende Asset auf und reparieren
-    // dessen Datei, falls nötig. Die eigene (unterschiedliche) tmp-Datei ist
-    // via writeAtomic bereits finalisiert → nichts Eigenes aufzuräumen.
+    // Parallel-Race (P2002) auf dieselbe assetKey: ein paralleler Aufruf hat
+    // das Asset angelegt. Auf die Gewinner-Zeile auflösen (deren Datei ist
+    // deterministisch identisch); fehlende Datei reparieren. Wir löschen NIE
+    // die finale Datei.
     if (isUniqueConflict(error)) {
-      const winner = await prisma.mediaAsset.findFirst({ where: { sha256, uploadedBy: hostUserId, type: 'image' } });
+      const winner = await prisma.mediaAsset.findFirst({ where: { assetKey, uploadedBy: hostUserId, visibility: 'ROOM_TEMP' } });
       if (winner) {
         let fileExists = true;
         try { await fs.access(winner.storagePath); } catch { fileExists = false; }
@@ -183,14 +214,31 @@ export async function createGameImage(params: CreateGameImageParams): Promise<Cr
         return { gameImageAssetId: winner.id, width: winner.width ?? COMPOSITE_SIZE, height: winner.height ?? COMPOSITE_SIZE };
       }
     }
-    // Anderer Fehler → die von UNS angelegte Datei kontrolliert entfernen
-    // (sie gehört nur diesem Aufruf; ein anderer DB-Eintrag verweist nicht
-    // darauf, da das Asset nicht angelegt wurde).
-    await fs.unlink(storagePath).catch(() => {});
+    // Anderer Fehler → die von UNS angelegte Datei kontrolliert entfernen —
+    // aber NUR, wenn kein anderer DB-Eintrag sie referenziert (geteilter
+    // Blob mit identischen Bytes aus einem anderen Quellpaar).
+    if (storagePath) {
+      const referencedElsewhere = await prisma.mediaAsset.count({
+        where: { storagePath, NOT: { id: gameImage?.id } },
+      }).catch(() => 0);
+      if (referencedElsewhere === 0) await fs.unlink(storagePath).catch(() => {});
+    }
     throw new Error('COMPOSITE_FAILED');
   }
   logger.info('Composite created', { assetId: gameImage.id, roomId, roundId });
   return { gameImageAssetId: gameImage.id, width: COMPOSITE_SIZE, height: COMPOSITE_SIZE };
+}
+
+/**
+ * Defensive Absicherung (Audit 11-01): der finale Pfad muss innerhalb des
+ * Basis-Verzeichnisses liegen. Wirft, falls (trotz content-geleiteten Namens)
+ * ein Pfad außerhalb liegen sollte — dann wird NICHT geschrieben.
+ */
+function assertPathContained(baseDir: string, finalPath: string): void {
+  const rel = path.relative(baseDir, finalPath);
+  if (rel.startsWith('..') || path.isAbsolute(rel)) {
+    throw new Error('COMPOSITE_FAILED');
+  }
 }
 
 /**

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { GAME_SLUGS } from '@quiz/shared';
 import styles from './WerIstDasSetupPage.module.css';
@@ -16,6 +16,8 @@ interface RoundDraft {
   statusA: 'idle' | 'uploading' | 'done' | 'error';
   statusB: 'idle' | 'uploading' | 'done' | 'error';
   fusionStatus: 'idle' | 'generating' | 'ready' | 'error';
+  /** 11-05: wie oft die Vorschau-URL nach ihrem Ablauf erneuert wurde. */
+  renewals: number;
 }
 
 const newRound = (): RoundDraft => ({
@@ -29,6 +31,7 @@ const newRound = (): RoundDraft => ({
   statusA: 'idle',
   statusB: 'idle',
   fusionStatus: 'idle',
+  renewals: 0,
 });
 
 export function WerIstDasSetupPage() {
@@ -87,10 +90,42 @@ export function WerIstDasSetupPage() {
         gameImageAssetId: result.data.gameImageAssetId,
         gameImageUrl: result.data.gameImageUrl,
         fusionStatus: 'ready',
+        renewals: 0,
       });
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Fusion fehlgeschlagen');
       update(index, { fusionStatus: 'error' });
+    }
+  }
+
+  /**
+   * 11-05: Vorschau-URL-Erneuerung im Setup. Die host-Signed-URL läuft nach
+   * ihrer TTL ab (Setup kann länger dauern). Lädt das Bild nicht mehr, wird
+   * das Composite neu angefordert: gleiche Quellen + roundId → gleiche
+   * (idempotente) Asset-ID, aber eine FRESHE Signatur. Kein Game-Resync
+   * (es gibt im Setup keinen Raum), begrenzte Wiederholungen.
+   */
+  async function renewPreview(index: number) {
+    const round = rounds[index];
+    if (round.renewals >= 3) return;
+    try {
+      const response = await fetch('/api/v1/media/composite', {
+        method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          personAImageAssetId: round.personAImageAssetId,
+          personBImageAssetId: round.personBImageAssetId,
+          roundId: round.id,
+        }),
+      });
+      const result = await response.json();
+      if (!response.ok || !result.success) throw new Error(result.error?.message ?? 'Erneuerung fehlgeschlagen.');
+      update(index, {
+        gameImageAssetId: result.data.gameImageAssetId,
+        gameImageUrl: result.data.gameImageUrl,
+        renewals: round.renewals + 1,
+      });
+    } catch {
+      /* Vorschau bleibt im Fehlerzustand; Raum-Erstellung ist davon unabhängig. */
     }
   }
 
@@ -110,9 +145,17 @@ export function WerIstDasSetupPage() {
     return null;
   }
 
+  // Audit 11-06: STABILES Idempotency-Token pro Erstellungsabsicht.
+  // Erzeugt beim Klick, für die zugehörigen HTTP-Versuche dieses Klicks
+  // wiederverwendet (Retry/Proxy-Duplicate), danach entsorgt → ein neuer
+  // Klick ist eine neue Absicht und erhält ein neues Token (ein bewusst
+  // neuer Raum bleibt möglich).
+  const idempotencyRef = useRef<string | null>(null);
+
   async function create() {
     const problem = validate();
     if (problem) { setError(problem); return; }
+    if (!idempotencyRef.current) idempotencyRef.current = crypto.randomUUID();
     setBusy(true); setError('');
     try {
       const response = await fetch('/api/v1/rooms', {
@@ -120,6 +163,7 @@ export function WerIstDasSetupPage() {
         body: JSON.stringify({
           gameSlug: GAME_SLUGS.werIstDas, roomName, pin: pin || undefined,
           maxPlayers: 10, allowViewers: true, viewerRequiresPin: false,
+          idempotencyKey: idempotencyRef.current,
           setupSnapshotJson: {
             // PR11-Nacharbeit D: Setup-Schema-Version EHRLICH. Der Reader liest
             // `setupSchemaVersion` (top-level) — 2 = v1+v2-Runden möglich.
@@ -139,6 +183,7 @@ export function WerIstDasSetupPage() {
       });
       const result = await response.json();
       if (!response.ok || !result.success) throw new Error(result.error?.message ?? 'Raum konnte nicht erstellt werden.');
+      idempotencyRef.current = null; // Raum erstellt → Absicht erfüllt
       navigate(`/moderator/raum/${result.data.code}/lobby`);
     } catch (cause) { setError(cause instanceof Error ? cause.message : 'Verbindungsfehler'); }
     finally { setBusy(false); }
@@ -176,7 +221,8 @@ export function WerIstDasSetupPage() {
         </button>}
       {round.fusionStatus === 'ready' && round.gameImageUrl &&
         <p className={styles.okText}>
-          <img className={styles.preview} src={round.gameImageUrl} alt="Vorschau des Spielbilds" />
+          <img className={styles.preview} src={round.gameImageUrl} alt="Vorschau des Spielbilds"
+            onError={() => { void renewPreview(index); }} />
           Das ist das Spielbild, das die Spieler in dieser Runde sehen.
         </p>}
       {rounds.length > 1 && <button type="button" onClick={() => setRounds(previous => previous.filter((_, i) => i !== index))}>Runde entfernen</button>}

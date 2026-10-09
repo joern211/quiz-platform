@@ -314,7 +314,12 @@ describe('Jeopardy multiplayer socket integration', () => {
       expect((await ack(first, 'jeopardy:buzz')).error).toBe('WRONG_GAME');
       expect((await ack(host, 'jeopardy:judge', { correct: true })).error).toBe('WRONG_GAME');
       expect((await ack(first, 'geo:answer', { optionId: 17 })).error).toBe('INVALID_PAYLOAD');
-      await new Promise((resolve) => setTimeout(resolve, 3200));
+      // Deterministisches Warten auf den INTRO-Timer (3 s), statt hartem Fixed-Sleep:
+      // unter CPU-Last des parallelen Volltestlaufs kann der Timer später feuern.
+      for (let i = 0; i < 60; i++) {
+        if ((await ack(first, 'geo:resync')).phase !== 'INTRO') break;
+        await new Promise((resolve) => setTimeout(resolve, 150));
+      }
       const publicState = await ack(first, 'geo:resync');
       const publicQuestion = publicState.question as Record<string, unknown>;
       expect(publicState.phase).toBe('INPUT_OPEN');

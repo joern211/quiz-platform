@@ -200,23 +200,20 @@ mediaRouter.post('/', upload.single('file'), async (req, res) => {
 
     const sha256 = crypto.createHash('sha256').update(processed.buffer).digest('hex');
     const ownerId = session.userId;
+    // Audit 11-03/11-04: LOGISCHE Identität für Uploads = Content-Hash
+    // (`assetKey = sha256`), getrennt pro Uploader UND pro Zugriffskontext
+    // (visibility). Ein Upload ist IMMER PRIVATE; ein frischer PRIVATE-Upload
+    // erbt den Kontext (visibility) einer bestehenden PUBLIC-Zeile NICHT (11-04).
+    const assetKey = sha256;
+    const targetVisibility = 'PRIVATE';
 
-    // Dedupe (Nacharbeit B): Content-Identität ist JE UPLOADER eindeutig
-    // (Migration: UNIQUE(sha256, uploadedBy)). Datenstrategie: EXAKT EINE
-    // nutzbare Zeile pro (Owner, Content):
-    //   - Zeile vorhanden + Datei da + READY → wiederverwenden (200),
-    //     unsere Datei wird entsorgt.
-    //   - Zeile vorhanden, aber Datei fehlt oder Status nicht READY
-    //     (z. B. FAILED) → kontrollierte Reparatur/Ersetzung derselben
-    //     Zeile (gleiche ID, neues storagePath, READY) — keine zweite
-    //     Zeile (Unique), keine verwaiste Zeile/Datei.
-    //   - Kein Asset → Anlage (201); P2002-Race (paralleler identischer
-    //     Upload desselben Owners) → kontrollierte Auflösung auf die
-    //     bestehende Zeile (ebenso repariert, falls nötig), nie 500.
-    // EIN ANDERER User mit gleichem Content erhält SEIN eigenes Asset —
-    // niemals das fremde (kein Ownership-Leak über Hash oder ID).
+    // (1) Dedupe im GLEICHEN Kontext: (assetKey, Owner, PRIVATE).
+    //   Zeile vorhanden + Datei da + READY → wiederverwenden (200).
+    //   Zeile vorhanden, aber Datei fehlt / FAILED → Reparatur derselben Zeile
+    //   (gleiche ID, neues storagePath, READY) — erst NACH Erfolg die Datei
+    //   übergeben (11-07: keine Orphan-Datei bei fehlgeschlagener Reparatur).
     const existing = await prisma.mediaAsset.findFirst({
-      where: { sha256, uploadedBy: ownerId },
+      where: { assetKey, uploadedBy: ownerId, visibility: targetVisibility },
     });
     if (existing) {
       let fileOk = true;
@@ -229,20 +226,70 @@ mediaRouter.post('/', upload.single('file'), async (req, res) => {
           data: { id: existing.id, type: existing.type, mimeType: existing.mimeType, filename: existing.filename, fileSize: existing.fileSize, deduplicated: true },
         });
       }
-      // Kontrollierte Reparatur derselben Zeile (Datei fehlt bzw. FAILED).
-      const repairFilename = path.basename(outPath);
-      const repair = await repairAssetRow(existing.id, outPath, {
+      const repairFilename = path.basename(outPath!);
+      const repair = await repairAssetRow(existing.id, outPath!, {
         type: processed.type!, mimeType: processed.mimeType!,
         fileSize: processed.buffer.length, width: processed.width ?? null, height: processed.height ?? null,
         processed: processed.type === 'image',
       });
-      outPath = undefined; // Datei gehört jetzt zur reparierten Zeile.
-      if (!repair) throw new Error('MEDIA_ASSET_REPAIR_FAILED');
+      if (!repair) throw new Error('MEDIA_ASSET_REPAIR_FAILED'); // outPath bleibt uns → cleanup() entfernt sie (11-07)
+      outPath = undefined; // erst NACH erfolgreichem DB-Update: Datei gehört zur reparierten Zeile
       logger.info('Media asset repaired in place (dedupe)', { assetId: existing.id });
       return res.status(200).json({
         success: true,
         data: { id: existing.id, type: processed.type!, mimeType: processed.mimeType!, filename: repairFilename, fileSize: processed.buffer.length, deduplicated: true },
       });
+    }
+
+    // (2) Audit 11-04: gleicher Content + gleicher Owner, aber ANDERER
+    //     Zugriffskontext (z.B. die Bytes liegen bereits als PUBLIC vor).
+    //     Der frische PRIVATE-Upload erbt diesen Kontext NICHT: er legt eine
+    //     EIGENE PRIVATE-Zeile an (getrennte logische Identität). Da die Bytes
+    //     bereits gespeichert sind, wird die vorhandene DATEI wiederverwendet
+    //     (keine neuen Bytes geschrieben → 200/deduplicated), die PUBLIC-Zeile
+    //     bleibt unverändert öffentlich.
+    const crossCtx = await prisma.mediaAsset.findFirst({
+      where: { assetKey, uploadedBy: ownerId, visibility: { not: targetVisibility } },
+    });
+    if (crossCtx) {
+      let fileOk = true;
+      try { await fs.access(crossCtx.storagePath); } catch { fileOk = false; }
+      if (fileOk) {
+        const sharedPath = crossCtx.storagePath;
+        await fs.unlink(outPath!).catch(() => {});
+        outPath = undefined;
+        let ctxAsset;
+        try {
+          ctxAsset = await prisma.mediaAsset.create({
+            data: {
+              type: processed.type!, mimeType: processed.mimeType!,
+              filename: path.basename(sharedPath),
+              originalName: (req as { file?: { originalname: string } }).file?.originalname ?? 'upload',
+              fileSize: processed.buffer.length, width: processed.width ?? null, height: processed.height ?? null,
+              sha256, assetKey, storagePath: sharedPath, uploadedBy: ownerId,
+              visibility: targetVisibility, processStatus: 'READY', processed: processed.type === 'image',
+            },
+          });
+        } catch (error) {
+          // P2002-Parallel-Race auf (assetKey, owner, PRIVATE): ein paralleler
+          // Upload hat die PRIVATE-Zeile angelegt → auf sie auflösen (Datei geteilt, deterministisch).
+          if (isUniqueConflict(error)) {
+            const winner = await prisma.mediaAsset.findFirst({ where: { assetKey, uploadedBy: ownerId, visibility: targetVisibility } });
+            if (winner) {
+              return res.status(200).json({
+                success: true,
+                data: { id: winner.id, type: winner.type, mimeType: winner.mimeType, filename: winner.filename, fileSize: winner.fileSize, deduplicated: true },
+              });
+            }
+          }
+          throw error;
+        }
+        return res.status(200).json({
+          success: true,
+          data: { id: ctxAsset.id, type: processed.type!, mimeType: processed.mimeType!, filename: path.basename(sharedPath), fileSize: processed.buffer.length, deduplicated: true },
+        });
+      }
+      // Datei des fremden Kontexts fehlt → unten neu anlegen (eigene Datei).
     }
 
     let asset;
@@ -251,36 +298,34 @@ mediaRouter.post('/', upload.single('file'), async (req, res) => {
         data: {
           type: processed.type!,
           mimeType: processed.mimeType!,
-          filename: path.basename(outPath),
+          filename: path.basename(outPath!),
           originalName: (req as { file?: { originalname: string } }).file?.originalname ?? 'upload', // Audit-only, nie an Client
           fileSize: processed.buffer.length,
           width: processed.width ?? null,
           height: processed.height ?? null,
           sha256,
-          storagePath: outPath,
+          assetKey,
+          storagePath: outPath!,
           uploadedBy: ownerId,
-          visibility: 'PRIVATE',
+          visibility: targetVisibility,
           processStatus: 'READY',
           processed: processed.type === 'image',
         },
       });
     } catch (error) {
-      // Paralleler identischer Upload desselben Users (Lookup und Insert
-      // liefen parallel): UNIQUE(sha256, uploadedBy) → kontrollierte P2002.
-      // Auf die bereits angelegte Zeile auflösen (reparieren, falls nötig);
-      // unsere eigene Datei (outPath) wird nur entfernt, wenn sie nicht
-      // übernommen wurde. Die Datei des Winners bleibt unberührt.
+      // Paralleler identischer Upload desselben Users + Kontexts: P2002 auf
+      // (assetKey, uploadedBy, visibility) → kontrollierte Auflösung.
       if (isUniqueConflict(error)) {
         const winner = await prisma.mediaAsset.findFirst({
-          where: { sha256, uploadedBy: ownerId },
+          where: { assetKey, uploadedBy: ownerId, visibility: targetVisibility },
         });
         if (winner) {
           let fileOk = true;
           try { await fs.access(winner.storagePath); } catch { fileOk = false; }
           if (fileOk && winner.processStatus === 'READY') {
-            await fs.unlink(outPath).catch(() => {});
+            await fs.unlink(outPath!).catch(() => {});
           } else {
-            const repaired = await repairAssetRow(winner.id, outPath, {
+            const repaired = await repairAssetRow(winner.id, outPath!, {
               type: processed.type!, mimeType: processed.mimeType!,
               fileSize: processed.buffer.length, width: processed.width ?? null, height: processed.height ?? null,
               processed: processed.type === 'image',
@@ -405,13 +450,24 @@ mediaRouter.post('/composite', async (req, res) => {
       roomId: effectiveRoomId ?? `tmp-${session.userId}`,
       roundId,
     });
+    // Audit 11-05 (P1): Setup-Vorschau VOR der Raumerstellung.
+    //   Die "game"-Audience verlangt eine Spielbild-Referenz in einem
+    //   bestehenden Raumsnapshot — genau der fehlt während des Setups
+    //   (Raum existiert noch nicht) → game-URL würde 403 liefern.
+    //   Für die Vorschau wird daher eine "host"-Audience-URL geladen:
+    //   gültige Signatur + gültige Session + Host-Recht. Das Composite ist
+    //   owner-geschützt (uploadedBy == Session-User, roomId = tmp-<User>),
+    //   damit lädt die host-URL OHNE einen Raum. Die eigentliche
+    //   "game"-Freigabe (an Player/Viewer/Display ohne Login) entsteht erst
+    //   mit der Raumerstellung, wenn das Bild im Snapshot referenziert ist.
+    //   Kein Original-/Game-Leak: host-Audience + Session + Ownership.
     return res.status(201).json({
       success: true,
       data: {
         gameImageAssetId: result.gameImageAssetId,
         width: result.width,
         height: result.height,
-        gameImageUrl: buildSignedMediaUrl({ assetId: result.gameImageAssetId, audience: 'game' }),
+        gameImageUrl: buildSignedMediaUrl({ assetId: result.gameImageAssetId, audience: 'host' }),
       },
     });
   } catch (error) {

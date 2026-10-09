@@ -175,6 +175,14 @@ model Room {
   
   setupSnapshotJson  String   @default("{}")
   setupSchemaVersion Int      @default(1)
+
+  // Audit 11-06 (P1): serverseitige Idempotenz für Raum-Erstellungs-Requests.
+  // Ein Client (Doppelklick/Timeout-Retry) sendet dasselbe Idempotency-Token;
+  // der erste Request legt den Raum an, identische Wiederholungen erhalten die
+  // EXISTIERENDEN Raum-Daten statt einen zweiten Raum zu erzeugen. Eine neue,
+  // bewusste Raumerstellung verwendet ein neues Token → bleibt möglich.
+  // NULL (kein Token) → keine Idempotenz (Legacy/andere Clients), NULL ≠ NULL.
+  idempotencyKey   String?
   
   revision           Int      @default(0)
   
@@ -193,6 +201,9 @@ model Room {
   @@index([code])
   @@index([status])
   @@index([hostUserId])
+  // Audit 11-06: ein Idempotency-Token gehört zu genau einem Raum des Hosts
+  // (Wiederholung → gleicher Raum). NULL (kein Token) ist in SQLite distinct.
+  @@unique([idempotencyKey, hostUserId])
   @@map("rooms")
 }
 
@@ -329,6 +340,18 @@ model MediaAsset {
   // Asset (kein 500, kein Ownership-Leak, keine gemeinsame Datei).
   // Legacy-Zeilen mit uploadedBy NULL bleiben lesbar (SQLite: NULL ≠ NULL).
   sha256          String
+  // Audit 11-03/11-04 (P1): LOGISCHE Identität, getrennt von den physischen
+  // Bytes. sha256 ist nur der Content-Hash (Integrität); die Dedupe-Identität
+  // ist `assetKey`:
+  //   - Upload:   assetKey = Content-Hash (gleiche Bytes + gleicher Owner → Dedupe),
+  //                der ZUGRIFFSKONTEXT (visibility) ist Teil des Unique-Keys →
+  //                ein neuer PRIVATE-Upload erbt NICHT den Kontext einer PUBLIC-Zeile (11-04).
+  //   - Composite: assetKey = "fusion:<ordnungs-sensitive Quellen-Identität>" →
+  //                verschiedene Quellpaare behalten eigene Provenienz, selbst wenn
+  //                die Ausgabe-Bytes identisch sind (11-03); vertauschte Quellen
+  //                (A/B vs B/A) sind verschiedene Assets (11-02).
+  // Legacy-Zeilen (vor dieser Spalte) tragen NULL → im Unique-Index distinct.
+  assetKey        String?
   storagePath     String
   uploadedBy      String?
   // PRIVATE | SHARED | PUBLIC | SYSTEM | ROOM_TEMP (Regelwerk §7.3)
@@ -347,13 +370,21 @@ model MediaAsset {
 
   createdAt       DateTime @default(now())
 
-  // PR11-Nacharbeit B: Race-Bremse — gleicher Content + gleicher Uploader ist
-  // einzigartig (parallele identische Uploads desselben Hosts kollidieren
-  // kontrolliert mit P2002 statt blindem 500). Andere Uploader bleiben
-  // unverhindert (eigene Assets). Legacy-Zeilen (uploadedBy NULL) sind in
-  // SQLite vom Unique-Index ausgenommen und bleiben unverändert lesbar.
-  @@unique([sha256, uploadedBy])
+  // PR11-Nacharbeit B + Audit 11-03/11-04: Dedupe über die LOGISCHE Identität
+  // `assetKey` (nicht über die rohen Bytes), getrennt pro Uploader UND pro
+  // Zugriffskontext (visibility). Damit:
+  //   - gleicher Owner + gleicher Content + gleicher Kontext → Dedupe (P2002-Race
+  //     bei parallelen identischen Uploads wird kontrolliert aufgelöst);
+  //   - gleicher Content + anderer Kontext (z.B. PUBLIC vs PRIVATE) → EIGENE
+  //     Zeile (ein frischer PRIVATE-Upload erbt den Kontext einer PUBLIC-Zeile
+  //     NICHT, 11-04);
+  //   - Composite: assetKey ist ordnungs-sensitive Quellen-Identität → andere
+  //     Quellpaare behalten eigene Provenienz, selbst bei identischen Bytes (11-03).
+  // Legacy-Zeilen (assetKey NULL) sind in SQLite vom Unique-Index ausgenommen
+  // und bleiben unverändert lesbar.
+  @@unique([assetKey, uploadedBy, visibility])
   @@index([sha256])
+  @@index([assetKey])
 
   // Note: GeoQuestion holds the forward relation via mediaAssetId
 

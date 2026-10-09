@@ -126,7 +126,16 @@ export async function cleanupOrphanedTempAssets(
   for (const asset of orphans) {
     if (await isReferencedInAnySnapshot(prisma, asset.id)) continue; // aktiv/historisch
     try { await prisma.mediaAsset.delete({ where: { id: asset.id } }); } catch { continue; }
-    try { await rm(asset.storagePath, { force: true }); } catch { /* Datei fehlt evtl. schon */ }
+    // Audit 11-02/11-03 (geteilte physische Dateien): die DATEI darf erst
+    // gelöscht werden, wenn KEIN ANDERES Asset (irgendein Status/Kontext)
+    // sie noch referenziert — Content-Adressierte Blob-Pfade können je
+    // logischem Asset geteilt sein.
+    const sharedWith = await prisma.mediaAsset.count({
+      where: { storagePath: asset.storagePath, NOT: { id: asset.id } },
+    }).catch(() => 1); // bei DB-Fehler: nicht löschen (konservativ)
+    if (sharedWith === 0) {
+      try { await rm(asset.storagePath, { force: true }); } catch { /* Datei fehlt evtl. schon */ }
+    }
     cleaned += 1;
   }
   if (cleaned > 0) {

@@ -3,7 +3,7 @@
 // ============================================================
 
 import { useParams, useNavigate } from 'react-router-dom';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Card, Button, Input, Badge } from '@quiz/ui';
 import { GAME_SLUGS } from '@quiz/shared';
 import styles from './GeoSetupPage.module.css';
@@ -32,6 +32,8 @@ export function GeoSetupPage() {
   const [jokerRisk, setJokerRisk] = useState(1);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  // Audit 11-06: stabiles Idempotency-Token pro Erstellungsabsicht.
+  const idempotencyRef = useRef<string | null>(null);
 
   useEffect(() => {
     loadQuestions();
@@ -136,6 +138,9 @@ export function GeoSetupPage() {
       alert('Bitte wähle mindestens eine Frage aus');
       return;
     }
+    // Audit 11-06: stabiles Idempotency-Token pro Erstellungsabsicht
+    // (Retry/Doppelklick desselben Klicks → gleiche Absicht).
+    if (!idempotencyRef.current) idempotencyRef.current = crypto.randomUUID();
 
     setSaving(true);
     try {
@@ -149,6 +154,7 @@ export function GeoSetupPage() {
           pin: pin || undefined,
           maxPlayers,
           allowViewers,
+          idempotencyKey: idempotencyRef.current,
           setup: {
             questions: selectedQuestions.map(id => 
               questions.find(q => q.id === id)
@@ -164,6 +170,7 @@ export function GeoSetupPage() {
 
       const json = await res.json();
       if (res.ok && json.success) {
+        idempotencyRef.current = null; // Raum erstellt → Absicht erfüllt
         navigate(`/moderator/raum/${json.data.code}/lobby`);
       } else {
         alert(json.error || 'Fehler beim Erstellen');

@@ -40,6 +40,14 @@ export const CreateRoomSchema = z.object({
     }
     return v;
   }).default({}),
+  // Audit 11-06: optionales serverseitiges Idempotency-Token. Der Client
+  // sendet pro "Raum erstellen"-Absicht ein stabiles UUID; ein Retry/Doppelklick
+  // sendet dasselbe Token → derselbe Raum. Eine neue, bewusste Raumerstellung
+  // verwendet ein neues Token → bleibt möglich. Ohne Token: keine Idempotenz.
+  idempotencyKey: z
+    .string()
+    .max(128)
+    .optional(),
 });
 
 /**
