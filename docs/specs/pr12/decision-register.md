@@ -11,6 +11,20 @@ Zwei Klassen, klar getrennt:
 Jeder Eintrag: ID, Quelle, betroffen (Spiel/Core), Entscheidung,
 empfohlener Vorschlag (Default), Alternativen, Folgen, Status.
 
+**Klassen-Legende (12-06):**
+- **FEST** — im Master/Bestand bereits entschieden; hier nur zur
+  Kenntnis, **keine** Nutzerfreigabe erforderlich.
+- **NUTZERERGÄNZUNG** — vom Nutzer bereits festgelegt (z. B. V1-Scope
+  Master + DDF als 19. Spiel); keine erneute Frage.
+- **VORSCHLAG** — PR12-Entwurf mit Default; erst nach widerspruchsfreier
+  Ausarbeitung entscheidungsfähig.
+- **OFFEN** — wirklich offenes Detail (keine Grundsatzfrage zu FESTen).
+
+> **12-06 Regel:** Nur **wirklich offene Details** werden zur
+> Entscheidung vorgelegt — keine pauschale Freigabe eines
+> widersprüchlichen Default-Pakets. FESTe und NUTZERERGÄNZUNGEN stehen
+> hier nur als Verweis, nicht als Frage.
+
 ---
 
 ## A. Fachliche Nutzerentscheidungen
@@ -50,8 +64,8 @@ Für jedes Spiel ist **ein** Entscheidungs-Bündel offen (je eine ID):
 | DEC-UND-01 | Undercover (32) | Undercover-Anzahl, Tie, Win nach max Runden, Host-Blind, Hinweis-Regeln | 1 Undercover, Tie = keine Elimination, 3 Runden → Agenten, Host blind, 20 Zeichen | 2 Undercovers; Stichentscheid; Host normal |
 | DEC-AGT-01 | **Geheim Agent (33)** — am offensten | **Rollen-Satz, Win Conditions, Runden-Count, Voice-Pflicht, Host-Modus** | V1: Agent+Undercover+Voice; Saboteur als Preset; 4 Runden; Voice optional; Host blind | Voll-Sat (Agent/Undercover/Saboteur) ab V1 |
 | DEC-BRD-01 | Raus damit! (34) | Brettgröße, Figuren, Hit-Regel, Heimfeld-Regel, Teammodus, Sonderfelder | 24 Felder, 1 Figur, EXACT_HIT, EXACT_REMAIN, individuell, keine Sonderfelder | 40 Felder; 2 Figuren; ANY_OVERRUN |
-| DEC-YAC-01 | Yacht (35) | Mehrfach-Yacht-Bonus, QUICK-Kategorien, AVERAGE-Zeitpunkt, Timer-Timeout bei Host-Ausfall | 2nd=25/3rd=50; QUICK=8 Kategorien; AVERAGE nach Spielende; Auto-Skip 2×30s | QUICK=10; Sudden-Death-Default |
-| DEC-PCH-01 | Wie weit gehst du? (31) | 2-Teams-Failure-Regel, Viewer-Task-Sichtbarkeit, >2 Teams Bidding-Ende | Bidder +1 bei 2 Teams; Viewer: Bids+Ziel ohne Task-Text; 1 Team übrig | Viewer sieht Task-Text; 2 Teams = 0 bei Failure |
+| DEC-YAC-01 | Yacht (35) | Mehrfach-Yacht-Bonus, QUICK-Kategorien, Timer-Timeout bei Host-Ausfall (AVERAGE: **FEST später**, keine V1-Option — Master §16.4) | 2nd=25/3rd=50; QUICK=8 Kategorien; Auto-Skip 2×30s | QUICK=10; Sudden-Death-Default |
+| DEC-PCH-01 | Wie weit gehst du? (31) | **Nur** Viewer-Task-Sichtbarkeit (2-Teams-Failure-Regel und >2-Teams-Bidding-Ende sind **FEST** per Master §15.9 — keine erneute Frage) | Viewer: Bids+Ziel ohne Task-Text | Viewer sieht Task-Text |
 
 > **Bündelungsempfehlung:** je Spiel **eine** kompakte Frage mit dem
 > Default-Paket (Vorschlag + Alternativen, 1–2 Zeilen je Punkt). Die
@@ -74,10 +88,14 @@ Für jedes Spiel ist **ein** Entscheidungs-Bündel offen (je eine ID):
 
 ### A4. Global / Plattform
 
+> **12-06 Bereinigung:** DEC-ACC-01 ist **FEST** (Master §9.1 +
+> Nutzerergänzung) und steht hier nur zur Kenntnis — **keine** Frage.
+> DEC-EVT-01 betrifft nur **Details** bereits FESTer V1-Funktionen.
+
 | ID | Bereich | Entscheidung | Empfohlener Vorschlag | Alternative |
 |---|---|---|---|---|
-| DEC-EVT-01 | Event/Olympia (38) | Bonus-Spiele + Joker-Regeln im Event | Bonus-Spiele optional, Joker nur bei festgelegtem Spiel | nur Pflichtspiele |
-| DEC-ACC-01 | Accounts (39) | Account für Player optional, Host-Pflicht? | Host ja, Player/Viewer nein (Gastspiel) | Host optional |
+| DEC-EVT-01 | Event/Olympia (38) | **Details** der FESTEN Bonus-/Joker-Funktionen (Master §8.18/§8.19: beides **konfigurierbare V1-Funktionen**, nicht ersatzlos streichbar) | Bonus-Spiele optional, Joker nur bei festgelegtem Spiel | Bonus-Spiele nur im Preset; Joker-Set pro Spiel konfigurierbar |
+| DEC-ACC-01 | Accounts (39) | **FEST (Master §9.1):** Player/Viewer **ohne** Account (Gast); **Host mit** Account (Festlegung, nicht offen) | — (keine Nutzerentscheidung) | — |
 
 ---
 
@@ -102,9 +120,9 @@ dem Master oder dem bestehenden Code:
 | RUT-12 | DDF: Geo/Allgemeinwissen = Kategorien, keine Spiele | Master §14 (explizit) |
 | RUT-13 | Host-Blind-Judge bei Jeopardy/Untercover/GeheimAgent/DDF | Master §2.1 (keine Informationsvorteile) + §15.3 (Wer-ist-das-Host-Gate als Vorbild) |
 | RUT-14 | Turn-Order: random Start, reihum, Host editierbar | Master §5.6 + §16.6 (Yacht explizit) |
-| RUT-15 | Score-Ledger: keine Minuspunkte außer explizit (Jeopardy −Feldwert) | Master §15.9 (Wie weit gehst du) + §5 (ScoreEvents) |
+| RUT-15 | Score-Ledger: **keine** pauschale Ableitung eines globalen Minusverbots — „keine Minuspunkte" gilt **nur** für Wie weit gehst du (§15.9); Wer ist das? hat **fest −1** (§15.3), Jeopardy ist Ist ±½-Feldwert (12-05) | Master §15.9 (lokal) + §15.3 (Wer ist das? −1) + Jeopardy `contracts.ts` |
 | RUT-16 | DEC-002: Host-Mitspiel-Einschränkung je Engine/Phase dokumentieren, ohne Rollenmodell zu ändern | Master §2.1 (keine Informationsvorteile); Umsetzung in den jeweiligen Spieledokumenten (DEC-JEO-01, DEC-UND-01, DEC-AGT-01, DEC-DDF-06, DEC-PCH-01); keine pauschale Rollen-Änderung |
-| RUT-17 | DEC-003: Rejoin nach Kick | Kick = `banState` gesetzt (PR14); Rejoin-Verbot bis `unban`; nach Unban: normaler Rejoin-Flow mit frischem Rejoin-Token; keine automatische Re-Einladung |
+| RUT-17 | DEC-003: Rejoin nach Kick/Ban (**12-06 korrigiert**) | `KICK` = Entfernen aus dem Raum, **Rejoin prinzipiell möglich** (Master §4.9); `BAN`/`BAN_ROOM` = Blockade, Rejoin verweigert bis Unban. Kein `banState` beim Kick; Ban-Audit + Unban-FLOW bleiben; nach Unban: normaler Rejoin mit frischem Rejoin-Token; keine automatische Re-Einladung |
 | RUT-18 | DEC-STD-01: `percentage`-Darstellung (0–1 vs. 0–100) | **0–100 (Integer)** intern + UI, Einheit `percentage`; rationale: konsistente Darstellbarkeit ohne Locale-Drift; API bleibt numerisch, Units-Label im Schema (`shared`-Glossar) |
 
 ---
@@ -119,20 +137,24 @@ ausgeschiedene Spieler werden Viewer, Nichtabgabe = ausgeschieden.
 Bestätigen Sie dieses Paket oder möchten Sie einzelne Punkte ändern?"
 
 **Frage 2 — Neue Engines (je 1 Satz, bei Bedarf einzeln):**
-„Für jede der 15 neuen Engines haben wir ein Default-Paket
-(Details in den Spieledokumenten). Welche möchten Sie übernehmen,
-welche möchten Sie anpassen? (Default = alles übernehmen.)"
+„Für jede der neuen Engines haben wir ein Default-Paket
+(Details in den Spieledokumenten; Yacht und Partner-Challenge nur noch
+in den in A2 verbleibenden Detailpunkten). Welche möchten Sie
+übernehmen, welche möchten Sie anpassen?"
 
 **Frage 3 — Bestands-Spiele (JEO/KAT/WID):**
 „Jeopardy: Host wird in eigenen Runden aus Buzzer-Pool
 ausgeschlossen; Wissensduell: Auto-Reveal ON; Wer-ist-das:
 Originals nach Reveal = alle. OK?"
 
-**Frage 4 — Event + Accounts:**
-„Event: Bonus-Spiele optional, Joker nur bei festgelegtem Spiel.
-Accounts: Host ja, Player/Viewer nein. OK?"
+**Frage 4 — Event (Details) — Accounts KEINE Frage:**
+„Event (Details der FESTen Funktionen): Bonus-Spiele optional, Joker
+nur bei festgelegtem Spiel. Accounts: **FEST** — Player/Viewer ohne
+Account, Host mit (Master §9.1), keine Entscheidung erforderlich."
 
-> **Status-Regel:** Solange Frage 1–4 nicht beantwortet sind, ist der
-> Draft **nicht** merge-ready, aber **fortschreibbar**: alle
-> Implementierungs-PRs, die **nicht** von einem der offenen
-> Decision-IDs blockiert sind, können laufen.
+> **Status-Regel:** Solange die offenen Fragen (1–3) nicht beantwortet
+> sind, ist der Draft **nicht** merge-ready, aber **fortschreibbar**:
+> alle Implementierungs-PRs, die **nicht** von einem der offenen
+> Decision-IDs blockiert sind, können laufen. (12-06: keine pauschale
+> „Default-Paket-Freigabe" — nur die konkret aufgelisteten,
+> widerspruchsfreien Details werden vorgelegt.)

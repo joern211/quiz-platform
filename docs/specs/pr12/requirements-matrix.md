@@ -17,6 +17,37 @@ auf Module/Verträge, Roadmap-PRs, Tests und Abnahme.
 > main-Erfüllung gewertet. „Ziel"-Schemata in `technical-mapping.md` sind
 > Vorschläge (Zielmodell) bis umgesetzt.
 
+## 12-07 — Atomaritäts- und Abdeckungsmethode (Bereinigung)
+
+> **12-07 Stand:** Die frühere Matrix leitete Vollständigkeit aus „275
+> eindeutige IDs" + Abschnittspräsenz ab. Das beweist **keine** atomare
+> Rückverfolgbarkeit. Ab diesem Stand gilt:
+>
+> 1. **Eine prüfbare Verpflichtung pro Anforderungszeile.** Gebündelte
+>    Zeilen (mehrere Wertungs-/Team-/Recovery-/Statistik-/Timeout-Regeln
+>    in einer ID) sind auf atomare Zeilen aufgespalten. Die
+>    **Zuordnung alter → neuer IDs** ist direkt in der gespaltenen Zeile
+>    dokumentiert (Suffix `-Sxx`, `← MR-…`).
+> 2. **Alle elf Attribute** je Zeile direkt oder eindeutig verlinkt:
+>    Quelle(§), Regel, Scope(P/O/L/X), Entscheidungsstatus(F/N/V/O),
+>    Ist(main), Code-/Testnachweis, PR11-Delta, Core/Rollen,
+>    Ziel-PR/Abhängigkeit, Abnahme/Test, Lücke. (Die Spalten der Matrix
+>    decken genau diese elf ab.)
+> 3. **`I` (IMPLEMENTED) nur bei vollständigem Nachweis** — also erst,
+>    wenn **keine** Lücke in Spalte 11 steht. Zeilen mit dokumentierter
+>    Restlücke sind **`P` (PARTIAL)**. (12-07: MR-01-00-04, MR-05-06-01,
+>    MR-05-08-01 wurden deshalb von `I` auf `P` umgestuft.)
+> 4. **Nicht Geprüftes = `NV` (NOT_VERIFIED)** — bewusst gekennzeichnet,
+>    nie stillschweigend als `I`.
+> 5. **Stabile IDs bleiben erhalten**; Splits erhalten die alte ID als
+>    Ursprung (Neu-IDs `<alt>-S<n>`).
+>
+> **Verbleibend (Ehlich, nicht „fertig aus ID-Zahl"):** Die restlichen
+> gebündelten Zeilen werden in den jeweiligen Engine-PRs (PR21–37) mit
+> der gleichen Methode atomisiert, wenn die Engine konkret wird. Die
+> drei namentlich vom Audit genannten Zeilen und die Yacht-Zeile
+> (MR-16-00-01) sind **jetzt** aufgespalten/umgestuft.
+
 ## ID-Schema
 
 `MR-<Abschnitt>-<Unterabschnitt>-<Nr>`, z. B. `MR-04-10-01` = §4.10, Punkt 1.
@@ -96,7 +127,7 @@ Entscheidungen: `DEC-NNN` (Register: `decision-register.md`).
 | MR-01-00-01 §1 | Server ist autoritativ; Clients senden nur Commands, nie kompletten State | P | F | I | `srv:sockets/game.ts`, `srv:games/*/events.ts` (alle Eingänge sind Commands mit Server-State) | — | GameCore, alle | PR15 (Cores) | Contract-Tests: Command-basierte Abläufe aller 3 Engines; kein Client-State-Feld im `ClientCommand`-Contract | — |
 | MR-01-00-02 §1 | Rollenrechte und Secret-/Informationsrechte strikt getrennt | P | F | P | `srv:games/core/access.ts` (Rollen-Checks); Projection-Segregation nur implizit pro Engine | B (wer-ist-das: `HOST_CANNOT_PLAY_OWN_ROUND` bei `srv:http/rooms.ts`) | Permission/Visibility | PR13, PR15 | Secret-Leak-Prüfungen (API/Socket/Snapshot) für alle 19 Engines (PR41); E2E J9 (Lösung nicht im Player-DOM) | G1: Begriff HOST vs MODERATOR |
 | MR-01-00-03 §1 | Alle Spiele hängen an gemeinsamen Core-Systemen; keine Umgehung | P | F | P | `srv:games/core/{buzzer,score,state,access}.ts` genutzt von jeopardy+wer-ist-das (CAS, Buzzer, Score) | — | GameCore | PR13–16 | Jede Engine nutzt ≥2 Cores nachweislich; DoD Core (§13.2: 2 Engines) | Cores für Timer/Judge/Turn/Tie/Matching/Submission/Reveal/Random fehlen noch |
-| MR-01-00-04 §1 | Zentrale Manifeste/Schemas als Single Source of Truth (UI, API, Registry, Katalog) | P | F | I | `shared:GAME_MANIFESTS` (18), `srv:games/registry.ts`, `srv:http/catalog.ts`, `web:lib/catalog.ts`; Sync-Guard `it:catalog-consistency` (28 Tests) | B (Manifest wer-ist-das v2) | Manifest-Core | PR13 | Seed↔Katalog-Guard bleibt grün; Registry/Website/API importieren alle aus `@quiz/shared` | Manifest-Felder unvollständig gegenüber §5.3 (Capabilities, engineVersion, Late Join, Viewer/Broadcast, Content-Typ) |
+| MR-01-00-04 §1 | Zentrale Manifeste/Schemas als Single Source of Truth (UI, API, Registry, Katalog) | P | F | **P** | `shared:GAME_MANIFESTS` (18), `srv:games/registry.ts`, `srv:http/catalog.ts`, `web:lib/catalog.ts`; Sync-Guard `it:catalog-consistency` (28 Tests) | B (Manifest wer-ist-das v2) | Manifest-Core | PR13 | Seed↔Katalog-Guard bleibt grün; Registry/Website/API importieren alle aus `@quiz/shared` | **Lücke (→P, 12-07):** Manifest-Felder unvollständig gegenüber §5.3 (Capabilities, engineVersion, Late-Join, Viewer/Broadcast, Content-Typ) — deshalb PARTIAL, nicht IMPLEMENTED |
 | MR-01-00-05 §1 | Historische Ergebnisse bleiben nachvollziehbar | P | F | P | `prisma:ScoreEvent` (append-only), `RoomGameState` (State-Persistenz); keine Round-/GameResult-Entity, keine FINALIZED-Logik | — | Results/Recovery | PR16 | GameResult + RoundResult persistiert, unveränderlich; Amendment-Test | MISSING: Ergebnis-Entitäten, FINALIZED, Amendment |
 | MR-01-00-06 §1 | Laufzeitdaten kompakt, Retention-bereinigt | P | F | M | `config.ROOM_ARCHIVE_HOURS=24` (nur Archiv-Stundenzahl); keine Cleanup-Jobs | — | Ops | PR42 | Retention-Tests: Raum-Compaction nach Frist, Referenzschutz | MISSING |
 | MR-01-00-07 §1 | Quick Setup + gute Defaults; Advanced nur bei Bedarf | P | F | P | `web:ModeratorSetupPage`/`GeoSetupPage`/`JeopardySetupPage` (einfache Setups vorhanden); kein Quick-Setup-Ablauf nach §6.51, kein ADVANCED-Modus | — | Content/Editor | PR17 | Quick-Setup-E2E für ≥2 Engines; Advanced-Optionen offen klappbar | MISSING: §6.50–6.53 |
@@ -109,7 +140,7 @@ Entscheidungen: `DEC-NNN` (Register: `decision-register.md`).
 | MR-02-01-02 §2.1 | HOST = eingeloggter Nutzer, erstellt/verwaltet Räume; „Moderator" wird vollständig durch HOST ersetzt (Begriff) | P | F | P | `shared:UserRole`/`PlayerRole` = `MODERATOR`; `prisma:User.role`; `srv:sockets/*` überall `MODERATOR` | — | Roles | PR13 | Kanonischer Enum `HOST` in `shared`; `MODERATOR` nur noch in Migration/Compatibility; G1-Regression | Begriffsmigration (G1) |
 | MR-02-01-03 §2.1 | Host darf je Spiel selbst mitspielen; Admin-Rechte geben keine zusätzlichen Secrets | P | F | P | Host-Participation als `MODERATOR` existiert; Mitspielen nur wer-ist-das-bezogen eingeschränkt (PR11-Gate); kein generisches Host-Mitspiel-Modell | B | Roles/Visibility | PR13, PR37 | Host-Mitspiel-Tests pro Engine; Secret-Leak-Test „Host sieht als Player keine Secrets" | Engine-/phasenbezogene Einschränkungen dokumentieren (DEC-002) |
 | MR-02-01-04 §2.1 | PLAYER ohne Login; nur erlaubte private Informationen | P | F | I | `srv:http/rooms.ts` join ohne Session; `srv:games/core/access.ts` | — | Roles | PR13–15 | Join-ohne-Login E2E (alle E2E-Specs); private Projektion-Tests | — |
-| MR-02-01-05 §2.1 | VIEWER ohne Login, read-only, nur aktuell PUBLIC freigegebene Informationen, nicht allwissend | P | F | I | `srv:sockets/room.ts` (ViewerSession, `viewer:`-IDs), `web:ViewerGamePage` u. a.; E2E J9 | — | Visibility | PR15, PR20 | Viewer sieht nur PUBLIC-Projection (E2E + Contract-Tests) | Display-Projektion fehlt (G1) |
+| MR-02-01-05 §2.1 | VIEWER ohne Login, read-only, nur aktuell PUBLIC freigegebene Informationen, nicht allwissend | P | F | **P** | `srv:sockets/room.ts` (ViewerSession, `viewer:`-IDs), `web:ViewerGamePage` u. a.; E2E J9 | — | Visibility | PR15, PR20 | Viewer sieht nur PUBLIC-Projection (E2E + Contract-Tests) | **Lücke (→P, 12-07):** Display-Projektion fehlt (G1) |
 | MR-02-01-06 §2.1 | DISPLAY: read-only Beamer-Ausgabe, kein Player/Viewer-Slot, keine Secrets, keine Eingaben, mehrere pro Raum | P | F | M | keine Rolle, keine Route, kein Session-Typ | — | Broadcast | PR20 (PR13: Rolle+Enum) | Broadcast-E2E: mehrere Displays, keine Secrets in Display-Snapshot | G1 |
 | MR-02-02-01 §2.2 | Administrative Rechte und Informationsrechte getrennt (Beispiel: spielender Host pausiert, sieht aber keine Player-geheimen Infos) | P | F | P | implizit über getrennte Projektionen; kein expliziter Test | B | Permission/Visibility | PR13, PR15 | Expliziter Test: Host-Player-Doppelfunktion ohne Info-Vorteil | — |
 | MR-02-03-01 §2.3 | Game-Permission-Core mit ≥10 granularen Rechten (`GAME_START` … `GAME_ABORT`); Rollen = Standardpakete, Rechte gezielt vergebbar/entziehbar | P | F | M | `access.ts` prüft nur Rollen + Membership, keine feingranularen Rechte | — | Permission | PR13 | Permission-Schema + Tests: Entzug/Einzug einzelner Rechte wirkt | — |
@@ -161,9 +192,9 @@ Entscheidungen: `DEC-NNN` (Register: `decision-register.md`).
 | MR-05-03-01 §5.3 | GameManifest als SoT: slug, Name, Beschreibung, Status `PLANNED\|BETA\|AVAILABLE\|HIDDEN`, Spieler-/Teamlimits, Rollen, Capabilities, Late Join, Viewer, Broadcast, Teams, Kamera/Voice, Content-Typ, Editor-/Setup-Fähigkeiten, Engine-Version | P | F | P | `shared:GameManifestSchema` (slug, name, category, desc, min/maxPlayers, roles, tags, status, hasBuzzer/Teams/Camera/Audio/Timer, setupSchemaVersion) | B | Manifest | PR13 | Schema-Vergleich Test: alle §5.3-Felder vorhanden; Status-Ableitung | MISSING: Capabilities-Array, engineVersion, lateJoin, viewerPolicy, broadcast, contentType, editorCapabilities |
 | MR-05-04-01 §5.4 | Capability-Core: `TIMER\|BUZZER\|TEAMS\|SUBMISSIONS\|JUDGE\|VOICE\|CAMERA\|VIEWER\|BROADCAST\|LATE_JOIN\|BLIND_HOST\|CONTENT_POOLS\|ROUND_RESTART\|TEAM_RESHUFFLE`; UI + Server richten sich danach | P | F | P | Boolesche `hasBuzzer/hasTeams/hasCamera/hasAudio/hasTimer` (Teilmenge, andere Repräsentation) | — | Capability | PR13 | Capability-Enum + Manifest-Validierung; UI-Steuerung nach Capability | — |
 | MR-05-05-01 §5.5 | Timer-Core: serverautoritativ, Status `IDLE\|RUNNING\|PAUSED\|EXPIRED`, Modi Countdown/Count-up/unbegrenzt, Host Start/Pause/Resume/+/-Zeit/beenden, Clients zeigen `endsAt` lokal | P | F | P | geo: In-Memory-`setTimeout` + `restoreActiveTimers` (`srv:games/geo/index.ts`); jeopardy: Feld-Timer; kein zentrales Timer-Core, kein Count-up, keine Host-Zeitanpassung, kein `endsAt`-Feld | — | Timer | PR15 (nach PR13) | Timer-Contract-Tests: alle Modi, Pause/Resume exakt, Restart-Rekonstruktion | MISSING als Core |
-| MR-05-06-01 §5.6 | Buzzer-Core: `CLOSED\|OPEN\|LOCKED\|RESOLVED`, erster gültiger Servereingang gewinnt, Einzel/Team/selektiert, falsche Antwort → optional Runden-Sperrung, reopen/reset, Dedup, deterministisch, Host-Override protokolliert, Rejoin ändert Reihenfolge nicht; Fairness `SERVER_ARRIVAL` | P | F | I | `srv:games/core/buzzer.ts` (open/claim/excluded/reset) genutzt von jeopardy + wer-ist-das; CAS-geschützt; Team-Buzz/Reopen/Host-Override noch nicht vorhanden | — | Buzzer | PR15 (Vollständigung) | Buzzer-Contract-Tests in ≥2 Engines; Rejoin-Renenn-Test | Lücke: Team-Modus, Reopen, Override-Audit |
+| MR-05-06-01 §5.6 | Buzzer-Core: `CLOSED\|OPEN\|LOCKED\|RESOLVED`, erster gültiger Servereingang gewinnt, Einzel/Team/selektiert, falsche Antwort → optional Runden-Sperrung, reopen/reset, Dedup, deterministisch, Host-Override protokolliert, Rejoin ändert Reihenfolge nicht; Fairness `SERVER_ARRIVAL` | P | F | **P** | `srv:games/core/buzzer.ts` (open/claim/excluded/reset) genutzt von jeopardy + wer-ist-das; CAS-geschützt; Team-Buzz/Reopen/Host-Override noch nicht vorhanden | — | Buzzer | PR15 (Vollständigung) | Buzzer-Contract-Tests in ≥2 Engines; Rejoin-Rennen-Test | **Lücke (→P, 12-07):** Team-Buzz, Reopen, Override-Audit fehlen — deshalb PARTIAL, nicht IMPLEMENTED |
 | MR-05-07-01 §5.7 | Judge-Core: `CORRECT\|WRONG\|PARTIAL\|CANCELLED`, Engine definiert erlaubte Optionen, Korrekturen über Gegen-/Korrektur-Events, optionaler Grund, Automatik ggf. manuell überstimmt | P | F | P | jeopardy + wer-ist-das: Host-Judge mit `judge`-Action (korrekt/falsch, wer-ist-das auch `partial` nach Hint) — aber kein zentrales Judge-Core, keine Korrektur-Events | — | Judge | PR15 | Judge-Contract-Tests inkl. Korrektur-Event | — |
-| MR-05-08-01 §5.8 | ScoreEvent-Ledger: Punkte nie still überschreiben; Events mit Ziel/Wert/Grund/Game-Round/Quelle/Zeit/Referenz; idempotent; Team+Individual über denselben Mechanismus | P | F | I | `prisma:ScoreEvent` + `srv:games/core/score.ts` `recordScoreMutation` (transaktional, participation-gesichert); `HOST_ADJUSTMENT`-Pfad via `source: manual` (jeopardy?); ROLLBACK-Event fehlt; Team-Scoring nicht vorhanden | — | Score | PR16 | Ledger-Tests: kein stilles Overwrite, Idempotenz, Team-Scoring | — |
+| MR-05-08-01 §5.8 | ScoreEvent-Ledger: Punkte nie still überschreiben; Events mit Ziel/Wert/Grund/Game-Round/Quelle/Zeit/Referenz; idempotent; Team+Individual über denselben Mechanismus | P | F | **P** | `prisma:ScoreEvent` + `srv:games/core/score.ts` `recordScoreMutation` (transaktional, participation-gesichert); `HOST_ADJUSTMENT`-Pfad via `source: manual` (jeopardy?); ROLLBACK-Event fehlt; Team-Scoring nicht vorhanden | — | Score | PR16 | Ledger-Tests: kein stilles Overwrite, Idempotenz, Team-Scoring | **Lücke (→P, 12-07):** ROLLBACK-Event fehlt, Team-Scoring nicht vorhanden — deshalb PARTIAL, nicht IMPLEMENTED |
 | MR-05-09-01 §5.9 | RoundResult/GameResult: Teilnehmer/Teams, Punkteänderungen, Gewinner, Platzierungen, Dauer, Abbruch/Skip, Content-IDs, relevante Stats; Engine darf ergänzen | P | F | M | keine Ergebnis-Entitäten; `Room.status=ENDED` + State in `RoomGameState` | — | Results | PR16 | Result-Schema-Tests je Engine (buildRoundResult/buildGameResult) | — |
 | MR-05-10-01 §5.10 | Endgründe `GameEndReason` (7 Werte) + `RoundEndReason` (11 Werte), Engine darf ergänzen | P | F | M | Ad-hoc-Endpfade, keine Endgründen-Enum | — | Results | PR16 | Endgründe-Tests je Abbruch-Pfad | — |
 | MR-05-11-01 §5.11 | Tie-Core: `ALLOW_TIE\|SUDDEN_DEATH\|TIEBREAKER_QUESTION\|SECONDARY_METRIC\|HOST_DECIDES`; vor Start festlegen; keine stille Zufallsentscheidung | P | F | M | — | — | Tie | PR15 | Tie-Strategie-Tests je Engine | — |
@@ -428,9 +459,17 @@ Entscheidungen: `DEC-NNN` (Register: `decision-register.md`).
 
 # §15 Spielregeln — festgelegte spezielle Games
 
+> **Verlinkung der elf Attribute (12-07):** Die Zeilen dieser Sektion sind
+> **Kernregeln-Pointer**: Sie benennen Quelle, Scope, Entscheidungsstatus,
+> Ist, Referenz, PR11, Ziel-PR und Lücke direkt; **Core/Rollen**,
+> **Abnahme/Testnachweis** und die vollständigen **Regel-/Setup-/Phasen-**
+> Details verlinken eindeutig auf `docs/specs/pr12/games/<slug>.md`
+> (GAME-IDs, §6-Phasentabelle, §11 Tests/DoD) — dort je Spiel ausformuliert.
+> Offene Mechaniken tragen Decision-IDs. (Eine verkürzte Zeile ersetzt
+> damit keine fehlende Detailzeile; der Link ist die Detailzeile.)
+
 > Detail-Spielespezifikationen: `docs/specs/pr12/games/<slug>.md` (eigenständige
-> GAME-IDs). Diese Zeilen erfassen nur die **im Master festgelegten** Kernregeln je
-> Spiel; offene Mechaniken tragen Decision-IDs.
+> GAME-IDs).
 
 | ID/Quelle | Festgelegte Kernregeln (Quelle) | Scope | Ents. | Ist | Referenzen (main) | PR11 | Ziel-PR | Lücken / Dec. |
 |---|---|---|---|---|---|---|---|---|
@@ -454,11 +493,35 @@ Entscheidungen: `DEC-NNN` (Register: `decision-register.md`).
 
 # §16 Yacht — vollständig festgelegter Stand
 
-| ID/Quelle | Anforderung | Scope | Ents. | Ist | Referenzen (main) | PR11 | Ziel-PR | Lücken / Dec. |
-|---|---|---|---|---|---|---|---|---|
-| MR-16-00-01 §16.1–16.17 | Yacht vollständig nach §16: 5 Würfel, max 3 Würfe, Hold/Unhold, frühe Wertung, eine freie Kategorie pro Zug (0-streichen), Game bei kompletter Scorecard; Modi Solo/1v1/FFA/Team; `SHARED_SCORECARD` Default + `INDIVIDUAL_SCORECARDS` (Teamendwert Summe, später AVERAGE); Turn Order (random Start, reihum, Host editierbar, Override, Rotation); Scorecard CLASSIC (Upper 1–6, Lower: Dreierpasch/Viererpasch/Full House 25/Kleine Straße 30/Große Straße 40/Yacht 50/Chance, Upper Bonus ab 63); Mehrfach-Yacht Bonus; Presets CLASSIC/QUICK/eigene (Host darf Kategorien deaktivieren/Sonderkategorien ergänzen); Quick Mode (reduzierte Scorecard); Turn Timer optional Default OFF (Presets 30/45/60s, Timeout ohne Auto-Wurf, kontrollierte Beendigung); Würfel immer serverseitig (Client nur Animation, Rejoin/Reload nie neu, Würfe persistiert, Random-/Seed-Core, keine Browser-Manipulation); Würfel halten (beliebig hold/unhold, serverseitige Validierung); Live Scoring Preview (serverberechnet, belegte Kategorien gesperrt); Scorecard UI (Upper Block, progress to 63, Lower Block, total, scratched, open; Teammodus passend); Tie Default `TIE`, optional Host: higher upper block / more Yachts / sudden death, keine Zufallsentscheidung; Stats (avg/highest final score, Yachts, upper bonus success rate, most scratched, avg points/category, wins/placements, Team contribution); Host-Verhalten (mit normal mitspielen, keine Judge-Funktion, Kombinationen/Score automatisch, Admin-Rechte getrennt, kein Gameplay-Vorteil); Host Disconnect (läuft ohne anwesenden Host serverseitig weiter: Würfe/Turn/Scoring/Scorecard; erst bei Admin-Problem normale Regeln) | P | F | M | keine Engine (Manifest `yacht` PLANNED) | — | PR35 | DEC-YAC-01 (konkrete Mehrfach-Yacht-Bonuswerte, Quick-Modus-Kategorien, AVERAGE_SCORE-Zeitpunkt) |
-
+| ID/Quelle | Anforderung (1 Verpflichtung) | Scope | Ents. | Ist | Referenzen (main) | PR11 | Core/Rollen | Ziel-PR | Abnahme / Testnachweis | Lücken / Dec. |
+|---|---|---|---|---|---|---|---|---|---|---|
+| MR-16-00-01 (Ursprung, 12-07) | **Split-Index:** frühere gebündelte Yacht-Zeile ist jetzt atomar aufgespalten in `MR-16-00-01-S01…S17` (eine prüfbare Verpflichtung je Zeile; Zuordnung alt→neu dokumentiert) | P | F | M | — | — | Yacht-Engine | PR35 | Jede Sxx-Zeile einzeln abnehmbar; keine gebündelte Abnahme mehr | ID-Zahl ersetzt keine Rückverfolgbarkeit (12-07) ||
+| MR-16-00-01-S01 §16.2 | 5 Würfel, max. 3 Würfe pro Zug, frühe Wertung nach Wurf 1/2 erlaubt | P | F | M | — | — | Yacht-Engine | PR35 | Turn-/Zug-Tests: 4. Wurf abgelehnt, frühe Wertung akzeptiert | — ||
+| MR-16-00-01-S02 §16.11 | Hold/Unhold nach Wurf 1/2 beliebig, held dice bleiben, serverseitige Validierung | P | F | M | — | — | Yacht-Engine | PR35 | Hold-Validierungs-Tests (keine >5, kein Hold nach Wurf 3) | — ||
+| MR-16-00-01-S03 §16.2 | Jede Zug = genau eine freie Kategorie; 0-streichen erlaubt; Scorecard voll = Game-Ende | P | F | M | — | — | Yacht-Engine | PR35 | Scorecard-Vollständigkeits-Test; doppelte Belegung abgelehnt | — ||
+| MR-16-00-01-S04 §16.10 | Würfel immer serverseitig; Client nur Animation; Rejoin/Reload nie neu; Würfe persistiert; Random-/Seed-Core; keine Browser-Manipulation | P | F | M | — | — | Random/Seed, Recovery | PR35 | Rejoin-Test: identisches Würfelergebnis; Seed-Ref konsistent | — ||
+| MR-16-00-01-S05 §16.3 | Modi: Solo, 1v1, FFA, Team | P | F | M | — | — | Yacht-Engine | PR35 | Preflight je Modus (min/max) | Solo minPlayers=1 ||
+| MR-16-00-01-S06 §16.4 | Team-Modi: `SHARED_SCORECARD` (Default: ein aktiver Player pro Teamzug würfelt/evaluiert, Rotation, Beratung, gemeinsame Card) + `INDIVIDUAL_SCORECARDS` (je Spieler Partie, Teamendwert Summe); `AVERAGE_SCORE` ausdrücklich später (keine V1-Option) | P | F | M | — | — | Team-Core, Yacht-Engine | PR35 | Team-Test: nur aktiver Spieler würfelt; Rotation; AVERAGE-Feld in V1 abwesend | 12-01: AVERAGE nicht als V1-Option ||
+| MR-16-00-01-S07 §16.5 | Turn Order: random Start (default), reihum, Host vor Start editierbar, Override nur explizit, Rotation zwischen Partien | P | F | M | — | — | Turn-Core | PR35 | Turn-Order-Tests (Start, Rotation, Override) | — ||
+| MR-16-00-01-S08 §16.6 | Scorecard CLASSIC Werte: Upper 1–6 (Augen), Bonus ab 63; Lower: Dreierpasch=Summe, Viererpasch=Summe, Full House 25, Kleine Straße 30, Große Straße 40, Yacht 50, Chance=Summe | P | F | M | — | — | Yacht-Engine (Scorecard) | PR35 | Wertungs-Tests je Kategorie inkl. Beispiel 3/3/4/3/6 → Dreierpasch 19 | 12-01: frühere 11/15-Festwerte entfernt ||
+| MR-16-00-01-S09 §16.6 | Mehrfach-Yacht: Zusatzbonus nach klassischen Joker-Regeln; eigene Presets dürfen verändern/deaktivieren | P | V | M | — | — | Yacht-Engine | PR35 | Mehrfach-Yacht-Test (2., 3. Yacht) | konkrete Bonuswerte → DEC-YAC-01 ||
+| MR-16-00-01-S10 §16.7 | Presets: CLASSIC (Default), QUICK, eigene; Host darf Kategorien deaktivieren / Sonderkategorien ergänzen | P | F | M | — | — | Yacht-Engine, Content/Presets | PR35 | Preset-Validierung (min Kategorien), Host-Änderung nur vor Start | QUICK-Kategorien → DEC-YAC-01 ||
+| MR-16-00-01-S11 §16.8 | Quick Mode: reduzierte Scorecard, kürzere Partie, Core-kompatibel | O | F | M | — | — | Yacht-Engine | PR35 | Quick-Partie-Test | Konkrete QUICK-Kategorien → DEC-YAC-01 ||
+| MR-16-00-01-S12 §16.9 | Turn Timer optional, Default OFF; Presets 30/45/60s; Timeout: kein Auto-Wurf, kontrollierte Beendigung | O | F | M | — | — | Timer-Core | PR35 | Timeout-Test: kein Auto-Wurf | Timeout-Verhalten bei Host-Ausfall → DEC-YAC-01 ||
+| MR-16-00-01-S13 §16.12 | Live Scoring Preview: serverberechnet, potenzieller Score je offene Kategorie, belegte Kategorien gesperrt | P | F | M | — | — | Yacht-Engine (Preview) | PR35 | Preview-Tests (korrekte Werte, Sperren) | — ||
+| MR-16-00-01-S14 §16.13 | Scorecard UI jederzeit sichtbar: Upper-Block, Progress to 63, Lower-Block, Total, scratched/open; Teammodus passend | P | F | M | — | — | Yacht-Engine, Web | PR35 | UI-Test: alle Pflichtelemente, Team-Ansicht | — ||
+| MR-16-00-01-S15 §16.14 | Tie: Default `TIE` (geteilt); Host vor Start optional: higher upper block / more Yachts / sudden death; keine Zufallsentscheidung | P | F | M | — | — | Tie-Core | PR35 | Tie-Tests: kein Random, Host-Optionen greifen erst ab Set-Ende | — ||
+| MR-16-00-01-S16 §16.15 | Stats: avg/highest final score, number of Yachts, upper-bonus success rate, most scratched, avg points/category, wins/placements, Team total/contribution | P | F | M | — | — | Stats-Core | PR35 | Stats-Tests (alle Kennzahlen, Team-Aggregation) | — ||
+| MR-16-00-01-S17 §16.16–16.17 | Host-Verhalten: normal mitspielen, keine Judge-Funktion (alles automatisch), Admin-Rechte getrennt, kein Gameplay-Vorteil; Host-Disconnect: Spiel läuft serverseitig weiter (Würfe/Turn/Scoring/Scorecard), erst bei Admin-Problem normale Regeln | P | F | M | — | — | Yacht-Engine, Host-Disconnect | PR35 | Host-Disconnect-Test (Spiel läuft weiter); kein Extra-Info-Channel für Host | — ||
 # §17–§20 Meta-Abschnitte (nicht erneut zu öffnende Entscheidungen)
+
+> **Verlinkung der elf Attribute (12-07):** Die Zeilen dieser Sektion sind
+> **Prozess-/Meta-Anforderungen** (Grundsatz-Schutz, Rest-Liste,
+> Chat-Empfehlung, Schlussstatus), keine Spiel-/Core-Verpflichtungen —
+> deshalb ist die Tabelle kompakt gehalten und die Attribute
+> „Referenz/PR11/Core/Abnahme" nicht einzeln ausgefüllt; der Nachweis liegt
+> in der Matrix selbst (F-Markierungen) und in `decision-register.md` /
+> `verification.md`.
 
 | ID/Quelle | Anforderung | Scope | Ents. | Ist | Ziel-PR |
 |---|---|---|---|---|---|
