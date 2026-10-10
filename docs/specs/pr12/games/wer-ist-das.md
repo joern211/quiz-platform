@@ -45,7 +45,7 @@ Originals und Namen bleiben geheim.
 |---|---|---|
 | min/max | 2 / 10 | FEST (Manifest) |
 | Teams | optional (Team-Buzzer via Core) | O |
-| Host-Mitspiel | **`HOST_CANNOT_PLAY_OWN_ROUND` (BESTEHEND, gepinnter PR11):** Das Host-Konto, das die Originale + Namen eingegeben hat, kann in der eigenen wer-ist-das-Runde **serverseitig nicht** blind mitspielen (Join mit 403 abgewehrt). **Nicht** durch Reveal neutralisiert — der Wissensvorteil durch die Upload-/Namen-Eingabe bleibt bestehen. Anonyme (ohne Login) Mitspieler sind nicht betroffen — das ist der vorgesehene faire Modus. | FEST (PR11, gepinnt) |
+| Host-Mitspiel | **`HOST_CANNOT_PLAY_OWN_ROUND` (BESTEHEND, gepinnter PR11):** Das Host-Konto, das die Originale + Namen eingegeben hat, kann in der eigenen wer-ist-das-Runde **serverseitig nicht** blind mitspielen (Join mit 403 abgewehrt). **Nicht** durch Reveal neutralisiert — der Wissensvorteil durch die Upload-/Namen-Eingabe bleibt bestehen. Anonyme (ohne Login) Mitspieler sind nicht betroffen — die Kontosperre erkennt keine Umgehung durch eine anonyme zweite Identität; sie garantiert nicht, dass ein anonymer Teilnehmer die Lösung nicht schon kennt. | FEST (PR11, gepinnt) |
 | Secrets | Originals + Namen: `HOST_PRIVATE` vor Reveal (Player/Viewer/Display nie); eigene Buzz-Antwort `PLAYER_PRIVATE` | FEST §5.15, PR11 |
 
 ## 4. Setup (Ziel = PR11 Setup v2)
@@ -58,7 +58,7 @@ WerIstDasSetup v2 {
   gameImageUrl?: string         // Signed-URL, Resync-feld (PR11)
   perRound: {timerMs (default 30000), hintEnabled: true, points: {both:3, oneAfterHint:1, wrong:-1}}
   rounds: number (default = 10, max)
-  hostCanPlay: boolean (default: auto — nur wenn Setup vollständig)
+  hostCanPlay: false für selbst erstellte Runden (HOST_CANNOT_PLAY_OWN_ROUND); vollständiges Setup hebt dieses Gate nicht auf
   repeatRule / hostContentVisibility: BLIND_HOST-irrelevant (Host ist Erzeuger)
 }
 setupVersion = 2 (v1-MVP bleibt lauffähig — PR11)
@@ -98,7 +98,7 @@ SETUP (Setup v2) → INTRO → (je Runde) BUZZ_OPEN → BUZZ_LOCKED → JUDGING 
 
 | Command | Rolle | Phase |
 |---|---|---|
-| `buzz` | PLAYER/Host-as-Player | BUZZ_OPEN |
+| `buzz` | berechtigter PLAYER; Ersteller-Konto der eigenen Runde ausgeschlossen | BUZZ_OPEN |
 | `answer.submit` (verbale Antwort, optional) | Winner-Player | JUDGING |
 | `judge.decide` (BEIDE\|EINE_NACH_HINT\|EINE_OHNE_HINT\|WRONG) | HOST (JUDGE_ANSWER) | JUDGING |
 | `hint.grant` | HOST | JUDGING |
@@ -181,7 +181,7 @@ SETUP (Setup v2) → INTRO → (je Runde) BUZZ_OPEN → BUZZ_LOCKED → JUDGING 
 - **Late-Join-Policy (engine-spezifisch):** Nein während `BUZZ_OPEN`/`JUDGING` der laufenden Runde → `PENDING_JOIN`, ab der **nächsten** Runde aktiv; Fusion + Punkte via Resync.
 - **Ausscheidende Teilnehmer:** keine (Rundenbuzzer, keine Dauer-Ausscheidung).
 - **Teamrollen/Rotation:** keine (Team-Buzzer via Core, optional).
-- **Voice/Camera/Mic (Abweichung von den Defaults):** Mikrofon MUTED (Default); Reveal-Äußerungen verbal (Host-Judge). ·
+- **Voice/Camera/Mic (Abweichung von den Defaults):** Mikrofon: gemeinsamer, Host-konfigurierbarer Default (§3.4/Master §7.21), Bestätigung im Prejoin; Reveal-Äußerungen verbal (Host-Judge). ·
 - **Viewer (FEST, Master §7.23 — kein Spiel darf abweichen):** kein Mic/Send (Viewer senden nie Audio); Viewer hört `MAIN`; nie `TEAM`; Host kann Viewer-Audio deaktivieren. ·
   Camera: OFF (Default).
 - **Medien in Phasen:** Fusion via signed `gameImageUrl` (PR11); Originals nie in Projektionen vor Reveal.

@@ -235,7 +235,7 @@ INTRO → (je Runde) BIDDING_OPEN (Bidder-Teams sichtbar, Performer-Teams: „Pa
 - **Late-Join-Policy (engine-spezifisch):** Nein während `BIDDING_*`/`CHALLENGE_ACTIVE` → `PENDING_JOIN`, ab der **nächsten** Runde; Teams werden dann neu geformt (gerade Spielerzahl; Neu-Teamung mit Rollen-Zuweisung, kein Nachteil für Bestandsspieler).
 - **Ausscheidende Teilnehmer:** keine (Teams bleiben; Bidder/Performer rotieren pro Runde).
 - **Teamrollen/Rotation:** **Pflicht:** je Team 1 Bidder + 1 Performer, Rotation pro Runde (§2); 2er-Teams.
-- **Voice/Camera/Mic (Abweichung von den Defaults):** Mikrofon MUTED während Bidding (Geheimhaltung) und Challenge (Validierung erst danach) — keine Abweichung vom Default, aber explizit. ·
+- **Voice/Camera/Mic (Abweichung von den Defaults):** Mikrofon MUTED während Bidding (Geheimhaltung) und Challenge (Validierung erst danach) — phasenbezogene Abweichung vom gemeinsamen Default (§7.21), um geheime Kommunikation zu verhindern. ·
 - **Viewer (FEST, Master §7.23 — kein Spiel darf abweichen):** kein Mic/Send (Viewer senden nie Audio); Viewer hört `MAIN`; nie `TEAM`; Host kann Viewer-Audio deaktivieren. ·
   Camera: OFF (Default).
 - **Medien in Phasen:** Task-Details nie in Viewer-/Display-Projektion (DEC-PCH-01).

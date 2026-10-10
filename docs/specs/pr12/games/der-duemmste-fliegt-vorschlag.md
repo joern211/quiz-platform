@@ -3,8 +3,8 @@
 > ⚠️ **Slug-Vorschlag** `der-duemmste-fliegt` (DEC-DDF-01, zu bestätigen).
 > Aufnahme in V1.0: **NUTZERERGÄNZUNG 07.10.2026 (F)** — aber **konkrete
 > Regeln nicht im Master**. Diese Datei ist ein **Vorschlags-Entwurf**
-> mit Decision-IDs (DEC-DDF-01…06). **Keine der Vorschlags-Regeln ist
-> festgelegt.** Engine-Implementierung (PR36) blockiert bis Bestätigung.
+> mit Decision-IDs (DEC-DDF-01…06). **Die Detailmechanik ist nicht festgelegt; allgemeine Master-Regeln
+> (insbesondere Secrets und Host-Fairness) gelten verbindlich.** Engine-Implementierung (PR36) blockiert bis Bestätigung.
 > Dateiname bewusst mit „-vorschlag" markiert.
 
 ## 1. Kurzbeschreibung
@@ -46,9 +46,9 @@ kommen ins **Finale**; dort gewinnt der/die „Klugste".
 - **AUTO-Judge-Regel (Vorschlag):** wenn keine manuelle
   „Dummste"-Antwort definiert: wer **falsch + am längsten** →
   „Dummste" (kombiniert aus Falschheit + Zeit). Wenn alle korrekt:
-  wer **am längsten** → „Dummste". Wenn alle falsch: wer **am
-  kürzesten** (blinde Antwort) → „Dummste" (wenigstens hat er
-  wenig Zeit investiert — Vorschlag, DEC-DDF-03).
+  wer **am längsten** → „Dummste". Wenn alle falsch: ebenso die längste Antwortzeit.
+  Rangfolge einheitlich: falsch vor korrekt, dann längere Serverzeit
+  zuerst; gleiche Werte ergeben Tie (DEC-DDF-03/04).
 - **Host-Judge (Default):** Host wählt manuell den „Dummsten"
   (wie bei Jeopardy — Judge-Ansicht).
 
@@ -57,8 +57,9 @@ kommen ins **Finale**; dort gewinnt der/die „Klugste".
 - **Voting-Tie (Modus B):** gleiche Stimmen → keine Elimination in
   dieser Runde, nächste Runde (Vorschlag; Alternative:
   Stichentscheid per Draw — **nicht** empfohlen).
-- **AUTO-Judge-Tie:** keine Ties möglich (eine „Dummste"-Antwort
-  ist eindeutig, da Zeit + Falschheit kombiniert werden).
+- **AUTO-Judge-Tie:** identische Serverzeiten und gleicher Antwortstatus
+  können Gleichstand ergeben. Vorschlag: keine Elimination, nächste Runde;
+  mehrere Nichtabgaben werden ebenso behandelt (DEC-DDF-04).
 - **Nichtabgabe:** Spieler, der nicht antwortet, wird automatisch
   „Dummste" (Vorschlag; Alternative: kein Ausscheiden, nur 0
   Punkte — **empfohlen:** Ausscheiden, da Nichtabgabe =
@@ -83,8 +84,10 @@ kommen ins **Finale**; dort gewinnt der/die „Klugste".
 - **Vorschlag A (empfohlen):** **keine Punkte** — nur Platzierung
   (wie Undercover/Geheim Agent).
 - **Vorschlag B (Alternative):** +10 Punkte pro verbleibender Runde
-  (Wer 5 Runden überlebt = 50, Wer im Finale = 10, Wer raus = 0).
-  **Keine Minuspunkte** (Master-Prinzip).
+  (5 überstandene Runden = 50; jede weitere = +10; Ausscheiden
+  gibt keine weiteren Punkte, bereits verdiente Punkte bleiben).
+  **Keine Minuspunkte in diesem Vorschlag**; der Master enthält kein
+  allgemeines Minusverbot (z. B. Wer-ist-das und Jeopardy).
 
 ## 3. Spieler/Teams/Rollen (Vorschlag)
 
@@ -92,7 +95,7 @@ kommen ins **Finale**; dort gewinnt der/die „Klugste".
 |---|---|---|
 | min/max | 4 / 10 (Vorschlag) | V (DEC-DDF-02) |
 | Teams | nein (individuell) | V |
-| Host-Mitspiel | **erlaubt**; Host-Judge (wie Jeopardy) — Info-Vorteil: Host sieht alle Antworten im Judge → **VORSCHLAG:** Host-Modus „blind" (Host wählt „Dummste" ohne zu sehen, wer was geschrieben hat — nur die Antworten, nicht die Namen — Vorschlag DEC-DDF-06) | V |
+| Host-Mitspiel | nur ohne Wissensvorteil (FEST §2/§10). Eigene/bereits bekannte Fragen schließen Host-Mitspiel in dieser Runde aus. Bei unbekannten Poolfragen: eigene Antwort erst unwiderruflich locken, danach anonymisierte Judge-Ansicht (Mechanik V, DEC-DDF-06) | F (Fairness) / V (Mechanik) |
 | Secrets | eigene Antwort: PLAYER_PRIVATE bis Reveal; alle Antworten: PUBLIC nach Reveal; „Dummste"-Entscheidung: HOST_PRIVATE (Judge) bis Reveal | V |
 
 ## 4. Setup (Vorschlag)
@@ -106,43 +109,44 @@ DerDuemmsteFliegtSetup {
   votingMode: HOST_PICK|PLAYER_VOTING (default HOST_PICK)
   perRound: {inputTimerMs (default 30000), revealDelayMs (2000)}
   scoring: {mode: NONE|SURVIVAL (default NONE)}
-  hostCanPlay: boolean (default true, blind-Judge)
+  hostCanPlay: boolean (default false bei eigenen/bekannten Fragen; bei unbekannten Poolfragen nur mit Antwort-Lock vor Judge-Ansicht)
   language: de-DE
 }
 ```
 
 - Quick: HOST_QUESTIONS, HOST_JUDGE, keine Punkte, 4–10 Spieler.
-- Preflight: ≥4 Spieler, (wenn POOL) Pool READY.
+- Preflight: ≥4 Spieler, (wenn POOL) Pool READY; AUTO_JUDGE benötigt
+  zusätzlich validierte Lösungs-/Matchingdaten (`acceptedAnswers`), sonst
+  BLOCKED. Freitext ohne automatische Wahrheitsprüfung bleibt HOST_JUDGE.
 
 ## 5. Content-/Editor-Schema (wenn POOL-Modus)
 
 - Item = `DdfQuestion`: prompt, dummsteAnswer? (optional, für
   AUTO-Judge), klugsteAnswer? (optional), category, difficulty,
-  tags, language.
+  tags, language, acceptedAnswers? (für AUTO_JUDGE erforderlich).
 - READY: prompt + category + Sprache.
 
 ## 6. Phasen/Commands (Vorschlag)
 
 ```
-INTRO → (je Runde) QUESTION_REVEAL → INPUT_OPEN → INPUT_LOCKED → (VOTING?) → REVEAL (alle Antworten + „Dummste" + Ausscheidung) → WIN_CHECK (2 übrig?) → FINALE (1 Runde, klugster gewinnt) → GAME_END (WINNER + Platzierungen) → FINALIZED
+INTRO → (je Runde) QUESTION_REVEAL → INPUT_OPEN → INPUT_LOCKED → JUDGING oder VOTE_OPEN → VOTE_LOCKED (nur Voting) → REVEAL (alle Antworten + „Dummste" + Ausscheidung) → WIN_CHECK (2 übrig?) → FINALE (1 Runde, klugster gewinnt) → GAME_END (WINNER + Platzierungen) → FINALIZED
 ```
 
 | Command | Rolle | Phase |
 |---|---|---|
 | `answer.submit` (text) | aktiver Spieler | INPUT_OPEN |
 | `vote.cast` (participantId) | aktiver Spieler (außer sich) | VOTE_OPEN (Modus B) |
-| `judge.pick` (participantId, „Dummste") | HOST | REVEAL (Modus A) |
+| `judge.pick` (anonyme answerId, „Dummste"; Server löst Teilnehmer auf) | HOST, eigene Antwort ggf. bereits LOCKED | JUDGING (Modus A) |
 | `reveal` (auto) | SYSTEM | INPUT_LOCKED/VOTE_LOCKED |
 | `round.next` / `finale.start` | SYSTEM | — |
 | `pause`/`resume` / `emergency.*` | HOST | — |
 
-- **Ablaufbeispiel:** 6 Spieler. Runde 1: „Wie viele Monde hat
-  Jupiter?" → A: 95, B: 5, C: „keine", D: 79, E: 1, F: 80. Host
-  (blind) sieht Antworten → wählt C („keine") → C raus. Runde 2:
-  … (5 verbleibend) → D raus. … Finale: A vs. F → „Welches Tier
-  hat die längste Zunge?" → A: „Gecko", F: „Grünspecht" → Host:
-  F gewinnt (Grünspecht hat die längste Zunge). Platzierungen:
-  1. F, 2. A, 3. B, 4. E, 5. D, 6. C.
+- **Ablaufbeispiel (Host spielt nicht mit):** 6 Spieler, Poolfrage
+  „Wie viele Seiten hat ein Dreieck?": A=3, B=4, C=„keine", D=3, E=1, F=3.
+  Nach Input-Lock wählt der Host die anonyme Antwort „keine"; erst danach
+  wird C als Autor aufgelöst und eliminiert. Weitere Runden eliminieren
+  D, E und B. Finale A/F: „Wie viele Seiten hat ein Quadrat?", A=3, F=4.
+  Der Host entscheidet für F. Platzierungen: F, A, B, E, D, C.
 
 ## 7. Wertung & Endgründe (Vorschlag, DEC-DDF-05)
 
@@ -161,7 +165,7 @@ INTRO → (je Runde) QUESTION_REVEAL → INPUT_OPEN → INPUT_LOCKED → (VOTING
 - **Ausgeschiedener Spieler:** wie Viewer (alle Runden sichtbar,
   keine Mitspiel-Rechte).
 - **HOST (blind-Judge):** Antworten (anonymisiert — keine Namen!
-  Vorschlag DEC-DDF-06), Phase, Platzierungen; **keine**
+  Vorschlag DEC-DDF-06), erst nach eigener unwiderruflicher Abgabe und `INPUT_LOCKED`; Phase, Platzierungen; **keine**
   Namen-Antwort-Zuordnung bis Reveal.
 - **VIEWER/DISPLAY:** Frage, Timer, „wer ist noch drin";
   Antworten nach Reveal.
@@ -189,7 +193,8 @@ INTRO → (je Runde) QUESTION_REVEAL → INPUT_OPEN → INPUT_LOCKED → (VOTING
 
 - 10 Pflichttests + spezifisch: **Antwort-Leak** (keine fremde
   Antwort vor Reveal), **Blind-Judge-Test** (Host-Payload enthält
-  keine Namen-Antwort-Zuordnung), Voting-Tie-Test, Nichtabgabe-Test
+  keine Namen-Antwort-Zuordnung; vor eigenem Lock keine fremden Antworten;
+  Host bei eigenen/bekannten Fragen ausgeschlossen), Voting-Tie-Test, Nichtabgabe-Test
   (auto-„Dummste"), Ausscheidungs-Korrektheit (Platzierungen),
   **Ausgeschiedener-Spieler-Test** (keine Mitspiel-Rechte nach
   Ausscheiden), Rejoin (aktiv vs. ausgeschieden), Recovery.
@@ -225,7 +230,7 @@ INTRO → (je Runde) QUESTION_REVEAL → INPUT_OPEN → INPUT_LOCKED → (VOTING
 - **Late-Join-Policy (engine-spezifisch):** Nein in der laufenden Runde → `PENDING_JOIN`, ab der **nächsten** Runde aktiv (Vorschlag DEC-DDF-06); Host-Judge-Antworten bleiben anonym.
 - **Ausscheidende Teilnehmer:** Ausgeschiedene → **Viewer-Modus** (Vorschlag DEC-DDF-06), kein Rejoin in dieselbe Partie; Finale (2 Spieler) wird nicht durch `INSUFFICIENT_PLAYERS` abgeschnitten (§12-10).
 - **Teamrollen/Rotation:** keine (individuell).
-- **Voice/Camera/Mic (Abweichung von den Defaults):** Mikrofon MUTED (Default). ·
+- **Voice/Camera/Mic (Abweichung von den Defaults):** Mikrofon: gemeinsamer, Host-konfigurierbarer Default (§3.4/Master §7.21), Bestätigung im Prejoin. ·
 - **Viewer (FEST, Master §7.23 — kein Spiel darf abweichen):** kein Mic/Send (Viewer senden nie Audio); Viewer hört `MAIN`; nie `TEAM`; Host kann Viewer-Audio deaktivieren. ·
   Camera: OFF (Default).
 - **Medien in Phasen:** keine.

@@ -41,8 +41,8 @@ Rollenverteilung.
 |---|---|---|
 | min/max | 4 / 10 | V (DEC-UND-01) |
 | Teams | nein (individuell, Rollen-basiert) | V |
-| Host-Mitspiel | erlaubt; Host sieht Rollen (Secret Core) — Info-Vorteil: Host kennt die Begriffe → **VORSCHLAG:** Host-Modus „blind" (Host sieht nur, wer raus ist, nicht die Begriffe — wie bei Wer-ist-das-Host-Gate, aber hier: Host-Content-Preview OFF) | V |
-| Secrets | eigener Begriff: PLAYER_PRIVATE; Begriffe aller + Rollen: HOST_PRIVATE; Hinweise: PUBLIC (nach Aussprechen) | F (Prinzip) |
+| Host-Mitspiel | erlaubt nur ohne fremde Rollen/Begriffe; mitspielender Host zwingend blind. Eine Ansicht aller Secrets ist ausschließlich dem nicht mitspielenden Moderator erlaubt | F (Fairness §2/§10); konkrete Umsetzung V |
+| Secrets | eigener Begriff: PLAYER_PRIVATE; Begriffe aller + Rollen: HOST_PRIVATE nur für nicht mitspielenden Host; Hinweise: PUBLIC (nach Aussprechen) | F (Prinzip) |
 
 ## 4. Setup (Ziel)
 
@@ -108,7 +108,7 @@ INTRO (Rollen-Zuteilung, Privat-Ansicht) → (je Runde) HINT_TURN_1 → … → 
   Hinweise aller (PUBLIC), eliminierte Spieler, Voting-Zustand;
   **keine** Begriffe der anderen, **keine** Rollen-Info.
 - HOST: (blind-Modus) eliminierte Spieler + Win-Status; **keine**
-  Begriffe (Vorschlag, DEC-UND-01). (Normal-Modus: + Begriffe/Rollen.)
+  fremden Begriffe/Rollen (verbindliche Fairness). Eine Ansicht aller Begriffe/Rollen ist nur für einen nicht mitspielenden Host zulässig.
 - VIEWER: Hinweise, eliminierte, Voting; keine Begriffe/Rollen.
 - DISPLAY: Hinweis-Übersicht + Voting-Stand.
 - Preloading: Begriffe nie (Leak = Spielruin).
@@ -149,7 +149,7 @@ INTRO (Rollen-Zuteilung, Privat-Ansicht) → (je Runde) HINT_TURN_1 → … → 
 
 | ID | Frage | Vorschlag (default) |
 |---|---|---|
-| DEC-UND-01 | Undercover-Anzahl (1 vs. mehr), Tie-Regel, Win nach max Runden, Host-Blind-Modus, Hinweis-Regeln (Länge, Filter) | 1 Undercover, Tie = keine Elimination, 3 Runden → Agenten, Host blind, 20 Zeichen, keine Zahlen |
+| DEC-UND-01 | Undercover-Anzahl (1 vs. mehr), Tie-Regel, Win nach max Runden, technische Blind-Host-Umsetzung (Fairness FEST), Hinweis-Regeln (Länge, Filter) | 1 Undercover, Tie = keine Elimination, 3 Runden → Agenten, Host blind, 20 Zeichen, keine Zahlen |
 
 ---
 
@@ -164,7 +164,7 @@ INTRO (Rollen-Zuteilung, Privat-Ansicht) → (je Runde) HINT_TURN_1 → … → 
 - **Late-Join-Policy (engine-spezifisch):** **Nein nach Start** — Rollenverteilung (Undercover/Agenten) ist nicht nachträglich integrierbar → Zuschauer bis Spielende (Vorschlag DEC-UND-01).
 - **Ausscheidende Teilnehmer:** Ausgeschiedene → `LEFT`, Zuschauer; Rolle bleibt geheim (keine Reveal vor `GAME_END`, außer WIN_CHECK).
 - **Teamrollen/Rotation:** keine (individuell, geheime Rollen).
-- **Voice/Camera/Mic (Abweichung von den Defaults):** Mikrofon MUTED (Default); Discussion-Phase optional (Voice). ·
+- **Voice/Camera/Mic (Abweichung von den Defaults):** Mikrofon: gemeinsamer, Host-konfigurierbarer Default (§3.4/Master §7.21), Bestätigung im Prejoin; Discussion-Phase optional (Voice). ·
 - **Viewer (FEST, Master §7.23 — kein Spiel darf abweichen):** kein Mic/Send (Viewer senden nie Audio); Viewer hört `MAIN`; nie `TEAM`; Host kann Viewer-Audio deaktivieren. ·
   Camera: OFF (Default).
 - **Medien in Phasen:** keine.

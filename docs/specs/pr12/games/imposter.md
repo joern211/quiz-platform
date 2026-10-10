@@ -188,7 +188,7 @@ INTRO → (je Runde) QUESTION_REVEAL → ANSWER_OPEN → ANSWER_LOCKED → VOTE_
 - **Late-Join-Policy (engine-spezifisch):** Nein während `ANSWER_OPEN`/`VOTE_OPEN` der laufenden Runde → `PENDING_JOIN`, ab der **nächsten** Runde aktiv (keine Antworten/Votes nachreichen).
 - **Ausscheidende Teilnehmer:** keine (alle bleiben in jedem Votum).
 - **Teamrollen/Rotation:** keine (individuell).
-- **Voice/Camera/Mic (Abweichung von den Defaults):** Mikrofon MUTED (Default). ·
+- **Voice/Camera/Mic (Abweichung von den Defaults):** Mikrofon: gemeinsamer, Host-konfigurierbarer Default (§3.4/Master §7.21), Bestätigung im Prejoin. ·
 - **Viewer (FEST, Master §7.23 — kein Spiel darf abweichen):** kein Mic/Send (Viewer senden nie Audio); Viewer hört `MAIN`; nie `TEAM`; Host kann Viewer-Audio deaktivieren. ·
   Camera: OFF (Default).
 - **Medien in Phasen:** keine (verbale Antworten).

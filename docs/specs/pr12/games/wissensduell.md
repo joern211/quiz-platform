@@ -162,7 +162,7 @@ INTRO → (je Frage) PROMPT → INPUT_OPEN → INPUT_LOCKED → REVEAL → ROUND
 - **Late-Join-Policy (engine-spezifisch):** Nein während `INPUT_OPEN` der laufenden Frage → `PENDING_JOIN`, ab der **nächsten** Frage aktiv (Frage PUBLIC, kein Nachteil).
 - **Ausscheidende Teilnehmer:** Keine Ausscheidung — alle bleiben aktiv; Disconnect = `DISCONNECTED`, Rejoin-Regel §9.
 - **Teamrollen/Rotation:** keine (Standard Team-Core, optional).
-- **Voice/Camera/Mic (Abweichung von den Defaults):** Mikrofon MUTED (Default), keine Abweichung. ·
+- **Voice/Camera/Mic (Abweichung von den Defaults):** Mikrofon: gemeinsamer, Host-konfigurierbarer Default (§3.4/Master §7.21), Bestätigung im Prejoin. ·
 - **Viewer (FEST, Master §7.23 — kein Spiel darf abweichen):** kein Mic/Send (Viewer senden nie Audio); Viewer hört `MAIN`; nie `TEAM`; Host kann Viewer-Audio deaktivieren. ·
   Camera: OFF (Default).
 - **Medien in Phasen:** keine (MC-Fragen); Media-Fragen optional über leak-safe URLs.

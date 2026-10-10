@@ -36,9 +36,9 @@ empfohlener Vorschlag (Default), Alternativen, Folgen, Status.
 | DEC-DDF-01 | Slug | `der-duemmste-fliegt` | z. B. `der-duemmste-fliegt` (kann nur anders heißen, wenn Nutzer es möchte) | Kein Manifest-Eintrag, PR36 blockiert |
 | DEC-DDF-02 | Grundmechanik + Spieleranzahl | Host-Judge-Runden, 4–10 Spieler, bis 2 übrig, dann Finale | Player-Voting statt Host-Judge; 3–12 | PR36 nicht startbar |
 | DEC-DDF-03 | Fragenmodell + AUTO-Judge | HOST/POOL/BOTH; AUTO = falsch + längste Antwortzeit | nur Host-Fragen; AUTO nur Falschheit | PR36 nicht startbar |
-| DEC-DDF-04 | Ties + Nichtabgabe | Voting-Tie = keine Elimination; Nichtabgabe = „Dummste" (aus) | Stichentscheid; Nichtabgabe = nur 0 Punkte | PR36 nicht startbar |
+| DEC-DDF-04 | Ties + Nichtabgabe | Voting-/AUTO-Tie = keine Elimination, nächste Runde; einzelne Nichtabgabe = ausgeschieden; mehrere Nichtabgaben = Tie | Stichentscheid; Nichtabgabe = nur 0 Punkte | PR36 nicht startbar |
 | DEC-DDF-05 | Punkte | keine Punkte, nur Platzierung | +10 pro überlebter Runde | PR36 nicht startbar |
-| DEC-DDF-06 | Ausgeschiedene + Host-Blind + Rejoin | Ausgeschiedene → Viewer-Modus; Host blind (anonymisierte Antworten); Rejoin = Viewer | Ausgeschiedene → Raum verlassen; Host sieht Namen | PR36 nicht startbar |
+| DEC-DDF-06 | Ausgeschiedene + Host-Blind + Rejoin | Ausgeschiedene → Viewer-Modus; Rejoin übernimmt aktiv/ausgeschieden; mitspielender Host lockt eigene Antwort vor anonymem Judge, bekannte/eigene Fragen schließen Mitspiel aus | Ausgeschiedene → Raum verlassen; Namen im Judge nur bei nicht mitspielendem Host | PR36 nicht startbar |
 
 > **Bündelungsempfehlung:** DEC-DDF-01…06 in **einer** Nutzerfrage
 > klären (ein Vorschlagspaket mit Default-Werten, siehe
@@ -61,10 +61,10 @@ Für jedes Spiel ist **ein** Entscheidungs-Bündel offen (je eine ID):
 | DEC-WOF-01 | Wahr oder Fake? (28) | Punkte/Streak, WAHR/FAKE-Verhältnis, Quellen-Pflicht, Team-Mehrheit | 100/0/+50, 50/50, Quellen Pflicht (PUBLIC), Team = Mehrheit | −10 bei falsch; 40/60 |
 | DEC-SLF-01 | Stadt, Land, Fluss (29) | Kategorien, Wertung, Duplikat, Serien-Bonus, Pool-Pflicht, Team | S/L/F + erweiterbar, 100, beide ungültig, Bonus OFF, Pool optional (Manual), Team = Summe | 4er-Kategorien; früherer Spieler verliert bei Duplikat |
 | DEC-SAM-01 | Gleicher Gedanke (30) | Teamgröße, Paarwechsel, Scoring, Nichtabgabe, Match-Modus | 2er, optional rotierend, 100+50, Match nur bei 2 Abgaben, EXACT_SYNONYM | 3er-Teams; Partial-Credit |
-| DEC-UND-01 | Undercover (32) | Undercover-Anzahl, Tie, Win nach max Runden, Host-Blind, Hinweis-Regeln | 1 Undercover, Tie = keine Elimination, 3 Runden → Agenten, Host blind, 20 Zeichen | 2 Undercovers; Stichentscheid; Host normal |
-| DEC-AGT-01 | **Geheim Agent (33)** — am offensten | **Rollen-Satz, Win Conditions, Runden-Count, Voice-Pflicht, Host-Modus** | V1: Agent+Undercover+Voice; Saboteur als Preset; 4 Runden; Voice optional; Host blind | Voll-Sat (Agent/Undercover/Saboteur) ab V1 |
+| DEC-UND-01 | Undercover (32) | Undercover-Anzahl, Tie, Win nach max Runden, technische Blind-Host-Umsetzung (Fairness FEST), Hinweis-Regeln | 1 Undercover, Tie = keine Elimination, 3 Runden → Agenten, Host blind, 20 Zeichen | 2 Undercovers; Stichentscheid; Ansicht aller Rollen ausschließlich für nicht mitspielenden Host |
+| DEC-AGT-01 | **Geheim Agent (33)** — am offensten | **Rollen-Satz, Win Conditions, Runden-Count, optionale Voice, technische Blind-Host-Umsetzung (Fairness FEST)** | V1: Agent+Undercover+Voice; Saboteur als Preset; 4 Runden; Voice optional; Host blind | Voll-Sat (Agent/Undercover/Saboteur) ab V1 |
 | DEC-BRD-01 | Raus damit! (34) | Brettgröße, Figuren, Hit-Regel, Heimfeld-Regel, Teammodus, Sonderfelder | 24 Felder, 1 Figur, EXACT_HIT, EXACT_REMAIN, individuell, keine Sonderfelder | 40 Felder; 2 Figuren; ANY_OVERRUN |
-| DEC-YAC-01 | Yacht (35) | Mehrfach-Yacht-Bonus, QUICK-Kategorien, Timer-Timeout bei Host-Ausfall (AVERAGE: **FEST später**, keine V1-Option — Master §16.4) | 2nd=25/3rd=50; QUICK=8 Kategorien; Auto-Skip 2×30s | QUICK=10; Sudden-Death-Default |
+| DEC-YAC-01 | Yacht (35) | Maximal 8 Spieler als V1-Vorschlag, Mehrfach-Yacht-Bonus, QUICK-Kategorien, Timer-Timeout bei Host-Ausfall (AVERAGE: **FEST später**, keine V1-Option — Master §16.4) | 2nd=25/3rd=50; QUICK=8 Kategorien; Auto-Skip 2×30s | QUICK=10; Sudden-Death-Default |
 | DEC-PCH-01 | Wie weit gehst du? (31) | **Nur** Viewer-Task-Sichtbarkeit (2-Teams-Failure-Regel und >2-Teams-Bidding-Ende sind **FEST** per Master §15.9 — keine erneute Frage) | Viewer: Bids+Ziel ohne Task-Text | Viewer sieht Task-Text |
 
 > **Bündelungsempfehlung:** je Spiel **eine** kompakte Frage mit dem
@@ -123,7 +123,7 @@ dem Master oder dem bestehenden Code:
 | RUT-15 | Score-Ledger: **keine** pauschale Ableitung eines globalen Minusverbots — „keine Minuspunkte" gilt **nur** für Wie weit gehst du (§15.9); Wer ist das? hat **fest −1** (§15.3), Jeopardy ist Ist ±½-Feldwert (12-05) | Master §15.9 (lokal) + §15.3 (Wer ist das? −1) + Jeopardy `contracts.ts` |
 | RUT-16 | DEC-002: Host-Mitspiel-Einschränkung je Engine/Phase dokumentieren, ohne Rollenmodell zu ändern | Master §2.1 (keine Informationsvorteile); Umsetzung in den jeweiligen Spieledokumenten (DEC-JEO-01, DEC-UND-01, DEC-AGT-01, DEC-DDF-06, DEC-PCH-01); keine pauschale Rollen-Änderung |
 | RUT-17 | DEC-003: Rejoin nach Kick/Ban (**12-06 korrigiert**) | `KICK` = Entfernen aus dem Raum, **Rejoin prinzipiell möglich** (Master §4.9); `BAN`/`BAN_ROOM` = Blockade, Rejoin verweigert bis Unban. Kein `banState` beim Kick; Ban-Audit + Unban-FLOW bleiben; nach Unban: normaler Rejoin mit frischem Rejoin-Token; keine automatische Re-Einladung |
-| RUT-18 | DEC-STD-01: `percentage`-Darstellung (0–1 vs. 0–100) | **0–100 (Integer)** intern + UI, Einheit `percentage`; rationale: konsistente Darstellbarkeit ohne Locale-Drift; API bleibt numerisch, Units-Label im Schema (`shared`-Glossar) |
+| RUT-18 | DEC-STD-01: `percentage`-Darstellung (0–1 vs. 0–100) | **0–100 numerisch, Nachkommastellen erlaubt** intern + UI, Einheit `percentage`; rationale: konsistente Darstellbarkeit ohne Locale-Drift; API bleibt numerisch, Units-Label im Schema (`shared`-Glossar) |
 
 ---
 
@@ -152,9 +152,9 @@ Originals nach Reveal = alle. OK?"
 nur bei festgelegtem Spiel. Accounts: **FEST** — Player/Viewer ohne
 Account, Host mit (Master §9.1), keine Entscheidung erforderlich."
 
-> **Status-Regel:** Solange die offenen Fragen (1–3) nicht beantwortet
-> sind, ist der Draft **nicht** merge-ready, aber **fortschreibbar**:
-> alle Implementierungs-PRs, die **nicht** von einem der offenen
-> Decision-IDs blockiert sind, können laufen. (12-06: keine pauschale
-> „Default-Paket-Freigabe" — nur die konkret aufgelisteten,
-> widerspruchsfreien Details werden vorgelegt.)
+> **Status-Regel:** Unbestätigte Detailvorschläge blockieren die jeweils
+> abhängige Implementierung, nicht den Abschluss dieser Vorbereitung.
+> PR12 dokumentiert Vorschläge und feste Regeln getrennt; es behauptet
+> keine Nutzerfreigabe. Der Draft-Status bleibt auf Nutzerwunsch bestehen.
+> FEST-Regeln wie die Fairness mitspielender Hosts werden nicht erneut zur
+> Entscheidung gestellt. Der main-Abgleich folgt nach dem PR11-Merge.

@@ -167,7 +167,7 @@ SELECTING → BUZZ_OPEN → BUZZ_LOCKED → FIELD_DONE | (WRONG) STEAL_OPEN → 
 - **Late-Join-Policy (engine-spezifisch):** Nein im laufenden Feld (`BUZZ_OPEN`/`STEAL_OPEN`/`BUZZ_LOCKED`) → `PENDING_JOIN`, ab dem **nächsten** Feld aktiv; Board-Fortschritt via Resync (Frage PUBLIC, Lösung Host-only).
 - **Ausscheidende Teilnehmer:** keine Ausscheidung im Feldverlauf; Steal-Ausschluss ist field-begrenzt (§2).
 - **Teamrollen/Rotation:** keine (Team-Buzzer ab PR15, Default individual).
-- **Voice/Camera/Mic (Abweichung von den Defaults):** Mikrofon MUTED (Default). ·
+- **Voice/Camera/Mic (Abweichung von den Defaults):** Mikrofon: gemeinsamer, Host-konfigurierbarer Default (§3.4/Master §7.21), Bestätigung im Prejoin. ·
 - **Viewer (FEST, Master §7.23 — kein Spiel darf abweichen):** kein Mic/Send (Viewer senden nie Audio); Viewer hört `MAIN`; nie `TEAM`; Host kann Viewer-Audio deaktivieren. ·
   Camera: OFF (Default).
 - **Medien in Phasen:** keine Standard; Media-Felder optional (leak-safe).

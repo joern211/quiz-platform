@@ -31,9 +31,10 @@ aber diese Detailregeln sind **im Master nicht vollständig ausformuliert**
   erweiterbar).
 - Secret Core zwingend (Rollen + Informationen `PLAYER_PRIVATE`/
   `HOST_PRIVATE`).
-- **Voice-Integration** (PR19/20):_discussion_ über Voice (MAIN-Kanal),
-  nicht nur Text — das unterscheidet „Geheim Agent" von „Undercover"
-  (Text-Hinweise) und rechtfertigt die eigene Engine.
+- **Voice-Integration (Vorschlag, DEC-AGT-01):** Voice über `MAIN` ist
+  optional; Text-Hinweise bleiben bei deaktivierter Voice verfügbar. Die
+  eigenständige Engine folgt aus dem Master, nicht aus einer erfundenen
+  Voice-Pflicht.
 
 ## 3. Spieler/Teams/Rollen
 
@@ -41,8 +42,8 @@ aber diese Detailregeln sind **im Master nicht vollständig ausformuliert**
 |---|---|---|
 | min/max | 5 / 12 (Vorschlag, DEC-AGT-01) | V |
 | Teams | nein (individuell, Rollen-basiert) | V |
-| Host-Mitspiel | erlaubt (blind-Modus wie Undercover — Vorschlag) | V |
-| Secrets | eigener Rolle/Begriff: PLAYER_PRIVATE; Rollen aller + Begriffe: HOST_PRIVATE (blind: nie); Hinweise (Voice): MAIN-Kanal (PUBLIC) | F (Prinzip) |
+| Host-Mitspiel | erlaubt nur ohne fremde Rollen/Begriffe; mitspielender Host zwingend blind | F (Fairness §2/§10); konkrete Umsetzung V |
+| Secrets | eigener Rolle/Begriff: PLAYER_PRIVATE; Rollen aller + Begriffe: HOST_PRIVATE nur für nicht mitspielenden Host; Hinweise (Voice): MAIN-Kanal (PUBLIC) | F (Prinzip) |
 
 ## 4. Setup (Ziel)
 
@@ -129,7 +130,8 @@ INTRO (Rollen-Zuteilung, Privat) → (je Runde) HINT_TURN_1 (Voice/Text) → …
 
 - PLAYER: eigene Rolle + Begriff (private), Hinweise aller,
   eliminierte, Voting; **keine** fremden Rollen/Begriffe.
-- HOST: (blind) eliminierte + Win-Status; (normal) + Rollen/Begriffe.
+- HOST: mitspielend nur eigene Rolle/Begriff sowie eliminierte + Win-Status;
+  fremde Rollen/Begriffe ausschließlich für nicht mitspielenden Host.
 - VIEWER: Hinweise, eliminierte, Voting; keine Rollen/Begriffe.
 - DISPLAY: Hinweis-Übersicht + Voting.
 - **Voice:** MAIN-Kanal (alle), keine TEAM-Kanäle in diesem Spiel
@@ -170,7 +172,7 @@ INTRO (Rollen-Zuteilung, Privat) → (je Runde) HINT_TURN_1 (Voice/Text) → …
 
 | ID | Frage | Vorschlag (default) |
 |---|---|---|
-| DEC-AGT-01 | **Rollen-Satz** (Agent/Undercover/Saboteur?), **Win Conditions**, Runden-Count, Voice-Pflicht, Host-Modus | V1-Default: Agent + Undercover (wie Undercover) + Voice; Saboteur als Preset; 4 Runden; Voice optional; Host blind |
+| DEC-AGT-01 | **Rollen-Satz** (Agent/Undercover/Saboteur?), **Win Conditions**, Runden-Count, optionale Voice, technische Blind-Host-Umsetzung (Fairness FEST) | V1-Default: Agent + Undercover (wie Undercover) + Voice; Saboteur als Preset; 4 Runden; Voice optional; Host blind |
 
 > **Wichtig:** „Geheim Agent" ist das am wenigsten ausformulierte
 > Spiel im Master. **DEC-AGT-01 muss vor PR33-Start entschieden sein.**
@@ -189,7 +191,7 @@ INTRO (Rollen-Zuteilung, Privat) → (je Runde) HINT_TURN_1 (Voice/Text) → …
 - **Late-Join-Policy (engine-spezifisch):** **Nein nach Start** — Rollenverteilung ist nicht nachträglich integrierbar → Zuschauer bis Spielende (Vorschlag DEC-AGT-01).
 - **Ausscheidende Teilnehmer:** Ausgeschiedene → Zuschauer; Rollen-Geheimhaltung bleibt bis `GAME_END`.
 - **Teamrollen/Rotation:** keine (individuell, geheime Rollen).
-- **Voice/Camera/Mic (Abweichung von den Defaults):** **Voice-PFlicht in `DISCUSSION`** (Abweichung; Mute-Opt-in als Vorschlag DEC-AGT-01) — einzige Voice-Abweichung im Katalog. ·
+- **Voice/Camera/Mic (Abweichung von den Defaults):** Voice optional (Vorschlag DEC-AGT-01), bei Aktivierung `MAIN` in `DISCUSSION`; ohne Voice Text-Hinweise. Mikrofon: gemeinsamer, Host-konfigurierbarer Default (§3.4/Master §7.21), Bestätigung im Prejoin. ·
 - **Viewer (FEST, Master §7.23 — kein Spiel darf abweichen):** kein Mic/Send (Viewer senden nie Audio); Viewer hört `MAIN`; nie `TEAM`; Host kann Viewer-Audio deaktivieren. ·
   Camera: OFF (Default).
 - **Medien in Phasen:** keine.

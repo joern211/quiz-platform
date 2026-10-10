@@ -158,7 +158,7 @@ INTRO → (je Stufe) QUESTION_REVEAL → INPUT_OPEN → INPUT_LOCKED → REVEAL 
 - **Late-Join-Policy (engine-spezifisch):** Nein in der laufenden Stufe → `PENDING_JOIN`, ab der **nächsten** Stufe aktiv; Bank-Stand via Resync (nur eigene Bank, `PLAYER_PRIVATE`).
 - **Ausscheidende Teilnehmer:** Solo-Modus: kein Ausscheiden; MC-Runde endet mit GEWONNEN/GEKNACKT (Vorschlag DEC-MIL-01).
 - **Teamrollen/Rotation:** keine (Solo oder FFA).
-- **Voice/Camera/Mic (Abweichung von den Defaults):** Mikrofon MUTED (Default). ·
+- **Voice/Camera/Mic (Abweichung von den Defaults):** Mikrofon: gemeinsamer, Host-konfigurierbarer Default (§3.4/Master §7.21), Bestätigung im Prejoin. ·
 - **Viewer (FEST, Master §7.23 — kein Spiel darf abweichen):** kein Mic/Send (Viewer senden nie Audio); Viewer hört `MAIN`; nie `TEAM`; Host kann Viewer-Audio deaktivieren. ·
   Camera: OFF (Default).
 - **Medien in Phasen:** keine.

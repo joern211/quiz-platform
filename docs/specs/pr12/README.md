@@ -14,7 +14,8 @@ Tests → Abnahme** für V1.0 mit **19 Spielen** (18 kanonische Slugs FEST
 
 | Datei | Inhalt |
 |---|---|
-| [requirements-matrix.md](requirements-matrix.md) | **275 MR-IDs + ADD-DDF-Zeilen**: jede V1-Anforderung mit Quelle, Scope-Klasse (Pflicht/Option/später/offen), Entscheidungsstatus, Ist-Status auf main (mit Referenzen), PR11-Vergleich, Core, Ziel-PR, Abnahmekriterium, Lücke/Decision-ID. Deckt §1–§20 vollständig ab. |
+| [requirements-matrix.md](requirements-matrix.md) | **1292 Einzelanforderungen aus 291 fachlichen Herkunftsgruppen**: jede V1-Anforderung mit Quelle, Scope-Klasse (Pflicht/Option/später/offen), Entscheidungsstatus, Ist-Status auf main (mit Referenzen), PR11-Vergleich, Core, Ziel-PR, Abnahmekriterium, Lücke/Decision-ID. Deckt §1–§20 vollständig ab. |
+| [requirements-groups.md](requirements-groups.md) | Historische 292 MR-IDs einschließlich Yacht-Split-Index, Originalformulierungen und Herkunftsbefunde; keine atomare Runtime-Abnahme. |
 | [technical-mapping.md](technical-mapping.md) | Technisches **Zielmodell** (kein Runtime-Code): Datenmodell, ID-/Zeit-/Revisions-Standards, Command-/Event-/Snapshot-Verträge, alle Game-Cores mit API-Skizzen, Fachbereichs-Mapping, Migration & Recovery, Monitoring, offene technische Optionen. |
 | [decision-register.md](decision-register.md) | Offene **fachliche Nutzerentscheidungen** (DEC-DDF-01…06, DEC-<Spiel>-01, DEC-JEO/KAT/WID, DEC-EVT/ACC) getrennt von **Routine-Entscheidungen** (RUT-01…18) + gebündelte Nutzer-Fragenliste. |
 | [dependencies-and-parallel-work.md](dependencies-and-parallel-work.md) | Abhängigkeitsgraph PR13–50, harte Voraussetzungen, zentrale Verträge, Dateizuständigkeiten, Worktree-/Branch-Plan, Integrationsreihenfolge, 3-Wochen-Startplan. |
@@ -49,7 +50,7 @@ Tests → Abnahme** für V1.0 mit **19 Spielen** (18 kanonische Slugs FEST
 
 - **Kein** Merge, kein Ready-for-review (erst nach Abnahme + PR11-Abgleich).
 - **Keine** Implementierung von PR13+ oder neuen Engines.
-- PR11 bleibt unberührt (anderer Chat, eigener Worktree).
+- PR11 wird separat in einem eigenen Worktree geprüft; PR12 enthält keine PR11-Runtime-Änderungen.
 - Die 15 neuen Spiele + DDF haben jeweils **offene Detailregeln**
   (je 1 Decision-Bündel) — das ist beabsichtigt (Master §18:
   Detailregeln bleiben Rest; keine erfundenen Freigaben).

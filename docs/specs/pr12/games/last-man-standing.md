@@ -159,7 +159,7 @@ INTRO → (je Kategorie) CATEGORY_REVEAL → TURN_1 → TURN_2 → … → (LEBE
 - **Late-Join-Policy (engine-spezifisch):** Nein in der laufenden Kategorie → `PENDING_JOIN`, ab der **nächsten** Kategorie aktiv; verpasste Kategorien zählen nicht.
 - **Ausscheidende Teilnehmer:** Ausgeschiedene → `LEFT`-Status (kein Rejoin in dieselbe Partie, Vorschlag DEC-LMS-01); Restlauf als Zuschauer.
 - **Teamrollen/Rotation:** keine (individuell, feste Turn Order).
-- **Voice/Camera/Mic (Abweichung von den Defaults):** Mikrofon MUTED (Default). ·
+- **Voice/Camera/Mic (Abweichung von den Defaults):** Mikrofon: gemeinsamer, Host-konfigurierbarer Default (§3.4/Master §7.21), Bestätigung im Prejoin. ·
 - **Viewer (FEST, Master §7.23 — kein Spiel darf abweichen):** kein Mic/Send (Viewer senden nie Audio); Viewer hört `MAIN`; nie `TEAM`; Host kann Viewer-Audio deaktivieren. ·
   Camera: OFF (Default).
 - **Medien in Phasen:** keine.

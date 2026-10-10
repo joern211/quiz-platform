@@ -62,7 +62,7 @@ Upper/Lower Block, Solo/1v1/FFA/Team.
 
 | Aspekt | Wert | Status |
 |---|---|---|
-| min/max | 1 (Solo!) / 8 | F §16 |
+| min/max | 1 (Solo, FEST §16); maximal 8 als V1-Vorschlag, nicht aus §16 abgeleitet | F (Minimum) / V (Maximum, DEC-YAC-01) |
 | Teams | optional (SHARED/INDIVIDUAL Scorecard) | F |
 | Host-Mitspiel | **erlaubt, normal, ohne Vorteil** (kein Judge, alles automatisch) | F §16 |
 | Secrets | **keine** (Würfel PUBLIC, Scorecard PUBLIC); offene Kategorie-Wahl: `PLAYER_PRIVATE` bis Value-Zuweisung | F (Prinzip) |
@@ -202,7 +202,7 @@ INTRO → (je Zug) ROLLING (max 3 Würfe, Hold/Unhold) → SCORING (Kategorie w�
 - **Late-Join-Policy (engine-spezifisch):** Nein während des laufenden Zuges → `PENDING_JOIN`, ab dem **nächsten Turn** aktiv (Turn-Core, serverseitig); Scorecard wird mit leeren Kategorien angelegt.
 - **Ausscheidende Teilnehmer:** keine (alle bleiben aktiv bis Scorecard voll).
 - **Teamrollen/Rotation:** Teammodus: SHARED/INDIVIDUAL (§2); Team-Neuformung erst zwischen Partien (Vorschlag DEC-YAC-01).
-- **Voice/Camera/Mic (Abweichung von den Defaults):** Mikrofon MUTED (Default). ·
+- **Voice/Camera/Mic (Abweichung von den Defaults):** Mikrofon: gemeinsamer, Host-konfigurierbarer Default (§3.4/Master §7.21), Bestätigung im Prejoin. ·
 - **Viewer (FEST, Master §7.23 — kein Spiel darf abweichen):** kein Mic/Send (Viewer senden nie Audio); Viewer hört `MAIN`; nie `TEAM`; Host kann Viewer-Audio deaktivieren. ·
   Camera: OFF (Default).
 - **Medien in Phasen:** keine (Würfel/Scorecard PUBLIC).

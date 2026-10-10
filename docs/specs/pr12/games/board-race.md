@@ -160,7 +160,7 @@ INTRO (Startreihenfolge) → (je Zug) ROLL (serverseitig) → MOVE (Animation, s
 - **Late-Join-Policy (engine-spezifisch):** Nein während der laufenden Zug-Sequenz → `PENDING_JOIN`, ab dem **nächsten Zug-BLOCK** (alle Figuren haben gewürfelt) aktiv, Startfeld-Zuweisung (Vorschlag DEC-BRD-01).
 - **Ausscheidende Teilnehmer:** keine (Rennspiel, keine Ausscheidung).
 - **Teamrollen/Rotation:** individuell (Teammodus Option, Vorschlag DEC-BRD-01).
-- **Voice/Camera/Mic (Abweichung von den Defaults):** Mikrofon MUTED (Default). ·
+- **Voice/Camera/Mic (Abweichung von den Defaults):** Mikrofon: gemeinsamer, Host-konfigurierbarer Default (§3.4/Master §7.21), Bestätigung im Prejoin. ·
 - **Viewer (FEST, Master §7.23 — kein Spiel darf abweichen):** kein Mic/Send (Viewer senden nie Audio); Viewer hört `MAIN`; nie `TEAM`; Host kann Viewer-Audio deaktivieren. ·
   Camera: OFF (Default).
 - **Medien in Phasen:** Brett-Render PUBLIC (Display-freundlich).

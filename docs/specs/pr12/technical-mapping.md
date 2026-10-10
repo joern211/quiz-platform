@@ -99,7 +99,7 @@ ScoreEvent-Ledger + FINALIZED Results ab; Korrekturen laufen über Amendments.
   `timezone` (neu, mit `SCHEDULED`); `durationMs` durchgängig.
 - **Einheiten:** Punkte integer (Ledger), Eventpunkte **decimal** erlaubt
   (Tie-Durchschnitt, z. B. 4 = (5+3)/2), Bytes für Größen, `percentage`
-  einheitlich 0–100 (Ziel-Entscheidung, DEC-STD-01).
+  einheitlich 0–100, Nachkommastellen erlaubt (Routine-Entscheidung RUT-18, Alias DEC-STD-01).
 - **Nullability:** Zod-Defaults zentral in `shared` (bestehend); eine
   Not-Set-Repräsentation je Feld; Snapshots speichern effective values
   (neu durch `RoomConfigSnapshot`).
@@ -277,15 +277,16 @@ Fehlerantworten (alle Commands, `ApiResponse`-Vertrag §2 + §5.25):
 
 | Aspekt | V1-Default |
 |---|---|
-| Camera | **OFF** (Opt-in, `cameraEnabled` Raum-Flag; Sichtbarkeit §7.17) |
-| Mic | **MUTED** (Opt-in, PTT optional §7.19; Viewer senden **nie** Audio — kein Mic/Send, §7.23) |
-| Voice-Channel | `MAIN` (+ `TEAM` nur bei Team-Engines, Viewer ausgeschlossen §7.18) |
+| Camera | **OFF als Empfehlung des Masters (§7.21)** (Opt-in, `cameraEnabled` Raum-Flag; Sichtbarkeit §7.17) |
+| Mic | **ON als Empfehlung des Masters (§7.21), Host konfigurierbar, Bestätigung im Prejoin**; PTT optional (§7.19); Viewer senden **nie** Audio — kein Mic/Send (§7.23) |
+| Voice-Channel | `MAIN` für Spieler und empfangende Viewer; `TEAM` nur bei Team-Engines, Viewer aus `TEAM` ausgeschlossen (§7.18/§7.23) |
 | **Viewer Audio (Master §7.23)** | **Kein Mic/Send; Viewer hört `MAIN`; nie `TEAM`; Host kann Viewer-Audio deaktivieren.** Verbindlicher V1-Standard für alle Engines — kein Spiel darf Viewer `TEAM` freigeben oder ein Viewer-Senden vorschlagen. |
 | Display | Broadcast-Route, PUBLIC-Projektion, mehrere Displays, keine Secrets (§5.6) |
 | Medien in Phasen | nur über signed/leak-safe URLs (PR11-Grundlage); Preloading nie Secrets |
 
-Engine-Abweichungen (z. B. Voice-Pflicht in `secret-agent`) werden in
-`games/<slug>.md` §13 als **einzige** Abweichung ausgeschrieben.
+Engine-spezifische Overrides (z. B. phasenbezogenes Mute in Partner-Challenge)
+werden in `games/<slug>.md` §13 ausgeschrieben. Empfehlungen aus §7.21
+sind von verbindlichen Guards und noch unbestätigten Vorschlägen zu trennen.
 
 ---
 
@@ -463,5 +464,5 @@ PWA ohne aktive Partien zu brechen, Accessibility, Hilfetexte, Medienfehler.
 | Socket-Backplane | In-Prozess (1 Instanz) | Redis | **In-Prozess für V1** (Master: eine Instanz okay); Adapter PR46 |
 | Empirical Difficulty-Quelle | ScoreEvent-Ledger | separate Stats-DB | **Ledger + ContentUsageStat** (idempotente Ableitung) |
 | Eventpunkte-Typ | integer ×10 | decimal | **decimal** (Master erlaubt; Tie-Durchschnitt 4 = (5+3)/2) |
-| Percentage-Darstellung | 0–1 | 0–100 | **DEC-STD-01** (Vorschlag: 0–100 integer für UI-Konsistenz) |
+| Percentage-Darstellung | 0–1 | 0–100 | **RUT-18 / DEC-STD-01**: 0–100 numerisch, Nachkommastellen erlaubt; kein offener Nutzerentscheid |
 | Audit-Hashverkettung | SHA-256-Prädikat | Merkle | **Prädikat** (einfach, nachvollziehbar, Master „möglich") |
