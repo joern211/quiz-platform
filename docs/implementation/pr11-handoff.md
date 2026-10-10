@@ -6,15 +6,17 @@
 
 ## Status-Übersicht (lebendig halten)
 
-> **⭐ AUDIT-NACHARBEIT (09.10.2026) — FINAL, gepusht.** Die sieben reproduzierten
+> **⭐ AUDIT-NACHARBEIT (09.–10.10.2026) — FINAL, gepusht.** Die sieben reproduzierten
 > Audit-Befunde (11-01..11-07) sind geschlossen und verifiziert. Der WIP-Commit
 > wurde zu einem sauberen Abschluss-Commit gebündelt (kein veralteter
-> „Stand vor Konsistenzfixes" in der History).
+> „Stand vor Konsistenzfixes" in der History). **E2E-Regression aus 11-06
+> nachträglich gefunden und gefixt** (siehe „E2E-Fix" unten).
 
 - **Basis-Commit:** `411a5b783e5857bca5b208598fade43affc108b5` (PR #10, = origin/main)
 - **Branch:** `feature/wer-ist-das-fusion-media` (Worktree `~/quiz-platform-pr11`)
-- **Lokaler = Remote-HEAD:** `1c43ef2` („PR11 Audit-Nacharbeit (11-01..11-07) — konsistent & verifiziert") — **gepusht**, Arbeitsbaum sauber.
+- **Lokaler = Remote-HEAD:** `40051d2` („fix(pr11,11-06): stabiles Idempotency-Token auf der generischen Setup-Seite") — **gepusht**, Arbeitsbaum sauber.
 - **PR #11:** Draft, offen; Beschreibung/Handoff auf den Audit-Final-Stand angepasst.
+- **E2E-Fix (11-06, 10.10.):** Der CI-E2E-Fehler am `f59a824` (G4-4: `getByText('Quiz Champion')` resolved to 2 elements) war **keine** bestehende Flake und **keine** Join-Path-Dopplung, sondern eine **eigene 11-06-Regression**: Geo steuert die Route `/moderator/vorbereitung/wissensduell` → generische `ModeratorSetupPage`, die **kein** `idempotencyKey` sendete. Alle identischen Geo-Erstellungen im E2E-Batch (gleicher Host/Name/Spiel/Setup < 60 s) fielen auf den **serverseitigen Fingerprint-Fallback** und wurden in **einen** Raum gemerged → `Quiz Champion` 2×, `Spieler B` 3× in einer Lobby → strict-mode violation. Jeopardy war grün, weil `JeopardySetupPage` das Token sendet. **Fix:** `ModeratorSetupPage` sendet jetzt wie die anderen Setup-Seiten ein stabiles pro-Absicht-Token + Klick-Sperre (Frontend-only; Server-Fallback für tokenlose Bestandsclients bleibt). DB-Beleg: vorher **1** `E2E Geo Test`-Raum mit `fp:`-Key und 10 Teilnahmen, nachher **5** eigene Räume mit UUID-Keys, keine Duplikate.
 - **Audit-Closure (lokal verifiziert):**
   - 11-01 Pfad-Traversing: `roundId` nicht mehr im Pfad; content-geleiteter Pfad + Verzeichnis-Check + Validierung. ✅
   - 11-02 Unveränderlichkeit: ordnungs-sensitive `assetKey`; vertauschte A/B überschreiben keine Bytes (Muster-Byte-Gegenprobe). ✅
@@ -30,9 +32,10 @@
 - **Tests (CI-Workflow: `prisma migrate deploy` + `pnpm --filter @quiz/server test`):**
   - Server-Suite **271/271** (29 Dateien), inkl. **18 Audit-Regressionen** (`audit-review.test.ts`). ✅
   - Web **52/52** (6 Dateien) ✅ · `pnpm typecheck` (5 Pakete) ✅ · `pnpm lint` **0 errors** (97 warnings, bestehend) ✅ · `pnpm build` ✅
-  - **CI am Remote-Head `1c43ef2`: CI ✅ success; E2E** läuft/ablaufend (GitHub Actions).
+  - **E2E (lokal, exakter CI-Geometrie Geo G4-* + Jeopardy J1–J10): 16/16 grün** — **G4-4 im Batch 6.5 s** (vor dem 11-06-Fix deterministisch 3/3 rot im Batch, isoliert grün). WID-E2E 1/1 (`naturalWidth > 0` vor Raumerstellung). ✅
+  - **CI am Remote-Head `40051d2`:** wird nach Push via GitHub API geprüft (CI + E2E).
 - **BETA-Grenzen (ehrlich, unverändert):** Cleanup `ROOM_TEMP` nur beim Serverstart + >24 h; Recovery über Rejoin/Re-Start derselben DB; allgemeiner Storage-GC (auch PRIVATE) = separater Folgeauftrag.
-- **Nächster Schritt:** PR #11-Beschreibung an `1c43ef2` + Audit-Closure-Tabelle + Test-/CI-Links anpassen; Draft beibehalten, **nicht mergen**. Danach PR12-12-11 (Handoff/Verifikation) und Abschlussmeldung.
+- **Nächster Schritt:** CI + E2E am `40051d2` grün bestätigen (GitHub API). Danach PR #11-Beschreibung an `40051d2` + Closure-Tabelle + Test-/CI-Links anpassen; Draft beibehalten, **nicht mergen**. Abschlussmeldung.
 
 ---
 
