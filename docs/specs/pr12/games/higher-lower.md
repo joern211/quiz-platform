@@ -100,7 +100,7 @@ INTRO → (je Runde) A_REVEAL (nur A) → INPUT_OPEN (HÖHER/NIEDRIGER) → INPU
 
 - PLAYER: A-Label + A-Wert (+Einheit), Timer, eigene Punkte/Streak;
   **kein** B-Wert, **keine** Richtung vor REVEAL.
-- HOST: + B-Wert/Richtung ab REVEAL (davor `HOST_PREVIEW=false` default).
+- HOST: + B-Wert/Richtung ab REVEAL (davor bei mitspielendem Host zwingend `HOST_PREVIEW=false` (§3.4-C)).
 - VIEWER: A + Timer; B erst nach Reveal.
 - DISPLAY: großes A/B-Reveal.
 - Preloading: A-Text (PUBLIC), B-Werte nie (Leak).

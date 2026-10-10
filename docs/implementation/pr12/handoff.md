@@ -18,6 +18,7 @@ Die frühere Aussage, die Matrix sei bereits vollständig atomar und alle übrig
 - Elf Attribute je Einzelanforderung; Erfüllung nicht von einer gebündelten Gruppe übernommen. `M` bezeichnet historisch fehlende Umsetzung, `NV` eine nicht einzeln ausgeführte Runtime-Abnahme. AT-IDs sind geplante Tests.
 - Viewer hört MAIN, niemals TEAM; kein Mic/Send, Host-Deaktivierung in allen 19 Specs und gemeinsamem Vertrag. Der alte pauschale Ausschluss aus Voice wurde präzisiert.
 - Mikrofon: Master §7.21 empfiehlt ON, Kamera OFF; Host konfigurierbar, Prejoin-Bestätigung. Phasenbezogenes Mute bei Partner-Challenge ist ein expliziter Override.
+- Gemeinsamer verbindlicher Fairness-Guard für alle 19 Engines; Vorschau niemals bei aktivem Host-Mitspiel, bekannte eigene Lösungen schließen Mitspiel aus. Wissensduell-Istbericht korrigiert: MODERATOR sieht Lösungen beim Resync, ist jedoch durch den Server vom Antworten ausgeschlossen; fairer Host-as-Player-Flow ist ein Ziel von PR37. Auch Millionenfrage/Wahr-oder-Fake/Schätz-mal auf diesen Vertrag präzisiert.
 - Mitspielende Hosts erhalten bei Undercover und Geheim Agent keine fremden Rollen/Begriffe. Ansicht aller Secrets nur für nicht mitspielenden Host; unfaire Host-Alternative entfernt.
 - Wer-ist-das: vollständiges Setup hebt das Ersteller-Gate nicht auf; falsches automatisches Host-Mitspiel entfernt. Anonyme Zweitidentitäten werden durch die Kontosperre nicht erkannt.
 - Geheim Agent: optionale Voice konsistent mit Setup und Entscheidungsregister; erfundene Voice-Pflicht entfernt.

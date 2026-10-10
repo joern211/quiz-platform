@@ -31,7 +31,7 @@ Serienwertung möglich (Vorschlag).
 |---|---|---|
 | min/max | 2 / 12 | V |
 | Teams | optional (Team-Tipp = 1 Stimme, Vorschlag: Mehrheit im Team) | V |
-| Host-Mitspiel | erlaubt; Korrektur-Text `HOST_PRIVATE` bis Reveal | V |
+| Host-Mitspiel | blind erlaubt; isTrue/Korrektur erst nach Reveal für mitspielenden Host (§3.4-C); HOST_PRIVATE-Vorschau nur nicht mitspielend | V |
 | Secrets | Wahrheit (WAHR/FAKE-Flag) + Korrektur: `HOST_PRIVATE` bis REVEAL | F (Prinzip) |
 
 ## 4. Setup (Ziel)

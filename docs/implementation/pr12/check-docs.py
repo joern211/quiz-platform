@@ -41,6 +41,8 @@ require(sections == set(range(1,21)), 'Missing Master section')
 require({f'16.{n}' for n in range(1,18)} <= set(re.findall(r'§(\d+\.\d+)', matrix)), 'Missing Yacht subsection source')
 require(f'{len(ids)} atomare MR-Zeilen' in matrix, 'Stale matrix count')
 
+require('Mitspielender Host (FEST, Master §2/§10)' in (SPEC / 'technical-mapping.md').read_text(), 'Missing shared host fairness contract')
+
 specs = [p for p in (SPEC / 'games').glob('*.md') if p.name != 'index.md']
 require(len(specs) == 19, 'Game specification count')
 for p in specs:

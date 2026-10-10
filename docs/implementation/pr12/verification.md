@@ -5,6 +5,7 @@
 - `python3 docs/implementation/pr12/check-docs.py`: 1292 eindeutige Einzelanforderungen, 291 fachliche Herkunftsgruppen und ein Split-Index; alle 20 Masterabschnitte. Jede Einzelanforderung hat elf Attribute und eine geplante AT-Abnahme. Alle Eltern-/Kindzuordnungen erhalten.
 - 19/19 Spielespezifikationen mit gemeinsamem Engine-Vertrag und verbindlicher Viewer-Policy; relative Dateilinks geprüft.
 - Manuell: Master §2/§10 (Host-Fairness), §7.18/§7.21/§7.23 (Voice/Defaults/Viewer), §15.3/§15.9/§16 (Spiele) gegen relevante Spezifikationen und Entscheidungsregister gelesen. Widersprüche und unzulässige Alternativen korrigiert.
+- Codegegenprobe Wissensduell: `games/geo/resync.ts` gibt MODERATOR Lösungen, `games/geo/index.ts` erlaubt Antworten/Joker nur PLAYER; beide Dateien gegenüber main unverändert. Falsche Ist-Behauptung zum normalen Host-Mitspiel entfernt, Target-Guard getrennt dokumentiert.
 - Beispiele und Target-Guards der geänderten Spiele geprüft; keine Nutzerfreigabe für Vorschläge behauptet.
 - PR12-Diff bleibt in den beiden Dokumentationsverzeichnissen. `check-docs.py` ist ein Dokumentationsprüfer, kein Anwendungscode.
 

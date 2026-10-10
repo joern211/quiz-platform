@@ -31,7 +31,7 @@ Distanz/Toleranz.
 |---|---|---|
 | min/max | 2 / 12 | V |
 | Teams | optional (Team-Schätzung = Durchschnitt der Team-Mitglieder — Vorschlag) | V |
-| Host-Mitspiel | erlaubt; echter Wert `HOST_PRIVATE` bis Reveal | V |
+| Host-Mitspiel | blind erlaubt; echter Wert/Toleranz erst nach Reveal für mitspielenden Host (§3.4-C); HOST_PRIVATE-Vorschau nur nicht mitspielend | V |
 | Secrets | echter Wert + Toleranz: `HOST_PRIVATE` bis REVEAL; eigene Schätzung `PLAYER_PRIVATE` | F (Prinzip) |
 
 ## 4. Setup (Ziel)

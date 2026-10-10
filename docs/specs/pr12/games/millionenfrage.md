@@ -36,13 +36,12 @@ Millionär-Prinzip — keine Marken-Referenzen.
 |---|---|---|
 | min/max | 1 / 8 (Solo-spielbar! — Vorschlag) | V |
 | Teams | nein (individuell) | V |
-| Host-Mitspiel | erlaubt; Lösungen `HOST_PRIVATE` bis Reveal (Host-Judge bei verbal — bei MC: auto-Reveal) | V |
+| Host-Mitspiel | nur ohne Lösungsvorsprung (§3.4-C); mitspielend Lösung erst nach Reveal. Verbal-Judge mit bekannter Lösung darf in derselben Frage nicht antworten; MC mit automatischer Wertung kann blind mitspielen | V |
 | Secrets | korrekte Option + Erklärung: `HOST_PRIVATE` bis REVEAL | F (Prinzip) |
 
 **Solo-Modus:** 1 Spieler + Host — das Spiel läuft „im Solo" (kein
-Multiplayer-Wettbewerb); Host kann pausieren/steuern. Das ist der
-einzige Spieltyp, der 1-Player-Unterstützung braucht → Manifest
-`minPlayers=1`.
+Multiplayer-Wettbewerb); Host kann pausieren/steuern. Solo-Unterstützung ist hier ein Vorschlag mit `minPlayers=1`; Yacht
+unterstützt Solo bereits verbindlich (Master §16.3).
 
 ## 4. Setup (Ziel)
 

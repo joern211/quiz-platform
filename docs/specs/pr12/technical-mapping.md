@@ -242,6 +242,18 @@ Fehlerantworten (alle Commands, `ApiResponse`-Vertrag §2 + §5.25):
   HOST_PRIVATE`; Secrets werden nie vorsorglich an falsche Clients
   gesendet; Leak-Prüfung (PR41) über API, Socket, Snapshot, Medien,
   Preloading.
+- **Mitspielender Host (FEST, Master §2/§10):** administrative Rechte
+  geben keine zusätzlichen Gameplay-Secrets. Ein mitspielender HOST erhält
+  bis zum jeweiligen Reveal die PLAYER-Projektion seines Teams/Teilnehmers;
+  `HOST_PRIVATE` ist kein automatischer Zugriff für ihn. Vorschau ist nur
+  für nicht mitspielende Hosts zulässig. Bereits durch eigene Erstellung,
+  Vorschau oder Judge bekannte Lösungen lassen sich nicht durch einen
+  späteren Blind-Schalter vergessen: in solchen Runden ist Host-Gameplay
+  auszuschließen. Bei zulässigem Host-Judge-Mitspiel müssen eigene Inputs
+  unwiderruflich gelockt sein, bevor fremde Inputs zur Bewertung sichtbar
+  werden. Jede Engine muss diese Guards in Command, Projektion, Resync und
+  Preloading durchsetzen; ein optionaler Preview-Schalter darf sie nicht
+  übersteuern. Das ist ein V1-Zielvertrag, keine Behauptung über main.
 - **`availableActions`** = `computeAvailableActions(state, role,
   participantId?, teamId?)` **serverseitig** — dieselben Guards wie B
   (keine zweite Logik im Client). Das Feld enthält Command-Names +

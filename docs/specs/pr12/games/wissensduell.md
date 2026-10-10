@@ -31,7 +31,7 @@ einem spielübergreifenden Wissensspiel; Geo und Allgemeinwissen sind
 |---|---|---|
 | minPlayers / maxPlayers | 2 / 10 (bestehend) | FEST (Manifest) |
 | Teams | optional (hasTeams heute false; Team-Modus über PR14 möglich) | O |
-| Host-Mitspiel | erlaubt; Host ist als Player normal — keine Secrets im MC-Modus, da Lösungen erst im Reveal an alle gehen | FEST §2.1/16.16-Analogie |
+| Host-Mitspiel | V1-Ziel: normal als Player ohne Host-Secrets (§3.4-C). Ist auf main: MODERATOR ist kein aktiver PLAYER; der Server-Guard erlaubt Antworten nur für PLAYER. MODERATOR-Resync enthält correctOptionId schon vor Reveal. Ein fairer Host-as-Player-Flow ist daher noch kein nachgewiesener Iststand | F (Fairness) / Ziel PR37 |
 | Secrets | korrekte Option + Erklärung bis REVEAL `PLAYER_PRIVATE` (eigene Auswahl) / `HOST_PRIVATE` (Lösung+Erklärung vor Reveal) | FEST §5.15 |
 
 ## 4. Setup (Ziel)
@@ -47,7 +47,7 @@ WissensduellSetup {
   jokers: {j5050, spy, risk} — bestehend, behalten (VORSCHLAG: als Standard-Preset)
   buzzerMode: OFF|PER_QUESTION     // VORSCHLAG DEC-KAT-01: MC-Duell bleibt ohne Buzzer, Buzzer-Option offen
   lateJoin: allowLateJoin (Room-Core)
-  hostContentVisibility: HOST_PREVIEW|BLIND_HOST   // §6.10
+  hostContentVisibility: HOST_PREVIEW|BLIND_HOST   // HOST_PREVIEW nur nicht mitspielend; mitspielend zwingend BLIND_HOST (§3.4-C)
 }
 ```
 
@@ -104,8 +104,13 @@ INTRO → (je Frage) PROMPT → INPUT_OPEN → INPUT_LOCKED → REVEAL → ROUND
 ## 8. Projektionen & Secrets
 
 - PLAYER: eigene Auswahl (private), Frage, Timer, (Joker-Zustand eigen).
-- HOST: + Lösung/Erklärung ab REVEAL, Spy-Joker-Daten (bestehend: Spy zeigt
-  Verteilung — bleibt `HOST_PRIVATE`), Status-Übersicht.
+- **Ziel:** mitspielender HOST wie PLAYER, Lösung erst nach Reveal; eigener
+  Spy-Joker bleibt PLAYER_PRIVATE. Nicht mitspielender HOST darf moderative
+  Lösungs-/Antwortstatistiken sehen.
+- **Ist main (getrennt):** `games/geo/resync.ts` gibt MODERATOR auch vor Reveal
+  correctOptionId und answerStats; `games/geo/index.ts` beschränkt Antwort-/
+  Joker-Commands auf PLAYER. Keine bestehende faire Host-Mitspiel-Funktion
+  daraus ableiten; Rollen-/Projektionsmodell in PR37 ergänzen.
 - VIEWER/DISPLAY: Frage, Timer, Optionen; **keine** Lösung vor REVEAL.
 - Preloading: nächste Frage nur wenn leak-safe (BLIND_HOST: nie Inhalte).
 
