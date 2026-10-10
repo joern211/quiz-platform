@@ -27,7 +27,7 @@ type RoomAcknowledgement = (result: {
 }) => void;
 
 function isRole(role: string): role is Role {
-  return role === 'MODERATOR' || role === 'PLAYER' || role === 'VIEWER';
+  return role === 'HOST' || role === 'PLAYER' || role === 'VIEWER';
 }
 
 /**
@@ -134,14 +134,14 @@ export async function handleRoomSubscription(
     }
 
     // Phase 3: Moderator Identity Validation
-    // If participation is MODERATOR in DB, require moderatorToken to match
-    // Token + Participation (MODERATOR role) + Host-User + Room must all align
+    // If participation is HOST in DB, require moderatorToken to match
+    // Token + Participation (HOST role) + Host-User + Room must all align
     if (!isRole(participation.role)) {
       callback?.({ success: false, error: 'INVALID_PARTICIPATION_ROLE' });
       return;
     }
 
-    if (participation.role === 'MODERATOR') {
+    if (participation.role === 'HOST') {
       // A moderator MUST provide a valid moderatorToken that matches their participation
       // moderatorToken is the same as rejoinToken for the moderator's own participation
       if (!isAuthenticatedHost || !moderatorToken || moderatorToken !== participation.rejoinToken) {
@@ -154,7 +154,7 @@ export async function handleRoomSubscription(
           tokenMatches: moderatorToken === participation.rejoinToken,
         });
         // P0 Security: Immediately disconnect - do NOT silently create anonymous viewer
-        socket.emit('error', { code: 'INVALID_MODERATOR_TOKEN' });
+        socket.emit('error', { code: 'INVALID_HOST_TOKEN' });
         socket.disconnect(true);
         return;
       }
@@ -239,7 +239,7 @@ export async function handleRoomSubscription(
 
     // P0-SECURITY / E2E-FIX: If the authenticated user is the room host,
     // DON'T create a VIEWER session here — they will be auto-upgraded to
-    // MODERATOR below. Creating a real VIEWER Session would leave a stale
+    // HOST below. Creating a real VIEWER Session would leave a stale
     // connected=true entry in the DB that triggers spurious player:join events.
     if (isAuthenticatedHost) {
       // Set a placeholder identity — auto-upgrade will replace it below
@@ -263,7 +263,7 @@ export async function handleRoomSubscription(
   // creating another database row.
   if (isAuthenticatedHost) {
     const existingModPart = await prisma.participation.findFirst({
-      where: { roomId: room.id, role: 'MODERATOR' },
+      where: { roomId: room.id, role: 'HOST' },
       orderBy: { createdAt: 'asc' },
     });
 
@@ -275,7 +275,7 @@ export async function handleRoomSubscription(
       identity = {
         participationId: refreshedModerator.id,
         roomId: room.id,
-        role: 'MODERATOR',
+        role: 'HOST',
         displayName: refreshedModerator.displayName,
       };
       const index = room.participations.findIndex(p => p.id === refreshedModerator.id);
@@ -289,7 +289,7 @@ export async function handleRoomSubscription(
           roomId: room.id,
           displayName,
           normalizedName: displayName.toLowerCase().trim(),
-          role: 'MODERATOR',
+          role: 'HOST',
           connected: true,
           ready: true,
           rejoinToken: crypto.randomUUID(),
@@ -299,7 +299,7 @@ export async function handleRoomSubscription(
       identity = {
         participationId: newModPart.id,
         roomId: room.id,
-        role: 'MODERATOR',
+        role: 'HOST',
         displayName: newModPart.displayName,
       };
       room.participations.push(newModPart);
@@ -426,9 +426,9 @@ export async function handleKickPlayer(
   callback?: RoomAcknowledgement
 ) {
   try {
-    // Require MODERATOR role (identity check via socketIdentityMap)
+    // Require HOST role (identity check via socketIdentityMap)
     const identity = socketIdentityMap.get(socket.id);
-    if (!identity || identity.role !== 'MODERATOR') {
+    if (!identity || identity.role !== 'HOST') {
       callback?.({ success: false, error: 'UNAUTHORIZED' });
       return;
     }
@@ -450,7 +450,7 @@ export async function handleKickPlayer(
 
     // Find the participation to kick
     const participation = await prisma.participation.findFirst({
-      where: { id: data.playerId, roomId: room.id, role: { not: 'MODERATOR' } },
+      where: { id: data.playerId, roomId: room.id, role: { not: 'HOST' } },
     });
 
     if (!participation) {

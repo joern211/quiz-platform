@@ -18,7 +18,7 @@ type Action = 'open' | 'buzz' | 'hint' | 'judge' | 'reveal' | 'next';
 async function sendProjections(io: Server, roomId: string, state: WerIstDasState, setup: WerIstDasSetup) {
   for (const socket of await io.in(roomChannel(roomId)).fetchSockets()) {
     const identity = socket.data as { roomId?: string; role?: string; participationId?: string };
-    if (identity.roomId !== roomId || !['MODERATOR', 'PLAYER', 'VIEWER'].includes(identity.role ?? '')) continue;
+    if (identity.roomId !== roomId || !['HOST', 'PLAYER', 'VIEWER'].includes(identity.role ?? '')) continue;
     socket.emit('weristdas:update', projectWerIstDas(state, setup, identity.role as GameRole, identity.participationId));
   }
 }
@@ -109,7 +109,7 @@ export const werIstDasGame = {
 
   async act(io: Server, socket: Socket, action: Action, payload?: { result?: 'BOTH_CORRECT' | 'ONE_CORRECT' | 'WRONG' }): Promise<Ack> {
     const auth = await authorizeGameContext(socket, {
-      gameSlug: resolveCanonicalSlug('wer-ist-das')!, roles: action === 'buzz' ? ['PLAYER'] : ['MODERATOR'],
+      gameSlug: resolveCanonicalSlug('wer-ist-das')!, roles: action === 'buzz' ? ['PLAYER'] : ['HOST'],
       requireParticipation: true, requireRunning: true,
     });
     if (!auth.ok) return { success: false, error: auth.error };
@@ -158,7 +158,7 @@ export const werIstDasGame = {
 
   async resync(socket: Socket): Promise<Ack> {
     const auth = await authorizeGameContext(socket, {
-      gameSlug: resolveCanonicalSlug('wer-ist-das')!, roles: ['MODERATOR', 'PLAYER', 'VIEWER'],
+      gameSlug: resolveCanonicalSlug('wer-ist-das')!, roles: ['HOST', 'PLAYER', 'VIEWER'],
       requireParticipation: true,
     });
     if (!auth.ok) return { success: false, error: auth.error };

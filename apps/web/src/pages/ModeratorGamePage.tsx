@@ -34,7 +34,7 @@ export function ModeratorGamePage() {
     const socket = socketRef.current;
 
     const subscribe = () => {
-      socket.emit('room:subscribe', { roomCode, role: 'MODERATOR' }, (response) => {
+      socket.emit('room:subscribe', { roomCode, role: 'HOST' }, (response) => {
         if (!response.success) {
           setActionError(`Raumverbindung fehlgeschlagen: ${response.error ?? 'Unbekannter Fehler'}`);
           return;

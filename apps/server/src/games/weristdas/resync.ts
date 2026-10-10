@@ -25,7 +25,7 @@ export function projectWerIstDas(
 ) {
   const round = setup.rounds[state.roundIndex];
   const norm = normalizeRound(round);
-  const solution = role === 'MODERATOR' || state.revealed;
+  const solution = role === 'HOST' || state.revealed;
   return {
     phase: state.phase,
     roundIndex: state.roundIndex,
@@ -40,7 +40,7 @@ export function projectWerIstDas(
     winnerId: state.buzzer.winnerId,
     winnerName: state.buzzer.winnerId ? state.playerNames[state.buzzer.winnerId] : null,
     hintActive: state.hintActive,
-    excludedPlayerIds: role === 'MODERATOR' ? state.buzzer.excludedPlayerIds : undefined,
+    excludedPlayerIds: role === 'HOST' ? state.buzzer.excludedPlayerIds : undefined,
     excluded: role === 'PLAYER' ? state.buzzer.excludedPlayerIds.includes(participationId ?? '') : undefined,
     solvedBy: state.solvedBy,
     lastDelta: state.lastDelta,
@@ -48,12 +48,12 @@ export function projectWerIstDas(
     // Namen/Alternativen/Beschreibung: erst bei Reveal (alle) bzw. immer Host.
     person1: solution ? norm.personA : undefined,
     person2: solution ? norm.personB : undefined,
-    aliases1: role === 'MODERATOR' ? norm.aliasesA : undefined,
-    aliases2: role === 'MODERATOR' ? norm.aliasesB : undefined,
+    aliases1: role === 'HOST' ? norm.aliasesA : undefined,
+    aliases2: role === 'HOST' ? norm.aliasesB : undefined,
     description: solution ? norm.description : undefined,
     // v2: Original-Assets NUR in der Host-Projektion (Signed host-URLs).
     // Niemals als rohe IDs oder game-URLs an Player/Viewer/Display.
-    hostImageUrls: role === 'MODERATOR' && norm.version === 2
+    hostImageUrls: role === 'HOST' && norm.version === 2
       ? norm.secretAssetIds.map(assetId => buildSignedMediaUrl({ assetId, audience: 'host' }))
       : undefined,
   };

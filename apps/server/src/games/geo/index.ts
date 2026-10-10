@@ -492,7 +492,7 @@ export const handleGeoGame = {
       });
       const roomSockets = await io.in(roomChannel(room.id)).fetchSockets();
       for (const moderator of roomSockets) {
-        if (moderator.data.role === 'MODERATOR' && moderator.data.roomId === room.id) {
+        if (moderator.data.role === 'HOST' && moderator.data.roomId === room.id) {
           moderator.emit('geo:answered:moderator', {
             questionIndex: roundIndex, participantId: participationId, optionId: data.optionId,
           });
@@ -813,7 +813,7 @@ export const handleGeoGame = {
         }
 
         const auth = await authorizeGameContext(socket, {
-          roles: ['MODERATOR'], requireParticipation: true, gameSlug: resolveCanonicalSlug('geo')!, requireRunning: true,
+          roles: ['HOST'], requireParticipation: true, gameSlug: resolveCanonicalSlug('geo')!, requireRunning: true,
         });
         if (!auth.ok || auth.room.id !== roomRecord.id) {
           callback?.({ success: false, error: auth.ok ? 'WRONG_ROOM' : auth.error });
@@ -977,7 +977,7 @@ export const handleGeoGame = {
 
       // P0-17: Authorization check
       const auth = await authorizeGameContext(socket, {
-        roles: ['MODERATOR'], requireParticipation: true, gameSlug: resolveCanonicalSlug('geo')!, requireRunning: true,
+        roles: ['HOST'], requireParticipation: true, gameSlug: resolveCanonicalSlug('geo')!, requireRunning: true,
       });
       if (!auth.ok || auth.room.id !== room.id) {
         callback?.({ success: false, error: auth.ok ? 'WRONG_ROOM' : auth.error });
@@ -1053,7 +1053,7 @@ export const handleGeoGame = {
       }
 
       const auth = await authorizeGameContext(socket, {
-        roles: ['MODERATOR'], requireParticipation: true, gameSlug: resolveCanonicalSlug('geo')!, requireRunning: true,
+        roles: ['HOST'], requireParticipation: true, gameSlug: resolveCanonicalSlug('geo')!, requireRunning: true,
       });
       if (!auth.ok || auth.room.id !== room.id) {
         callback?.({ success: false, error: auth.ok ? 'WRONG_ROOM' : auth.error });
@@ -1129,7 +1129,7 @@ export const handleGeoGame = {
       }
 
       const auth = await authorizeGameContext(socket, {
-        roles: ['MODERATOR'], requireParticipation: true, gameSlug: resolveCanonicalSlug('geo')!, requireRunning: true,
+        roles: ['HOST'], requireParticipation: true, gameSlug: resolveCanonicalSlug('geo')!, requireRunning: true,
       });
       if (!auth.ok || auth.room.id !== room.id) {
         callback?.({ success: false, error: auth.ok ? 'WRONG_ROOM' : auth.error });

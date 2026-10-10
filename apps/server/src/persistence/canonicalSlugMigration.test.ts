@@ -50,7 +50,7 @@ afterAll(async () => {
 
 async function seedUser(): Promise<string> {
   const u = await prisma.user.create({
-    data: { id: 'mig-host', displayName: 'Mig Host', passwordHash: 'x', role: 'MODERATOR' },
+    data: { id: 'mig-host', displayName: 'Mig Host', passwordHash: 'x', role: 'HOST' },
   });
   return u.id;
 }
@@ -228,7 +228,7 @@ describe('Slug-Migration: Kollision (legacy + canonical gleichzeitig)', () => {
     // Der vorangehende Block hat luegen→imposter umbenannt und weristdas→wer-ist-das.
     // Für die Kollision erzeugen wir frische Paare über noch verfügbare Legacy-Slugs.
     const u = await prisma.user.create({
-      data: { id: 'mig-coll-host', displayName: 'Coll Host', passwordHash: 'x', role: 'MODERATOR' },
+      data: { id: 'mig-coll-host', displayName: 'Coll Host', passwordHash: 'x', role: 'HOST' },
     });
     hostId = u.id;
     // canonical "imposter" existiert bereits (aus Block A) → Kollision mit "wer-luegt"
@@ -326,7 +326,7 @@ describe('Migrationsfehler → laufender geo-Raum bleibt funktionsfähig (§5.21
     const legacyDef = await prisma.gameDefinition.create({
       data: { id: 'migfail-geo', slug: 'geo', name: 'Geo (legacy)', category: 'GEO', status: 'AVAILABLE' },
     });
-    const host = await prisma.user.create({ data: { id: 'migfail-host', displayName: 'FailHost', passwordHash: 'x', role: 'MODERATOR' } });
+    const host = await prisma.user.create({ data: { id: 'migfail-host', displayName: 'FailHost', passwordHash: 'x', role: 'HOST' } });
 
     // LAUFENDER Raum mit Legacy-Slug + aktivem Timer (INPUT_OPEN, future timerEndMs)
     const room = await prisma.room.create({
@@ -457,7 +457,7 @@ describe('Kollision mit LAUFENDEM Raum — sichere Fortsetzung e2e (§5.21/§5.2
     legacyDefId = legacy.id;
 
     const { randomUUID } = await import('node:crypto');
-    const host = await prisma.user.create({ data: { id: 'colllive-host', displayName: 'CollLive Host', passwordHash: 'x', role: 'MODERATOR' } });
+    const host = await prisma.user.create({ data: { id: 'colllive-host', displayName: 'CollLive Host', passwordHash: 'x', role: 'HOST' } });
     hostId = host.id;
 
     roomCode = '555-555';
@@ -473,7 +473,7 @@ describe('Kollision mit LAUFENDEM Raum — sichere Fortsetzung e2e (§5.21/§5.2
     });
 
     // Moderator + Spieler
-    const mod = await prisma.participation.create({ data: { roomId, role: 'MODERATOR', displayName: 'Host', normalizedName: 'host', rejoinToken: `colllive-mod-${randomUUID()}`, connected: true, ready: true } });
+    const mod = await prisma.participation.create({ data: { roomId, role: 'HOST', displayName: 'Host', normalizedName: 'host', rejoinToken: `colllive-mod-${randomUUID()}`, connected: true, ready: true } });
     modToken = mod.rejoinToken;
     const player = await prisma.participation.create({ data: { roomId, role: 'PLAYER', displayName: 'Alice', normalizedName: 'alice', rejoinToken: `colllive-rt-${randomUUID()}`, connected: true, ready: true } });
     playerId = player.id;

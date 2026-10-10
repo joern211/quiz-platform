@@ -177,7 +177,7 @@ authRouter.get('/session', async (req, res) => {
 const E2ESocketSchema = z.object({
   socketId: z.string().optional(),
   roomCode: z.string(),
-  role: z.enum(['MODERATOR', 'PLAYER', 'VIEWER']),
+  role: z.enum(['HOST', 'PLAYER', 'VIEWER']),
 });
 authRouter.post('/e2e-socket-identity', async (req, res) => {
   if (process.env.NODE_ENV === 'production') {

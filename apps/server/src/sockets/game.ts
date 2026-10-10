@@ -42,7 +42,7 @@ export const handleGameEvents = {
         return;
       }
 
-      const authorized = requireRoomRole(socket, 'MODERATOR');
+      const authorized = requireRoomRole(socket, 'HOST');
       logger.info('game:start auth result', { authorized, socketId: socket.id, role: identity?.role });
       if (!authorized) {
         callback?.({ success: false, error: 'UNAUTHORIZED' });
@@ -183,7 +183,7 @@ export const handleGameEvents = {
         return;
       }
 
-      const authorized = requireRoomRole(socket, 'MODERATOR');
+      const authorized = requireRoomRole(socket, 'HOST');
       if (!authorized) {
         callback?.({ success: false, error: 'UNAUTHORIZED' });
         return;
@@ -231,7 +231,7 @@ export const handleGameEvents = {
         return;
       }
 
-      const authorized = requireRoomRole(socket, 'MODERATOR');
+      const authorized = requireRoomRole(socket, 'HOST');
       if (!authorized) {
         callback?.({ success: false, error: 'UNAUTHORIZED' });
         return;
@@ -278,7 +278,7 @@ export const handleGameEvents = {
         return;
       }
 
-      const authorized = requireRoomRole(socket, 'MODERATOR');
+      const authorized = requireRoomRole(socket, 'HOST');
       if (!authorized) {
         callback?.({ success: false, error: 'UNAUTHORIZED' });
         return;

@@ -64,7 +64,7 @@ function isUniqueConflict(error: unknown): boolean {
 //       Eine Absichts-/Retry-Garantie setzt deshalb das Client-Token voraus.
 // Parallele identische Requests kollidieren per P2002 auf den Gewinner.
 // Raum + Host-Teilnahme entstehen ATOMAR (Transaction) — es gibt keinen
-// Zustand mit Raum aber ohne MODERATOR-Teilnahme/Token.
+// Zustand mit Raum aber ohne HOST-Teilnahme/Token.
 // ------------------------------------------------------------
 const IDEM_WINDOW_MS = 60 * 1000;
 
@@ -98,14 +98,14 @@ async function ensureModeratorParticipation(
   roomId: string,
   displayName: string,
 ): Promise<{ id: string; rejoinToken: string } | null> {
-  const existing = await prisma.participation.findFirst({ where: { roomId, role: 'MODERATOR' } });
+  const existing = await prisma.participation.findFirst({ where: { roomId, role: 'HOST' } });
   if (existing) return existing;
   const created = await prisma.participation.create({
     data: {
       roomId,
       displayName,
       normalizedName: displayName.toLowerCase().trim(),
-      role: 'MODERATOR',
+      role: 'HOST',
       connected: true,
       ready: true,
       rejoinToken: crypto.randomUUID(),
@@ -475,7 +475,7 @@ roomsRouter.post('/', createLimiter, async (req, res) => {
             roomId: createdRoom.id,
             displayName: session.user.displayName,
             normalizedName: session.user.displayName.toLowerCase().trim(),
-            role: 'MODERATOR',
+            role: 'HOST',
             connected: true,
             ready: true,
             rejoinToken: crypto.randomUUID(),
@@ -508,7 +508,7 @@ roomsRouter.post('/', createLimiter, async (req, res) => {
     // Fallback: falls (historisch/unerwartet) nichts gesetzt ist, neu lesen.
     if (!moderatorToken) {
       const moderatorParticipation = await prisma.participation.findFirst({
-        where: { roomId: room.id, role: 'MODERATOR' },
+        where: { roomId: room.id, role: 'HOST' },
       });
       moderatorToken = moderatorParticipation?.rejoinToken ?? null;
     }

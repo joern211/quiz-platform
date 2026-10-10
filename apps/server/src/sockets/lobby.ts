@@ -102,7 +102,7 @@ export const handleLobbyEvents = {
       }
 
       // P0-05: Only moderator can lock chat
-      if (!identity.role || identity.role !== 'MODERATOR') {
+      if (!identity.role || identity.role !== 'HOST') {
         callback?.({ success: false, error: 'INSUFFICIENT_ROLE' });
         return;
       }

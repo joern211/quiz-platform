@@ -14,8 +14,56 @@ export type UUID = string;
 export type ISO8601 = string;
 export type UnixMs = number;
 
-export type UserRole = 'ADMIN' | 'MODERATOR';
-export type PlayerRole = 'MODERATOR' | 'PLAYER' | 'VIEWER';
+// ============================================================
+// Kanonische Rollen (BASIS-STANDARDS, Master §2.1, §12.1)
+// ------------------------------------------------------------
+// „Moderator" wird als Begriff vollständig durch HOST ersetzt.
+// ADMIN/HOST/PLAYER/VIEWER/DISPLAY sind die globalen Rollen-Kontexte.
+// NUR diese Werte gelten im Runtime-Code, in Schemas, im DB-Wert (nach
+// Migration) und in der UI. Der alte Wert `MODERATOR` bleibt ausschließlich
+// in abgegrenzter Migration/Compatibility (LEGACY_PARTICIPATION_ROLE_MAP,
+// LEGACY_ROLE_VALUES) und in bewusst erhaltenen Legacy-URL-Routen (/moderator/*).
+//
+// Trennung (Master §2.2): Accountrolle (ADMIN/HOST), aktive Teilnahme
+// (HOST/PLAYER/VIEWER) und Projektions-/Informationskontext sind getrennt.
+// Eine HOST-Rolle ist KEIN pauschaler Anspruch auf Player-Geheimnisse oder
+// fremde Lösungsdaten — das regeln die Permissions (unten) und die
+// Projektionen, nicht die Rolle selbst.
+// ============================================================
+export const ACCOUNT_ROLES = ['ADMIN', 'HOST'] as const;
+export type AccountRole = (typeof ACCOUNT_ROLES)[number];
+
+export const PARTICIPATION_ROLES = ['HOST', 'PLAYER', 'VIEWER', 'DISPLAY'] as const;
+export type ParticipationRole = (typeof PARTICIPATION_ROLES)[number];
+
+export const PLATFORM_ROLES = ['ADMIN', 'HOST', 'PLAYER', 'VIEWER', 'DISPLAY'] as const;
+export type PlatformRole = (typeof PLATFORM_ROLES)[number];
+
+// Kompatibilität: alte, bereits verteilte Typnamen. Verweisen nur noch auf
+// die kanonischen Mengen — `MODERATOR` ist NICHT mehr ein gültiger Wert.
+export type UserRole = AccountRole;
+export type PlayerRole = ParticipationRole;
+
+export function isAccountRole(r: string): r is AccountRole {
+  return (ACCOUNT_ROLES as readonly string[]).includes(r);
+}
+export function isParticipationRole(r: string): r is ParticipationRole {
+  return (PARTICIPATION_ROLES as readonly string[]).includes(r);
+}
+/**
+ * Eindeutige Normalisierung LEGACY → kanonisch. Unbekannte Werte werden
+ * NIE still gecastet: `normalizeRole` gibt `null` zurück, der Aufrufer
+ * entscheidet (Ablehnung vs. Fallback). Kein allgemeiner String-Cast.
+ */
+export const LEGACY_ROLE_VALUES: Readonly<Record<string, PlatformRole>> = {
+  MODERATOR: 'HOST',
+};
+export function normalizeRole(value: string | null | undefined): PlatformRole | null {
+  if (!value) return null;
+  if ((PLATFORM_ROLES as readonly string[]).includes(value)) return value as PlatformRole;
+  const mapped = LEGACY_ROLE_VALUES[value];
+  return mapped ?? null;
+}
 
 export type RoomStatus = 'CREATED' | 'LOBBY' | 'RUNNING' | 'ENDED' | 'ARCHIVED';
 export type RunPhase =
@@ -52,7 +100,7 @@ export interface ServerEvent<T = unknown> {
 export const UserSchema = z.object({
   id: z.string().uuid(),
   displayName: z.string().min(1).max(50),
-  role: z.enum(['ADMIN', 'MODERATOR']),
+  role: z.enum(['ADMIN', 'HOST']),
   createdAt: z.string().datetime(),
   updatedAt: z.string().datetime(),
   disabledAt: z.string().datetime().nullable(),
@@ -129,7 +177,7 @@ export const ParticipationSchema = z.object({
   displayName: z.string(),
   normalizedName: z.string(),
   avatar: AvatarSchema,
-  role: z.enum(['MODERATOR', 'PLAYER', 'VIEWER']),
+  role: z.enum(['HOST', 'PLAYER', 'VIEWER', 'DISPLAY']),
   connected: z.boolean(),
   ready: z.boolean(),
   kickedAt: z.string().datetime().nullable(),
@@ -288,6 +336,24 @@ export const CATALOG_CATEGORIES: CatalogCategory[] = [
 // ------------------------------------------------------------
 // GameManifest – Schema (Regelwerk §5.3)
 // ------------------------------------------------------------
+export const GameCapabilitySchema = z.enum([
+  'TIMER',
+  'BUZZER',
+  'TEAMS',
+  'SUBMISSIONS',
+  'JUDGE',
+  'VOICE',
+  'CAMERA',
+  'VIEWER',
+  'BROADCAST',
+  'LATE_JOIN',
+  'BLIND_HOST',
+  'CONTENT_POOLS',
+  'ROUND_RESTART',
+  'TEAM_RESHUFFLE',
+]);
+export type GameCapability = z.infer<typeof GameCapabilitySchema>;
+
 export const GameManifestSchema = z.object({
   slug: z.string(),
   name: z.string(),
@@ -297,7 +363,7 @@ export const GameManifestSchema = z.object({
   minPlayers: z.number().int().min(1).default(2),
   maxPlayers: z.number().int().min(1).default(10),
   estimatedDurationMinutes: z.number().int().default(15),
-  roles: z.array(z.enum(['MODERATOR', 'PLAYER', 'VIEWER'])),
+  roles: z.array(z.enum(['HOST', 'PLAYER', 'VIEWER', 'DISPLAY'])),
   tags: z.array(z.string()),
   status: GameStatusSchema.default('PLANNED'),
   hasBuzzer: z.boolean().default(false),
@@ -305,10 +371,34 @@ export const GameManifestSchema = z.object({
   hasCamera: z.boolean().default(false),
   hasAudio: z.boolean().default(false),
   hasTimer: z.boolean().default(true),
-  setupSchemaVersion: z.number().int().default(1),
+  setupSchemaVersion: z.number().int().optional().default(1),
+  // ── BASIS-STANDARDS: vollständige §5.3-Feldliste (additiv, ehrlich) ──
+  // Diese Felder beschreiben den REALEN Implementierungsstand. Ein gesetztes
+  // optionales Feld aktiviert KEIN Feature — Capability/Status entscheiden
+  // (§5.4). engineVersion ist die versionierte Engine-Kennung.
+  engineVersion: z.number().int().optional().default(1),
+  capabilities: z.array(GameCapabilitySchema).optional().default([]),
+  lateJoin: z.boolean().optional().default(false),
+  viewer: z.boolean().optional().default(true),
+  broadcast: z.boolean().optional().default(false),
+  // Inhaltstyp des Spiels (Content-System, Master §5.3 Content-Typ).
+  contentType: z.enum(['questions', 'board', 'media', 'freeform', 'none']).optional().default('questions'),
 });
+export type GameManifestInput = z.input<typeof GameManifestSchema>;
+/**
+ * Vollständiges Manifest NACH Default-Auflösung: alle Basis-Felder und die
+ * §5.3-Erweiterung sind zwingend vorhanden (Herkunft nachvollziehbar).
+ * Der Katalog `GAME_MANIFESTS` darf weiterhin Eingaben ohne die optionalen
+ * Basis-Felder liefern — `normalizeManifest()` liefert die aufgelöste Form.
+ */
+export const GameManifestResolvedSchema = GameManifestSchema;
+export type GameManifestResolved = z.output<typeof GameManifestSchema>;
+export function normalizeManifest(input: GameManifestInput): GameManifestResolved {
+  return GameManifestSchema.parse(input);
+}
 
 export type GameManifest = z.infer<typeof GameManifestSchema>;
+export type GameManifestSpec = z.input<typeof GameManifestSchema>;
 
 // ------------------------------------------------------------
 // Kanonischer Spiel-Slugs (zentral, stabil, Englisch) – Regelwerk §12.1
@@ -414,7 +504,7 @@ export function resolveCanonicalSlug(slug: string | null | undefined): string | 
 //   (Die früheren Labels song-erraten/timeline/luegen "AVAILABLE" waren
 //    falsch – es existiert dafür keine startbare Engine.)
 // ------------------------------------------------------------
-export const GAME_MANIFESTS: GameManifest[] = [
+export const GAME_MANIFESTS: GameManifestSpec[] = [
   // ── Quiz & Wissen ──────────────────────────────────────────
   {
     slug: GAME_SLUGS.wissensduell,
@@ -427,7 +517,7 @@ export const GAME_MANIFESTS: GameManifest[] = [
     minPlayers: 2,
     maxPlayers: 10,
     estimatedDurationMinutes: 15,
-    roles: ['MODERATOR', 'PLAYER', 'VIEWER'],
+    roles: ['HOST', 'PLAYER', 'VIEWER', 'DISPLAY'],
     tags: ['quiz', 'joker', 'timer'],
     status: 'AVAILABLE',
     hasBuzzer: false,
@@ -436,6 +526,12 @@ export const GAME_MANIFESTS: GameManifest[] = [
     hasAudio: false,
     hasTimer: true,
     setupSchemaVersion: 1,
+    engineVersion: 1,
+    capabilities: ['SUBMISSIONS', 'JUDGE', 'TIMER', 'CONTENT_POOLS', 'VIEWER'],
+    lateJoin: false,
+    viewer: true,
+    broadcast: false,
+    contentType: 'questions',
   },
   {
     slug: GAME_SLUGS.millionenfrage,
@@ -446,7 +542,7 @@ export const GAME_MANIFESTS: GameManifest[] = [
     minPlayers: 1,
     maxPlayers: 4,
     estimatedDurationMinutes: 30,
-    roles: ['MODERATOR', 'PLAYER', 'VIEWER'],
+    roles: ['HOST', 'PLAYER', 'VIEWER', 'DISPLAY'],
     tags: ['quiz', 'show'],
     status: 'PLANNED',
     hasBuzzer: false,
@@ -467,7 +563,7 @@ export const GAME_MANIFESTS: GameManifest[] = [
     minPlayers: 2,
     maxPlayers: 10,
     estimatedDurationMinutes: 30,
-    roles: ['MODERATOR', 'PLAYER', 'VIEWER'],
+    roles: ['HOST', 'PLAYER', 'VIEWER', 'DISPLAY'],
     tags: ['buzzer', 'board'],
     status: 'AVAILABLE',
     hasBuzzer: true,
@@ -476,6 +572,12 @@ export const GAME_MANIFESTS: GameManifest[] = [
     hasAudio: false,
     hasTimer: true,
     setupSchemaVersion: 1,
+    engineVersion: 1,
+    capabilities: ['BUZZER', 'JUDGE', 'TIMER', 'CONTENT_POOLS', 'VIEWER'],
+    lateJoin: false,
+    viewer: true,
+    broadcast: false,
+    contentType: 'board',
   },
   {
     slug: GAME_SLUGS.werIstDas,
@@ -491,7 +593,7 @@ export const GAME_MANIFESTS: GameManifest[] = [
     minPlayers: 2,
     maxPlayers: 10,
     estimatedDurationMinutes: 15,
-    roles: ['MODERATOR', 'PLAYER', 'VIEWER'],
+    roles: ['HOST', 'PLAYER', 'VIEWER', 'DISPLAY'],
     tags: ['buzzer', 'fusion'],
     status: 'BETA',
     hasBuzzer: true,
@@ -500,6 +602,12 @@ export const GAME_MANIFESTS: GameManifest[] = [
     hasAudio: false,
     hasTimer: false,
     setupSchemaVersion: 2,
+    engineVersion: 1,
+    capabilities: ['BUZZER', 'JUDGE', 'CONTENT_POOLS', 'VIEWER'],
+    lateJoin: false,
+    viewer: true,
+    broadcast: false,
+    contentType: 'media',
   },
   {
     slug: GAME_SLUGS.songQuiz,
@@ -512,7 +620,7 @@ export const GAME_MANIFESTS: GameManifest[] = [
     minPlayers: 2,
     maxPlayers: 10,
     estimatedDurationMinutes: 15,
-    roles: ['MODERATOR', 'PLAYER', 'VIEWER'],
+    roles: ['HOST', 'PLAYER', 'VIEWER', 'DISPLAY'],
     tags: ['buzzer', 'audio'],
     status: 'PLANNED',
     hasBuzzer: true,
@@ -533,7 +641,7 @@ export const GAME_MANIFESTS: GameManifest[] = [
     minPlayers: 2,
     maxPlayers: 10,
     estimatedDurationMinutes: 20,
-    roles: ['MODERATOR', 'PLAYER', 'VIEWER'],
+    roles: ['HOST', 'PLAYER', 'VIEWER', 'DISPLAY'],
     tags: ['sortieren'],
     status: 'PLANNED',
     hasBuzzer: false,
@@ -552,7 +660,7 @@ export const GAME_MANIFESTS: GameManifest[] = [
     minPlayers: 2,
     maxPlayers: 10,
     estimatedDurationMinutes: 15,
-    roles: ['MODERATOR', 'PLAYER', 'VIEWER'],
+    roles: ['HOST', 'PLAYER', 'VIEWER', 'DISPLAY'],
     tags: ['schaetzen'],
     status: 'PLANNED',
     hasBuzzer: false,
@@ -571,7 +679,7 @@ export const GAME_MANIFESTS: GameManifest[] = [
     minPlayers: 2,
     maxPlayers: 10,
     estimatedDurationMinutes: 10,
-    roles: ['MODERATOR', 'PLAYER', 'VIEWER'],
+    roles: ['HOST', 'PLAYER', 'VIEWER', 'DISPLAY'],
     tags: ['schaetzen'],
     status: 'PLANNED',
     hasBuzzer: false,
@@ -592,7 +700,7 @@ export const GAME_MANIFESTS: GameManifest[] = [
     minPlayers: 3,
     maxPlayers: 10,
     estimatedDurationMinutes: 20,
-    roles: ['MODERATOR', 'PLAYER', 'VIEWER'],
+    roles: ['HOST', 'PLAYER', 'VIEWER', 'DISPLAY'],
     tags: ['bluff', 'vote'],
     status: 'PLANNED',
     hasBuzzer: false,
@@ -611,7 +719,7 @@ export const GAME_MANIFESTS: GameManifest[] = [
     minPlayers: 2,
     maxPlayers: 10,
     estimatedDurationMinutes: 15,
-    roles: ['MODERATOR', 'PLAYER', 'VIEWER'],
+    roles: ['HOST', 'PLAYER', 'VIEWER', 'DISPLAY'],
     tags: ['bluff', 'vote'],
     status: 'PLANNED',
     hasBuzzer: false,
@@ -632,7 +740,7 @@ export const GAME_MANIFESTS: GameManifest[] = [
     minPlayers: 4,
     maxPlayers: 10,
     estimatedDurationMinutes: 25,
-    roles: ['MODERATOR', 'PLAYER', 'VIEWER'],
+    roles: ['HOST', 'PLAYER', 'VIEWER', 'DISPLAY'],
     tags: ['deduction', 'secret-role'],
     status: 'PLANNED',
     hasBuzzer: false,
@@ -651,7 +759,7 @@ export const GAME_MANIFESTS: GameManifest[] = [
     minPlayers: 4,
     maxPlayers: 10,
     estimatedDurationMinutes: 25,
-    roles: ['MODERATOR', 'PLAYER', 'VIEWER'],
+    roles: ['HOST', 'PLAYER', 'VIEWER', 'DISPLAY'],
     tags: ['deduction', 'secret-role'],
     status: 'PLANNED',
     hasBuzzer: false,
@@ -672,7 +780,7 @@ export const GAME_MANIFESTS: GameManifest[] = [
     minPlayers: 4,
     maxPlayers: 8,
     estimatedDurationMinutes: 25,
-    roles: ['MODERATOR', 'PLAYER', 'VIEWER'],
+    roles: ['HOST', 'PLAYER', 'VIEWER', 'DISPLAY'],
     tags: ['team', 'bidding'],
     status: 'PLANNED',
     hasBuzzer: false,
@@ -691,7 +799,7 @@ export const GAME_MANIFESTS: GameManifest[] = [
     minPlayers: 2,
     maxPlayers: 8,
     estimatedDurationMinutes: 15,
-    roles: ['MODERATOR', 'PLAYER', 'VIEWER'],
+    roles: ['HOST', 'PLAYER', 'VIEWER', 'DISPLAY'],
     tags: ['team', 'association'],
     status: 'PLANNED',
     hasBuzzer: false,
@@ -712,7 +820,7 @@ export const GAME_MANIFESTS: GameManifest[] = [
     minPlayers: 2,
     maxPlayers: 10,
     estimatedDurationMinutes: 20,
-    roles: ['MODERATOR', 'PLAYER', 'VIEWER'],
+    roles: ['HOST', 'PLAYER', 'VIEWER', 'DISPLAY'],
     tags: ['raterunde'],
     status: 'PLANNED',
     hasBuzzer: false,
@@ -731,7 +839,7 @@ export const GAME_MANIFESTS: GameManifest[] = [
     minPlayers: 2,
     maxPlayers: 6,
     estimatedDurationMinutes: 20,
-    roles: ['MODERATOR', 'PLAYER', 'VIEWER'],
+    roles: ['HOST', 'PLAYER', 'VIEWER', 'DISPLAY'],
     tags: ['rennspiel', 'dice'],
     status: 'PLANNED',
     hasBuzzer: false,
@@ -750,7 +858,7 @@ export const GAME_MANIFESTS: GameManifest[] = [
     minPlayers: 1,
     maxPlayers: 8,
     estimatedDurationMinutes: 20,
-    roles: ['MODERATOR', 'PLAYER', 'VIEWER'],
+    roles: ['HOST', 'PLAYER', 'VIEWER', 'DISPLAY'],
     tags: ['dice', 'solitär'],
     status: 'PLANNED',
     hasBuzzer: false,
@@ -769,7 +877,7 @@ export const GAME_MANIFESTS: GameManifest[] = [
     minPlayers: 2,
     maxPlayers: 10,
     estimatedDurationMinutes: 20,
-    roles: ['MODERATOR', 'PLAYER', 'VIEWER'],
+    roles: ['HOST', 'PLAYER', 'VIEWER', 'DISPLAY'],
     tags: ['turn-based', 'lives'],
     status: 'PLANNED',
     hasBuzzer: false,
@@ -792,7 +900,7 @@ export interface VisibleCategory extends CatalogCategory {
   gameSlugs: string[];
 }
 
-export function deriveVisibleCategories(manifests: GameManifest[] = GAME_MANIFESTS): VisibleCategory[] {
+export function deriveVisibleCategories(manifests: GameManifestSpec[] = GAME_MANIFESTS): VisibleCategory[] {
   const bySlug = new Map<string, string[]>();
   for (const m of manifests) {
     if (m.status === 'HIDDEN') continue;
@@ -815,7 +923,11 @@ export function deriveVisibleCategories(manifests: GameManifest[] = GAME_MANIFES
 export function getGameManifest(slug: string | null | undefined): GameManifest | undefined {
   const canonical = resolveCanonicalSlug(slug);
   if (!canonical) return undefined;
-  return GAME_MANIFESTS.find((m) => m.slug === canonical);
+  const spec = GAME_MANIFESTS.find((m) => m.slug === canonical);
+  if (!spec) return undefined;
+  // Auflösung der §5.3-Defaults, damit Konsumenten immer das vollständige,
+  // herkunftsbekannte Manifest erhalten (Single Source of Truth).
+  return normalizeManifest(spec);
 }
 
 export function isStartableGame(status: GameStatus): boolean {
@@ -920,7 +1032,7 @@ export type JoinRoomInput = z.infer<typeof JoinRoomInputSchema>;
 export const JoinRoomResponseSchema = z.object({
   rejoinToken: z.string(),
   participationId: z.string().uuid(),
-  role: z.enum(['MODERATOR', 'PLAYER', 'VIEWER']),
+  role: z.enum(['HOST', 'PLAYER', 'VIEWER', 'DISPLAY']),
   roomCode: z.string().regex(/^\d{3}-\d{3}$/),
 });
 
@@ -939,7 +1051,7 @@ export const LoginResponseSchema = z.object({
   user: z.object({
     id: z.string().uuid(),
     displayName: z.string(),
-    role: z.enum(['ADMIN', 'MODERATOR']),
+    role: z.enum(['ADMIN', 'HOST']),
   }),
 });
 
@@ -984,3 +1096,320 @@ export const SetupResponseSchema = z.object({
 });
 
 export type SetupResponse = z.infer<typeof SetupResponseSchema>;
+
+// ============================================================
+// BASIS-STANDARDS — Gemeinsame Verträge (Master §2, §5, §10, §12)
+// ------------------------------------------------------------
+// Diese Blöcke sind die zentrale, von echten HTTP-/Socket-/Frontend-Flows
+// genutzte Grundlage. Sie bleiben bewusst in dieser EINEN Datei, weil
+// @quiz/shared in der Produktion als TypeScript-Quelle konsumiert wird und
+// Node's natives Type-Stripping relative .js→.ts-Imports nicht auflöst.
+// Nur bare-Module-Import (zod) ist sicher.
+// ============================================================
+
+// ------------------------------------------------------------
+// Protocol Versioning (Master §12.4)
+//   protocolVersion=1 für /api/v1 und Socket-Handshake.
+//   Breaking change = Major; compatible additions = same version.
+//   Laufende Session behält die Version (Rejoin/Resync).
+// ------------------------------------------------------------
+export const PROTOCOL_VERSION = 1;
+export const SUPPORTED_PROTOCOL_VERSIONS: readonly number[] = [1];
+export function isSupportedProtocolVersion(v: unknown): v is number {
+  return typeof v === 'number' && (SUPPORTED_PROTOCOL_VERSIONS as readonly number[]).includes(v);
+}
+/**
+ * Legacy-Client ohne protocolVersion: wird NUR über diesen dokumentierten,
+ * getesteten Kompatibilitätsweg auf PROTOCOL_VERSION gemappt (nicht auf
+ * "unbekannt"). Fehlt das Feld, gilt Version 1 — abweichende, explizit
+ * inkompatible Werte werden VOR einer Mutation mit CLIENT_VERSION_UNSUPPORTED
+ * abgelehnt (siehe Fehlervertrag).
+ */
+export function resolveProtocolVersion(explicit: unknown): number {
+  if (explicit === undefined || explicit === null) return PROTOCOL_VERSION;
+  return explicit as number;
+}
+
+// ------------------------------------------------------------
+// Error / Result Contract (Master §12.2, §12.13)
+//   Struktur: code, messageKey, traceId (+ optional details, retryable).
+//   Das bisherige lesbare `message` bleibt im Kompatibilitätsfenster erhalten
+//   (Field `message` in AppError), solange es Clients brauchen.
+// ------------------------------------------------------------
+export const ERROR_CODES = [
+  'NOT_AUTHENTICATED',
+  'NOT_AUTHORIZED',
+  'RESOURCE_NOT_ACCESSIBLE',
+  'OWNERSHIP_REQUIRED',
+  'SCOPE_VIOLATION',
+  'ROLE_REQUIRED',
+  'INVALID_PAYLOAD',
+  'INVALID_PHASE',
+  'STALE_STATE',
+  'REVISION_CONFLICT',
+  'ALREADY_PROCESSED',
+  'COMMAND_CONFLICT',
+  'ROOM_LOCKED',
+  'ROOM_NOT_FOUND',
+  'WRONG_ROOM',
+  'PLAYER_NOT_FOUND',
+  'CONTENT_NOT_READY',
+  'CLIENT_VERSION_UNSUPPORTED',
+  'RATE_LIMITED',
+  'RECOVERY_REQUIRED',
+  'GAME_NOT_IMPLEMENTED',
+  'GAME_NOT_RUNNING',
+  'GAME_NOT_STARTED',
+  'GAME_ALREADY_STARTED',
+  'GAME_NOT_STARTABLE',
+  'NOT_ENOUGH_PLAYERS',
+  'NOT_ALL_READY',
+  'VIEWERS_CANNOT_MODIFY',
+  'NO_PARTICIPATION',
+  'INTERNAL_ERROR',
+] as const;
+export type ErrorCode = (typeof ERROR_CODES)[number];
+
+export const AppErrorSchema = z.object({
+  code: z.string(),
+  messageKey: z.string(),
+  message: z.string().optional(),
+  traceId: z.string(),
+  details: z.record(z.unknown()).optional(),
+  retryable: z.boolean().optional(),
+});
+export type AppError = z.infer<typeof AppErrorSchema>;
+
+export interface AppResult<T = unknown> {
+  success: boolean;
+  data?: T;
+  error?: AppError;
+}
+
+// ------------------------------------------------------------
+// Permission Core (Master §2.3, §2.2)
+//   Granulare Rechte; Rollen liefern Defaultpakete; wirksame Rechte
+//   = Default ± erlaubte Grants/Entzüge (pro Recht, pro Raum).
+//   Verwaltungs- und Secret-/Informationsrechte werden GETRENNT ausgewertet.
+// ------------------------------------------------------------
+export const GAME_PERMISSIONS = [
+  'GAME_START',
+  'GAME_PAUSE',
+  'ROUND_ADVANCE',
+  'JUDGE_ANSWER',
+  'SCORE_ADJUST',
+  'BUZZER_CONTROL',
+  'TIMER_CONTROL',
+  'REVEAL_CONTENT',
+  'TEAM_MANAGE',
+  'PLAYER_MANAGE',
+  'GAME_ABORT',
+] as const;
+export type GamePermission = (typeof GAME_PERMISSIONS)[number];
+
+/** Rechte, die eine Spiel-Informations-/Geheimquelle öffnen (getrennt von Verwaltung). */
+export const SECRET_PERMISSIONS: readonly GamePermission[] = ['JUDGE_ANSWER', 'REVEAL_CONTENT', 'SCORE_ADJUST'];
+
+export const ROLE_PERMISSION_PACKAGES: Record<AccountRole, readonly GamePermission[]> = {
+  // ADMIN darf die Plattform administrieren und jede Rolle annehmen — im
+  // normalen Spielbetrieb gelten aber die Secret-Regeln nach der aktuellen
+  // Spielrolle (§2.1). Das Paket trägt die Verwaltungsrechte; Secret-Zugriff
+  // kommt nur über die aktuelle Spielrolle, nicht automatisch.
+  ADMIN: [
+    'GAME_START', 'GAME_PAUSE', 'ROUND_ADVANCE', 'JUDGE_ANSWER', 'SCORE_ADJUST',
+    'BUZZER_CONTROL', 'TIMER_CONTROL', 'REVEAL_CONTENT', 'TEAM_MANAGE', 'PLAYER_MANAGE', 'GAME_ABORT',
+  ],
+  // HOST = eingeloggter Raum-Verwalter. Administrative Rechte ohne zusätzliche
+  // Gameplay-Secrets (§2.1/§2.2): die Standardpakete enthalten JUDGE/REVEAL nur
+  // im Spielkontext des Hosts — aber ein spielender Host sieht dadurch keine
+  // Player-Geheimnisse (das regeln Projektion + Secret-Gates).
+  HOST: [
+    'GAME_START', 'GAME_PAUSE', 'ROUND_ADVANCE', 'JUDGE_ANSWER', 'SCORE_ADJUST',
+    'BUZZER_CONTROL', 'TIMER_CONTROL', 'REVEAL_CONTENT', 'TEAM_MANAGE', 'PLAYER_MANAGE', 'GAME_ABORT',
+  ],
+};
+
+/**
+ * Wirksame Rechte einer Rolle im Raum: Defaultpaket ± Grants/Entzüge.
+ * `grants`/`revocations` sind pro Raum + Akteur gespeichert (Berechtigungs-
+ * Delegation, z.B. Co-Host). Ein Grant für genau ein Recht verleiht NICHT
+ * andere Rechte; eine Revocation wirkt sofort (auch bei verbundenem Socket,
+ * da wirksame Rechte pro Aktion aus der aktuellen DB-Quelle berechnet werden).
+ * VIEWER/DISPLAY haben immer leere Pakete (read-only).
+ */
+export function effectivePermissions(
+  role: PlatformRole,
+  grants: readonly GamePermission[] = [],
+  revocations: readonly GamePermission[] = [],
+): Set<GamePermission> {
+  const base = new Set<GamePermission>(ROLE_PERMISSION_PACKAGES[role as AccountRole] ?? []);
+  for (const g of grants) base.add(g);
+  for (const r of revocations) base.delete(r);
+  return base;
+}
+
+export function hasPermission(
+  perms: ReadonlySet<GamePermission>,
+  permission: GamePermission,
+): boolean {
+  return perms.has(permission);
+}
+
+// ------------------------------------------------------------
+// Command Contract (Master §5.17, §5.19, §10.6)
+//   Zentrale, validierte Envelope: commandId, protocolVersion,
+//   autoritativ aufgelöster Raumbezug, Versionserwartung, Payload-Schema.
+//   Kompatibilität: requestId→commandId, roomCode→raum (aber ersetzt KEINE
+//   Membership), expectedRevision→stateVersion. Widersprüchliche alte/neue
+//   Felder (z.B. requestId UND commandId mit unterschiedlichem Wert) → Ablehnung.
+// ------------------------------------------------------------
+export const CommandEnvelopeSchema = z.object({
+  commandId: z.string().min(1).max(128),
+  protocolVersion: z.number().int().optional(),
+  roomCode: z.string().regex(/^\d{3}-\d{3}$/),
+  stateVersion: z.number().int().optional(),
+  payload: z.unknown(),
+});
+export type CommandEnvelope = z.infer<typeof CommandEnvelopeSchema>;
+
+/**
+ * Kompatible Auflösung einer (möglicherweise Legacy-)Command-Zahlung.
+ * `requestId` gilt als commandId, wenn kein explizites commandId gesetzt ist;
+ * `expectedRevision` gilt als stateVersion. Werden BEIDE die alte und die neue
+ * Feldbezeichnung mit WIDERSPRÜCHLICHEM Wert gesendet, wird null zurückgegeben
+ * (Aufrufer lehnt mit INVALID_PAYLOAD/COMMAND_CONFLICT ab).
+ */
+export function resolveCommandEnvelope(input: {
+  commandId?: string;
+  requestId?: string;
+  protocolVersion?: number;
+  roomCode: string;
+  stateVersion?: number;
+  expectedRevision?: number;
+  payload?: unknown;
+}): CommandEnvelope | null {
+  const hasNew = typeof input.commandId === 'string' && input.commandId.length > 0;
+  const hasOld = typeof input.requestId === 'string' && input.requestId.length > 0;
+  let commandId: string | undefined;
+  if (hasNew && hasOld) {
+    if (input.commandId !== input.requestId) return null; // Widerspruch
+    commandId = input.commandId;
+  } else if (hasNew) {
+    commandId = input.commandId;
+  } else if (hasOld) {
+    commandId = input.requestId;
+  }
+  if (!commandId) return null;
+  const hasStateNew = typeof input.stateVersion === 'number';
+  const hasStateOld = typeof input.expectedRevision === 'number';
+  let stateVersion: number | undefined;
+  if (hasStateNew && hasStateOld && input.stateVersion !== input.expectedRevision) return null;
+  stateVersion = hasStateNew ? input.stateVersion : input.expectedRevision;
+  return {
+    commandId,
+    protocolVersion: input.protocolVersion,
+    roomCode: input.roomCode,
+    stateVersion,
+    payload: input.payload,
+  };
+}
+
+/**
+ * Ein Token pro Benutzerabsicht (Frontend). Gleiche Payload ist NICHT die
+ * gleiche Absicht; ein neues Absichtstoken erzeugt ein neues commandId.
+ * Kein Zeit-/Payload-Fingerprint als allgemeiner Ersatz.
+ */
+export function newCommandToken(): string {
+  // Kryptographisch stark, nicht erratbar (§12.6).
+  const c = (globalThis as { crypto?: { randomUUID?: () => string } }).crypto;
+  if (c?.randomUUID) return c.randomUUID();
+  return `cmd-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
+// ------------------------------------------------------------
+// GameConfig Snapshot + Config Inheritance (Master §5.24, §12.14, §12.8)
+//   Priorität: SYSTEM_DEFAULT → HOST_DEFAULT → ROOM_TEMPLATE → GAME_PRESET
+//   → ROOM_CONFIG → GAME_CONFIG → LIVE_OVERRIDE (spezifischer gewinnt).
+//   LOCKED_AFTER_START ist nach Start nicht live überschreibbar.
+//   Auflösung behält echte false/0/null (kein `value || default`): ein Wert
+//   ist nur "gesetzt", wenn die Ebene ihn explizit liefert (undefined ≠ null).
+// ------------------------------------------------------------
+export const CONFIG_SOURCES = [
+  'SYSTEM_DEFAULT',
+  'HOST_DEFAULT',
+  'ROOM_TEMPLATE',
+  'GAME_PRESET',
+  'ROOM_CONFIG',
+  'GAME_CONFIG',
+  'LIVE_OVERRIDE',
+] as const;
+export type ConfigSource = (typeof CONFIG_SOURCES)[number];
+
+/** Änderungsklassen (Master §3.4, §12.14). */
+export const CONFIG_CHANGE_CLASSES = ['EDITABLE', 'LOCKED_AFTER_START'] as const;
+export type ConfigChangeClass = (typeof CONFIG_CHANGE_CLASSES)[number];
+
+export interface ConfigFieldSpec<V = unknown> {
+  key: string;
+  unit?: 'durationMs' | 'bytes' | 'percent' | 'points' | 'count' | 'bool' | 'string';
+  changeClass: ConfigChangeClass;
+  nullable?: boolean;
+  /** Zentraler Default (SYSTEM_DEFAULT). */
+  systemDefault: V;
+}
+
+export interface ResolvedConfigValue<V> {
+  value: V;
+  source: ConfigSource;
+}
+
+/**
+ * Löst einen Konfigurationswert über die 7 Ebenen auf. `layers` ist in
+ * aufsteigender Priorität geordnet (SYSTEM_DEFAULT zuerst … LIVE_OVERRIDE
+ * zuletzt). Eine Ebene "setzt" ein Feld nur, wenn sie den Key mit einem
+ * Wert liefert, der UNDEFINED nicht ist (explizite false/0/null zählen).
+ * Kehrt bei "nicht gesetzt" den SYSTEM_DEFAULT zurück.
+ */
+export function resolveConfigValue<V>(
+  field: ConfigFieldSpec<V>,
+  layers: ReadonlyArray<Partial<Record<string, V | null>> | null | undefined>,
+): ResolvedConfigValue<V> {
+  let result: V = field.systemDefault;
+  let source: ConfigSource = 'SYSTEM_DEFAULT';
+  for (let i = 0; i < layers.length && i < CONFIG_SOURCES.length; i++) {
+    const layer = layers[i];
+    if (!layer) continue;
+    const v = layer[field.key];
+    if (v === undefined) continue; // nicht gesetzt → Vererbung
+    // null ist nur zulässig, wenn das Feld nullable ist (Feldspektrum).
+    // Der Cast ist hier sicher: v ist V oder null, und für nicht-nullable
+    // Felder liefert eine korrekte Ebene nie null (validiert am Schema).
+    result = (v as V | null) as V;
+    source = CONFIG_SOURCES[i];
+  }
+  return { value: result, source };
+}
+
+export function canLiveOverride(field: ConfigFieldSpec, roomStatus: string): boolean {
+  if (roomStatus !== 'RUNNING') return true; // vor Start frei
+  return field.changeClass !== 'LOCKED_AFTER_START';
+}
+
+export interface GameConfigSnapshot {
+  gameSlug: string;
+  engineVersion: number;
+  /** Endgültige, aufgelöste Werte zum Start (effektiv), inkl. Herkunft. */
+  values: Record<string, ResolvedConfigValue<unknown>>;
+  createdAt: string;
+}
+
+export const GameConfigSnapshotSchema = z.object({
+  gameSlug: z.string(),
+  engineVersion: z.number().int(),
+  values: z.record(z.object({
+    value: z.unknown(),
+    source: z.enum(CONFIG_SOURCES),
+  })),
+  createdAt: z.string().datetime(),
+});
+export type GameConfigSnapshotParsed = z.infer<typeof GameConfigSnapshotSchema>;

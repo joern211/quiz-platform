@@ -9,7 +9,7 @@ import { prisma } from '../../persistence/prisma.js';
 import { logger } from '../../observability/logger.js';
 import { roomChannel } from '../../sockets/channel.js';
 
-export type Role = 'MODERATOR' | 'PLAYER' | 'VIEWER';
+export type Role = 'HOST' | 'PLAYER' | 'VIEWER';
 
 /** Room run phases used for phase-based authorization */
 export type RunPhase =
@@ -136,13 +136,13 @@ export function checkRoomChannel(socket: Socket, roomId: string): AuthCheckResul
 }
 
 /**
- * P4: Rolle genügt der Aktion (MODERATOR/PLAYER/VIEWER check)
+ * P4: Rolle genügt der Aktion (HOST/PLAYER/VIEWER check)
  * Prüft ob die Rolle des Sockets für die angeforderte Aktion ausreicht.
- * Rollenhierarchie: MODERATOR > PLAYER > VIEWER
+ * Rollenhierarchie: HOST > PLAYER > VIEWER
  */
 export function checkRole(identity: SocketIdentity, requiredRole: Role): AuthCheckResult {
   const roleHierarchy: Record<Role, number> = {
-    MODERATOR: 3,
+    HOST: 3,
     PLAYER: 2,
     VIEWER: 1,
   };
@@ -278,7 +278,7 @@ export function checkPayload<T extends z.ZodTypeAny>(
 // ============================================================
 
 export interface RoleCheckConfig {
-  /** Erforderliche Rolle (MODERATOR, PLAYER, VIEWER) */
+  /** Erforderliche Rolle (HOST, PLAYER, VIEWER) */
   role: Role;
   /** Erlaubte Raum-Status (leer = alle) */
   allowedRoomStatuses?: RoomStatus[];
@@ -297,7 +297,7 @@ export interface RoleCheckConfig {
  *  1. Socket hat validierte Identität (identityMap)
  *  2. Identity gehört zum angefragten Raum (roomId)
  *  3. Socket ist im internen Raumkanal (socket.rooms)
- *  4. Rolle genügt der Aktion (MODERATOR/PLAYER/VIEWER)
+ *  4. Rolle genügt der Aktion (HOST/PLAYER/VIEWER)
  *  5. Raumstatus erlaubt die Aktion (LOBBY/RUNNING/ENDED)
  *  6. Spielphase erlaubt die Aktion
  *  7. Payload wurde validiert (Zod)

@@ -19,7 +19,7 @@ model User {
   email        String?   @unique
   displayName  String
   passwordHash String
-  role         String    @default("MODERATOR") // ADMIN | MODERATOR
+  role         String    @default("HOST") // ADMIN | HOST (BASIS-STANDARDS: MODERATOR→HOST, Migration 20261010)
   createdAt    DateTime  @default(now())
   updatedAt    DateTime  @updatedAt
   disabledAt   DateTime?
@@ -27,6 +27,7 @@ model User {
   sessions     Session[]
   rooms        Room[]    @relation("HostRooms")
   auditLogs    AuditLog[]
+  permissionGrants RoomPermissionGrant[]
   scoreEvents  ScoreEvent[]
 
   @@map("users")
@@ -176,6 +177,14 @@ model Room {
   setupSnapshotJson  String   @default("{}")
   setupSchemaVersion Int      @default(1)
 
+  // BASIS-STANDARDS (E): Konfigurations-Schema-Version + endgültiger, unveränderlicher
+  // Start-Snapshot (GameConfigSnapshot als JSON: values mit Herkunft, engineVersion).
+  // Bestandsräume ohne Snapshot tragen configSchemaVersion=0 und werden IMMER über
+  // die Legacy-Strategie (setupSnapshotJson + Manifest-Defaults) gelesen — nie still
+  // aus heutigen Defaults neu interpretiert.
+  configSchemaVersion    Int      @default(0)
+  gameConfigSnapshotJson String?
+
   // Audit 11-06 (P1): serverseitige Idempotenz für Raum-Erstellungs-Requests.
   // Ein Client (Doppelklick/Timeout-Retry) sendet dasselbe Idempotency-Token;
   // der erste Request legt den Raum an, identische Wiederholungen erhalten die
@@ -193,6 +202,8 @@ model Room {
   eventSeriesId      String?
   
   participations     Participation[]
+  permissionGrants   RoomPermissionGrant[]
+  commandReceipts    CommandReceipt[]
   viewerSessions     ViewerSession[]
   chatMessages       ChatMessage[]
   scoreEvents        ScoreEvent[]
@@ -218,7 +229,7 @@ model Participation {
   
   displayName          String
   normalizedName       String
-  role                 String   // MODERATOR | PLAYER | VIEWER
+  role                 String   // HOST | PLAYER | VIEWER | DISPLAY (BASIS-STANDARDS)
   
   avatarMode           String   @default("none") // none | avatar | camera
   avatarAssetId        String?
@@ -427,4 +438,65 @@ model EventSeries {
   updatedAt   DateTime @updatedAt
   
   @@map("event_series")
+}
+
+// ============================================================
+// BASIS-STANDARDS (B): Berechtigungs-Delegation (Grants/Revocation)
+// ------------------------------------------------------------
+// Pro Raum + eingeloggter Nutzer: wirksame Rechte = Rollen-Default ±
+// Grants/Revocations (separat je Recht, je Richtung). Co-Host bleibt
+// default OFF: ohne explizite Grant-Zeile hat ein zweiter eingeloggter
+// Nutzer genau die Rechte seiner Rolle (HOST-Paket nur für den
+// Raum-Host selbst — hier nur die Delegationsgrundlage, keine
+// neuen Secrets). Display/Viewer sind nie Adressaten dieser Zeilen.
+// ============================================================
+model RoomPermissionGrant {
+  roomId        String
+  room          Room       @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  userId        String
+  user          User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  permission    String     // exakt ein GamePermission-Wert
+  direction     String     // GRANT | REVOKE
+  grantedBy     String
+  createdAt     DateTime   @default(now())
+  revokedAt     DateTime?
+
+  @@id([roomId, userId, permission, direction])
+  @@index([roomId])
+  @@index([userId])
+  @@map("room_permission_grants")
+}
+
+// ============================================================
+// BASIS-STANDARDS (C): Command-Receipts (Wiederholungssicherheit)
+// ------------------------------------------------------------
+// Ein Receipt pro (Room, commandId). Atomarer Claim über die Unique-Key:
+// parallel ankommende Duplikate erhalten createUnique→UNIQUE und lesen
+// das bestehende Receipt statt eine zweite Wirkung auszulösen.
+// status: PENDING (claimed, Mutation läuft in derselben Transaktion) →
+// COMPLETED (Response gespeichert) / REJECTED (kontrollierte Ablehnung,
+// z.B. COMMAND_CONFLICT bei anderer Payload/Akteur) / FAILED (Mutation
+// fehlgeschlagen/Rollback → kein Erfolgseintrag; Retry erlaubt).
+// Gleiche commandId mit anderer actorId/payloadHash → COMMAND_CONFLICT
+// (keine fremden Ergebnisse, keine zusätzlichen Rechte).
+// Retention: Receipts einer aktiven Sitzung werden NICHT gelöscht;
+// Cleanup gehört zu einem späteren, benannten GC-Auftrag.
+// ============================================================
+model CommandReceipt {
+  roomId      String
+  room        Room     @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  commandId   String
+  actorId     String   // Participation-ID oder Session-ID des Akteurs (serverseitig aufgelöst)
+  actorRole   String   // wirksame Rolle zum Zeitpunkt der Verarbeitung
+  action      String   // z.B. ANSWER_SUBMIT, BUZZ, JUDGE, REVEAL, START, PAUSE, ABORT
+  payloadHash String   // SHA-256 über (action + normalized payload)
+  stateVersion Int?    // Versionserwartung (expectedRevision) zum Zeitpunkt des Claims
+  status      String   // PENDING | COMPLETED | REJECTED | FAILED
+  responseJson String? // persistierte Erfolgs-/Ablehnungsantwort (Duplicate liefert gespeicherte Antwort)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@id([roomId, commandId])
+  @@index([roomId])
+  @@map("command_receipts")
 }

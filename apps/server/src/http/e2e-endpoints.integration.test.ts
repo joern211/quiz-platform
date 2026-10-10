@@ -101,7 +101,7 @@ describe('E2E Endpoints — Production Block', () => {
       process.env.NODE_ENV = 'production';
       const res = await productionRequest
         .post('/api/v1/auth/e2e-socket-identity')
-        .send({ roomCode: 'ABC-123', role: 'MODERATOR' });
+        .send({ roomCode: 'ABC-123', role: 'HOST' });
       expect(res.status).toBe(404);
     });
   });

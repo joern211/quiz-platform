@@ -154,7 +154,7 @@ interface SeededRoom {
 async function seedRunningRoom(version: 1 | 2): Promise<SeededRoom> {
   const hostId = `host-${version}-${Date.now()}`;
   await prisma.user.create({
-    data: { id: hostId, email: `${hostId}@quiz.local`, displayName: `Host ${version}`, passwordHash: 'x', role: 'MODERATOR' },
+    data: { id: hostId, email: `${hostId}@quiz.local`, displayName: `Host ${version}`, passwordHash: 'x', role: 'HOST' },
   });
   const session = await prisma.session.create({ data: { userId: hostId, expiresAt: new Date(Date.now() + 3_600_000) } });
 
@@ -217,7 +217,7 @@ async function seedRunningRoom(version: 1 | 2): Promise<SeededRoom> {
   roomIds.push(room.id);
 
   const modPart = await prisma.participation.create({ data: {
-    roomId: room.id, role: 'MODERATOR', displayName: `Host ${version}`, normalizedName: `host${version}`,
+    roomId: room.id, role: 'HOST', displayName: `Host ${version}`, normalizedName: `host${version}`,
     connected: true, ready: true, rejoinToken: crypto.randomUUID(), rejoinTokenVersion: 1,
   } });
   const alice = await prisma.participation.create({ data: {

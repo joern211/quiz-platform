@@ -5,7 +5,7 @@
 
 import { io, Socket } from 'socket.io-client';
 
-export type PlayerRole = 'MODERATOR' | 'PLAYER' | 'VIEWER';
+export type PlayerRole = 'HOST' | 'PLAYER' | 'VIEWER';
 
 export interface WerIstDasView {
   phase: 'ROUND_READY' | 'BUZZ_OPEN' | 'ANSWERING' | 'REVEAL' | 'GAME_END';

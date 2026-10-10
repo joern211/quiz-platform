@@ -155,7 +155,7 @@ async function main() {
         email: 'moderator@example.com',
         displayName: adminUsername,
         passwordHash: await hashPassword(modPassword),
-        role: 'MODERATOR',
+        role: 'HOST',
       },
     });
 

@@ -24,6 +24,7 @@ import {
   deriveVisibleCategories,
   getGameManifest,
   resolveCanonicalSlug,
+  normalizeManifest,
   type GameManifest,
 } from '@quiz/shared';
 import {
@@ -90,10 +91,11 @@ describe('Kanonischer Spielekatalog – Eindeutigkeit (§14)', () => {
 
   it('läuft GAME_MANIFESTS-Slugs durch das Manifest-Schema valid', () => {
     for (const m of GAME_MANIFESTS) {
-      expect(typeof m.slug).toBe('string');
-      expect(typeof m.name).toBe('string');
-      expect(['PLANNED', 'BETA', 'AVAILABLE', 'HIDDEN']).toContain(m.status);
-      expect(m.maxPlayers).toBeGreaterThanOrEqual(m.minPlayers);
+      const resolved = normalizeManifest(m);
+      expect(typeof resolved.slug).toBe('string');
+      expect(typeof resolved.name).toBe('string');
+      expect(['PLANNED', 'BETA', 'AVAILABLE', 'HIDDEN']).toContain(resolved.status);
+      expect(resolved.maxPlayers).toBeGreaterThanOrEqual(resolved.minPlayers);
     }
   });
 });
@@ -251,7 +253,7 @@ describe('Seed ↔ Katalog-Sync (Regelwerk §14)', () => {
     }
     expect(seedEntries).toHaveLength(18);
     for (const seed of seedEntries) {
-      const manifest = GAME_MANIFESTS.find((m) => m.slug === seed.slug)!;
+      const manifest = normalizeManifest(GAME_MANIFESTS.find((m) => m.slug === seed.slug)!);
       expect(manifest, `Manifest für ${seed.slug}`).toBeDefined();
       const checks: Array<[string, string, string]> = [
         ['name', seed.name, manifest.name],

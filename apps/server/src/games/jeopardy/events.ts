@@ -49,7 +49,7 @@ function validateOrReject<T>(
 }
 
 export function registerJeopardyEvents(io: Server, socket: Socket) {
-    // Jeopardy game events (P0-07: MODERATOR-only, P0-08: Zod validation, P0-09: error handling)
+    // Jeopardy game events (P0-07: HOST-only, P0-08: Zod validation, P0-09: error handling)
     socket.on('jeopardy:field:open', (data, callback) => {
       try {
         const valid = validateOrReject(JeopardyFieldOpenSchema, data, callback);
@@ -148,12 +148,12 @@ export function registerJeopardyEvents(io: Server, socket: Socket) {
       }
     });
 
-    // Jeopardy board switch (P0-07: MODERATOR-only, P0-08: Zod validation, P0-09: error handling)
+    // Jeopardy board switch (P0-07: HOST-only, P0-08: Zod validation, P0-09: error handling)
     socket.on('jeopardy:board:switch', async (data, callback) => {
       try {
         const valid = validateOrReject(JeopardyBoardSwitchSchema, data, callback);
         if (!valid) return;
-        const auth = authorizeGameAction(socket, { roles: ['MODERATOR'], requireParticipation: true });
+        const auth = authorizeGameAction(socket, { roles: ['HOST'], requireParticipation: true });
         if (!auth.ok) { callback?.({ success: false, error: auth.error }); return; }
         const room = await prisma.room.findUnique({
           where: { id: auth.actor.roomId }, include: { gameDefinition: true },
@@ -179,7 +179,7 @@ export function registerJeopardyEvents(io: Server, socket: Socket) {
     // Jeopardy game state resync (P0-11: full rejoin)
     socket.on('jeopardy:resync', async (_data, callback) => {
       try {
-        const auth = authorizeGameAction(socket, { roles: ['MODERATOR', 'PLAYER', 'VIEWER'] });
+        const auth = authorizeGameAction(socket, { roles: ['HOST', 'PLAYER', 'VIEWER'] });
         if (!auth.ok) { callback?.({ success: false, error: auth.error }); return; }
         const identity = getSocketDataIdentity(socket);
 
@@ -244,7 +244,7 @@ export function registerJeopardyEvents(io: Server, socket: Socket) {
           };
 
           // P0-07: Only include answer for moderator
-          if (identity.role === 'MODERATOR' && clue?.answer) {
+          if (identity.role === 'HOST' && clue?.answer) {
             currentField.answer = clue.answer;
           }
         }

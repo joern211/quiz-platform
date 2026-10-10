@@ -25,7 +25,7 @@ export function ModeratorLobbyPage() {
   // Store active room in session
   useEffect(() => {
     if (code) {
-      setSession({ roomCode: code, role: 'MODERATOR' });
+      setSession({ roomCode: code, role: 'HOST' });
     }
     return () => {
       // Don't clear on unmount - user might navigate to game page
@@ -44,7 +44,7 @@ export function ModeratorLobbyPage() {
     // emitted → Moderator-Socket subscription geht verloren → game:start → NOT_IN_ROOM.
     // Fix: room:subscribe direkt aufrufen wenn das Socket bereits verbunden ist.
     const doSubscribe = () => {
-      socket.emit('room:subscribe', { roomCode, role: 'MODERATOR' }, (response) => {
+      socket.emit('room:subscribe', { roomCode, role: 'HOST' }, (response) => {
         if (!response.success) {
           setKickError(`Raumverbindung fehlgeschlagen: ${response.error ?? 'Unbekannter Fehler'}`);
         }
@@ -67,7 +67,7 @@ export function ModeratorLobbyPage() {
       // If game already running, redirect to game page
       if (data.status === 'RUNNING') {
         setGameStarted(true);
-        const path = gamePath(data.gameSlug, 'MODERATOR', roomCode);
+        const path = gamePath(data.gameSlug, 'HOST', roomCode);
         navigate(path);
       }
     });
@@ -93,7 +93,7 @@ export function ModeratorLobbyPage() {
     socket.on('game:start', (data) => {
       if (data.status === 'RUNNING') {
         setGameStarted(true);
-        const path = gamePath(data.gameSlug, 'MODERATOR', roomCode);
+        const path = gamePath(data.gameSlug, 'HOST', roomCode);
         navigate(path);
       }
     });
@@ -133,7 +133,7 @@ export function ModeratorLobbyPage() {
       setLoading(false);
       if (response.success) {
         const gameSlug = response.gameSlug ?? '';
-        const path = gamePath(gameSlug, 'MODERATOR', roomCode);
+        const path = gamePath(gameSlug, 'HOST', roomCode);
         navigate(path);
       } else {
         setKickError(response.error || 'Start nicht möglich');
@@ -153,7 +153,7 @@ export function ModeratorLobbyPage() {
         setLoading(false);
         if (response.success) {
           const gameSlug = response.gameSlug ?? '';
-          const path = gamePath(gameSlug, 'MODERATOR', roomCode);
+          const path = gamePath(gameSlug, 'HOST', roomCode);
           navigate(path);
         } else {
           setKickError(response.error || 'Start nicht möglich');
@@ -246,7 +246,7 @@ export function ModeratorLobbyPage() {
                 <div key={player.id} className={styles.playerRow}>
                   <div className={styles.playerInfo}>
                     <span className={styles.playerName}>{player.displayName}</span>
-                    {player.role === 'MODERATOR' && (
+                    {player.role === 'HOST' && (
                       <Badge variant="accent" size="sm">Host</Badge>
                     )}
                     {!player.connected && (
@@ -259,7 +259,7 @@ export function ModeratorLobbyPage() {
                       <Badge variant="muted" size="sm">Wartet...</Badge>
                     )}
                   </div>
-                  {player.role !== 'MODERATOR' && (
+                  {player.role !== 'HOST' && (
                     <Button
                       variant="ghost"
                       size="sm"

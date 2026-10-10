@@ -58,7 +58,7 @@ describe('Moderator reconnect', () => {
         displayName: 'Reconnect Host',
         email: 'reconnect-host@test.local',
         passwordHash: 'unused',
-        role: 'MODERATOR',
+        role: 'HOST',
       },
     });
     const otherUser = await database.user.create({
@@ -67,7 +67,7 @@ describe('Moderator reconnect', () => {
         displayName: 'Other Moderator',
         email: 'reconnect-other@test.local',
         passwordHash: 'unused',
-        role: 'MODERATOR',
+        role: 'HOST',
       },
     });
     const game = await database.gameDefinition.create({
@@ -96,7 +96,7 @@ describe('Moderator reconnect', () => {
         roomId: room.id,
         displayName: host.displayName,
         normalizedName: host.displayName.toLowerCase(),
-        role: 'MODERATOR',
+        role: 'HOST',
         connected: false,
         ready: true,
         rejoinToken: 'original-moderator-token',
@@ -112,11 +112,11 @@ describe('Moderator reconnect', () => {
 
       expect(acknowledgement).toHaveBeenCalledWith(expect.objectContaining({ success: true }));
       expect(socket.data.participationId).toBe(originalModerator.id);
-      expect(socket.data.role).toBe('MODERATOR');
+      expect(socket.data.role).toBe('HOST');
       expect(socketIdentityMap.get(socket.id)?.userId).toBe(host.id);
 
       const moderators = await database.participation.findMany({
-        where: { roomId: room.id, role: 'MODERATOR' },
+        where: { roomId: room.id, role: 'HOST' },
       });
       expect(moderators).toHaveLength(1);
       expect(moderators[0].id).toBe(originalModerator.id);
@@ -139,14 +139,14 @@ describe('Moderator reconnect', () => {
       where: { id: originalModerator.id },
     });
     expect(moderatorAfterRace.connected).toBe(true);
-    expect(await database.participation.count({ where: { roomId: room.id, role: 'MODERATOR' } })).toBe(1);
+    expect(await database.participation.count({ where: { roomId: room.id, role: 'HOST' } })).toBe(1);
 
     const nonHostSocket = createSocket('non-host-socket', otherUser);
     const nonHostAcknowledgement = vi.fn();
     await handleRoomSubscription(io, nonHostSocket, { roomCode: room.code }, nonHostAcknowledgement);
     expect(nonHostAcknowledgement).toHaveBeenCalledWith(expect.objectContaining({ success: true }));
     expect(nonHostSocket.data.role).toBe('VIEWER');
-    expect(await database.participation.count({ where: { roomId: room.id, role: 'MODERATOR' } })).toBe(1);
+    expect(await database.participation.count({ where: { roomId: room.id, role: 'HOST' } })).toBe(1);
 
     await handleDisconnect(io, replacementSocket);
     await handleDisconnect(io, nonHostSocket);

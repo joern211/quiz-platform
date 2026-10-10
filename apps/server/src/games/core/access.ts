@@ -10,7 +10,7 @@ import { prisma } from '../../persistence/prisma.js';
 import { resolveCanonicalSlug } from '@quiz/shared';
 import type { GameDefinition, Room } from '@prisma/client';
 
-export type GameRole = 'MODERATOR' | 'PLAYER' | 'VIEWER';
+export type GameRole = 'HOST' | 'PLAYER' | 'VIEWER';
 
 export interface GameActor {
   roomId: string;

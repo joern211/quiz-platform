@@ -30,7 +30,7 @@ export interface JeopardyBuzzWonPayload {
 }
 
 export interface JeopardyRevealPayload {
-  answer: string; // Only for MODERATOR; masked for PLAYER/VIEWER
+  answer: string; // Only for HOST; masked for PLAYER/VIEWER
   correct: boolean;
   playerId: string;
   playerName: string;
@@ -154,7 +154,7 @@ export function useJeopardy(roomCode: string, role: PlayerRole) {
             }
             const scores = Object.fromEntries((res.scores ?? []).map((entry) => [entry.playerId, entry.score]));
             const playerNames = res.playerNames ?? Object.fromEntries((res.scores ?? []).map((entry) => [entry.playerId, entry.playerName]));
-            setSecretAnswer(role === 'MODERATOR' ? res.currentField?.answer ?? null : null);
+            setSecretAnswer(role === 'HOST' ? res.currentField?.answer ?? null : null);
             setGameState((prev) => ({
               ...prev,
               boardNumber: res.currentBoard!,
@@ -232,7 +232,7 @@ export function useJeopardy(roomCode: string, role: PlayerRole) {
       }));
     });
 
-    // Secret answer — MODERATOR only
+    // Secret answer — HOST only
     socket.on('jeopardy:answer:secret', (data: { answer: string }) => {
       setSecretAnswer(data.answer);
     });

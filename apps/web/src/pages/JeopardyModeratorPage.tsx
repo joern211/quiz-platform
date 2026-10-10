@@ -18,7 +18,7 @@ export function JeopardyModeratorPage() {
   const roomCode = code ?? '';
   const navigate = useNavigate();
   const { connected, gameState, secretAnswer, error, clearError, actions } =
-    useJeopardy(roomCode, 'MODERATOR');
+    useJeopardy(roomCode, 'HOST');
 
   // Redirect to lobby if game not started
   useEffect(() => {
@@ -174,7 +174,7 @@ export function JeopardyModeratorPage() {
                 playerNames={gameState.playerNames}
               />
 
-              {/* Secret answer (MODERATOR ONLY) */}
+              {/* Secret answer (HOST ONLY) */}
               {secretAnswer && (
                 <Card padding="md" className={styles.secretCard}>
                   <div className={styles.secretHeader}>

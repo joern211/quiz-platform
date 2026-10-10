@@ -153,7 +153,7 @@ export const handleJeopardyGame = {
    * Answer is sent ONLY to the moderator socket.
    *
    * Guards:
-   * - Only MODERATOR or PLAYER may open fields
+   * - Only HOST or PLAYER may open fields
    * - Field must not have been played already
    * - Board index must match currentBoard
    * - Phase must be SELECTING
@@ -163,9 +163,9 @@ export const handleJeopardyGame = {
     socket: Socket,
     data: { boardIndex: 1 | 2; categoryIndex: number; value: number }
   ): Promise<{ success: boolean; error?: string }> {
-    const auth = await authorizeGameContext(socket, { roles: ['MODERATOR'], requireParticipation: true, gameSlug: 'jeopardy', requireRunning: true });
+    const auth = await authorizeGameContext(socket, { roles: ['HOST'], requireParticipation: true, gameSlug: 'jeopardy', requireRunning: true });
     if (!auth.ok) {
-      return { success: false, error: auth.error === 'FORBIDDEN' ? 'MODERATOR_ONLY' : auth.error };
+      return { success: false, error: auth.error === 'FORBIDDEN' ? 'HOST_ONLY' : auth.error };
     }
 
     const roomId = auth.actor.roomId;
@@ -333,7 +333,7 @@ export const handleJeopardyGame = {
    * Idempotent: double calls have no extra effect.
    *
    * Guards:
-   * - Only MODERATOR
+   * - Only HOST
    * - Phase must be BUZZ_LOCKED
    * - A buzzWinner must exist
    */
@@ -342,7 +342,7 @@ export const handleJeopardyGame = {
     socket: Socket,
     data: { correct: boolean }
   ): Promise<{ success: boolean; error?: string }> {
-    const auth = await authorizeGameContext(socket, { roles: ['MODERATOR'], requireParticipation: true, gameSlug: 'jeopardy', requireRunning: true });
+    const auth = await authorizeGameContext(socket, { roles: ['HOST'], requireParticipation: true, gameSlug: 'jeopardy', requireRunning: true });
     if (!auth.ok) {
       return { success: false, error: auth.error === 'FORBIDDEN' ? 'UNAUTHORIZED' : auth.error };
     }
@@ -466,14 +466,14 @@ export const handleJeopardyGame = {
   /**
    * Moderator judges the steal attempt.
    * Always 50% points (or 50% penalty).
-   * Guards: Only MODERATOR, STEAL_LOCKED phase.
+   * Guards: Only HOST, STEAL_LOCKED phase.
    */
   async handleStealJudge(
     io: Server,
     socket: Socket,
     data: { correct: boolean }
   ): Promise<{ success: boolean; error?: string }> {
-    const auth = await authorizeGameContext(socket, { roles: ['MODERATOR'], requireParticipation: true, gameSlug: 'jeopardy', requireRunning: true });
+    const auth = await authorizeGameContext(socket, { roles: ['HOST'], requireParticipation: true, gameSlug: 'jeopardy', requireRunning: true });
     if (!auth.ok) {
       return { success: false, error: auth.error === 'FORBIDDEN' ? 'UNAUTHORIZED' : auth.error };
     }
@@ -576,7 +576,7 @@ export const handleJeopardyGame = {
     socket: Socket,
     _data: Record<string, never> = {}
   ): Promise<{ success: boolean; error?: string }> {
-    const auth = await authorizeGameContext(socket, { roles: ['MODERATOR'], requireParticipation: true, gameSlug: 'jeopardy', requireRunning: true });
+    const auth = await authorizeGameContext(socket, { roles: ['HOST'], requireParticipation: true, gameSlug: 'jeopardy', requireRunning: true });
     if (!auth.ok) {
       return { success: false, error: auth.error === 'FORBIDDEN' ? 'UNAUTHORIZED' : auth.error };
     }

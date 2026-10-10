@@ -61,7 +61,7 @@ export const handleGeoEvents = {
     data: { questionIndex?: number; optionId: string },
     callback?: (result: any) => void
   ) {
-    // VIEWER role check: only PLAYER and MODERATOR can answer
+    // VIEWER role check: only PLAYER and HOST can answer
     const identity = getSocketDataIdentity(socket);
     if (!identity || !identity.roomId) {
       callback?.({ success: false, error: 'NOT_IN_ROOM' });
@@ -97,7 +97,7 @@ export const handleGeoEvents = {
     data: { roomCode: string; rejoinToken?: string },
     callback?: (result: any) => void
   ) {
-    // VIEWER role check: only PLAYER and MODERATOR can use jokers
+    // VIEWER role check: only PLAYER and HOST can use jokers
     const identity = getSocketDataIdentity(socket);
     if (!identity || !identity.roomId) {
       callback?.({ success: false, error: 'NOT_IN_ROOM' });
@@ -116,7 +116,7 @@ export const handleGeoEvents = {
     data: { roomCode: string; rejoinToken?: string },
     callback?: (result: any) => void
   ) {
-    // VIEWER role check: only PLAYER and MODERATOR can use jokers
+    // VIEWER role check: only PLAYER and HOST can use jokers
     const identity = getSocketDataIdentity(socket);
     if (!identity || !identity.roomId) {
       callback?.({ success: false, error: 'NOT_IN_ROOM' });
@@ -135,7 +135,7 @@ export const handleGeoEvents = {
     data: { roomCode: string; rejoinToken?: string },
     callback?: (result: any) => void
   ) {
-    // VIEWER role check: only PLAYER and MODERATOR can use jokers
+    // VIEWER role check: only PLAYER and HOST can use jokers
     const identity = getSocketDataIdentity(socket);
     if (!identity || !identity.roomId) {
       callback?.({ success: false, error: 'NOT_IN_ROOM' });
@@ -170,7 +170,7 @@ export const handleGeoEvents = {
       return;
     }
 
-    const authorized = requireRoomRole(socket, 'MODERATOR');
+    const authorized = requireRoomRole(socket, 'HOST');
     if (!authorized) {
       callback?.({ success: false, error: 'UNAUTHORIZED' });
       return;
@@ -201,7 +201,7 @@ export const handleGeoEvents = {
       return;
     }
 
-    const authorized = requireRoomRole(socket, 'MODERATOR');
+    const authorized = requireRoomRole(socket, 'HOST');
     if (!authorized) {
       callback?.({ success: false, error: 'UNAUTHORIZED' });
       return;

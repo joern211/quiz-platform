@@ -79,10 +79,10 @@ describe('Raumerstellung mit kanonischen Slugs (§14)', () => {
     const room = await prisma.room.findUnique({ where: { code: res.body.data.code }, include: { gameDefinition: true, participations: true } });
     expect(room!.gameDefinition.slug).toBe(GAME_SLUGS.wissensduell);
     expect(room!.status).toBe('LOBBY');
-    // Host-Participation wurde automatisch angelegt (Rolle MODERATOR)
-    const host = room!.participations.find((p) => p.role === 'MODERATOR');
+    // Host-Participation wurde automatisch angelegt (Rolle HOST)
+    const host = room!.participations.find((p) => p.role === 'HOST');
     expect(host).toBeDefined();
-    expect(host!.role).toBe('MODERATOR');
+    expect(host!.role).toBe('HOST');
     expect(host!.displayName).toMatch(/^Moderator\d+$/);
     expect(host!.connected).toBe(true);
 

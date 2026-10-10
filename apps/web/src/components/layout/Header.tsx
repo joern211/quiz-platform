@@ -72,7 +72,7 @@ export function Header() {
     const code = activeRoomCode;
     if (!code) return '/';
     const role = sessionStorage.getItem('qp_role');
-    if (role === 'MODERATOR') {
+    if (role === 'HOST') {
       return `/moderator/raum/${code}/lobby`;
     }
     return `/raum/${code}/lobby`;
