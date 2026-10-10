@@ -52,7 +52,7 @@ Für jedes Spiel ist **ein** Entscheidungs-Bündel offen (je eine ID):
 | ID | Spiel (PR) | Kern der offenen Entscheidung | Empfohlener Default | Alternative |
 |---|---|---|---|---|
 | DEC-SNG-01 | Erkenne den Song (21) | Punktwerte, Reopen-Count, Ladefehler-Fallback, min/max | 3/1/0, 1 Reopen, FALLBACK nach 2 Retries, 2–12 | −1 bei falsch; 2 Reopens; SKIP_ROUND sofort |
-| DEC-SPI-01 | Imposter (22) | Anonymisierung, Selbst-Vote, Tie, Duplikate, Nichtabgabe, min/max | anonymiert ON, Selbst-Vote OFF, 2-Wege-Tie = keine Punkte, Duplikat → erster Autor, Nichtabgabe = 0, 3–12 | Namenszuordnung ab Vote; Self-Vote ON |
+| DEC-SPI-01 | Imposter (22) | Anonymisierung, Selbst-Vote, Tie, Duplikate, Nichtabgabe, min/max | anonymisiert ON, Selbst-Vote OFF, **Tie betrifft nur die Rundengewinnerfrage — die feste je-Stimme-Wertung (+1 korrekt / +1 pro getäuschtem Vote) gilt auch bei Gleichstand (FEST, Master §15.4; 12-03/E)**, Duplikat → erster Autor, Nichtabgabe = 0, 3–12 | Namenszuordnung ab Vote; Self-Vote ON |
 | DEC-LMS-01 | Last Man Standing (23) | Timeout, Disconnect-Frist, Wiederholungen, gleichzeitiges Ausscheiden, min/max | Timeout=Pass, 30s Gnadenfrist, Wiederholung OK (nur Kategorie-Duplizität), letzter valider Zug, 3–12 | Timeout = sofort KO; 60s Gnadenfrist |
 | DEC-HOL-01 | Higher or Lower (24) | Datenmodell (NUMERIC/RANKING), Tie-Content, Streak-Bonus, Reveal-Delay | NUMERIC+RANKING, Tie-Content = beide korrekt, +50 je 3, 1.5s | Tie-Content = kein Punkt; LOGARITHMIC-Scoring |
 | DEC-TIM-01 | Timeline (25) | Teilwertungs-Formel, Ties, Speed-Bonus, Items/Runde | 20/Position + 50 full-correct, Tolerated Ties, Speed-Bonus optional, 5 Items | nur Vollwert (0/100); 4–7 Items |
@@ -77,7 +77,7 @@ Für jedes Spiel ist **ein** Entscheidungs-Bündel offen (je eine ID):
 
 | ID | Spiel (PR) | Entscheidung | Empfohlener Vorschlag | Alternative |
 |---|---|---|---|---|
-| DEC-JEO-01 | Jeopardy (37) | Host-Mitspiel bei Judge (Info-Vorteil durch sofortige Lösungsansicht) | Host wird in eigenen Runden aus Buzzer-Pool ausgeschlossen | Host darf mitbuzzen (Vorteil akzeptiert) |
+| DEC-JEO-01 | Jeopardy (37) | Host-Mitspiel bei Judge (Info-Vorteil durch sofortige Lösungsansicht) | **VORSCHLAG (12-05/F):** Host wird in eigenen Runden aus Buzzer-Pool ausgeschlossen (faire Rollenlösung ohne Rollenmodell-Bruch) | — **keine Alternative „Host darf mitbuzzen (Vorteil akzeptiert)"**: der Wissensvorteil ist keine freigabefähige Option; Verwaltung ≠ Gameplay-Information (FEST, Master §2/§10; 12-05/F) |
 | DEC-JEO-02 | Jeopardy (37) | End-Tie | geteilte Plätze (ALLOW_TIE) | Tie-Breaker-Feld |
 | DEC-JEO-03 | Jeopardy (37) | Auto-Judge bei Host-Ausfall | nein — Pause + Transfer | Auto-Judge nach 60s (CORRECT-Default) |
 | DEC-KAT-01 | Wissensduell (37) | Buzzer-Option | OFF (MC-Duell), als Preset offen | Buzzer-Modus ab V1 |

@@ -160,6 +160,7 @@ INTRO → (je Kategorie) CATEGORY_REVEAL → TURN_1 → TURN_2 → … → (LEBE
 - **Ausscheidende Teilnehmer:** Ausgeschiedene → `LEFT`-Status (kein Rejoin in dieselbe Partie, Vorschlag DEC-LMS-01); Restlauf als Zuschauer.
 - **Teamrollen/Rotation:** keine (individuell, feste Turn Order).
 - **Voice/Camera/Mic (Abweichung von den Defaults):** Mikrofon MUTED (Default). ·
+- **Viewer (FEST, Master §7.23 — kein Spiel darf abweichen):** kein Mic/Send (Viewer senden nie Audio); Viewer hört `MAIN`; nie `TEAM`; Host kann Viewer-Audio deaktivieren. ·
   Camera: OFF (Default).
 - **Medien in Phasen:** keine.
 - **RESULT_REVIEW:** geerbt (§3.4).

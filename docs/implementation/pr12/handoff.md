@@ -171,9 +171,16 @@ Round-Transition/Progress/Leaderboard/Result-Screen/Notification), Team-Core,
 §6 Content-System, §7 Media-Vollsystem + Voice/Camera/Broadcast, §8 Event (voll),
 §9 Profile/Stats/XP (voll), §10 Integrity, §11 Plattformbetrieb.
 
-## Nächster Schritt (09.10.2026, nach Audit-Nacharbeit)
+## Nächster Schritt (10.10.2026, nach Nachbefunden D–F)
 
-**Audit-Nacharbeit 12-01..12-11:** ✅ DONE — alle Befunde geschlossen (Tabelle unten).
+**Audit-Nacharbeit 12-01..12-11:** ✅ DONE (Tabelle unten).
+**Nachbefunde D–F (10.10., Wiederaufnahme-Auftrag):** ✅ DONE (Tabelle unten) —
+Viewer-Audio-Standard (§7.23) verbindlich in allen 19 Specs + Vertrag;
+Imposter: feste je-Stimme-Wertung auch bei Gleichstand + keine geheimen
+Antworten für mitspielenden Host; Jeopardy: „Host mitbuzzer, Vorteil
+akzeptiert" als Alternative entfernt (FEST-Trennung Verwaltung ≠
+Gameplay-Information).
+
 Branch `docs/pr12-master-spec-preparation` gepusht, **Draft-PR #12 offen**
 (https://github.com/joern211/quiz-platform/pull/12). **Nicht** auf
 Ready-for-review umstellen, **nicht** mergen.
@@ -204,6 +211,28 @@ Ready-for-review umstellen, **nicht** mergen.
 | 12-09 | Scope/Integration falsch | `dependencies-and-parallel-work.md` | DDF-Katalog/Manifest = kein PR12-Runtime-Auftrag (PR36), PR12 docs-only; Core-DoD ≥2 Consumer früh je Core-PR (PR15/PR16), kein zirkuläres DONE-Kriterium | Dateibesitz + Integrationsreihenfolge |
 | 12-10 | Widersprüchliche Vorschläge | 6 `games/*.md` + Ausscheidungsspiele | Higher/Lower (B geheim), Timeline (1 Formel), Schätz mal (80/40/40 + trueValue=0/neg), Millionenfrage (Bank [3,6,9,10] → 100), Geheim Agent (Rollen exakt n), Same Thought (+100=je +50); INSUFFICIENT_PLAYERS nur Start-/Pause-Gate | Beispiele aus eigener Regel abgeleitet |
 | 12-11 | Handoff/Verifikation bereinigen | `handoff.md`, `verification.md` | private absolute Pfade/Zugangskontext entfernt; „Rest: Push/Draft-PR" korrigiert; ID-/Linkchecks als solche benannt; PR11-Snapshot getrennt von main; nach PR11-Merge = erneuter Abgleich (nicht vorweg behauptet) | grep: keine `/Users/`-Pfade |
+
+## Nachbefund-Closure (D–F, 10.10.2026)
+
+| ID | Befund | Datei(en) | Konkrete Änderung | Nachweis |
+|---|---|---|---|---|
+| D | Viewer-Audio-Standard nicht durchgängig verbindlich (Master §7.23) | `technical-mapping.md` §3.4 (Medien-Default-Tabelle), alle 19 `games/*.md` §13, `games/index.md` (DoD 12) | Gemeinsame Vertragstabelle: neue **Viewer-Audio-Zeile** (kein Mic/Send, hört `MAIN`, nie `TEAM`, Host-Deaktivierung) als verbindlicher V1-Standard; in JEDEM §13-Block eine FEST-Viewer-Zeile (kein Spiel darf abweichen); index-DoD-Punkt 12 | Master §7.23 (RTF-Zeile 1993ff); 19/19 Specs + Vertrag + Index; bestehende korrekte Stellen (Matrix MR-07-18-01/MR-07-23-01, technical-mapping §5.6) unverändert konsistent |
+| E | Imposter: Gleichstand/Tie + Host-Sichtbarkeit vor Reveal | `games/imposter.md` §2/§7/§8, `decision-register.md` DEC-SPI-01 | §2: `HOST_PREVIEW=false` = **verbindliche V1-Konfiguration** für mitspielende Hosts (KEINE Vor-REVEAL-Preview-Option); §8 Projektion entsprechend; DEC-SPI-01: „2-Wege-Tie = keine Punkte" ersetzt durch Präzisierung „Tie betrifft nur die Rundengewinnerfrage; feste je-Stimme-Wertung gilt auch bei Gleichstand (FEST, Master §15.4)" | Master §15.4 (Scoring pro Stimme, keine globale Tie-Null); §7-Tie-Grenze (12-03) bleibt gültig und wird vom Register nicht mehr widersprochen |
+| F | Jeopardy: „Host mitbuzzer, Vorteil akzeptiert" als Alternative | `decision-register.md` DEC-JEO-01 | Alternative-Spalte: „Host darf mitbuzzen (Vorteil akzeptiert)" **entfernt** und ausdrücklich als nicht zulässige Option gekennzeichnet (Verwaltung ≠ Gameplay-Information, FEST Master §2/§10); empfohlener Vorschlag (Buzzer-Ausschluss in eigenen Runden) bleibt der einzig offenstehende faire Vorschlag | Master-Trennung (FEST); `games/jeopardy.md` §2 war bereits korrekt („keine freigabefähige Alternative") — Register stand im Widerspruch, ist jetzt konsistent |
+
+**Gesamt-Abgleich (Auftrag):** `viewer + audio/mic/kanal/hört/send` über
+sämtliche PR12-Dateien durchsucht — die einzigen Abweichungen von §7.23
+waren (a) das Fehlen einer verbindlichen Viewer-Default-Aussage in den
+Spielspecs (→ D behoben) und (b) keine widersprechenden Stellen in
+Matrix/Mapping (MR-07-18-01, MR-07-23-01, §3.4-E, §5.6 stimmten bereits).
+`HOST_PREVIEW/Content-Preview/Host sieht` durchsucht: widersprechend nur
+`imposter.md` §2/§8 (→ E) und `DEC-SPI-01` (→ E); alle anderen Spiele
+(wissensduell, jeopardy, undercover, DDF, higher-lower, timeline,
+song-quiz) formulieren bereits korrekt (Host ohne Vor-REVEAL-Content oder
+fester `HOST_PREVIEW=false`-Default ohne mitspielenden Host-Vorsprung).
+`mitbuzzer/Vorteil akzeptiert` durchsucht: widersprechend nur
+`DEC-JEO-01` (→ F). Bereits festgelegte Master-Regeln sind keine erneut
+offenen Nutzerentscheidungen.
 
 ## Commit-Log (eigener Branch)
 

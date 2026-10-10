@@ -49,6 +49,10 @@ Jede Spezifikation endet mit demselben verbindlichen DoD-Block:
     Persistenz/Version/Recovery, Medien-/Voice-/Camera-/Mic-/Display-
     Defaults) und ergänzt **nur** die engine-spezifischen Abweichungen im
     §13-Block der eigenen Spec.
+12. **Viewer-Audio-Standard (12-08/D, Master §7.23):** §13 benennt den
+    verbindlichen Viewer-Audio-Default — kein Mic/Send (Viewer senden nie
+    Audio), Viewer hört `MAIN`, nie `TEAM`, Host kann Viewer-Audio
+    deaktivieren; kein Spiel darf davon abweichen.
 
 `AVAILABLE` erst nach 1–11; `BETA` nur mit dokumentierten nichtkritischen
 Einschränkungen. Jede Engine nutzt mindestens die Cores, die in ihrer

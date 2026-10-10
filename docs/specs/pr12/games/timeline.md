@@ -153,6 +153,7 @@ INTRO → (je Runde) SET_REVEAL (unsortierte Items) → SORTING_OPEN → SORTING
 - **Ausscheidende Teilnehmer:** keine (alle bleiben aktiv).
 - **Teamrollen/Rotation:** keine (individuell).
 - **Voice/Camera/Mic (Abweichung von den Defaults):** Mikrofon MUTED (Default). ·
+- **Viewer (FEST, Master §7.23 — kein Spiel darf abweichen):** kein Mic/Send (Viewer senden nie Audio); Viewer hört `MAIN`; nie `TEAM`; Host kann Viewer-Audio deaktivieren. ·
   Camera: OFF (Default).
 - **Medien in Phasen:** keine.
 - **RESULT_REVIEW:** geerbt (§3.4).

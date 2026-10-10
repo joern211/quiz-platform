@@ -278,8 +278,9 @@ Fehlerantworten (alle Commands, `ApiResponse`-Vertrag §2 + §5.25):
 | Aspekt | V1-Default |
 |---|---|
 | Camera | **OFF** (Opt-in, `cameraEnabled` Raum-Flag; Sichtbarkeit §7.17) |
-| Mic | **MUTED** (Opt-in, PTT optional §7.19; Viewer nie im Voice-Channel) |
+| Mic | **MUTED** (Opt-in, PTT optional §7.19; Viewer senden **nie** Audio — kein Mic/Send, §7.23) |
 | Voice-Channel | `MAIN` (+ `TEAM` nur bei Team-Engines, Viewer ausgeschlossen §7.18) |
+| **Viewer Audio (Master §7.23)** | **Kein Mic/Send; Viewer hört `MAIN`; nie `TEAM`; Host kann Viewer-Audio deaktivieren.** Verbindlicher V1-Standard für alle Engines — kein Spiel darf Viewer `TEAM` freigeben oder ein Viewer-Senden vorschlagen. |
 | Display | Broadcast-Route, PUBLIC-Projektion, mehrere Displays, keine Secrets (§5.6) |
 | Medien in Phasen | nur über signed/leak-safe URLs (PR11-Grundlage); Preloading nie Secrets |
 

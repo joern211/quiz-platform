@@ -182,6 +182,7 @@ SETUP (Setup v2) → INTRO → (je Runde) BUZZ_OPEN → BUZZ_LOCKED → JUDGING 
 - **Ausscheidende Teilnehmer:** keine (Rundenbuzzer, keine Dauer-Ausscheidung).
 - **Teamrollen/Rotation:** keine (Team-Buzzer via Core, optional).
 - **Voice/Camera/Mic (Abweichung von den Defaults):** Mikrofon MUTED (Default); Reveal-Äußerungen verbal (Host-Judge). ·
+- **Viewer (FEST, Master §7.23 — kein Spiel darf abweichen):** kein Mic/Send (Viewer senden nie Audio); Viewer hört `MAIN`; nie `TEAM`; Host kann Viewer-Audio deaktivieren. ·
   Camera: OFF (Default).
 - **Medien in Phasen:** Fusion via signed `gameImageUrl` (PR11); Originals nie in Projektionen vor Reveal.
 - **RESULT_REVIEW:** ausgewiesen (§6).

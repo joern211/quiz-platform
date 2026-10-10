@@ -141,6 +141,7 @@ INTRO → (je Runde) STATEMENT_REVEAL → INPUT_OPEN (WAHR/FAKE) → INPUT_LOCKE
 - **Ausscheidende Teilnehmer:** keine (alle bleiben aktiv).
 - **Teamrollen/Rotation:** Team = Mehrheit (Vorschlag DEC-WOF-01).
 - **Voice/Camera/Mic (Abweichung von den Defaults):** Mikrofon MUTED (Default). ·
+- **Viewer (FEST, Master §7.23 — kein Spiel darf abweichen):** kein Mic/Send (Viewer senden nie Audio); Viewer hört `MAIN`; nie `TEAM`; Host kann Viewer-Audio deaktivieren. ·
   Camera: OFF (Default).
 - **Medien in Phasen:** keine (Fakten/Quellen als Text).
 - **RESULT_REVIEW:** geerbt (§3.4).

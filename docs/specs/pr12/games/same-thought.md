@@ -155,6 +155,7 @@ INTRO → (je Runde) PROMPT_REVEAL → INPUT_OPEN (alle parallel, privat) → IN
 - **Ausscheidende Teilnehmer:** keine (alle bleiben aktiv).
 - **Teamrollen/Rotation:** **Pflicht:** 2er-Paare (Vorschlag DEC-SAM-01), optional rotierend.
 - **Voice/Camera/Mic (Abweichung von den Defaults):** Mikrofon MUTED (Default). ·
+- **Viewer (FEST, Master §7.23 — kein Spiel darf abweichen):** kein Mic/Send (Viewer senden nie Audio); Viewer hört `MAIN`; nie `TEAM`; Host kann Viewer-Audio deaktivieren. ·
   Camera: OFF (Default).
 - **Medien in Phasen:** keine.
 - **RESULT_REVIEW:** geerbt (§3.4).

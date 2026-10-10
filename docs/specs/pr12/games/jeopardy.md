@@ -168,6 +168,7 @@ SELECTING → BUZZ_OPEN → BUZZ_LOCKED → FIELD_DONE | (WRONG) STEAL_OPEN → 
 - **Ausscheidende Teilnehmer:** keine Ausscheidung im Feldverlauf; Steal-Ausschluss ist field-begrenzt (§2).
 - **Teamrollen/Rotation:** keine (Team-Buzzer ab PR15, Default individual).
 - **Voice/Camera/Mic (Abweichung von den Defaults):** Mikrofon MUTED (Default). ·
+- **Viewer (FEST, Master §7.23 — kein Spiel darf abweichen):** kein Mic/Send (Viewer senden nie Audio); Viewer hört `MAIN`; nie `TEAM`; Host kann Viewer-Audio deaktivieren. ·
   Camera: OFF (Default).
 - **Medien in Phasen:** keine Standard; Media-Felder optional (leak-safe).
 - **RESULT_REVIEW:** ausgewiesen (§6).

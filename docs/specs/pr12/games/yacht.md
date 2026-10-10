@@ -203,6 +203,7 @@ INTRO → (je Zug) ROLLING (max 3 Würfe, Hold/Unhold) → SCORING (Kategorie w�
 - **Ausscheidende Teilnehmer:** keine (alle bleiben aktiv bis Scorecard voll).
 - **Teamrollen/Rotation:** Teammodus: SHARED/INDIVIDUAL (§2); Team-Neuformung erst zwischen Partien (Vorschlag DEC-YAC-01).
 - **Voice/Camera/Mic (Abweichung von den Defaults):** Mikrofon MUTED (Default). ·
+- **Viewer (FEST, Master §7.23 — kein Spiel darf abweichen):** kein Mic/Send (Viewer senden nie Audio); Viewer hört `MAIN`; nie `TEAM`; Host kann Viewer-Audio deaktivieren. ·
   Camera: OFF (Default).
 - **Medien in Phasen:** keine (Würfel/Scorecard PUBLIC).
 - **RESULT_REVIEW:** geerbt (§3.4).

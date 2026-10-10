@@ -155,6 +155,7 @@ INTRO → (je Runde) AUDIO_LOADING → AUDIO_PLAYING → BUZZ_OPEN → BUZZ_LOCK
 - **Ausscheidende Teilnehmer:** keine (Buzzer-Runden).
 - **Teamrollen/Rotation:** keine (individuell, Shared-Buzzer).
 - **Voice/Camera/Mic (Abweichung von den Defaults):** Mikrofon MUTED (Default); **Audio-Playback läuft über den MAIN-Channel an alle** (synchronisiert, §7.14). ·
+- **Viewer (FEST, Master §7.23 — kein Spiel darf abweichen):** kein Mic/Send (Viewer senden nie Audio); Viewer hört `MAIN`; nie `TEAM`; Host kann Viewer-Audio deaktivieren. ·
   Camera: OFF (Default).
 - **Medien in Phasen:** Audio-Assets via signed/leak-safe URLs; Preloading der **nächsten** Spur erlaubt, nie der aktuellen vor Reveal.
 - **RESULT_REVIEW:** geerbt (§3.4).

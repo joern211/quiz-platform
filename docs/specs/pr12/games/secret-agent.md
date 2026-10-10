@@ -190,6 +190,7 @@ INTRO (Rollen-Zuteilung, Privat) → (je Runde) HINT_TURN_1 (Voice/Text) → …
 - **Ausscheidende Teilnehmer:** Ausgeschiedene → Zuschauer; Rollen-Geheimhaltung bleibt bis `GAME_END`.
 - **Teamrollen/Rotation:** keine (individuell, geheime Rollen).
 - **Voice/Camera/Mic (Abweichung von den Defaults):** **Voice-PFlicht in `DISCUSSION`** (Abweichung; Mute-Opt-in als Vorschlag DEC-AGT-01) — einzige Voice-Abweichung im Katalog. ·
+- **Viewer (FEST, Master §7.23 — kein Spiel darf abweichen):** kein Mic/Send (Viewer senden nie Audio); Viewer hört `MAIN`; nie `TEAM`; Host kann Viewer-Audio deaktivieren. ·
   Camera: OFF (Default).
 - **Medien in Phasen:** keine.
 - **RESULT_REVIEW:** geerbt (§3.4).

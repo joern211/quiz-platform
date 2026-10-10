@@ -161,6 +161,7 @@ INTRO (Startreihenfolge) → (je Zug) ROLL (serverseitig) → MOVE (Animation, s
 - **Ausscheidende Teilnehmer:** keine (Rennspiel, keine Ausscheidung).
 - **Teamrollen/Rotation:** individuell (Teammodus Option, Vorschlag DEC-BRD-01).
 - **Voice/Camera/Mic (Abweichung von den Defaults):** Mikrofon MUTED (Default). ·
+- **Viewer (FEST, Master §7.23 — kein Spiel darf abweichen):** kein Mic/Send (Viewer senden nie Audio); Viewer hört `MAIN`; nie `TEAM`; Host kann Viewer-Audio deaktivieren. ·
   Camera: OFF (Default).
 - **Medien in Phasen:** Brett-Render PUBLIC (Display-freundlich).
 - **RESULT_REVIEW:** geerbt (§3.4).

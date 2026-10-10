@@ -165,6 +165,7 @@ INTRO (Rollen-Zuteilung, Privat-Ansicht) → (je Runde) HINT_TURN_1 → … → 
 - **Ausscheidende Teilnehmer:** Ausgeschiedene → `LEFT`, Zuschauer; Rolle bleibt geheim (keine Reveal vor `GAME_END`, außer WIN_CHECK).
 - **Teamrollen/Rotation:** keine (individuell, geheime Rollen).
 - **Voice/Camera/Mic (Abweichung von den Defaults):** Mikrofon MUTED (Default); Discussion-Phase optional (Voice). ·
+- **Viewer (FEST, Master §7.23 — kein Spiel darf abweichen):** kein Mic/Send (Viewer senden nie Audio); Viewer hört `MAIN`; nie `TEAM`; Host kann Viewer-Audio deaktivieren. ·
   Camera: OFF (Default).
 - **Medien in Phasen:** keine.
 - **RESULT_REVIEW:** geerbt (§3.4).

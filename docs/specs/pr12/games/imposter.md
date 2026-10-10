@@ -45,7 +45,7 @@ gezeigt, dann wird abgestimmt.
 |---|---|---|
 | min/max | 3 / 12 (Vorschlag DEC-SPI-01) | V |
 | Teams | nein (individuell) | V |
-| Host-Mitspiel | erlaubt; **blind mitspielend** — Host sieht die echte Antwort wie jeder andere **erst im Reveal** (`HOST_PREVIEW=false`, keine Voreinstellung, die vor Reveal zeigt; 12-03) | F/V |
+| Host-Mitspiel | erlaubt; **blind mitspielend (FEST, 12-03/E):** Host sieht die echte Antwort wie jeder andere **erst im Reveal**. `HOST_PREVIEW=false` ist die **verbindliche V1-Konfiguration** für mitspielende Hosts — es gibt KEINE Option/Voreinstellung, die dem mitspielenden Host die echte Antwort vor dem Reveal zeigt (geheimen Antworten für einen mitspielenden Host sind untersagt; 12-03). | F |
 | Secrets | echte Antwort: `PLAYER_PRIVATE`/Content (bis Reveal — **auch für den Host blind mitspielend**; 12-03); eigene Antwort: `PLAYER_PRIVATE` bis Reveal; **keine Autoreninfo im Voting** (Vorschlag: Antworten ohne Namenszuordnung bis Reveal — siehe DEC-SPI-01) | F/V (Secret-Prinzip) |
 
 ## 4. Setup (Ziel)
@@ -134,8 +134,10 @@ INTRO → (je Runde) QUESTION_REVEAL → ANSWER_OPEN → ANSWER_LOCKED → VOTE_
 
 - PLAYER: Frage, eigene Antwort (private), anonymisierte Antwortliste
   (ohne Autorenschlüssel), eigene Punkte; Voting-Ziel = anonymisierte IDs.
-- HOST: + echte Antwort ab REVEAL (davor nur, wenn Host-Content-Preview
-  an — Standard: **aus**, `HOST_PREVIEW=false` default für Imposter).
+- HOST: + echte Antwort **ab REVEAL**. Für den mitspielenden Host ist
+  `HOST_PREVIEW=false` verbindlich (12-03/E): es existiert KEINE
+  Vor-REVEAL-Preview-Option — ein mitspielender Host sieht die echte
+  Antwort nicht vor dem Reveal, egal welche Host-/Admin-Funktion aktiv ist.
 - VIEWER: Frage, „Antwort offen", Punkte; keine Antworten vor Reveal.
 - DISPLAY: Frage, anonymisierte Antworten nach Reveal.
 - **Secret-Grenze:** Autoren-Vote-Mapping erst im REVEAL (serverseitig
@@ -171,7 +173,7 @@ INTRO → (je Runde) QUESTION_REVEAL → ANSWER_OPEN → ANSWER_LOCKED → VOTE_
 
 | ID | Frage | Vorschlag (default) |
 |---|---|---|
-| DEC-SPI-01 | Anonymisierung, Selbst-Vote, Tie, Duplikate, Nichtabgabe, min/max Players | anonymisiert ON, Selbst-Vote OFF, 2-Wege-Tie = keine Punkte, Duplikat → erster Autor, 3–12 Spieler |
+| DEC-SPI-01 | Anonymisierung, Selbst-Vote, Tie, Duplikate, Nichtabgabe, min/max Players | anonymisiert ON, Selbst-Vote OFF, Tie betrifft nur die Rundengewinnerfrage — die feste je-Stimme-Wertung gilt auch bei Gleichstand (FEST, Master §15.4), Duplikat → erster Autor, 3–12 Spieler |
 
 ---
 
@@ -187,6 +189,7 @@ INTRO → (je Runde) QUESTION_REVEAL → ANSWER_OPEN → ANSWER_LOCKED → VOTE_
 - **Ausscheidende Teilnehmer:** keine (alle bleiben in jedem Votum).
 - **Teamrollen/Rotation:** keine (individuell).
 - **Voice/Camera/Mic (Abweichung von den Defaults):** Mikrofon MUTED (Default). ·
+- **Viewer (FEST, Master §7.23 — kein Spiel darf abweichen):** kein Mic/Send (Viewer senden nie Audio); Viewer hört `MAIN`; nie `TEAM`; Host kann Viewer-Audio deaktivieren. ·
   Camera: OFF (Default).
 - **Medien in Phasen:** keine (verbale Antworten).
 - **RESULT_REVIEW:** geerbt (§3.4) — §6-Flow ergänzt `RESULT_REVIEW` vor FINALIZED.
