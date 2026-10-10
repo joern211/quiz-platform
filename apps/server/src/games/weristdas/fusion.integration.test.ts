@@ -180,7 +180,9 @@ describe('Wer ist das? v2 — Fusion + Geheimhaltung (Regelwerk §15.3, §10.7, 
     if (CTX.roomId) await CTX.prisma.room.delete({ where: { id: CTX.roomId } }).catch(() => {});
     await CTX.prisma.$disconnect();
     globalThis.__prisma = prevPrisma; // vorherigen Client wiederherstellen
-    await rm(CTX.tmpDir, { recursive: true, force: true });
+    // SQLite sidecar cleanup can briefly race recursive removal (CI: ENOTEMPTY).
+    // Retry transient filesystem errors; persistent cleanup failures still fail.
+    await rm(CTX.tmpDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
   });
 
   it('spielt eine v2-Runde: nur Composite vor Reveal, Namen erst nach Reveal (Rollenprojektionen)', async () => {
