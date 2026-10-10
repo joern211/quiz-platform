@@ -21,9 +21,10 @@ Die frühere Aussage, die Matrix sei bereits vollständig atomar und alle übrig
 - Mitspielende Hosts erhalten bei Undercover und Geheim Agent keine fremden Rollen/Begriffe. Ansicht aller Secrets nur für nicht mitspielenden Host; unfaire Host-Alternative entfernt.
 - Wer-ist-das: vollständiges Setup hebt das Ersteller-Gate nicht auf; falsches automatisches Host-Mitspiel entfernt. Anonyme Zweitidentitäten werden durch die Kontosperre nicht erkannt.
 - Geheim Agent: optionale Voice konsistent mit Setup und Entscheidungsregister; erfundene Voice-Pflicht entfernt.
-- Yacht: Solo ist FEST, Maximum 8 ist Vorschlag; keine erfundene Master-Begründung für dieses Maximum.
+- Yacht: Solo ist FEST, Maximum 8 ist Vorschlag; keine erfundene Master-Begründung für dieses Maximum. Alle 17 Unterabschnitte erhalten korrekte Quellenverweise; Zusatzbonus/Joker-Prinzip bleibt FEST, nur konkrete zusätzliche Werte bleiben Vorschlag.
 - DDF: Host bei eigenen/bekannten Fragen ausgeschlossen; bei unbekannten Poolfragen eigene Abgabe vor fremden Antworten locken. Judge arbeitet mit anonymen Antwort-IDs vor öffentlichem Reveal. Gleichzeitige Antworten können AUTO-Judge-Ties erzeugen; Tie-Vorschlag dokumentiert. Kein allgemeines Minusverbot behauptet. Ablaufbeispiel verwendet feste geometrische Fragen.
 - Unbestätigte Detailvorschläge blockieren nur ihre spätere Implementierung. FEST-Fairness ist keine erneut offene Grundsatzfrage.
+- DDF-AUTO benötigt gültige Matchingdaten; Zeitrangfolge und kumulative Survival-Punkte konsistent. Prozentdarstellung als Routineentscheidung mit zulässigen Nachkommastellen präzisiert.
 - Stale Zahlen, Abschluss- und CI-Behauptungen in README, Handoff, Verifikation und PR-Beschreibung korrigiert.
 
 ## Nachweise und Grenzen

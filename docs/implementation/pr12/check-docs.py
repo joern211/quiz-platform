@@ -38,6 +38,7 @@ for line in matrix.splitlines():
 require(len(ids) == len(set(ids)), 'Duplicate atomic ID')
 require(set(parents) == groups - {'MR-16-00-01'}, 'Missing or extra parent group')
 require(sections == set(range(1,21)), 'Missing Master section')
+require({f'16.{n}' for n in range(1,18)} <= set(re.findall(r'§(\d+\.\d+)', matrix)), 'Missing Yacht subsection source')
 require(f'{len(ids)} atomare MR-Zeilen' in matrix, 'Stale matrix count')
 
 specs = [p for p in (SPEC / 'games').glob('*.md') if p.name != 'index.md']
