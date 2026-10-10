@@ -481,11 +481,13 @@ export const GAME_MANIFESTS: GameManifest[] = [
     slug: GAME_SLUGS.werIstDas,
     name: 'Wer ist das?',
     category: 'buzzer-reaktion',
-    shortDescription: 'Bild + zwei Namen raten (Buzzer)',
+    shortDescription: 'Bild-Fusion + zwei Namen raten (Buzzer)',
     description:
-      'Pro Runde ein vorbereitetes Bild und zwei zu ratende Namen: Erster Buzzer antwortet, ' +
-      'der Moderator bewertet. (MVP-BETA: Fusionsbild-Generierung folgt in einem eigenen PR; ' +
-      'das Spiel funktioniert mit vorbereiteten Bildern — Regelwerk §13.1, §15.3.)',
+      'Pro Runde zwei Originalbilder, aus denen die Website ein einfach fusioniertes ' +
+      'Spielbild erzeugt; zwei Namen bleiben vor Reveal geheim: Erster Buzzer antwortet, ' +
+      'der Host bewertet. (BETA: Fusion = einfache Composite, später austauschbar durch ' +
+      'echtes Morphing — Regelwerk §13.1, §15.3. Ältere Runden mit einem vorbereiteten ' +
+      'Bild (setupSchemaVersion 1) bleiben lauffähig.)',
     minPlayers: 2,
     maxPlayers: 10,
     estimatedDurationMinutes: 15,
@@ -497,7 +499,7 @@ export const GAME_MANIFESTS: GameManifest[] = [
     hasCamera: false,
     hasAudio: false,
     hasTimer: false,
-    setupSchemaVersion: 1,
+    setupSchemaVersion: 2,
   },
   {
     slug: GAME_SLUGS.songQuiz,

@@ -12,9 +12,108 @@ import { logger } from '../observability/logger.js';
 import { config } from '../config/index.js';
 import { CreateRoomSchema, JoinRoomSchema, validateBody } from './validators.js';
 import { resolveCanonicalSlug, getGameManifest, type GameManifest } from '@quiz/shared';
+import { bindSnapshotAssetsToRoom } from '../media/lifecycle.js';
 import { isStartableSlug } from '../games/registry.js';
 
 export const roomsRouter : ReturnType<typeof Router> = Router();
+
+// PR11-Nacharbeit E: Doppelklick/Retry bei POST /rooms begrenzen. In der
+// BETA ist die Raumerstellung NICHT vollständig idempotent (ein zweiter
+// Klick erzeugt einen zweiten Raum); ein Rate-Limiter verhindert damit
+// versehentlich mehrere Räume. Wie joinLimiter: nur in Produktion wirksam.
+const createLimiter = process.env.NODE_ENV === 'production'
+  ? rateLimit({
+      windowMs: 15 * 60 * 1000, // 15 Minuten
+      max: 10,
+      standardHeaders: true,
+      legacyHeaders: false,
+      message: { success: false, error: { code: 'RATE_LIMIT', message: 'Zu viele Raum-Erstellungen. Bitte 15 Minuten warten.' } },
+    })
+  : (_req: import('express').Request, _res: import('express').Response, next: import('express').NextFunction) => next();
+
+/** Erkennt Prisma-Unique-Konflikte (P2002) robust an code/message. */
+function isUniqueConflict(error: unknown): boolean {
+  if (!error) return false;
+  const e = error as { code?: string; message?: string };
+  if (e.code === 'P2002') return true;
+  return typeof e.message === 'string' && /Unique constraint failed|UNIQUE constraint failed/i.test(e.message);
+}
+
+// ------------------------------------------------------------
+// Audit 11-06 (P1): serverseitige Idempotenz für Raum-Erstellung.
+//
+// Zwei Mechanismen, beide schreiben Room.idempotencyKey
+// (@@unique([idempotencyKey, hostUserId])):
+//   (a) Explizites Idempotency-Token des Clients (UUID, max 128): ein
+//       Retry/Doppelklick sendet dasselbe Token → derselbe Raum, exakt und
+//       zeitlich unbegrenzt. Ein bewusst neuer Raum verwendet ein neues
+//       Token. Wiederverwendung eines Tokens mit ABWEICHENDER Konfiguration
+//       liefert den EXISTIERENDEN Raum (vertragliche Idempotenz: das Token
+//       identifiziert die Absicht, nicht die Payload).
+//   (b) Inhaltliches Fingerprint (tokenlose Bestandsclients, parallele
+//       identische Requests): deterministischer Hash über die VOLLSTÄNDIGE,
+//       wirksame Konfiguration (Spiel, Name, Setup, PIN-Hash, Limits,
+//       Viewer/Camera/Chat/Public) — JSON rekursiv key-sorted, damit die
+//       Schlüsselreihenfolge keine zweite Identität erzeugt. Der Fingerprint
+//       gilt nur innerhalb derselben festen Uhrzeit-Minute: der Schlüssel enthält
+//       eine feste Minutenepoche → über die Minutengrenze kann dieselbe
+//       Konfiguration bewusst einen NEUEN Raum anlegen. Verschiedene tokenlose
+//       Absichten mit gleicher Konfiguration werden
+//       innerhalb derselben Minute zusammengeführt. Auch ein Retry 20 ms
+//       später kann über die Minutengrenze einen zweiten Raum erzeugen.
+//       Eine Absichts-/Retry-Garantie setzt deshalb das Client-Token voraus.
+// Parallele identische Requests kollidieren per P2002 auf den Gewinner.
+// Raum + Host-Teilnahme entstehen ATOMAR (Transaction) — es gibt keinen
+// Zustand mit Raum aber ohne MODERATOR-Teilnahme/Token.
+// ------------------------------------------------------------
+const IDEM_WINDOW_MS = 60 * 1000;
+
+/** Rekursive, deterministische JSON-Stringifikation (Keys alphabetisch). */
+function canonicalJson(value: unknown): string {
+  if (value === null || typeof value !== 'object') {
+    return JSON.stringify(value) ?? 'null';
+  }
+  if (Array.isArray(value)) {
+    return `[${value.map(v => canonicalJson(v)).join(',')}]`;
+  }
+  const entries = Object.entries(value as Record<string, unknown>)
+    .filter(([, v]) => v !== undefined)
+    .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
+  return `{${entries.map(([k, v]) => `${JSON.stringify(k)}:${canonicalJson(v)}`).join(',')}}`;
+}
+
+/** Erzeugt den window-gebundenen Fingerprint-Schlüssel (konkreter Vergleich). */
+function computeRoomFingerprint(cfg: Record<string, unknown>): string {
+  const epoch = Math.floor(Date.now() / IDEM_WINDOW_MS);
+  const digest = crypto.createHash('sha256').update(canonicalJson({ epoch, cfg })).digest('hex');
+  return `fp:${epoch}:${digest}`;
+}
+
+/**
+ * Stellt sicher, dass für den Raum genau eine Moderator-Teilnahme existiert
+ * (Crash-Recovery zwischen Room-Insert und Participation-Insert, bzw.
+ * paralleler P2002-Gewinner ohne eigene Teilnahme). @returns die Teilnahme.
+ */
+async function ensureModeratorParticipation(
+  roomId: string,
+  displayName: string,
+): Promise<{ id: string; rejoinToken: string } | null> {
+  const existing = await prisma.participation.findFirst({ where: { roomId, role: 'MODERATOR' } });
+  if (existing) return existing;
+  const created = await prisma.participation.create({
+    data: {
+      roomId,
+      displayName,
+      normalizedName: displayName.toLowerCase().trim(),
+      role: 'MODERATOR',
+      connected: true,
+      ready: true,
+      rejoinToken: crypto.randomUUID(),
+      rejoinTokenVersion: 1,
+    },
+  });
+  return created;
+}
 
 // ------------------------------------------------------------
 // Startfähigkeit serverseitig prüfen (Regelwerk §13.1, §14).
@@ -148,7 +247,7 @@ roomsRouter.get('/public', async (_req, res) => {
 });
 
 // POST /api/v1/rooms - Create room (Moderator only)
-roomsRouter.post('/', async (req, res) => {
+roomsRouter.post('/', createLimiter, async (req, res) => {
   try {
     const sessionId = verifySession(req, config.sessionSecret);
     if (!sessionId) {
@@ -186,6 +285,7 @@ roomsRouter.post('/', async (req, res) => {
       lobbyChatEnabled,
       setupSnapshotJson,
       isPublic,
+      idempotencyKey,
     } = parsed;
 
     // Resolve game definition: prefer slug (mit Legacy-Auflösung), fallback to id
@@ -245,6 +345,61 @@ roomsRouter.post('/', async (req, res) => {
       return res.status(400).json({ success: false, error: startErr });
     }
 
+    // Audit 11-06: PIN-Hash für den Raum (argon2id) + DETERMINISTISCHE
+    // PIN-Identität für den Fingerprint. Der Argon2-Hash ist salzig und damit
+    // NICHT deterministisch — für den Fingerprint dient der Salt-Hash
+    // (gleiche PIN → gleiche Identität, rohe PIN wird nie gespeichert/
+    // protokolliert). Ohne PIN: beides null → gleicher Fingerprint-Anteil.
+    const pinHash = pin ? await argon2.hash(pin, { type: argon2.argon2id }) : null;
+    const pinFingerprint = pin ? crypto.createHash('sha256').update(`room-pin:${pin}`).digest('hex') : null;
+
+    // Audit 11-06 (P1): serverseitige Idempotenz für Raum-Erstellung.
+    // (a) Explizites Idempotency-Token des Clients: exakt und zeitlich
+    //     unbegrenzt — gleiche Absicht (gleiche Token) → genau ein Raum;
+    //     anderes Token → bewusst neue Absicht → neuer Raum, selbst bei
+    //     identischer Konfiguration.
+    // (b) Fingerprint über die VOLLSTÄNDIGE wirksame Konfiguration inkl.
+    //     PIN-Identität und fester Minutenepoche im Schlüssel: FALLBACK nur
+    //     für tokenlose Bestandsclients. WICHTIG (Vertrag, 10.10.):
+    //     Identischer Inhalt allein unterscheidet einen Retry NICHT von
+    //     einer neuen Erstellungsabsicht — zwei bewusste, in schneller
+    //     Folge innerhalb derselben Uhrzeit-Minute erfolgte Erstellungen mit
+    //     identischer
+    //     Konfiguration werden IM EINEN Raum zusammengeführt. Der
+    //     Fingerprint ist daher KEINE allgemeine Idempotenz-Garantie,
+    //     sondern ein enger Doppelklick-Retrieschutz: andere Absichten
+    //     müssen ein Token senden (aktuelle Web-Setup-Seiten tun das
+    //     immer: ModeratorSetup/GeoSetup/JeopardySetup/WerIstDasSetup).
+    const fpCfg = {
+      game: resolvedGameDefId,
+      name: roomName,
+      setup: setupSnapshotJson,
+      pin: pinFingerprint,
+      maxPlayers,
+      cameraEnabled,
+      allowViewers,
+      viewerRequiresPin,
+      viewerLimit,
+      lobbyChatEnabled,
+      isPublic: isPublic ?? true,
+    };
+    const idemKey = idempotencyKey ?? computeRoomFingerprint(fpCfg);
+    const existingRoom = await prisma.room.findFirst({
+      where: { idempotencyKey: idemKey, hostUserId: session.userId },
+    });
+    if (existingRoom) {
+      // Wiederversicherung (Crash-Recovery): ein Raum ohne Moderator-Teilnahme
+      // (Prozessunterbruch zwischen Room-Insert und Participation-Insert) wird
+      // hier zu Ende gebracht — die Replay-Antwort liefert niemals
+      // moderatorToken: null.
+      const mod = await ensureModeratorParticipation(existingRoom.id, session.user.displayName);
+      logger.info('Room creation idempotent (existing room returned)', { roomId: existingRoom.id });
+      return res.status(201).json({
+        success: true,
+        data: { code: existingRoom.code, roomId: existingRoom.id, moderatorToken: mod?.rejoinToken ?? null, idempotentReplay: true },
+      });
+    }
+
     // Generate unique code
     let code: string;
     let attempts = 0;
@@ -262,53 +417,114 @@ roomsRouter.post('/', async (req, res) => {
       });
     }
 
-    // Hash PIN if provided (using argon2id)
-    let pinHash: string | null = null;
-    if (pin) {
-      pinHash = await argon2.hash(pin, { type: argon2.argon2id });
+    // PR11-Nacharbeit D: Raum-Setup-Schema-Version EHRLICH (Regelwerk §5.23).
+    // Wird NUR beim Erstellen gesetzt (bestehende Räume/Zeilen werden nie
+    // hier überschrieben). Ableitung aus dem Snapshot ohne stille
+    // Umschreibung: top-level `setupSchemaVersion` ist maßgeblich (der
+    // Writer v2+ und der Reader `WerIstDasSetupSchema` nutzen denselben
+    // Feldnamen); sonst strukturell — eine Runde in v2-Form
+    // (gameImageAssetId) verlangt Version 2, andernfalls 1 (Legacy).
+    // Für andere Spiele (kein solches Feld) bleibt der Default 1.
+    const roomSetupSchemaVersion = (() => {
+      const raw = typeof setupSnapshotJson === 'string' ? setupSnapshotJson : JSON.stringify(setupSnapshotJson ?? {});
+      try {
+        const parsed = JSON.parse(raw) as {
+          setupSchemaVersion?: unknown;
+          rounds?: Array<Record<string, unknown> | null>;
+        };
+        if (parsed.setupSchemaVersion === 2) return 2;
+        const hasV2Round = Array.isArray(parsed.rounds) && parsed.rounds.some(
+          r => r && (typeof r.gameImageAssetId === 'string' || r.setupVersion === 2),
+        );
+        return hasV2Round ? 2 : 1;
+      } catch { return 1; }
+    })();
+
+    // Create room + host participation ATOMAR (Audit 11-06):
+    // eine Race-Antwort darf keinen halb angelegten Raum (ohne Moderator)
+    // und kein null-Host-Token liefern. Interaktive Transaktion: beide
+    // Inserts in einem Batch (all-or-nothing), danach SOFORT die
+    // Moderator-Teilnahme nachlesen (im selben Request, vor der Antwort).
+    let room;
+    let moderatorToken: string | null = null;
+    try {
+      room = await prisma.$transaction(async (tx) => {
+        const createdRoom = await tx.room.create({
+          data: {
+            code,
+            roomName,
+            gameDefinitionId: resolvedGameDefId,
+            hostUserId: session.userId,
+            pinHash,
+            maxPlayers,
+            cameraEnabled,
+            allowViewers,
+            viewerRequiresPin,
+            viewerLimit,
+            lobbyChatEnabled,
+            setupSnapshotJson: JSON.stringify(setupSnapshotJson),
+            setupSchemaVersion: roomSetupSchemaVersion,
+            isPublic: isPublic ?? true,
+            idempotencyKey: idemKey,
+            status: 'LOBBY',
+            runPhase: 'OPEN',
+          },
+        });
+        const modPart = await tx.participation.create({
+          data: {
+            roomId: createdRoom.id,
+            displayName: session.user.displayName,
+            normalizedName: session.user.displayName.toLowerCase().trim(),
+            role: 'MODERATOR',
+            connected: true,
+            ready: true,
+            rejoinToken: crypto.randomUUID(),
+            rejoinTokenVersion: 1,
+          },
+        });
+        moderatorToken = modPart.rejoinToken;
+        return createdRoom;
+      });
+    } catch (error) {
+      // Audit 11-06: parallele identische Request — ein zweiter Thread hat
+      // dasselbe Idempotency-Token zuerst gespeichert (P2002). Auf den
+      // Gewinner-Raum auflösen (gleiche Identität zurückgeben).
+      if (isUniqueConflict(error)) {
+        const winner = await prisma.room.findFirst({
+          where: { idempotencyKey: idemKey, hostUserId: session.userId },
+        });
+        if (winner) {
+          const mod = await ensureModeratorParticipation(winner.id, session.user.displayName);
+          return res.status(201).json({
+            success: true,
+            data: { code: winner.code, roomId: winner.id, moderatorToken: mod?.rejoinToken ?? null, idempotentReplay: true },
+          });
+        }
+      }
+      throw error;
     }
 
-    // Create room
-    const room = await prisma.room.create({
-      data: {
-        code,
-        roomName,
-        gameDefinitionId: resolvedGameDefId,
-        hostUserId: session.userId,
-        pinHash,
-        maxPlayers,
-        cameraEnabled,
-        allowViewers,
-        viewerRequiresPin,
-        viewerLimit,
-        lobbyChatEnabled,
-        setupSnapshotJson: JSON.stringify(setupSnapshotJson),
-        isPublic: isPublic ?? true,
-        status: 'LOBBY',
-        runPhase: 'OPEN',
-      },
-    });
+    // moderatorToken stammt aus der Transaktion (atomar angelegt).
+    // Fallback: falls (historisch/unerwartet) nichts gesetzt ist, neu lesen.
+    if (!moderatorToken) {
+      const moderatorParticipation = await prisma.participation.findFirst({
+        where: { roomId: room.id, role: 'MODERATOR' },
+      });
+      moderatorToken = moderatorParticipation?.rejoinToken ?? null;
+    }
 
-    // Create host participation
-    await prisma.participation.create({
-      data: {
-        roomId: room.id,
-        displayName: session.user.displayName,
-        normalizedName: session.user.displayName.toLowerCase().trim(),
-        role: 'MODERATOR',
-        connected: true,
-        ready: true,
-        rejoinToken: crypto.randomUUID(),
-        rejoinTokenVersion: 1,
-      },
-    });
-
-    // Fetch the moderator's participation to get their rejoinToken (used as moderatorToken)
-    const moderatorParticipation = await prisma.participation.findFirst({
-      where: { roomId: room.id, role: 'MODERATOR' },
-    });
-
-    const moderatorToken = moderatorParticipation?.rejoinToken ?? null;
+    // PR11-Nacharbeit E: kontrollierte Bindung der vor der Raumerstellung
+    // erzeugten tmp-Composite(s) an den echten Raum. Fail-tolerant: ein
+    // Fehlschlag der Bindung macht die Raumerstellung NICHT ungültig
+    // (Assets bleiben owner-only tmp; Startvalidierung prüft Eigentum +
+    // Provenienz, nicht roomId). Idempotent bei doppelter POST /rooms.
+    try {
+      await bindSnapshotAssetsToRoom(prisma, {
+        roomId: room.id, hostUserId: session.userId, snapshotJson: room.setupSnapshotJson,
+      });
+    } catch (bindError) {
+      logger.warn('Temp-Asset-Bindung fehlgeschlagen (Raum bleibt nutzbar)', { roomId: room.id, error: bindError });
+    }
 
     logger.info('Room created', { roomId: room.id, code, hostId: session.userId });
 
@@ -450,6 +666,7 @@ roomsRouter.post('/:code/join', joinLimiter, async (req, res) => {
     const roomCode = req.params.code as string;
     const room = await prisma.room.findUnique({
       where: { code: normalizeRoomCode(roomCode) },
+      include: { gameDefinition: { select: { slug: true } } },
     });
 
     if (!room) {
@@ -464,6 +681,30 @@ roomsRouter.post('/:code/join', joinLimiter, async (req, res) => {
         success: false,
         error: { code: 'ROOM_NOT_JOINABLE', message: 'Raum ist nicht mehr beitretbar.' },
       });
+    }
+
+    // Wer ist das? (BETA): Der Raum-Host hat die Originale + Namen selbst
+    // eingegeben und damit Wissensvorteil (Arbeitsauftrag §2C, Regelwerk §2:
+    // administrierende Rolle ≠ Informationsrecht). Client-seites Verstecken
+    // löst diesen Vorteil NICHT — daher wird das Mitspielen des Host-Kontos
+    // in der eigenen wer-ist-das-Runde serverseitig verhindert.
+    // Anonyme Spieler (ohne Login) sind davon nicht betroffen; das ist der
+    // vorgesehene faire Modus.
+    if (room.gameDefinition.slug === 'wer-ist-das') {
+      const joiningSessionId = verifySession(req, config.sessionSecret);
+      if (joiningSessionId && room.hostUserId) {
+        const joiningSession = await prisma.session.findUnique({ where: { id: joiningSessionId } });
+        if (joiningSession && !joiningSession.revokedAt && joiningSession.expiresAt > new Date()
+            && joiningSession.userId === room.hostUserId) {
+          return res.status(403).json({
+            success: false,
+            error: {
+              code: 'HOST_CANNOT_PLAY_OWN_ROUND',
+              message: 'Wer die Bilder und Namen eingegeben hat, kann in dieser Runde nicht blind mitraten.',
+            },
+          });
+        }
+      }
     }
 
     // Check PIN - verify with argon2

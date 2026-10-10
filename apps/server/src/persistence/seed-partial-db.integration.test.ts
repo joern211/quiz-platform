@@ -94,9 +94,9 @@ describe('Seed auf bestehender, teilgefüllter DB (Regelwerk §14)', () => {
     const wid = await prisma.gameDefinition.findUniqueOrThrow({ where: { slug: 'wer-ist-das' } });
     expect(wid.status).toBe('BETA');
     expect(wid.minPlayers).toBe(2);
-    expect(wid.shortDescription).toBe('Bild + zwei Namen raten (Buzzer)');
-    expect(wid.description).toMatch(/MVP-BETA/);
-    expect(wid.description).toMatch(/Fusionsbild/);
+    expect(wid.shortDescription).toBe('Bild-Fusion + zwei Namen raten (Buzzer)');
+    expect(wid.description).toMatch(/BETA/);
+    expect(wid.description).toMatch(/Fusion/);
 
     const song = await prisma.gameDefinition.findUniqueOrThrow({ where: { slug: 'song-quiz' } });
     expect(song.status).toBe('PLANNED');

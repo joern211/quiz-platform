@@ -3,7 +3,7 @@
 // ============================================================
 
 import { useParams, useNavigate } from 'react-router-dom';
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import { Card, Button, Input } from '@quiz/ui';
 import styles from './ModeratorSetupPage.module.css';
 
@@ -15,6 +15,14 @@ export function ModeratorSetupPage() {
   const [maxPlayers, setMaxPlayers] = useState(10);
   const [allowViewers, setAllowViewers] = useState(true);
   const [loading, setLoading] = useState(false);
+  // Audit 11-06: stabiles Idempotency-Token pro Erstellungsabsicht.
+  // Diese generische Setup-Seite ist der eigentliche Pfad für Geo
+  // (/moderator/vorbereitung/:gameSlug) — ohne Token würde hier der
+  // serverseitige Fingerprint greifen und mehrere identische
+  // Erstellungen (gleicher Host/Name/Spiel/Setup, z. B. E2E-Batch)
+  // in EINEN Raum mergen. Ein frisches Token pro Klick trennt das:
+  // derselbe Klick/Retry → gleiche Absicht; neuer Klick → neuer Raum.
+  const idempotencyRef = useRef<string | null>(null);
 
   // Geo-specific setup
   const [selectedQuestions] = useState<string[]>([]);
@@ -22,9 +30,17 @@ export function ModeratorSetupPage() {
   const [timerDuration, setTimerDuration] = useState(20);
 
   const handleCreateRoom = async () => {
+    if (loading) return;
     setLoading(true);
 
     try {
+      // Audit 11-06: stabiles Idempotency-Token pro Erstellungsabsicht.
+      // Doppelklick/Timeout-Retry desselben Klicks → gleiche Absicht
+      // (derselbe Raum); ein neuer Klick erzeugt ein frisches Token
+      // (neuer Raum). Ohne Token würde der serverseitige Fingerprint
+      // greifen und identische Erstellungen in einen Raum mergen.
+      if (!idempotencyRef.current) idempotencyRef.current = crypto.randomUUID();
+
       // P0-02: send setupSnapshotJson instead of setup; server stores JSON string
       const res = await fetch('/api/v1/rooms', {
         method: 'POST',
@@ -36,6 +52,7 @@ export function ModeratorSetupPage() {
           pin: pin || undefined,
           maxPlayers,
           allowViewers,
+          idempotencyKey: idempotencyRef.current,
           setupSnapshotJson: JSON.stringify({
             questionCount,
             timerDuration,
@@ -52,6 +69,8 @@ export function ModeratorSetupPage() {
         return;
       }
 
+      // Raum erstellt → Absicht erfüllt, nächster Klick erhält frisches Token.
+      idempotencyRef.current = null;
       // data.data.code is the room code
       navigate(`/moderator/raum/${data.data.code}/lobby`);
     } catch {

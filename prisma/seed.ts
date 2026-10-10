@@ -46,8 +46,8 @@ async function main() {
   // die Single Source of Truth für API/UI/Registry.
   //
   // Status-Logik (§13.1): AVAILABLE nur bei startbarer, getesteter
-  // Engine (wissensduell, jeopardy). wer-ist-das = BETA (MVP ohne
-  // Fusionsbild-Generierung). Alle anderen PLANNED.
+  // Engine (wissensduell, jeopardy). wer-ist-das = BETA (MVP + einfache
+  // Composite-Fusion; echtes Morphing folgt). Alle anderen PLANNED.
   type SeedGame = {
     slug: string; name: string; category: string; status: string;
     minPlayers: number; maxPlayers: number; estimatedMinutes: number;
@@ -58,7 +58,7 @@ async function main() {
   const seedGames: SeedGame[] = [
     { slug: 'wissensduell', name: 'Wissensduell', category: 'quiz-wissen', status: 'AVAILABLE', minPlayers: 2, maxPlayers: 10, estimatedMinutes: 15, hasBuzzer: false, hasTeams: false, hasCamera: false, hasAudio: false, hasTimer: true },
     { slug: 'jeopardy', name: 'Jeopardy', category: 'buzzer-reaktion', status: 'AVAILABLE', minPlayers: 2, maxPlayers: 10, estimatedMinutes: 30, hasBuzzer: true, hasTeams: false, hasCamera: false, hasAudio: false, hasTimer: true },
-    { slug: 'wer-ist-das', name: 'Wer ist das?', category: 'buzzer-reaktion', status: 'BETA', shortDescription: 'Bild + zwei Namen raten (Buzzer)', description: 'Pro Runde ein vorbereitetes Bild und zwei zu ratende Namen: Erster Buzzer antwortet, der Moderator bewertet. (MVP-BETA: Fusionsbild-Generierung folgt in einem eigenen PR; das Spiel funktioniert mit vorbereiteten Bildern — Regelwerk §13.1, §15.3.)', minPlayers: 2, maxPlayers: 10, estimatedMinutes: 15, hasBuzzer: true, hasTeams: false, hasCamera: false, hasAudio: false, hasTimer: false },
+    { slug: 'wer-ist-das', name: 'Wer ist das?', category: 'buzzer-reaktion', status: 'BETA', shortDescription: 'Bild-Fusion + zwei Namen raten (Buzzer)', description: 'Pro Runde zwei Originalbilder, aus denen die Website ein einfach fusioniertes Spielbild erzeugt; zwei Namen bleiben vor Reveal geheim: Erster Buzzer antwortet, der Host bewertet. (BETA: Fusion = einfache Composite, später austauschbar durch echtes Morphing — Regelwerk §13.1, §15.3. Ältere Runden mit einem vorbereiteten Bild (setupSchemaVersion 1) bleiben lauffähig.)', minPlayers: 2, maxPlayers: 10, estimatedMinutes: 15, hasBuzzer: true, hasTeams: false, hasCamera: false, hasAudio: false, hasTimer: false },
     { slug: 'song-quiz', name: 'Erkenne den Song', category: 'buzzer-reaktion', status: 'PLANNED', minPlayers: 2, maxPlayers: 10, estimatedMinutes: 15, hasBuzzer: true, hasTeams: false, hasCamera: false, hasAudio: true, hasTimer: false },
     { slug: 'millionenfrage', name: 'Millionenfrage', category: 'quiz-wissen', status: 'PLANNED', minPlayers: 1, maxPlayers: 4, estimatedMinutes: 30, hasBuzzer: false, hasTeams: false, hasCamera: false, hasAudio: false, hasTimer: true },
     { slug: 'timeline', name: 'Timeline', category: 'schaetzen-sortieren', status: 'PLANNED', minPlayers: 2, maxPlayers: 10, estimatedMinutes: 20, hasBuzzer: false, hasTeams: false, hasCamera: false, hasAudio: false, hasTimer: false },

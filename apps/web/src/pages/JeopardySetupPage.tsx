@@ -85,6 +85,8 @@ export function JeopardySetupPage() {
   const [saving, setSaving] = useState(false);
   const [validationErrors, setValidationErrors] = useState<string[]>([]);
   const [apiError, setApiError] = useState<string | null>(null);
+  // Audit 11-06: stabiles Idempotency-Token pro Erstellungsabsicht.
+  const idempotencyRef = useRef<string | null>(null);
 
   const currentBoardData = currentBoard === 1 ? board1 : board2;
   const setCurrentBoardData = currentBoard === 1 ? setBoard1 : setBoard2;
@@ -185,6 +187,9 @@ export function JeopardySetupPage() {
     }
 
     setSaving(true);
+    // Audit 11-06: stabiles Idempotency-Token pro Erstellungsabsicht
+    // (Retry/Doppelklick desselben Klicks → gleiche Absicht).
+    if (!idempotencyRef.current) idempotencyRef.current = crypto.randomUUID();
     try {
       const res = await fetch('/api/v1/rooms', {
         method: 'POST',
@@ -197,6 +202,7 @@ export function JeopardySetupPage() {
           maxPlayers: 10,
           allowViewers: true,
           isPublic: true,
+          idempotencyKey: idempotencyRef.current,
           setupSnapshotJson: { board1: engineBoard1, board2: engineBoard2 },
         }),
       });
@@ -207,6 +213,7 @@ export function JeopardySetupPage() {
         return;
       }
       if (json.success && json.data?.code) {
+        idempotencyRef.current = null; // Raum erstellt → Absicht erfüllt
         navigate(`/moderator/raum/${json.data.code}/lobby`);
       } else {
         setApiError(json.error?.message ?? 'Fehler beim Erstellen');

@@ -91,6 +91,70 @@ async function createTestRoom(opts: {
 
 // ── Tests ────────────────────────────────────────────────────
 
+describe('Rooms API — Create Room (setupSchemaVersion — PR11 Nacharbeit D)', () => {
+  it('POST /api/v1/rooms — v2-Wer-ist-das-Snapshot → Room.setupSchemaVersion = 2 (ehrlisch, kein stiller Default 1)', async () => {
+    const { request: req, prisma: db, dbUrl } = await createTestApp();
+    const ts = Date.now();
+    const result = await seedTestUserWithDb(db, `mod-v2-${ts}`, `V2Host${ts}`, `mod-v2-${ts}@test.local`);
+    // Startbare Definition (BETA + Engine-Handler vorhanden).
+    const werDef = await db.gameDefinition.upsert({
+      where: { slug: 'wer-ist-das' }, update: { status: 'BETA' },
+      create: { slug: 'wer-ist-das', name: 'Wer ist das?', category: 'buzzer-reaktion', status: 'BETA' },
+    });
+    // v2-Setup SO, wie die korrigierte SetupPage es schickt:
+    // top-level setupSchemaVersion: 2 + Runden in v2-Form (gameImageAssetId).
+    const setup = {
+      setupSchemaVersion: 2,
+      rounds: [{ id: 'r1', personAImageAssetId: 'a'.repeat(32), personBImageAssetId: 'b'.repeat(32), gameImageAssetId: 'c'.repeat(32), personAName: 'A', personBName: 'B', setupVersion: 2 }],
+    };
+    const res = await req.post('/api/v1/rooms').set('Cookie', result.cookie)
+      .send({ roomName: 'V2 Room', gameDefinitionId: werDef.id, setupSnapshotJson: setup });
+    expect(res.status, res.text).toBe(201);
+    const room = await db.room.findUniqueOrThrow({ where: { code: res.body.data.code } });
+    expect(room.setupSchemaVersion).toBe(2);
+    // Der Snapshot bleibt BYTEGLEICH gespeichert (keine stille Umschreibung).
+    expect(JSON.parse(room.setupSnapshotJson)).toMatchObject({ setupSchemaVersion: 2 });
+
+    await cleanupTestDataForDb(dbUrl);
+    await db.$disconnect();
+  });
+
+  it('POST /api/v1/rooms — v1-Snapshot (ohne Feld) → 1; strukturelle v2-Runde ohne top-level Feld → 2; andere Spiele → 1', async () => {
+    const { request: req, prisma: db, dbUrl } = await createTestApp();
+    const ts = Date.now();
+    const result = await seedTestUserWithDb(db, `mod-v1-${ts}`, `V1Host${ts}`, `mod-v1-${ts}@test.local`);
+    const werDef = await db.gameDefinition.upsert({
+      where: { slug: 'wer-ist-das' }, update: { status: 'BETA' },
+      create: { slug: 'wer-ist-das', name: 'Wer ist das?', category: 'buzzer-reaktion', status: 'BETA' },
+    });
+    const startable = await getOrCreateStartableGame();
+
+    // 1) v1-Snapshot (historisches Feld fehlt, v1-Runde) → 1.
+    const v1Res = await req.post('/api/v1/rooms').set('Cookie', result.cookie)
+      .send({ roomName: 'V1 Room', gameDefinitionId: werDef.id, setupSnapshotJson: { rounds: [{ id: 'r1', imageAssetId: 'a'.repeat(32), person1: 'A', person2: 'B' }] } });
+    expect(v1Res.status, v1Res.text).toBe(201);
+    const v1Room = await db.room.findUniqueOrThrow({ where: { code: v1Res.body.data.code } });
+    expect(v1Room.setupSchemaVersion).toBe(1);
+
+    // 2) v2-Runde OHNE top-level Feld (strukturell erkannt) → 2.
+    const structRes = await req.post('/api/v1/rooms').set('Cookie', result.cookie)
+      .send({ roomName: 'Struct V2', gameDefinitionId: werDef.id, setupSnapshotJson: { rounds: [{ id: 'r1', personAImageAssetId: 'a'.repeat(32), personBImageAssetId: 'b'.repeat(32), gameImageAssetId: 'c'.repeat(32), personAName: 'A', personBName: 'B' }] } });
+    expect(structRes.status, structRes.text).toBe(201);
+    const structRoom = await db.room.findUniqueOrThrow({ where: { code: structRes.body.data.code } });
+    expect(structRoom.setupSchemaVersion).toBe(2);
+
+    // 3) Andere Spiele (kein solches Feld im Snapshot) → Default 1.
+    const otherRes = await req.post('/api/v1/rooms').set('Cookie', result.cookie)
+      .send({ roomName: 'Other Game', gameSlug: startable.slug });
+    expect(otherRes.status, otherRes.text).toBe(201);
+    const otherRoom = await db.room.findUniqueOrThrow({ where: { code: otherRes.body.data.code } });
+    expect(otherRoom.setupSchemaVersion).toBe(1);
+
+    await cleanupTestDataForDb(dbUrl);
+    await db.$disconnect();
+  });
+});
+
 describe('Rooms API — Create Room', () => {
   it('POST /api/v1/rooms — should create room with valid session', async () => {
     const { request: req, prisma: db, dbUrl } = await createTestApp();

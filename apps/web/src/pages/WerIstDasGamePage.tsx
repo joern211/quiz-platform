@@ -21,7 +21,16 @@ export function WerIstDasGamePage({ role }: { role: PlayerRole }) {
         {state && <>
           <p>Runde {state.roundIndex + 1} von {state.roundCount}</p>
           {state.phase === 'GAME_END' ? <h2>Spiel beendet · Ergebnis</h2> :
-            <img className={styles.image} src={`/api/v1/media/${state.imageAssetId}`} alt="Errate die beiden Personen" />}
+            <img className={styles.image}
+              src={state.gameImageUrl ?? `/api/v1/media/${state.imageAssetId}`}
+              alt="Errate die beiden Personen" />}
+          {role === 'MODERATOR' && state.hostImageUrls && state.hostImageUrls.length === 2 &&
+            <div className={styles.originals}>
+              <strong>Originalbilder (nur für dich, vor Reveal nicht öffentlich):</strong>
+              <div>
+                {state.hostImageUrls.map((url, i) => <img key={i} src={url} alt={`Original ${i + 1}`} />)}
+              </div>
+            </div>}
           {state.hintActive && <p className={styles.hint}>Hinweis aktiv: Eine richtige Person genügt für 1 Punkt.</p>}
           {state.phase === 'ANSWERING' && <p className={styles.turn}>
             {state.winnerId === self ? 'Du bist dran – antworte mündlich.' : `${state.winnerName ?? 'Ein Spieler'} antwortet.`}

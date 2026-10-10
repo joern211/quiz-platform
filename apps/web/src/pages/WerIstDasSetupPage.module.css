@@ -3,3 +3,8 @@
 .page input { display: block; width: 100%; max-width: 32rem; min-height: 2.7rem; margin-top: .35rem; padding: .4rem; }
 .round { border: 1px solid #888; padding: 1rem; margin: 1.5rem 0; border-radius: .5rem; }
 .page button { min-height: 2.8rem; margin: .5rem .5rem .5rem 0; padding: .5rem 1rem; cursor: pointer; }
+.imagePair { display: grid; grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr)); gap: 0 1rem; }
+.namePair { display: grid; grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr)); gap: 0 1rem; }
+.preview { max-width: 18rem; max-height: 18rem; border-radius: .4rem; margin-top: .5rem; }
+.okText { color: #1a7f37; }
+.errorText { color: #b42318; }
