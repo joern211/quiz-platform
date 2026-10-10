@@ -23,6 +23,20 @@
 //   11-07: fehlgeschlagene Reparatur/Insert hinterlässt keine neuen
 //          unreferenzierten Dateien und löscht keine Gewinner-Datei.
 //
+// Nachbefunde (10.10., Wiederaufnahme-Auftrag):
+//   A: Upload-Reparatur — DB-Update gelingt, Referenzabfrage für die alte
+//      Datei schlägt fehl: neue Datei bleibt erhalten; Zeile zeigt nie
+//      READY auf Unbekannt (kontrolliert FAILED); Heilung per Retry.
+//   B: Composite — zwei Quellpaare mit identischen Bytes; Insert UND
+//      Referenzabfrage des zweiten scheitern: Datei des ersten Assets
+//      bleibt bytegleich erhalten; fehlgeschlagene Referenzabfrage wird
+//      nie als „keine Referenzen“ behandelt (keine Löschung).
+//   C: Raum-Idempotenz — gleiche/parallele Absicht (Token) → ein Raum;
+//      andere Tokens mit identischer Konfiguration → eigene Räume;
+//      tokenloses 60-s-Fenster: überalter Raum gleicher Konfiguration
+//      wird nicht zurückgeliefert; Tokenloser-Vertrag ist KEINE
+//      allgemeine Retry-Garantie (siehe rooms.ts + Handoff).
+//
 // Isolation: eigene Test-Datenbank (alle Migrations, inkl. der
 // assetKey/idempotencyKey-Migration). Datei-Zählung läuft auf
 // DELTAS, damit die gemeinsame Storage-Umgebung anderer
@@ -530,4 +544,178 @@ it('11-06: Raum + Moderator-Teilnahme entstehen atomar (kein null-Token, keine W
   expect(mod).not.toBeNull();
   expect(mod!.rejoinToken).toBe(r.body.data.moderatorToken);
   expect(mod!.rejoinToken).toBeTruthy();
+});
+
+// ------------------------------------------------------------
+// Nachbefund C (10.10.) — Raum-Idempotenz: Tokens vs. Absichten,
+// 60-s-Fenster, tokenloser Vertrag
+// ------------------------------------------------------------
+
+it('C: parallele Requests mit GLEICHDEM expliziten Token → genau ein Raum, gleiche Identität', async () => {
+  await ensureWidGame();
+  const a = await source(141, '#110011');
+  const b = await source(142, '#001111');
+  const composite = await request.post('/api/v1/media/composite')
+    .set('Cookie', owner.cookie)
+    .send({ personAImageAssetId: a.id, personBImageAssetId: b.id, roundId: crypto.randomUUID() });
+  const body = widSetupBody([{ a: a.id, b: b.id, game: composite.body.data.gameImageAssetId }]);
+  body.roomName = `Parallel-Token ${Date.now()}`;
+  const token = crypto.randomUUID();
+  const [r1, r2] = await Promise.all([
+    request.post('/api/v1/rooms').set('Cookie', owner.cookie).send({ ...body, idempotencyKey: token }),
+    request.post('/api/v1/rooms').set('Cookie', owner.cookie).send({ ...body, idempotencyKey: token }),
+  ]);
+  expect(r1.status).toBe(201);
+  expect(r2.status).toBe(201);
+  expect(r1.body.data.roomId).toBe(r2.body.data.roomId);
+  expect(r1.body.data.moderatorToken).toBeTruthy();
+  expect(r2.body.data.moderatorToken).toBeTruthy();
+  expect(r1.body.data.moderatorToken).toBe(r2.body.data.moderatorToken);
+  expect(await db.room.count({ where: { roomName: body.roomName, hostUserId: owner.userId } })).toBe(1);
+});
+
+it('C: unterschiedliche Absichten (andere Tokens) mit IDENTISCHER Konfiguration → unterschiedliche Räume', async () => {
+  await ensureWidGame();
+  const a = await source(143, '#220022');
+  const b = await source(144, '#002222');
+  const composite = await request.post('/api/v1/media/composite')
+    .set('Cookie', owner.cookie)
+    .send({ personAImageAssetId: a.id, personBImageAssetId: b.id, roundId: crypto.randomUUID() });
+  const body = widSetupBody([{ a: a.id, b: b.id, game: composite.body.data.gameImageAssetId }]);
+  body.roomName = `Intent ${Date.now()}`;
+  const r1 = await request.post('/api/v1/rooms').set('Cookie', owner.cookie)
+    .send({ ...body, idempotencyKey: crypto.randomUUID() });
+  const r2 = await request.post('/api/v1/rooms').set('Cookie', owner.cookie)
+    .send({ ...body, idempotencyKey: crypto.randomUUID() });
+  expect(r1.status).toBe(201);
+  expect(r2.status).toBe(201);
+  // Verschiedene Erstellungsabsichten (jeder Klick ein eigenes Token):
+  // zwei eigenständige Räume, kein Replay.
+  expect(r2.body.data.roomId).not.toBe(r1.body.data.roomId);
+  expect(r2.body.data.idempotentReplay).not.toBe(true);
+  expect(await db.room.count({ where: { roomName: body.roomName, hostUserId: owner.userId } })).toBe(2);
+});
+
+it('C: tokenloses Fenster — ein 60 s alter Raum gleicher Konfiguration wird NICHT zurückgeliefert', async () => {
+  await ensureWidGame();
+  const a = await source(145, '#330033');
+  const b = await source(146, '#003333');
+  const composite = await request.post('/api/v1/media/composite')
+    .set('Cookie', owner.cookie)
+    .send({ personAImageAssetId: a.id, personBImageAssetId: b.id, roundId: crypto.randomUUID() });
+  const body = widSetupBody([{ a: a.id, b: b.id, game: composite.body.data.gameImageAssetId }]);
+  const name = `Window ${Date.now()}`;
+  body.roomName = name;
+  // Raum aus dem VORHERIGEN 60-s-Fenster direkt in der DB anlegen
+  // (simuliert: Erstellungsversuch vor über 60 Sekunden).
+  const epochPrev = Math.floor(Date.now() / 60000) - 1;
+  const gameDef = await db.gameDefinition.findUniqueOrThrow({ where: { slug: 'wer-ist-das' } });
+  const staleRoom = await db.room.create({
+    data: {
+      code: 'WIN-OLD', roomName: name, gameDefinitionId: gameDef.id, hostUserId: owner.userId,
+      setupSnapshotJson: JSON.stringify(body.setupSnapshotJson), isPublic: true,
+      idempotencyKey: `fp:${epochPrev}:${'0'.repeat(64)}`, status: 'LOBBY', runPhase: 'OPEN',
+    },
+  });
+  // Identische Konfiguration, OHNES Token, AKTUELLES Fenster → neuer Raum,
+  // der stale-Win-Raum bleibt unverändert und wird NICHT wiederverwendet
+  // (Fenster-Grenze: Retry-Schutz ist bewusst auf 60 s begrenzt).
+  const r = await request.post('/api/v1/rooms').set('Cookie', owner.cookie).send(body);
+  expect(r.status).toBe(201);
+  expect(r.body.data.roomId).not.toBe(staleRoom.id);
+  expect(r.body.data.idempotentReplay).not.toBe(true);
+  const stale = await db.room.findUniqueOrThrow({ where: { id: staleRoom.id } });
+  expect(stale.idempotencyKey).toBe(`fp:${epochPrev}:${'0'.repeat(64)}`);
+});
+
+// ------------------------------------------------------------
+// Nachbefund A (10.10.) — Upload-Reparatur: DB-Update gelingt,
+// anschließend scheitert die Referenzabfrage (Bereinigung alte Datei)
+// ------------------------------------------------------------
+
+it('A: Reparatur — Update OK, Referenzabfrage schlägt fehl: neue Datei bleibt, Zeile zeigt nie READY auf Unbekannt', async () => {
+  const buf = await sharp({ create: { width: 21, height: 22, channels: 3, background: '#0099dd' } }).png().toBuffer();
+  const first = await request.post('/api/v1/media').set('Cookie', owner.cookie).attach('file', buf, 'a-first.png');
+  expect(first.status).toBe(201);
+  const row = await db.mediaAsset.findUniqueOrThrow({ where: { id: first.body.data.id } });
+  // Ausgangszustand: Datei verloren + Zeile FAILED (Reparatur-Anlass).
+  await rm(row.storagePath, { force: true });
+  await db.mediaAsset.update({ where: { id: row.id }, data: { processStatus: 'FAILED' } });
+  const before = await fileCount(uploadsDir());
+  // NUR die Referenzabfrage (mediaAsset.count) injizieren → das Update
+  // gelingt, die Abfrage zur Bereinigung der alten Datei schlägt fehl.
+  const mediaDelegate = db.mediaAsset as unknown as Record<string, unknown>;
+  const realCount = (mediaDelegate.count as (...a: unknown[]) => Promise<unknown>).bind(db.mediaAsset);
+  mediaDelegate.count = async () => { throw new Error('audit reference check failure'); };
+  try {
+    const next = await request.post('/api/v1/media').set('Cookie', owner.cookie).attach('file', buf, 'a-retry.png');
+    expect(next.status).toBe(500);
+    expect(next.body.error?.code).toBe('MEDIA_ASSET_REPAIR_DEGRADED');
+    // Die NEUE Datei ist gespeichert und von der Zeile referenziert
+    // (keine READY-auf-fehlende-Datei, keine READY-auf-Unbekannt):
+    const after = await db.mediaAsset.findUniqueOrThrow({ where: { id: row.id } });
+    expect(after.processStatus).toBe('FAILED'); // kontrolliert entzogen
+    const fs = await import('node:fs/promises');
+    expect(await fs.stat(after.storagePath)).toBeTruthy(); // Datei existiert
+    // Keine Orphan über die referenzierte neue Datei hinaus:
+    expect(await fileCount(uploadsDir())).toBe(before + 1);
+  } finally {
+    (db.mediaAsset as unknown as Record<string, unknown>).count = realCount;
+  }
+  // Heilung: nächster Upload derselben Bytes repariert die Zeile auf READY
+  // (Reparatur ist idempotent: deterministische Bytes → kontrollierte
+  // In-Place-Reparatur derselben Zeile, alte referenzfreie Datei wird
+  // bereinigt, Zeile-ID bleibt stabil).
+  const healed = await request.post('/api/v1/media').set('Cookie', owner.cookie).attach('file', buf, 'a-heal.png');
+  expect(healed.status).toBe(200);
+  expect(healed.body.data.id).toBe(row.id);
+  const healedRow = await db.mediaAsset.findUniqueOrThrow({ where: { id: row.id } });
+  expect(healedRow.processStatus).toBe('READY');
+  const fs2 = await import('node:fs/promises');
+  expect(await fs2.stat(healedRow.storagePath)).toBeTruthy();
+});
+
+// ------------------------------------------------------------
+// Nachbefund B (10.10.) — Composite: zwei Quellpaare mit identischen
+// Bytes; Insert UND Referenzabfrage des zweiten scheitern
+// ------------------------------------------------------------
+
+it('B: Composite mit identischen Bytes — fehlgeschlagene Referenzabfrage löscht nie die Datei des ersten Assets', async () => {
+  // Verschiedene Quellpaare, identische Ausgabe-Bytes (gleiche Farben,
+  // andere Abmessungen → nach Normalisierung bytegleiches Composite).
+  const a = await source(101, '#dd0011');
+  const b = await source(102, '#1100dd');
+  const aa = await source(201, '#dd0011');
+  const bb = await source(202, '#1100dd');
+  const first = await createGameImage({ personAImageAssetId: a.id, personBImageAssetId: b.id, hostUserId: owner.userId, roomId: 'tmp-audit-host', roundId: crypto.randomUUID() });
+  const firstRow = await db.mediaAsset.findUniqueOrThrow({ where: { id: first.gameImageAssetId } });
+  const fs = await import('node:fs/promises');
+  const firstBytes = await fs.readFile(firstRow.storagePath);
+  expect(crypto.createHash('sha256').update(firstBytes).digest('hex')).toBe(firstRow.sha256);
+  const before = await fileCount(uploadsDir());
+  // Zweites Composite: Insert UND Referenzabfrage injiziert fehlgeschlagen.
+  const mediaDelegate = db.mediaAsset as unknown as Record<string, unknown>;
+  const realCreate = (mediaDelegate.create as (...a: unknown[]) => Promise<unknown>).bind(db.mediaAsset);
+  const realCount = (mediaDelegate.count as (...a: unknown[]) => Promise<unknown>).bind(db.mediaAsset);
+  mediaDelegate.create = async () => { throw new Error('audit DB write failure'); };
+  mediaDelegate.count = async () => { throw new Error('audit reference check failure'); };
+  let thrown: unknown = null;
+  try {
+    await createGameImage({ personAImageAssetId: aa.id, personBImageAssetId: bb.id, hostUserId: owner.userId, roomId: 'tmp-audit-host', roundId: crypto.randomUUID() });
+  } catch (e) {
+    thrown = e;
+  }
+  finally {
+    (db.mediaAsset as unknown as Record<string, unknown>).create = realCreate;
+    (db.mediaAsset as unknown as Record<string, unknown>).count = realCount;
+  }
+  expect(thrown).toBeInstanceOf(Error);
+  expect((thrown as Error).message).toBe('COMPOSITE_FAILED');
+  // Die DATEI des ersten Assets bleibt bytegleich erhalten; Zeile READY:
+  const firstRowAfter = await db.mediaAsset.findUniqueOrThrow({ where: { id: first.gameImageAssetId } });
+  expect(firstRowAfter.processStatus).toBe('READY');
+  expect((await fs.readFile(firstRowAfter.storagePath)).equals(firstBytes)).toBe(true);
+  // Keine neuen Dateien (tmp des zweiten Composite wurde bereinigt;
+  // finale Datei des ersten Assets weder überschrieben noch gelöscht):
+  expect(await fileCount(uploadsDir())).toBe(before);
 });

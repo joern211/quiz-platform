@@ -232,8 +232,22 @@ mediaRouter.post('/', upload.single('file'), async (req, res) => {
         fileSize: processed.buffer.length, width: processed.width ?? null, height: processed.height ?? null,
         processed: processed.type === 'image',
       });
-      if (!repair) throw new Error('MEDIA_ASSET_REPAIR_FAILED'); // outPath bleibt uns → cleanup() entfernt sie (11-07)
-      outPath = undefined; // erst NACH erfolgreichem DB-Update: Datei gehört zur reparierten Zeile
+      if (repair === 'failed') throw new Error('MEDIA_ASSET_REPAIR_FAILED'); // DB-Update fehlgeschlagen: die neue Datei ist noch UNSERE → cleanup() entfernt sie (11-07)
+      // 'ok' | 'degraded': Das DB-Update gelang — die Datei gehört jetzt zur
+      // reparierten Zeile und darf NICHT per cleanup() gelöscht werden.
+      outPath = undefined;
+      if (repair === 'degraded') {
+        // Referenzabfrage für die ALTE Datei fehlgeschlagen: die Zeile zeigt
+        // kontrolliert FAILED auf die VORHANDENE neue Datei (nie READY auf
+        // Unbekannt). Keine falsche Erfolgsaussage — kontrolliert 500; der
+        // nächste Upload derselben Bytes heilt die Zeile auf READY (die
+        // Datei bleibt in beiden Fällen erhalten).
+        logger.warn('Media asset repair degraded (reference check failed); row FAILED, file kept', { assetId: existing.id });
+        return res.status(500).json({
+          success: false,
+          error: { code: 'MEDIA_ASSET_REPAIR_DEGRADED', message: 'Reparatur konnte nicht vollständig abgeschlossen werden; bitte erneut versuchen.' },
+        });
+      }
       logger.info('Media asset repaired in place (dedupe)', { assetId: existing.id });
       return res.status(200).json({
         success: true,
@@ -330,7 +344,20 @@ mediaRouter.post('/', upload.single('file'), async (req, res) => {
               fileSize: processed.buffer.length, width: processed.width ?? null, height: processed.height ?? null,
               processed: processed.type === 'image',
             });
-            if (!repaired) throw error;
+            // 'failed' = DB-Update schlug fehl → originale Fehlerantwort
+            // (cleanup unten räumt unsere Datei ab, 11-07).
+            if (repaired === 'failed') throw error;
+            // 'degraded' = Update gelang, Referenzabfrage für die ALTE Datei
+            // fehlgeschlagen → Zeile kontrolliert FAILED auf die VORHANDENE
+            // neue Datei. Keine falsche 200: kontrollierte 500; der nächste
+            // Upload derselben Bytes heilt die Zeile (Datei bleibt erhalten).
+            if (repaired === 'degraded') {
+              logger.warn('Media asset repair degraded (P2002 winner); row FAILED, file kept', { assetId: winner.id });
+              return res.status(500).json({
+                success: false,
+                error: { code: 'MEDIA_ASSET_REPAIR_DEGRADED', message: 'Reparatur konnte nicht vollständig abgeschlossen werden; bitte erneut versuchen.' },
+              });
+            }
           }
           outPath = undefined;
           const final = await prisma.mediaAsset.findUnique({ where: { id: winner.id } });
@@ -355,21 +382,46 @@ mediaRouter.post('/', upload.single('file'), async (req, res) => {
   }
 });
 
+/** Ergebnis der In-Place-Reparatur (Nachbefund-A, 10.10.):
+ *  - 'ok':        Zeile zeigt READY auf die neue Datei; alte Datei bereinigt
+ *                 (oder keine Bereinigung nötig). Alles konsistent.
+ *  - 'degraded':  DB-Update GELANG, Referenzabfrage für die alte Datei
+ *                 FEHLGESCHLAGEN. Zeile ist kontrolliert FAILED; die neue
+ *                 Datei bleibt erhalten UND wird von der Zeile referenziert
+ *                 (Caller darf sie NICHT löschen; Retry kann sie reparieren).
+ *  - 'failed':    DB-Update fehlgeschlagen (oder Zeile nicht vorhanden).
+ *                 Zeile unverändert; die neue Datei ist noch Eigentum des
+ *                 Callers (Caller räumt sie per cleanup() ab — 11-07).
+ */
+export type RepairOutcome = 'ok' | 'degraded' | 'failed';
+
 /**
  * Kontrollierte In-Place-Reparatur einer Asset-Zeile (Nacharbeit B):
  * Die Zeile behält ihre ID (stabile Referenzen), ihr storagePath zeigt auf
  * die neue Datei, Status wird READY. Die alte Datei wird nur gelöscht, wenn
- * kein ANDERER DB-Eintrag sie referenziert und sie sich von der neuen
- * unterscheidet. @returns true bei Erfolg.
+ * die Referenzabfrage ERFOLGREICH ergibt, dass kein ANDERER DB-Eintrag sie
+ * referenziert, und sie sich von der neuen unterscheidet.
+ *
+ * Nachbefund-A (10.10.): Gelingt das DB-Update, scheitert aber die
+ * Referenzabfrage zur Bereinigung der alten Datei, wird das Ergebnis NICHT
+ * als „Reparatur fehlgeschlagen" gemeldet — das würde die NEUE, bereits
+ * referenzierte Datei per Cleanup löschen. Stattdessen: die neue Datei
+ * bleibt erhalten; die Zeile wird kontrolliert auf FAILED zurückgesetzt,
+ * damit sie NIEMALS READY auf eine Datei zeigt, deren Umgebung nicht
+ * konsistent nachgewiesen ist. Die alte Datei wird in diesem Fall NICHT
+ * gelöscht (Referenzzustand unbekannt — „unbekannt" ≠ „keine Referenzen";
+ * ein möglicher Orphan ist die sichere Seite und wird vom
+ * Startup-Cleanup aufgenommen).
  */
 async function repairAssetRow(
   assetId: string,
   newStoragePath: string,
   data: { type: string; mimeType: string; fileSize: number; width: number | null; height: number | null; processed: boolean },
-): Promise<boolean> {
+): Promise<RepairOutcome> {
+  let current: { id: string; storagePath: string } | null = null;
   try {
-    const current = await prisma.mediaAsset.findUnique({ where: { id: assetId } });
-    if (!current) return false;
+    current = await prisma.mediaAsset.findUnique({ where: { id: assetId }, select: { id: true, storagePath: true } });
+    if (!current) return 'failed';
     const oldPath = current.storagePath;
     await prisma.mediaAsset.update({
       where: { id: assetId },
@@ -385,15 +437,42 @@ async function repairAssetRow(
         processed: data.processed,
       },
     });
+    // Hier ist die Reparatur ZWISCHENZEITLICH konsistent: die Zeile zeigt
+    // auf die neue, existierende Datei. Jede weitere Störung muss das
+    // Ergebnis kontrolliert entziehen, nie die Datei zerstören.
     if (oldPath && oldPath !== newStoragePath) {
-      const referencedElsewhere = await prisma.mediaAsset.count({
-        where: { storagePath: oldPath, NOT: { id: assetId } },
-      });
-      if (referencedElsewhere === 0) await fs.unlink(oldPath).catch(() => {});
+      let referencedElsewhere = -1;
+      try {
+        referencedElsewhere = await prisma.mediaAsset.count({
+          where: { storagePath: oldPath, NOT: { id: assetId } },
+        });
+      } catch {
+        referencedElsewhere = -1; // Unbekannt: NICHT als 0 behandeln (s.o.)
+      }
+      if (referencedElsewhere === 0) {
+        await fs.unlink(oldPath).catch(() => {});
+        return 'ok';
+      }
+      if (referencedElsewhere < 0) {
+        // Referenzabfrage fehlgeschlagen: Reparatur als nicht konsistent
+        // nachweisbar entziehen → Zeile FAILED (nie READY auf unklarem
+        // Zustand), neue Datei bleibt + ist referenziert, alte Datei wird
+        // NICHT gelöscht.
+        await prisma.mediaAsset.update({
+          where: { id: assetId },
+          data: { processStatus: 'FAILED' },
+        }).catch(() => {});
+        logger.error('Asset repair: reference check failed; row set to FAILED, new file kept', { assetId });
+        return 'degraded';
+      }
+      // Andere Zeile referenziert die alte Datei → nicht löschen.
+      return 'ok';
     }
-    return true;
+    return 'ok';
   } catch {
-    return false;
+    // Update fehlgeschlagen → Zeile unverändert; die neue Datei ist noch
+    // UNSES Orphan (Caller räumt sie per cleanup() ab, 11-07).
+    return 'failed';
   }
 }
 

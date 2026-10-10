@@ -215,13 +215,43 @@ export async function createGameImage(params: CreateGameImageParams): Promise<Cr
       }
     }
     // Anderer Fehler → die von UNS angelegte Datei kontrolliert entfernen —
-    // aber NUR, wenn kein anderer DB-Eintrag sie referenziert (geteilter
-    // Blob mit identischen Bytes aus einem anderen Quellpaar).
+    // aber NUR, wenn ein ERFOLGREICHER Abfragebeweis zeigt, dass kein anderer
+    // DB-Eintrag sie referenziert (geteilter Blob mit identischen Bytes aus
+    // einem anderen Quellpaar). Nachbefund-B (10.10.): Ein FEHLGESCHLAGENER
+    // Zählbefehl darf NICHT als „keine Referenzen“ (0) behandelt werden —
+    // Unbekannt bedeutet: keine Löschung. Zusätzlich wird vor jeder Löschung
+    // die BYTE-IDENTITÄT mit unserer Ausgabe verifiziert (Eigentumsbeweis):
+    // ein fremdes Asset mit denselben Bytes an diesem Pfad wird nie angetastet.
     if (storagePath) {
-      const referencedElsewhere = await prisma.mediaAsset.count({
-        where: { storagePath, NOT: { id: gameImage?.id } },
-      }).catch(() => 0);
-      if (referencedElsewhere === 0) await fs.unlink(storagePath).catch(() => {});
+      let referencedElsewhere: number | null = null;
+      try {
+        referencedElsewhere = await prisma.mediaAsset.count({
+          where: { storagePath, NOT: { id: gameImage?.id } },
+        });
+      } catch {
+        referencedElsewhere = null; // Abfrage fehlgeschlagen → Löschung unterlassen
+      }
+      if (referencedElsewhere === 0) {
+        // Erfolgsbeweis „keine Referenzen“: nur unsere eigene Datei löschen
+        // (Hash-Prüfung = Beweis, dass hier unsere Bytes liegen).
+        try {
+          const onDisk = await fs.readFile(storagePath);
+          if (crypto.createHash('sha256').update(onDisk).digest('hex') === sha256) {
+            await fs.unlink(storagePath);
+          }
+        } catch {
+          // Datei (bereits?) nicht lesbar/vorhanden → nichts zu tun.
+        }
+      } else if (referencedElsewhere === null) {
+        // Abfrage fehlgeschlagen: keine Löschung ohne Beweis. Unsere Datei
+        // bleibt (im schlimmsten Fall) ein unreferenziertes Orphan — die
+        // sichere Seite; ein möglicher Verlust fremder/erster Dateien wäre
+        // ein P1 (11-02/11-03). Startup-Cleanup übernimmt unreferenzierte
+        // Dateien.
+        logger.error('Composite: reference check failed; own file kept (no deletion without proof)', { storagePath });
+      }
+      // referencedElsewhere > 0: geteilter Blob — fremde Referenz bleibt stehen,
+      // unsere Datei ist identisch dazu → ebenfalls nichts löschen.
     }
     throw new Error('COMPOSITE_FAILED');
   }

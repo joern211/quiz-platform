@@ -352,11 +352,21 @@ roomsRouter.post('/', createLimiter, async (req, res) => {
     const pinFingerprint = pin ? crypto.createHash('sha256').update(`room-pin:${pin}`).digest('hex') : null;
 
     // Audit 11-06 (P1): serverseitige Idempotenz für Raum-Erstellung.
-    // (a) Explizites Idempotency-Token des Clients: exakt, zeitlich unbegrenzt.
+    // (a) Explizites Idempotency-Token des Clients: exakt und zeitlich
+    //     unbegrenzt — gleiche Absicht (gleiche Token) → genau ein Raum;
+    //     anderes Token → bewusst neue Absicht → neuer Raum, selbst bei
+    //     identischer Konfiguration.
     // (b) Fingerprint über die VOLLSTÄNDIGE wirksame Konfiguration inkl.
-    //     PIN-Identität und 60-s-Window-Epoche im Schlüssel →
-    //     konkrete Identität; anderes Spiel/Name/Setup/Limits/Öffentlichkeit
-    //     oder abgelaufenes Fenster → neuer Raum.
+    //     PIN-Identität und 60-s-Window-Epoche im Schlüssel: FALLBACK nur
+    //     für tokenlose Bestandsclients. WICHTIG (Vertrag, 10.10.):
+    //     Identischer Inhalt allein unterscheidet einen Retry NICHT von
+    //     einer neuen Erstellungsabsicht — zwei bewusste, in schneller
+    //     Folge (unter 60 s) erfolgte Erstellungen mit identischer
+    //     Konfiguration werden IM EINEN Raum zusammengeführt. Der
+    //     Fingerprint ist daher KEINE allgemeine Idempotenz-Garantie,
+    //     sondern ein enger Doppelklick-Retrieschutz: andere Absichten
+    //     müssen ein Token senden (aktuelle Web-Setup-Seiten tun das
+    //     immer: ModeratorSetup/GeoSetup/JeopardySetup/WerIstDasSetup).
     const fpCfg = {
       game: resolvedGameDefId,
       name: roomName,
