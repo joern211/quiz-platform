@@ -4,45 +4,45 @@
 > Basis-Commit, letzter Commit, erledigte Dateien, Tests + Ergebnis, offene Fehler,
 > nächster konkreter Schritt. Keine Tokens/Passwörter/privaten Bilder/Log-Inhalte.
 
-## Status-Übersicht (lebendig halten)
+## Aktueller Stand (10.10.2026)
 
-> **⭐ AUDIT-NACHARBEIT (09.–10.10.2026) — FINAL, gepusht.** Die sieben reproduzierten
-> Audit-Befunde (11-01..11-07) sind geschlossen und verifiziert. Der WIP-Commit
-> wurde zu einem sauberen Abschluss-Commit gebündelt (kein veralteter
-> „Stand vor Konsistenzfixes" in der History). **E2E-Regression aus 11-06
-> nachträglich gefunden und gefixt** (siehe „E2E-Fix" unten).
+[PR #11](https://github.com/joern211/quiz-platform/pull/11) bleibt Draft und BETA; kein Merge.
+Basis main: `411a5b783e5857bca5b208598fade43affc108b5`; Ausgangshead dieser Nacharbeit:
+`0a3a24e47d857274bc7ff6e13bad95c067207dce`. Aktueller veröffentlichter Head und GitHub-CI stehen im PR unter Commits/Checks.
+Die vorherigen Vermerke `6e75dc9` und „Push folgt" waren falsch/veraltet.
 
-- **Basis-Commit:** `411a5b783e5857bca5b208598fade43affc108b5` (PR #10, = origin/main)
-- **Branch:** `feature/wer-ist-das-fusion-media` (Worktree `~/quiz-platform-pr11`)
-- **Lokaler = Remote-HEAD:** `6e75dc9` („fix(pr11): Nachbefunde A–C — Reparatur-/Composite-Fehlerzweige + Idempotenz-Vertrag") — **gepusht** (bzw. letzter Push: `e10dbcb`, A–C-Commit folgt direkt). Arbeitsbaum sauber.
-- **PR #11:** Draft, offen; Beschreibung/Handoff auf den Audit-Final-Stand angepasst.
-- **E2E-Fix (11-06, 10.10.):** Der CI-E2E-Fehler am `f59a824` (G4-4: `getByText('Quiz Champion')` resolved to 2 elements) war **keine** bestehende Flake und **keine** Join-Path-Dopplung, sondern eine **eigene 11-06-Regression**: Geo steuert die Route `/moderator/vorbereitung/wissensduell` → generische `ModeratorSetupPage`, die **kein** `idempotencyKey` sendete. Alle identischen Geo-Erstellungen im E2E-Batch (gleicher Host/Name/Spiel/Setup < 60 s) fielen auf den **serverseitigen Fingerprint-Fallback** und wurden in **einen** Raum gemerged → `Quiz Champion` 2×, `Spieler B` 3× in einer Lobby → strict-mode violation. Jeopardy war grün, weil `JeopardySetupPage` das Token sendet. **Fix:** `ModeratorSetupPage` sendet jetzt wie die anderen Setup-Seiten ein stabiles pro-Absicht-Token + Klick-Sperre (Frontend-only; Server-Fallback für tokenlose Bestandsclients bleibt). DB-Beleg: vorher **1** `E2E Geo Test`-Raum mit `fp:`-Key und 10 Teilnahmen, nachher **5** eigene Räume mit UUID-Keys, keine Duplikate.
-- **Nachbefunde A–C (10.10., Wiederaufnahme-Auftrag):**
-  - **A — Upload-Reparatur (Referenzabfrage-Fehler):** `repairAssetRow` hat jetzt einen Drei-Zustands-Vertrag (`ok`/`degraded`/`failed`). DB-Update OK + fehlgeschlagene Referenzabfrage für die ALTE Datei → `degraded`: die NEUE Datei bleibt erhalten und referenziert, die Zeile wird kontrolliert auf `FAILED` gesetzt (nie READY auf Unbekannt), die alte Datei wird NICHT gelöscht (Unbekannt ≠ „keine Referenzen"), Antwort = kontrolliertes 500 `MEDIA_ASSET_REPAIR_DEGRADED`; Retry derselben Bytes heilt die Zeile auf READY. `failed` (Update-Fehler) = altes 11-07-Verhalten (Orphan-Cleanup). Gegenprobe: `audit-review.test.ts` „A: …" (Update OK + `count`-Injektion, Datei bleibt, Zeile FAILED→READY-Heilung). ✅
-  - **B — Composite (Insert + Referenzabfrage fehlgeschlagen):** Der Fehler-Cleanup in `composite.ts` behandelt eine FEHLGESCHLAGENE Referenzabfrage NIE mehr als „0 Referenzen" (`.catch(() => 0)` entfernt); Löschung nur bei erfolgreichem 0-Beweis UND nach Byte-Identitätsprüfung (Eigentumsbeweis). Datei des ersten Assets bleibt bytegleich erhalten. Gegenprobe: `audit-review.test.ts` „B: …" (zwei Quellpaare, identische Bytes, `create` + `count`-Injektion). ✅
-  - **C — Raum-Idempotenz-Vertrag:** Verhalten verifiziert und dokumentiert: gleiches Token (auch parallel) → genau ein Raum + konsistentes Moderator-Token; andere Tokens mit identischer Konfiguration → bewusst eigene Räume; über das 60-s-Fenster hinaus wird ein alter `fp:`-Raum NICHT zurückgeliefert (Fenster-Test). Tokenloser Vertrag in `rooms.ts` + Handoff ehrlich beschrieben: **identischer Inhalt unterscheidet Retry nicht von neuer Absicht; der Fingerprint ist KEINE allgemeine Garantie**, sondern enger Doppelklick-Schutz — alle aktuellen Web-Setup-Seiten senden Tokens. Gegenproben: `audit-review.test.ts` „C: …" (3 Tests). ✅
-- **Audit-Closure (lokal verifiziert):**
-  - 11-01 Pfad-Traversing: `roundId` nicht mehr im Pfad; content-geleiteter Pfad + Verzeichnis-Check + Validierung. ✅
-  - 11-02 Unveränderlichkeit: ordnungs-sensitive `assetKey`; vertauschte A/B überschreiben keine Bytes (Muster-Byte-Gegenprobe). ✅
-  - 11-03 Provenienz: `assetKey` trennt Byte-Dedupe von logischer Identität; Upload-Backfill vs. Legacy-Composites getrennt. ✅
-  - 11-04 PRIVATE bleibt privat: Unique-Key `[assetKey, uploadedBy, visibility]`; PRIVATE-Upload erbt keine PUBLIC-Sichtbarkeit. ✅
-  - 11-05 Setup-Vorschau: Host-Audience-URL (Session/Owner) lädt vor Raumerstellung; E2E prüft `naturalWidth > 0` vor Raumerstellung + nach Regeneration. ✅
-  - 11-06 Raum-Retry: serverseitige Idempotenz (`Room.idempotencyKey`) + stabiles Client-Token; atomar Raum+Host; Fingerprint-Fallback mit Zeitfenster + exaktem Fingerprint-Vergleich. ✅
-  - 11-07 Reparatur-Cleanup: Datei-Zuständigkeit erst nach DB-Erfolg; keine Orphans, keine Gewinner-Datei gelöscht. ✅
-  - Shared-File-Schutz: Startup-Cleanup/Reparatur/Konflikt-Pfade schützen gemeinsame physische Dateien. ✅
-- **Migration-Nachweis:** `20261008183000_audit_p1_logical_asset_identity_and_room_idempotency`
-  - **Frische DB:** `prisma migrate deploy` → „All migrations have been successfully applied" (kein `duplicate column name: assetKey` — der frühere Fehler stammte von einer halb-migrierten Stal-DB). ✅
-  - **Bestandskopie** (Legacy-Uploads `uploadedBy=NULL`, PUBLIC/PRIVATE, Legacy-Composite mit `derivedFromAssetIds`, v1-/v2-Räume): applied + **9 Invariants-Checks OK** — Uploads (inkl. NULL-Owner) backfilled `assetKey=sha256`; **Legacy-Composite behält `assetKey=NULL`** (Provenienz NICHT überschrieben); alter Index `media_assets_sha256_uploadedBy_key` entfernt, neuer `[assetKey, uploadedBy, visibility]` + Lookup-Index `[assetKey]` vorhanden; v1-`setupSchemaVersion=1`/v2`=2` unverändert; `rooms.idempotencyKey` vorhanden (NULL). ✅
-- **Tests (CI-Workflow: `prisma migrate deploy` + `pnpm --filter @quiz/server test`):**
-  - Server-Suite **276/276** (29 Dateien), inkl. **23 Audit-/Nachbefund-Regressionen** (`audit-review.test.ts`, 18 Audit + 5 Nachbefunde A–C). ✅
-  - Web **52/52** (6 Dateien) ✅ · `pnpm typecheck` (5 Pakete) ✅ · `pnpm lint` **0 errors** (97 warnings, bestehend) ✅ · `pnpm build` ✅
-  - **E2E (lokal, exakter CI-Geometrie Geo G4-* + Jeopardy J1–J10): 16/16 grün** — **G4-4 im Batch 6.5 s** (vor dem 11-06-Fix deterministisch 3/3 rot im Batch, isoliert grün). WID-E2E 1/1 (`naturalWidth > 0` vor Raumerstellung). ✅
-  - **CI am Remote-Head `e10dbcb`:** CI ✅ + E2E ✅ (GitHub Actions, Run 38020540394). Nach dem A–C-Commit: CI/CI-E2E am neuen Head erneut prüfen.
-- **BETA-Grenzen (ehrlich, unverändert):** Cleanup `ROOM_TEMP` nur beim Serverstart + >24 h; Recovery über Rejoin/Re-Start derselben DB; allgemeiner Storage-GC (auch PRIVATE) = separater Folgeauftrag. **Fingerprint-Grenze (C):** tokenlose Clients — identischer Inhalt ≠ erkannte neue Absicht (zusammengeführt, falls < 60 s); Token ist der eigentliche Identitätsmechanismus.
-- **Nächster Schritt:** A–C-Commit pushen → CI am neuen Head prüfen → PR11-Beschreibung aktualisieren. Danach PR12 D–F (Viewer-Audio MAIN/keine TEAM, Imposter Wertung/Gleichstand + Host-Sichtbarkeit, Jeopardy Host-Wissensvorteil) als docs-only-Commit; beide Draft, nicht mergen.
-- **Wiederaufnahme-Befehle (PR11):** `cd ~/quiz-platform-pr11 && git status --short` (sauber erwartet); `cd apps/server && rm -f /tmp/quiz-server-test.db && pnpm test` (migrate + Seed + Suite); `cd apps/web && pnpm test`; E2E: `cd .. && DATABASE_URL=file:/tmp/e2e-x.db pnpm prisma migrate deploy --schema=./prisma/schema.prisma && DATABASE_URL=file:/tmp/e2e-x.db pnpm db:seed && DATABASE_URL=file:/tmp/e2e-x.db SESSION_SECRET=<test> E2E_BASE_URL=http://localhost:5173 CI=true pnpm exec playwright test --config=playwright.config.ts --project=chromium apps/web/e2e/geo-e2e.spec.ts apps/web/e2e/jeopardy-e2e.spec.ts`.
+### Behobener paralleler Dateiverlust
+
+Der alte Composite-Fehlerzweig konnte nach einer erfolgreichen Referenzabfrage mit 0 eine Datei löschen, die zwischenzeitlich von einem anderen Quellpaar mit identischen Ausgabe-Bytes erfolgreich referenziert wurde. Der Null-Befund war kein Eigentumsbeweis.
+Jetzt werden Lookup, DB-Zuordnung und vollständige Dateiveröffentlichung unter einem SQLite-Writer-Lock ausgeführt: Insert zuerst, Datei danach, Commit zuletzt. Ein Insert-Fehler veröffentlicht keine neue finale Datei und löscht niemals einen gemeinsamen finalen Pfad. Gültige Bytes werden über Hardlink nicht überschrieben; beschädigte Dateien werden vollständig und atomar repariert. Sharp-Berechnung erfolgt vor der Writer-Transaktion.
+
+Startup-Cleanup verwendet denselben Writer-Lock, prüft Snapshot/Alter/Binding erneut und zählt Referenzen vor der Zeilenlöschung. Eine fehlgeschlagene Referenzabfrage erhält Zeile und Datei für Retry. Dateilöschung erfolgt erst nach erfolgreichem Zeilen-Commit, in einer zweiten gesperrten Transaktion mit erneuter Referenzprüfung. Dadurch zerstört ein Rollback keine wiederhergestellte READY-Zeile und ein zwischenzeitlicher Publisher bleibt geschützt.
+
+### Idempotenz und vorhandene Audit-Fixes
+
+11-01…11-07 sowie A–C bleiben durch Gegenproben abgedeckt: Traversal, unveränderliche Byte-Pfade, getrennte Provenienz/Visibility, Vorschau, Token-basierte Raumerstellung und Reparatur. Die generische ModeratorSetupPage sendet wie die anderen Setup-Seiten pro Erstellungsabsicht ein stabiles Token. Der frühere Geo-Batch-Fehler war eine Regression des tokenlosen Fingerprint-Fallbacks, keine nachgewiesene Bestands-Flake.
+
+Tokenlos gilt ausdrücklich die feste Uhrminute, kein gleitendes 60-s-Fenster: identische neue Absichten in derselben Minute werden zusammengeführt; ein Retry über die Grenze erzeugt einen neuen Raum. Echte Requests bei 59.950/59.990/60.010 s und Token-Retry über die Grenze prüfen diesen Vertrag. Für allgemeine Retry-Identität ist ein explizites Token erforderlich.
+
+Upload-Reparatur nach erfolgreichem DB-Update und fehlerhafter Referenzabfrage erhält die neue Datei, meldet `MEDIA_ASSET_REPAIR_DEGRADED` und versucht, die Zeile als FAILED zu markieren. Die FAILED-Markierung ist bei zusätzlichem DB-Ausfall best effort, keine garantierte zweite erfolgreiche DB-Operation. Retry heilt den normalen degradierten Fall.
+
+### Prüfungen dieser Nacharbeit
+
+- Server: 283 Tests in 29 Dateien, darunter 27 Audit-Gegenproben und 9 Medien-Lebenszyklus-Tests. Echte SQLite-Abfragen/Transaktionen, parallele Publisher, deterministischer alter Null-Referenz-Ablauf, Count-Fehler, Rollback und neuer Verweis zwischen den Cleanup-Transaktionen.
+- Web: 52 Tests. Typecheck: 5 Pakete. Lint: 0 Fehler, bestehende Warnungen. Server/Web-Build geprüft.
+- Lokaler Chromium-E2E-Lauf nicht ausgeführt: Browserdownload lieferte ein ungültiges Archiv. GitHub-E2E wird nach Veröffentlichung am neuen Head geprüft und im PR mit Lauf-Link belegt. Frühere lokale 16/16-Angaben sind historische Ergebnisse, keine neue Ausführung.
+- Keine Schema-/Migrationsänderung in dieser Nacharbeit. Der echte Server-Testbefehl führt Migration und Seed aus. Historische frisch-/Bestandskopie-Nachweise unten sind keine neu behaupteten Wiederholungen.
+
+### Bewusste BETA-Grenzen
+
+Dateisystem und SQLite haben keinen gemeinsamen Crash-Commit. Ein Commit-/Prozessfehler nach Dateiveröffentlichung kann eine reine Datei ohne DB-Zeile hinterlassen; ebenso kann ein Fehler der zweiten Cleanup-Phase eine unreferenzierte Datei erhalten. Solche Dateien werden aus Sicherheitsgründen nicht im Fehlerzweig gelöscht und benötigen den separaten allgemeinen Storage-GC. Startup-Cleanup verarbeitet nur alte tmp-DB-Zeilen, nicht beliebige Dateien ohne Zeile. ROOM_TEMP-Cleanup läuft beim Start mit >24 h; allgemeiner PRIVATE-/Storage-GC und automatische Weiterführung aller laufenden Räume sind Folgeaufträge. Recovery ist über Rejoin/Resync vorhanden. Die Ersteller-Kontosperre erkennt keine anonyme zweite Identität.
+
+Nächster Integrationsschritt: Prüfung/Abnahme der Draft-PRs. PR12 wird separat korrigiert; nach einem späteren PR11-Merge ist dort der neue main-Abgleich fällig. Keine erneute Zustimmung zum normalen Abschluss dieser Nacharbeit erforderlich.
+
 
 ---
+
+> Die folgenden Abschnitte sind historische Etappenprotokolle. Für aktuelle Verträge und Prüfungen gilt der Status oben. Frühere Dateinamen-/Cleanup- und Idempotenz-Aussagen wurden durch die Nacharbeit ersetzt.
 
 ## (historisch) Nacharbeit A–E — verifiziert & erledigt (vor Audit)
 - **E: ERFOLGREICH (lokal fertig, wartet auf Commit/Push):**

@@ -23,8 +23,9 @@
 // ============================================================
 
 import { rm } from 'node:fs/promises';
-import type { PrismaClient } from '@prisma/client';
+import type { Prisma, PrismaClient } from '@prisma/client';
 import { logger } from '../observability/logger.js';
+import { withMediaTransaction } from './transaction.js';
 
 /**
  * Bindet die in einem Raumsnapshot referenzierten tmp-Assets des Hosts an
@@ -81,7 +82,7 @@ export async function bindSnapshotAssetsToRoom(
  * Ist das Asset in IRGEND einem Raumsnapshot referenziert (v1/v2, jedes
  * Bildfeld)? Ja → historisch benötigt → niemals löschen.
  */
-async function isReferencedInAnySnapshot(prisma: PrismaClient, assetId: string): Promise<boolean> {
+async function isReferencedInAnySnapshot(prisma: Prisma.TransactionClient, assetId: string): Promise<boolean> {
   const candidates = await prisma.room.findMany({
     where: { setupSnapshotJson: { contains: assetId } },
     select: { setupSnapshotJson: true },
@@ -124,19 +125,43 @@ export async function cleanupOrphanedTempAssets(
 
   let cleaned = 0;
   for (const asset of orphans) {
-    if (await isReferencedInAnySnapshot(prisma, asset.id)) continue; // aktiv/historisch
-    try { await prisma.mediaAsset.delete({ where: { id: asset.id } }); } catch { continue; }
-    // Audit 11-02/11-03 (geteilte physische Dateien): die DATEI darf erst
-    // gelöscht werden, wenn KEIN ANDERES Asset (irgendein Status/Kontext)
-    // sie noch referenziert — Content-Adressierte Blob-Pfade können je
-    // logischem Asset geteilt sein.
-    const sharedWith = await prisma.mediaAsset.count({
-      where: { storagePath: asset.storagePath, NOT: { id: asset.id } },
-    }).catch(() => 1); // bei DB-Fehler: nicht löschen (konservativ)
-    if (sharedWith === 0) {
-      try { await rm(asset.storagePath, { force: true }); } catch { /* Datei fehlt evtl. schon */ }
+    try {
+      const removed = await withMediaTransaction(prisma, async tx => {
+        // Recheck after taking the writer lock: binding/publication may have
+        // changed the candidate since the initial scan.
+        const current = await tx.mediaAsset.findFirst({
+          where: { id: asset.id, roomId: { startsWith: 'tmp-' }, createdAt: { lt: cutoff } },
+        });
+        if (!current || await isReferencedInAnySnapshot(tx, asset.id)) return false;
+        // Count before deleting the row. On failure, retain row AND file so
+        // a later startup can retry (not an untracked file-only orphan).
+        const sharedWith = await tx.mediaAsset.count({
+          where: { storagePath: current.storagePath, NOT: { id: asset.id } },
+        });
+        await tx.mediaAsset.delete({ where: { id: asset.id } });
+        return { storagePath: current.storagePath, sharedWith };
+      });
+      if (removed) {
+        cleaned += 1;
+        if (removed.sharedWith === 0) {
+          // Commit the row removal before touching the file. Otherwise a
+          // failed commit could restore a READY row whose file was unlinked.
+          // Take the writer lock again and recheck: a publisher may have
+          // acquired a new reference between the two transactions.
+          try {
+            await withMediaTransaction(prisma, async tx => {
+              const references = await tx.mediaAsset.count({ where: { storagePath: removed.storagePath } });
+              if (references === 0) await rm(removed.storagePath, { force: true });
+            });
+          } catch (error) {
+            // Preserve a file-only orphan rather than delete a live blob.
+            logger.warn('Temp asset file cleanup deferred', { assetId: asset.id, error });
+          }
+        }
+      }
+    } catch (error) {
+      logger.warn('Temp asset cleanup deferred', { assetId: asset.id, error });
     }
-    cleaned += 1;
   }
   if (cleaned > 0) {
     logger.info('Verwaiste tmp-Medien bereinigt', { cleaned, ttlMs });

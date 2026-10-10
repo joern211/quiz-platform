@@ -260,3 +260,72 @@ describe('Medien-Lebenszyklus — befristete Bereinigung verwaister tmp-Assets (
     await db.$disconnect();
   });
 });
+
+it('Startup-Cleanup behält Zeile und Datei bei fehlgeschlagener Referenzabfrage für späteren Retry', async () => {
+  const { prisma: db, tmpDir } = await makeApp();
+  const asset = await makeTempAsset(db, { host: 'cleanup-retry', daysOld: 2, withFile: true, dir: tmpDir });
+  const faulty = db.$extends({ query: { mediaAsset: {
+    count: async () => { throw new Error('reference query temporarily unavailable'); },
+  } } });
+  expect(await cleanupOrphanedTempAssets(faulty as unknown as PrismaClient, 24 * 60 * 60 * 1000, NOW)).toBe(0);
+  expect(await db.mediaAsset.findUnique({ where: { id: asset.id } })).toBeTruthy();
+  const { access } = await import('node:fs/promises');
+  await access(asset.storagePath);
+  expect(await cleanupOrphanedTempAssets(db, 24 * 60 * 60 * 1000, NOW)).toBe(1);
+  expect(await db.mediaAsset.findUnique({ where: { id: asset.id } })).toBeNull();
+  await expect(access(asset.storagePath)).rejects.toThrow();
+  await db.$disconnect();
+});
+
+it('Startup-Cleanup schützt einen neuen Dateiverweis zwischen Zeilen-Commit und Datei-Cleanup', async () => {
+  const { prisma: db, tmpDir } = await makeApp();
+  const asset = await makeTempAsset(db, { host: 'cleanup-concurrent', daysOld: 2, withFile: true, dir: tmpDir });
+  let calls = 0;
+  let winnerId: string | undefined;
+  const interleaved = new Proxy(db, {
+    get(target, property) {
+      if (property === '$transaction') return async (
+        operation: (tx: import('@prisma/client').Prisma.TransactionClient) => Promise<unknown>,
+        options: { maxWait: number; timeout: number },
+      ) => {
+        const result = await target.$transaction(operation, options);
+        if (++calls === 1) {
+          const data = { ...asset, id: undefined };
+          const winner = await target.mediaAsset.create({ data: { ...data, roomId: 'real-room', createdAt: NOW } });
+          winnerId = winner.id;
+        }
+        return result;
+      };
+      const value = Reflect.get(target, property);
+      return typeof value === 'function' ? value.bind(target) : value;
+    },
+  });
+  expect(await cleanupOrphanedTempAssets(interleaved, 24 * 60 * 60 * 1000, NOW)).toBe(1);
+  expect(await db.mediaAsset.findUnique({ where: { id: asset.id } })).toBeNull();
+  expect((await db.mediaAsset.findUniqueOrThrow({ where: { id: winnerId! } })).processStatus).toBe('READY');
+  await (await import('node:fs/promises')).access(asset.storagePath);
+  expect(calls).toBe(2);
+  await db.$disconnect();
+});
+
+it('Startup-Cleanup lässt bei zurückgerollter Zeilenlöschung auch die READY-Datei bestehen', async () => {
+  const { prisma: db, tmpDir } = await makeApp();
+  const asset = await makeTempAsset(db, { host: 'cleanup-rollback', daysOld: 2, withFile: true, dir: tmpDir });
+  const faulty = new Proxy(db, {
+    get(target, property) {
+      if (property === '$transaction') return async (
+        operation: (tx: import('@prisma/client').Prisma.TransactionClient) => Promise<unknown>,
+        options: { maxWait: number; timeout: number },
+      ) => target.$transaction(async tx => {
+        await operation(tx);
+        throw new Error('rollback after row deletion');
+      }, options);
+      const value = Reflect.get(target, property);
+      return typeof value === 'function' ? value.bind(target) : value;
+    },
+  });
+  expect(await cleanupOrphanedTempAssets(faulty, 24 * 60 * 60 * 1000, NOW)).toBe(0);
+  expect((await db.mediaAsset.findUniqueOrThrow({ where: { id: asset.id } })).processStatus).toBe('READY');
+  await (await import('node:fs/promises')).access(asset.storagePath);
+  await db.$disconnect();
+});

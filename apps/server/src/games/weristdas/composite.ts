@@ -27,6 +27,7 @@ import sharp from 'sharp';
 import { prisma } from '../../persistence/prisma.js';
 import { logger } from '../../observability/logger.js';
 import { config } from '../../config/index.js';
+import { withMediaTransaction } from '../../media/transaction.js';
 
 /** Kantenlänge des quadratischen Fusion-Bilds. */
 export const COMPOSITE_SIZE = 1024;
@@ -38,7 +39,7 @@ export interface CreateGameImageParams {
   personBImageAssetId: string;
   hostUserId: string;
   roomId: string;
-  /** Nur für den Filenamen — enthält KEINE Lösung. */
+  /** Diagnose-ID; wird weder im Dateipfad noch in der logischen Identität verwendet. */
   roundId: string;
 }
 
@@ -124,139 +125,48 @@ export async function createGameImage(params: CreateGameImageParams): Promise<Cr
   // ist dies garantiert — die Prüfung ist reine Absicherung.
   assertPathContained(uploadDir, storagePath);
 
-  // Idempotenz/Dedupe über die LOGISCHE Identität (assetKey), NICHT über Bytes:
-  //   Gleiche Quellen (gleiche IDs) + gleicher Host → gleiche assetKey →
-  //   dasselbe Asset wiederverwenden (keine Duplikate, 11-02/11-03).
-  //   Verschiedene Quellen (auch bei identischen Bytes) → andere assetKey →
-  //   eigenes Asset mit eigener Provenienz (11-03).
-  const existing = await prisma.mediaAsset.findFirst({
-    where: { assetKey, uploadedBy: hostUserId, visibility: 'ROOM_TEMP' },
-  });
-  if (existing) {
-    let fileExists = true;
-    try { await fs.access(existing.storagePath); } catch { fileExists = false; }
-    // Audit 11-02: Integritätsprüfung — die gespeicherte Datei muss zum
-    // gespeicherten Hash passen. Ein Byte-Unterschied (historisch
-    // überschriebene Datei) wird kontrolliert repariert: die Ausgabe-Bytes
-    // sind deterministisch (gleiche Quellen + Algorithmus) → bytegleich zur
-   // gespeicherten sha256. writeAtomic überschreibt bei vorhandenem Ziel
-    // NIE (EEXIST → Abbruch), daher wird die Datei bei Abweichung
-    // punktuell ersetzt und anschließend verifiziert.
-    if (fileExists) {
-      let integrityOk = true;
-      try {
-        const stored = await fs.readFile(existing.storagePath);
-        integrityOk = crypto.createHash('sha256').update(stored).digest('hex') === existing.sha256;
-      } catch { integrityOk = false; }
-      if (integrityOk) {
-        logger.info('Composite reused (idempotent)', { assetId: existing.id });
+  try {
+    return await withMediaTransaction(prisma, async tx => {
+      const existing = await tx.mediaAsset.findFirst({
+        where: { assetKey, uploadedBy: hostUserId, visibility: 'ROOM_TEMP' },
+      });
+      if (existing) {
+        let stored: Buffer | undefined;
+        try { stored = await fs.readFile(existing.storagePath); } catch { /* missing file */ }
+        if (!stored || crypto.createHash('sha256').update(stored).digest('hex') !== existing.sha256) {
+          // Repair restores the recorded bytes, never a different algorithm/
+          // source result under an already used asset identity.
+          if (sha256 !== existing.sha256) throw new Error('COMPOSITE_FAILED');
+          await writeAtomic(existing.storagePath, out);
+          logger.info('Composite file repaired', { assetId: existing.id });
+        }
         return { gameImageAssetId: existing.id, width: existing.width ?? COMPOSITE_SIZE, height: existing.height ?? COMPOSITE_SIZE };
       }
-      // Abweichende Bytes → deterministische Reparatur (gleiche Byte-Folge,
-      // weil dieselbe Quellen-ID-Paarung denselben assetKey trägt).
-      await fs.unlink(existing.storagePath).catch(() => {});
-      await writeAtomic(existing.storagePath, out);
-      logger.info('Composite file repaired (integrity mismatch)', { assetId: existing.id, path: existing.storagePath });
-      return { gameImageAssetId: existing.id, width: existing.width ?? COMPOSITE_SIZE, height: existing.height ?? COMPOSITE_SIZE };
-    }
-    // Datei fehlte (Verlust) → deterministisch wiederherstellen am Pfad des
-    // Assets (Bytes sind deterministisch → bytegleich). writeAtomic ist
-    // EEXIST-sicher; bei einem geteilten Blob (identische Bytes, anderes
-    // Quellpaar) bleibt die vorhandene Datei unverändert.
-    try {
-      await writeAtomic(existing.storagePath, out);
-    } catch {
-      throw new Error('COMPOSITE_FAILED');
-    }
-    logger.info('Composite file re-materialized (deterministic repair)', { assetId: existing.id, path: existing.storagePath });
-    return { gameImageAssetId: existing.id, width: existing.width ?? COMPOSITE_SIZE, height: existing.height ?? COMPOSITE_SIZE };
-  }
 
-  // Neues Asset: Datei ATOMAR an den (content-geleiteten) Final-Pfad.
-  await writeAtomic(storagePath, out);
-
-  let gameImage;
-  try {
-    gameImage = await prisma.mediaAsset.create({
-      data: {
-        type: 'image',
-        mimeType: 'image/webp',
-        filename,
-        originalName: 'fusion.webp', // keine Lösung im Namen
-        fileSize: out.length,
-        width: COMPOSITE_SIZE,
-        height: COMPOSITE_SIZE,
-        sha256,
-        assetKey,
-        storagePath,
-        uploadedBy: hostUserId,
-        visibility: 'ROOM_TEMP',
-        roomId,
-        processStatus: 'READY',
-        processed: true,
-        derivedFromAssetIds: JSON.stringify([personAImageAssetId, personBImageAssetId]),
-      },
+      // Insert FIRST, publish SECOND, commit LAST. A failed insert has no
+      // published file to delete. Never unlink the shared final path on an
+      // error: another logical asset may already use it. A write error rolls
+      // back the row; temp files are cleaned by writeAtomic.
+      const gameImage = await tx.mediaAsset.create({
+        data: {
+          type: 'image', mimeType: 'image/webp', filename,
+          originalName: 'fusion.webp', fileSize: out.length,
+          width: COMPOSITE_SIZE, height: COMPOSITE_SIZE, sha256, assetKey,
+          storagePath, uploadedBy: hostUserId, visibility: 'ROOM_TEMP', roomId,
+          processStatus: 'READY', processed: true,
+          derivedFromAssetIds: JSON.stringify([personAImageAssetId, personBImageAssetId]),
+        },
+      });
+      await writeAtomic(storagePath, out);
+      logger.info('Composite stored', { assetId: gameImage.id, roomId, roundId });
+      return { gameImageAssetId: gameImage.id, width: COMPOSITE_SIZE, height: COMPOSITE_SIZE };
     });
-  } catch (error) {
-    // Parallel-Race (P2002) auf dieselbe assetKey: ein paralleler Aufruf hat
-    // das Asset angelegt. Auf die Gewinner-Zeile auflösen (deren Datei ist
-    // deterministisch identisch); fehlende Datei reparieren. Wir löschen NIE
-    // die finale Datei.
-    if (isUniqueConflict(error)) {
-      const winner = await prisma.mediaAsset.findFirst({ where: { assetKey, uploadedBy: hostUserId, visibility: 'ROOM_TEMP' } });
-      if (winner) {
-        let fileExists = true;
-        try { await fs.access(winner.storagePath); } catch { fileExists = false; }
-        if (!fileExists) {
-          try { await writeAtomic(winner.storagePath, out); } catch { /* best effort */ }
-        }
-        logger.info('Composite deduped after unique conflict', { assetId: winner.id });
-        return { gameImageAssetId: winner.id, width: winner.width ?? COMPOSITE_SIZE, height: winner.height ?? COMPOSITE_SIZE };
-      }
-    }
-    // Anderer Fehler → die von UNS angelegte Datei kontrolliert entfernen —
-    // aber NUR, wenn ein ERFOLGREICHER Abfragebeweis zeigt, dass kein anderer
-    // DB-Eintrag sie referenziert (geteilter Blob mit identischen Bytes aus
-    // einem anderen Quellpaar). Nachbefund-B (10.10.): Ein FEHLGESCHLAGENER
-    // Zählbefehl darf NICHT als „keine Referenzen“ (0) behandelt werden —
-    // Unbekannt bedeutet: keine Löschung. Zusätzlich wird vor jeder Löschung
-    // die BYTE-IDENTITÄT mit unserer Ausgabe verifiziert (Eigentumsbeweis):
-    // ein fremdes Asset mit denselben Bytes an diesem Pfad wird nie angetastet.
-    if (storagePath) {
-      let referencedElsewhere: number | null = null;
-      try {
-        referencedElsewhere = await prisma.mediaAsset.count({
-          where: { storagePath, NOT: { id: gameImage?.id } },
-        });
-      } catch {
-        referencedElsewhere = null; // Abfrage fehlgeschlagen → Löschung unterlassen
-      }
-      if (referencedElsewhere === 0) {
-        // Erfolgsbeweis „keine Referenzen“: nur unsere eigene Datei löschen
-        // (Hash-Prüfung = Beweis, dass hier unsere Bytes liegen).
-        try {
-          const onDisk = await fs.readFile(storagePath);
-          if (crypto.createHash('sha256').update(onDisk).digest('hex') === sha256) {
-            await fs.unlink(storagePath);
-          }
-        } catch {
-          // Datei (bereits?) nicht lesbar/vorhanden → nichts zu tun.
-        }
-      } else if (referencedElsewhere === null) {
-        // Abfrage fehlgeschlagen: keine Löschung ohne Beweis. Unsere Datei
-        // bleibt (im schlimmsten Fall) ein unreferenziertes Orphan — die
-        // sichere Seite; ein möglicher Verlust fremder/erster Dateien wäre
-        // ein P1 (11-02/11-03). Startup-Cleanup übernimmt unreferenzierte
-        // Dateien.
-        logger.error('Composite: reference check failed; own file kept (no deletion without proof)', { storagePath });
-      }
-      // referencedElsewhere > 0: geteilter Blob — fremde Referenz bleibt stehen,
-      // unsere Datei ist identisch dazu → ebenfalls nichts löschen.
-    }
+  } catch {
+    // A transaction/commit error may leave an unreferenced final blob.
+    // Preserve it rather than risk deleting a concurrent winner. General
+    // file-only garbage collection is separate from tmp-row startup cleanup.
     throw new Error('COMPOSITE_FAILED');
   }
-  logger.info('Composite created', { assetId: gameImage.id, roomId, roundId });
-  return { gameImageAssetId: gameImage.id, width: COMPOSITE_SIZE, height: COMPOSITE_SIZE };
 }
 
 /**
@@ -271,33 +181,28 @@ function assertPathContained(baseDir: string, finalPath: string): void {
   }
 }
 
-/**
- * Atomares Schreiben: legt die Bytes in eine eindeutige tmp-Datei im selben
- * Verzeichnis ab und benennt sie um (atomic rename). Überschreibt eine
- * bereits vorhandene finale Datei NIE (wir schreiben nur, wenn sie fehlt).
- * @throws COMPOSITE_FAILED bei I/O-Fehlern (tmp-Datei wird aufgeräumt).
+/** Publish a complete file without overwriting a valid existing blob.
+ * A corrupt/missing blob is repaired atomically while holding the media lock.
  */
 async function writeAtomic(finalPath: string, bytes: Buffer): Promise<void> {
   const dir = path.dirname(finalPath);
   const tmpPath = path.join(dir, `.${path.basename(finalPath)}.${crypto.randomBytes(8).toString('hex')}.tmp`);
   try {
-    await fs.writeFile(tmpPath, bytes);
-    await fs.rename(tmpPath, finalPath);
-  } catch (error) {
-    await fs.unlink(tmpPath).catch(() => {});
-    if ((error as NodeJS.ErrnoException).code === 'EEXIST') {
-      // Finale Datei existiert bereits (parallel) — für uns deterministisch
-      // identisch → wir verlassen uns auf die vorhandene (kein Überschreiben).
-      return;
+    await fs.writeFile(tmpPath, bytes, { flag: 'wx' });
+    try {
+      await fs.link(tmpPath, finalPath); // EEXIST, unlike rename, never overwrites.
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error;
+      const stored = await fs.readFile(finalPath);
+      if (!stored.equals(bytes)) {
+        // Only this deterministic output is allowed at this content path.
+        // Readers see the complete old or repaired file, never a gap.
+        await fs.rename(tmpPath, finalPath);
+      }
     }
+  } catch {
     throw new Error('COMPOSITE_FAILED');
+  } finally {
+    await fs.unlink(tmpPath).catch(() => {});
   }
-}
-
-/** Erkennt Prisma-Unique-Konflikte (P2002) robust an code/message. */
-function isUniqueConflict(error: unknown): boolean {
-  if (!error) return false;
-  const e = error as { code?: string; message?: string };
-  if (e.code === 'P2002') return true;
-  return typeof e.message === 'string' && /Unique constraint failed|UNIQUE constraint failed/i.test(e.message);
 }

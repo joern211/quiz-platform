@@ -55,11 +55,13 @@ function isUniqueConflict(error: unknown): boolean {
 //       wirksame Konfiguration (Spiel, Name, Setup, PIN-Hash, Limits,
 //       Viewer/Camera/Chat/Public) — JSON rekursiv key-sorted, damit die
 //       Schlüsselreihenfolge keine zweite Identität erzeugt. Der Fingerprint
-//       gilt nur innerhalb eines Zeitfensters (60 s): der Schlüssel enthält
-//       eine 60-s-Window-Epoche → nach dem Fenster kann dieselbe
-//       Konfiguration bewusst einen NEUEN Raum anlegen. Ein anderer Raum
-//       desselben Hosts wird niemals zurückgeliefert (der Lookup vergleicht
-//       den konkreten Schlüssel, nicht nur ein Präfix).
+//       gilt nur innerhalb derselben festen Uhrzeit-Minute: der Schlüssel enthält
+//       eine feste Minutenepoche → über die Minutengrenze kann dieselbe
+//       Konfiguration bewusst einen NEUEN Raum anlegen. Verschiedene tokenlose
+//       Absichten mit gleicher Konfiguration werden
+//       innerhalb derselben Minute zusammengeführt. Auch ein Retry 20 ms
+//       später kann über die Minutengrenze einen zweiten Raum erzeugen.
+//       Eine Absichts-/Retry-Garantie setzt deshalb das Client-Token voraus.
 // Parallele identische Requests kollidieren per P2002 auf den Gewinner.
 // Raum + Host-Teilnahme entstehen ATOMAR (Transaction) — es gibt keinen
 // Zustand mit Raum aber ohne MODERATOR-Teilnahme/Token.
@@ -357,11 +359,12 @@ roomsRouter.post('/', createLimiter, async (req, res) => {
     //     anderes Token → bewusst neue Absicht → neuer Raum, selbst bei
     //     identischer Konfiguration.
     // (b) Fingerprint über die VOLLSTÄNDIGE wirksame Konfiguration inkl.
-    //     PIN-Identität und 60-s-Window-Epoche im Schlüssel: FALLBACK nur
+    //     PIN-Identität und fester Minutenepoche im Schlüssel: FALLBACK nur
     //     für tokenlose Bestandsclients. WICHTIG (Vertrag, 10.10.):
     //     Identischer Inhalt allein unterscheidet einen Retry NICHT von
     //     einer neuen Erstellungsabsicht — zwei bewusste, in schneller
-    //     Folge (unter 60 s) erfolgte Erstellungen mit identischer
+    //     Folge innerhalb derselben Uhrzeit-Minute erfolgte Erstellungen mit
+    //     identischer
     //     Konfiguration werden IM EINEN Raum zusammengeführt. Der
     //     Fingerprint ist daher KEINE allgemeine Idempotenz-Garantie,
     //     sondern ein enger Doppelklick-Retrieschutz: andere Absichten

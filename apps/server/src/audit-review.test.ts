@@ -43,7 +43,7 @@
 // Testdateien nicht stört.
 // ============================================================
 
-import { beforeAll, afterAll, it, expect } from 'vitest';
+import { beforeAll, afterAll, it, expect, vi } from 'vitest';
 import { mkdtemp, mkdir, writeFile, readFile, rm, readdir } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -596,36 +596,52 @@ it('C: unterschiedliche Absichten (andere Tokens) mit IDENTISCHER Konfiguration 
   expect(await db.room.count({ where: { roomName: body.roomName, hostUserId: owner.userId } })).toBe(2);
 });
 
-it('C: tokenloses Fenster — ein 60 s alter Raum gleicher Konfiguration wird NICHT zurückgeliefert', async () => {
+it('C: echte tokenlose Requests innerhalb und über die feste Minutengrenze', async () => {
   await ensureWidGame();
   const a = await source(145, '#330033');
   const b = await source(146, '#003333');
-  const composite = await request.post('/api/v1/media/composite')
-    .set('Cookie', owner.cookie)
-    .send({ personAImageAssetId: a.id, personBImageAssetId: b.id, roundId: crypto.randomUUID() });
-  const body = widSetupBody([{ a: a.id, b: b.id, game: composite.body.data.gameImageAssetId }]);
-  const name = `Window ${Date.now()}`;
-  body.roomName = name;
-  // Raum aus dem VORHERIGEN 60-s-Fenster direkt in der DB anlegen
-  // (simuliert: Erstellungsversuch vor über 60 Sekunden).
-  const epochPrev = Math.floor(Date.now() / 60000) - 1;
-  const gameDef = await db.gameDefinition.findUniqueOrThrow({ where: { slug: 'wer-ist-das' } });
-  const staleRoom = await db.room.create({
-    data: {
-      code: 'WIN-OLD', roomName: name, gameDefinitionId: gameDef.id, hostUserId: owner.userId,
-      setupSnapshotJson: JSON.stringify(body.setupSnapshotJson), isPublic: true,
-      idempotencyKey: `fp:${epochPrev}:${'0'.repeat(64)}`, status: 'LOBBY', runPhase: 'OPEN',
-    },
-  });
-  // Identische Konfiguration, OHNES Token, AKTUELLES Fenster → neuer Raum,
-  // der stale-Win-Raum bleibt unverändert und wird NICHT wiederverwendet
-  // (Fenster-Grenze: Retry-Schutz ist bewusst auf 60 s begrenzt).
-  const r = await request.post('/api/v1/rooms').set('Cookie', owner.cookie).send(body);
-  expect(r.status).toBe(201);
-  expect(r.body.data.roomId).not.toBe(staleRoom.id);
-  expect(r.body.data.idempotentReplay).not.toBe(true);
-  const stale = await db.room.findUniqueOrThrow({ where: { id: staleRoom.id } });
-  expect(stale.idempotencyKey).toBe(`fp:${epochPrev}:${'0'.repeat(64)}`);
+  const composite = await createGameImage({ personAImageAssetId: a.id, personBImageAssetId: b.id, hostUserId: owner.userId, roomId: 'tmp-audit-host', roundId: crypto.randomUUID() });
+  const body = widSetupBody([{ a: a.id, b: b.id, game: composite.gameImageAssetId }]);
+  body.roomName = `Window ${crypto.randomUUID()}`;
+  const bucket = Math.floor(Date.now() / 60000) * 60000;
+  const clock = vi.spyOn(Date, 'now');
+  try {
+    clock.mockReturnValue(bucket + 59950);
+    const first = await request.post('/api/v1/rooms').set('Cookie', owner.cookie).send(body);
+    clock.mockReturnValue(bucket + 59990);
+    const retry = await request.post('/api/v1/rooms').set('Cookie', owner.cookie).send(body);
+    expect(first.status).toBe(201);
+    expect(retry.status).toBe(201);
+    expect(retry.body.data.roomId).toBe(first.body.data.roomId);
+    const row = await db.room.findUniqueOrThrow({ where: { id: first.body.data.roomId } });
+    expect(row.idempotencyKey).toMatch(/^fp:[0-9]+:[a-f0-9]{64}$/);
+
+    // A 20ms gap crossing a minute is NOT protected without a token.
+    // This is a tested limitation, not a claimed sliding 60-second guarantee.
+    clock.mockReturnValue(bucket + 60010);
+    const next = await request.post('/api/v1/rooms').set('Cookie', owner.cookie).send(body);
+    expect(next.status).toBe(201);
+    expect(next.body.data.roomId).not.toBe(first.body.data.roomId);
+    expect(await db.room.count({ where: { roomName: body.roomName } })).toBe(2);
+  } finally { clock.mockRestore(); }
+});
+
+it('C: explizites Token schützt Retry auch über die Minutengrenze', async () => {
+  await ensureWidGame();
+  const a = await source(147, '#331133'); const b = await source(148, '#113333');
+  const c = await createGameImage({ personAImageAssetId: a.id, personBImageAssetId: b.id, hostUserId: owner.userId, roomId: 'tmp-audit-host', roundId: crypto.randomUUID() });
+  const body = { ...widSetupBody([{ a: a.id, b: b.id, game: c.gameImageAssetId }]), roomName: crypto.randomUUID(), idempotencyKey: crypto.randomUUID() };
+  const bucket = Math.floor(Date.now() / 60000) * 60000;
+  const clock = vi.spyOn(Date, 'now');
+  try {
+    clock.mockReturnValue(bucket + 59990);
+    const first = await request.post('/api/v1/rooms').set('Cookie', owner.cookie).send(body);
+    clock.mockReturnValue(bucket + 60010);
+    const retry = await request.post('/api/v1/rooms').set('Cookie', owner.cookie).send(body);
+    expect(first.status).toBe(201); expect(retry.status).toBe(201);
+    expect(retry.body.data.roomId).toBe(first.body.data.roomId);
+    expect(retry.body.data.moderatorToken).toBe(first.body.data.moderatorToken);
+  } finally { clock.mockRestore(); }
 });
 
 // ------------------------------------------------------------
@@ -693,22 +709,16 @@ it('B: Composite mit identischen Bytes — fehlgeschlagene Referenzabfrage lösc
   const firstBytes = await fs.readFile(firstRow.storagePath);
   expect(crypto.createHash('sha256').update(firstBytes).digest('hex')).toBe(firstRow.sha256);
   const before = await fileCount(uploadsDir());
-  // Zweites Composite: Insert UND Referenzabfrage injiziert fehlgeschlagen.
-  const mediaDelegate = db.mediaAsset as unknown as Record<string, unknown>;
-  const realCreate = (mediaDelegate.create as (...a: unknown[]) => Promise<unknown>).bind(db.mediaAsset);
-  const realCount = (mediaDelegate.count as (...a: unknown[]) => Promise<unknown>).bind(db.mediaAsset);
-  mediaDelegate.create = async () => { throw new Error('audit DB write failure'); };
-  mediaDelegate.count = async () => { throw new Error('audit reference check failure'); };
+  const failing = db.$extends({ query: { mediaAsset: {
+    create: async () => { throw new Error('audit DB write failure'); },
+    count: async () => { throw new Error('audit reference check failure'); },
+  } } });
+  globalThis.__prisma = failing as unknown as PrismaClient;
   let thrown: unknown = null;
   try {
     await createGameImage({ personAImageAssetId: aa.id, personBImageAssetId: bb.id, hostUserId: owner.userId, roomId: 'tmp-audit-host', roundId: crypto.randomUUID() });
-  } catch (e) {
-    thrown = e;
-  }
-  finally {
-    (db.mediaAsset as unknown as Record<string, unknown>).create = realCreate;
-    (db.mediaAsset as unknown as Record<string, unknown>).count = realCount;
-  }
+  } catch (e) { thrown = e; }
+  finally { globalThis.__prisma = db; }
   expect(thrown).toBeInstanceOf(Error);
   expect((thrown as Error).message).toBe('COMPOSITE_FAILED');
   // Die DATEI des ersten Assets bleibt bytegleich erhalten; Zeile READY:
@@ -718,4 +728,76 @@ it('B: Composite mit identischen Bytes — fehlgeschlagene Referenzabfrage lösc
   // Keine neuen Dateien (tmp des zweiten Composite wurde bereinigt;
   // finale Datei des ersten Assets weder überschrieben noch gelöscht):
   expect(await fileCount(uploadsDir())).toBe(before);
+});
+
+
+it('G: fehlgeschlagener Composite-Insert veröffentlicht und löscht keine finale Datei', async () => {
+  const a = await source(151, '#31a157'); const b = await source(152, '#971ba3');
+  const before = await fileCount(uploadsDir());
+  globalThis.__prisma = db.$extends({ query: { mediaAsset: {
+    create: async () => { throw new Error('insert unavailable'); },
+  } } }) as unknown as PrismaClient;
+  try {
+    await expect(createGameImage({ personAImageAssetId: a.id, personBImageAssetId: b.id, hostUserId: owner.userId, roomId: 'tmp-audit-host', roundId: crypto.randomUUID() })).rejects.toThrow('COMPOSITE_FAILED');
+  } finally { globalThis.__prisma = db; }
+  expect(await fileCount(uploadsDir())).toBe(before);
+  expect(await db.mediaAsset.count({ where: { derivedFromAssetIds: JSON.stringify([a.id, b.id]) } })).toBe(0);
+});
+
+it('G: paralleler erfolgreicher Publisher behält seine Datei bei fremdem Insert-Fehler', async () => {
+  const a = await source(153, '#541ac2'); const b = await source(154, '#211ac5');
+  const aa = await source(155, '#541ac2'); const bb = await source(156, '#211ac5');
+  const failingKey = `fusion:crossfade-v1:${a.id}:${b.id}`;
+  const extended = db.$extends({ query: { mediaAsset: {
+    create: async ({ args, query }) => {
+      if (args.data.assetKey === failingKey) throw new Error('first insert fails');
+      return query(args);
+    },
+  } } });
+  globalThis.__prisma = extended as unknown as PrismaClient;
+  let results;
+  try {
+    results = await Promise.allSettled([
+      createGameImage({ personAImageAssetId: a.id, personBImageAssetId: b.id, hostUserId: owner.userId, roomId: 'tmp-audit-host', roundId: crypto.randomUUID() }),
+      createGameImage({ personAImageAssetId: aa.id, personBImageAssetId: bb.id, hostUserId: owner.userId, roomId: 'tmp-audit-host', roundId: crypto.randomUUID() }),
+    ]);
+  } finally { globalThis.__prisma = db; }
+  expect(results[0].status).toBe('rejected');
+  expect(results[1].status).toBe('fulfilled');
+  if (results[1].status !== 'fulfilled') throw results[1].reason;
+  const winner = await db.mediaAsset.findUniqueOrThrow({ where: { id: results[1].value.gameImageAssetId } });
+  expect(winner.processStatus).toBe('READY');
+  expect(crypto.createHash('sha256').update(await readFile(winner.storagePath)).digest('hex')).toBe(winner.sha256);
+});
+
+it('G: alter Null-Referenz-Snapshot darf einen danach gespeicherten Gewinner nicht löschen', async () => {
+  const a = await source(157, '#531dc2'); const b = await source(158, '#211dc5');
+  const aa = await source(159, '#531dc2'); const bb = await source(160, '#211dc5');
+  const failingKey = `fusion:crossfade-v1:${a.id}:${b.id}`;
+  let winner: Awaited<ReturnType<typeof createGameImage>> | undefined;
+  const publishWinner = async () => {
+    winner = await createGameImage({ personAImageAssetId: aa.id, personBImageAssetId: bb.id, hostUserId: owner.userId, roomId: 'tmp-audit-host', roundId: crypto.randomUUID() });
+  };
+  globalThis.__prisma = db.$extends({ query: { mediaAsset: {
+    create: async ({ args, query }) => {
+      if (args.data.assetKey === failingKey) throw new Error('failed first insert');
+      return query(args);
+    },
+    count: async ({ args, query }) => {
+      // The pre-fix cleanup read zero, then another publisher committed
+      // before unlink. Preserve this exact adversarial interleaving.
+      const count = await query(args);
+      expect(count).toBe(0);
+      await publishWinner();
+      return count;
+    },
+  } } }) as unknown as PrismaClient;
+  try {
+    await expect(createGameImage({ personAImageAssetId: a.id, personBImageAssetId: b.id, hostUserId: owner.userId, roomId: 'tmp-audit-host', roundId: crypto.randomUUID() })).rejects.toThrow('COMPOSITE_FAILED');
+    // The corrected path never performs post-insert-failure shared cleanup.
+    if (!winner) await publishWinner();
+  } finally { globalThis.__prisma = db; }
+  const row = await db.mediaAsset.findUniqueOrThrow({ where: { id: winner!.gameImageAssetId } });
+  expect(row.processStatus).toBe('READY');
+  expect(crypto.createHash('sha256').update(await readFile(row.storagePath)).digest('hex')).toBe(row.sha256);
 });
