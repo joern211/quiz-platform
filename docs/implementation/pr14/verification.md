@@ -84,13 +84,20 @@ oder keines aus; bei existierender DB fiel es nie auf).
 | frisch | `migrate deploy` ×2 | ✓ (Idempotenz: zweiter Lauf = No-op; `migration.roles.test.ts`) |
 | Bestandskopie (ADMIN/MODERATOR, Host-Teilnahme, aktive+beendete Räume, WID v1/v2, Sessions/Rejoin) | `migrate deploy` ×2 + Invarianten | ✓ (MODERATOR→HOST, ADMIN bleibt ADMIN, UNKNOWN unverändert=keine Rechte, Rejoin-Tokens erhalten; `migration.roles.test.ts` 8/8) |
 
-## GitHub-CI / E2E am finalen Head
+## GitHub-CI / E2E am finalen Head `38a8e3b` (geprüft, nicht nur erwartet)
 
-- **Erster Lauf (Head `529fdba`):** CI = **failure** (Server tests: `Error code 14` in Contract-Tests,
-  Root Cause oben), E2E = skipped (needs: ci).
-- **Fix-Commit (dieser Stand):** CI-Isolations-Fix + Test-Härtung. Lokal exakt CI-Flow grün (s.o.).
-- **CI-Lauf am finalen Head:** nach Push zu lesen (Draft-PR #14, kein Merge). Erwartung: CI grün;
-  E2E: WID W1–W10 bleibt das bekannte vorbestehende/umgebungsbedingte Problem (siehe oben).
+- **CI (typecheck, lint, build, Server-Tests, Web-Tests): ✅ success** am exakt gleichen Head
+  (Run 38321190533). Der rote Server-Test-Lauf vom Stage-2-Head `529fdba` (`Error code 14`,
+  Root Cause oben) ist damit behoben und nachgewiesen.
+- **E2E (Chromium): ausgeführt am gleichen Head — Job rot, ohne funktionale Regression:**
+  - `W1-W10` (weristdas): **30 s-Timeout in beiden Versuchen** — das bekannte, vorbestehende /
+    umgebungsbedingte Problem (am Basis-Head `3dba9ff` **und** am Stage-2-Head identisch; s. oben).
+  - `G4-6` (geo): **1. Versuch flaky** (`toBeVisible`-Timeout auf langsamer CI-Maschine),
+    **Retry #1 grün** → Playwright-Reetry, kein Funktionsfehler.
+  - Die übrigen **16/18 E2E** (Geo G4-1..G4-5, Jeopardy J1–J10 — alle über die neuen
+    Guard-/Receipt-/Envelope-Flows) **grün direkt**.
+- **Fazit:** CI am finalen Head grün; E2E am finalen Head geprüft mit den beiden bekannten
+  Punkten (WID vorbestehend, G4-6 flaky/Retry-grün). Kein neuer E2E-Fehler durch PR14.
 
 ## Historische Nachweise (nur Beleg, nicht Neu-Assertion)
 

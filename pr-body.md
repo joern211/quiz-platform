@@ -70,9 +70,11 @@ Hosting/Produktion. Kleine Änderungen in bestehenden Engines zur Integration **
 
 ## Offene Punkte (ehrlich)
 
-- **CI-Lauf am finalen (Stage-3-)Head:** steht **nach Push** in der PR (Draft, kein Merge). Der
-  erste CI-Lauf (Stage-2) war rot (Root Cause + Fix oben); lokal ist der exakt gleiche CI-Flow
-  (frische DB) ×2 grün (Server 312/312, E2E-Bestandteil der Web-Regression 52/52; Playwright-E2E 17/18, rotes WID = vorbestehend).
+- **GitHub-CI am finalen Head `38a8e3b`: ✅ success** (typecheck/lint/build/Server-Tests/Web-Tests).
+  Der erste CI-Lauf (Stage-2) war rot — Root Cause + Fix siehe oben.
+- **GitHub-E2E am finalen Head:** ausgeführt; Job rot **ohne funktionale Regression** —
+  WID W1-W10 = bekannt vorbestehend (am Base-Head identisch rot), G4-6 = 1. Versuch flaky,
+  **Retry grün**; die übrigen 16/18 E2E direkt grün (alle über die neuen Guard/Receipt/Envelope-Flows).
 - Folgebereich wie oben — nicht als erledigt ausgegeben.
 
 ## Commits (Staging)
