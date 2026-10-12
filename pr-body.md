@@ -38,6 +38,19 @@ Details + Belege: `docs/implementation/pr14/acceptance.md` (jeweils Code-/Test-R
 | Web-Tests | **52/52** (6 Dateien) |
 | E2E (Chromium) | **17/18** |
 
+### CI-Isolations-Fix (Stage 3)
+
+Der erste CI-Lauf am Stage-2-Head war **rot**: `Server tests` — die neuen Contract-Tests
+(`Error code 14: Unable to open the database file`). Root Cause: **vorbestehende**
+Test-Isolationslücke in `e2e-endpoints.integration.test.ts`, von den neuen Tests erst exposed:
+Die Datei überschreibt `process.env.DATABASE_URL` auf Modul-Ebene (Temp-DB für die
+Production-Guard-App) und stellt sie nie wieder her; ihr `afterAll` löscht die Temp-DB.
+Da Vitest mit `vmForks, isolate:false` in einem gemeinsamen Worker läuft, zeigen alle
+darauffolgenden Dateien, die ihren Prisma-Client lazy aus `DATABASE_URL` auflösen, auf die
+gelöschte Datei. Fix: env-Restore in der Datei **+** dedizierte Prisma-Clients in den
+Abnahme-Tests (B/C/E/F) als Defense-in-Depth. Nachweis: exakter CI-Flow (frische DB) ×2
+lokal grün — 35/35 Dateien, 312/312 Tests.
+
 ### E2E: das eine rote (nicht PR-Regression)
 
 `weristdas-e2e.spec.ts` › **W1-W10** schlägt isoliert **auf beiden Heads** fehl — Kontroll-Experiment:
@@ -57,10 +70,13 @@ Hosting/Produktion. Kleine Änderungen in bestehenden Engines zur Integration **
 
 ## Offene Punkte (ehrlich)
 
-- **CI am exakt gleichen finalen Head:** steht **nach Push** in der PR (Draft, kein Merge). Lokal am finalen Stand: oben alle Checks grün (E2E 17/18, rotes WID = vorbestehend).
+- **CI-Lauf am finalen (Stage-3-)Head:** steht **nach Push** in der PR (Draft, kein Merge). Der
+  erste CI-Lauf (Stage-2) war rot (Root Cause + Fix oben); lokal ist der exakt gleiche CI-Flow
+  (frische DB) ×2 grün (Server 312/312, E2E-Bestandteil der Web-Regression 52/52; Playwright-E2E 17/18, rotes WID = vorbestehend).
 - Folgebereich wie oben — nicht als erledigt ausgegeben.
 
 ## Commits (Staging)
 
 - Stage 1 `1097cb8`: Doku (Handoff/Acceptance/Verification) + Shared-Schemas + Rollen-Migration + Manifest-Split + `liveConfigJson`-Grundlage.
-- Stage 2 (dieser): Server-Kerne (Permission/Command-Receipt/Config/AppError), Guard- + Receipt-Integration in Geo/Jeopardy/WID + Game-Lifecycle, geroutetes `room:config:update`, Frontend-Envelope/Intent-Tokens, Abnahme-Tests A/B/C/E + Contract-Gerüst F (2 Engines), volle Regression + finale Doku.
+- Stage 2: Server-Kerne (Permission/Command-Receipt/Config/AppError), Guard- + Receipt-Integration in Geo/Jeopardy/WID + Game-Lifecycle, geroutetes `room:config:update`, Frontend-Envelope/Intent-Tokens, Abnahme-Tests A/B/C/E + Contract-Gerüst F (2 Engines), volle Regression + finale Doku.
+- Stage 3 (dieser): CI-Isolations-Fix (`e2e-endpoints` env-Restore) + Test-Härtung (dedizierte Prisma-Clients in B/C/E/F-Abnahme-Tests) + finale Doku (CI-Root-Cause dokumentiert).

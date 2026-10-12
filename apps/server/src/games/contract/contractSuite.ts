@@ -27,13 +27,43 @@ import { createServer, type Server as HttpServer } from 'node:http';
 import { randomUUID } from 'node:crypto';
 import { Server } from 'socket.io';
 import type { Socket as ClientSocket } from 'socket.io-client';
-import { prisma } from '../../persistence/prisma.js';
+import type { PrismaClient } from '@prisma/client';
 import { setupSocketHandlers } from '../../sockets/index.js';
 import { createSessionCookie } from '../../auth/session.js';
 import { config } from '../../config/index.js';
 import { connectGameClient, gameAck } from '../../test-socket-harness.js';
 
 const ack = gameAck;
+
+// ── Dedizierter DB-Client (Isolation, vmForks isolate:false) ─────────────
+// vitest läuft alle Dateien in EINEM Worker → globalThis.__prisma wird
+// worker-weit geteilt. Vorbestehende Temp-DB-Tests patchen den Global auf
+// einen eigenen Client und stellen ihn NICHT wieder her (disconnect + rm
+// der Temp-DB). Wer danach auf den lazy Standard-Proxy (DATABASE_URL)
+// zugreift, erbt einen TOTEN Client → "Error code 14: Unable to open the
+// database file" (Nichtdeterminismus je nach Abschlussreihenfolge).
+// Diese Suite nutzt daher einen EIGENEN gültigen Client auf DATABASE_URL,
+// patcht den Global nur für die eigene Laufzeit (App-/Socket-Handler lesen
+// ihn lazily) und setzt ihn in afterAll wieder auf undefined.
+let activeContractClient: PrismaClient | undefined;
+export async function contractClient(): Promise<PrismaClient> {
+  if (activeContractClient) return activeContractClient;
+  const { PrismaClient } = await import('@prisma/client');
+  const client = new PrismaClient({ datasourceUrl: process.env.DATABASE_URL });
+  await client.$connect();
+  (globalThis as Record<string, unknown>).__prisma = client;
+  activeContractClient = client;
+  return client;
+}
+/** Disconnectet den Client und setzt den Global zurück (frischer
+ *  Standard-Client bei nächstem Zugriff). Genau EINMAL pro Engine-Datei. */
+export async function contractTeardown(): Promise<void> {
+  if (activeContractClient) {
+    await activeContractClient.$disconnect().catch(() => {});
+    activeContractClient = undefined;
+  }
+  (globalThis as Record<string, unknown>).__prisma = undefined;
+}
 
 export interface ContractEngineSpec {
   /** Engine-Slug der Game-Definition (muss existieren). */
@@ -52,6 +82,7 @@ export function contractSuite(spec: ContractEngineSpec) {
     const sockets: ClientSocket[] = [];
     const rooms: string[] = [];
     const HOST_USER_ID = 'mod-1';
+    let contractPrisma: PrismaClient;
 
     async function connect(cookie?: string): Promise<ClientSocket> {
       const s = await connectGameClient(origin, cookie);
@@ -61,17 +92,17 @@ export function contractSuite(spec: ContractEngineSpec) {
 
     async function makeRoom(): Promise<{ id: string; code: string }> {
       const code = String(Math.floor(100000 + Math.random() * 900000)).replace(/(\d{3})(\d{3})/, '$1-$2');
-      const room = await prisma.room.create({
+      const room = await contractPrisma.room.create({
         data: {
           code, roomName: `F5 ${spec.slug}`,
-          gameDefinitionId: (await prisma.gameDefinition.findUniqueOrThrow({ where: { slug: spec.slug } })).id,
+          gameDefinitionId: (await contractPrisma.gameDefinition.findUniqueOrThrow({ where: { slug: spec.slug } })).id,
           hostUserId: HOST_USER_ID, status: 'LOBBY', runPhase: 'LOBBY',
           setupSnapshotJson: spec.setup(),
         },
       });
       rooms.push(room.id);
       for (let i = 0; i < spec.playerCount; i++) {
-        await prisma.participation.create({
+        await contractPrisma.participation.create({
           data: { roomId: room.id, displayName: `P${i}`, normalizedName: `p${i}-${spec.slug}`, role: 'PLAYER', rejoinToken: randomUUID(), connected: true, ready: true },
         });
       }
@@ -79,11 +110,12 @@ export function contractSuite(spec: ContractEngineSpec) {
     }
 
     beforeAll(async () => {
-      await prisma.user.upsert({ where: { id: HOST_USER_ID }, update: {}, create: { id: HOST_USER_ID, displayName: 'F5 Host', passwordHash: 'x', role: 'HOST' } });
-      await prisma.gameDefinition.findUniqueOrThrow({ where: { slug: spec.slug } }).catch(() => {
+      contractPrisma = await contractClient();
+      await contractPrisma.user.upsert({ where: { id: HOST_USER_ID }, update: {}, create: { id: HOST_USER_ID, displayName: 'F5 Host', passwordHash: 'x', role: 'HOST' } });
+      await contractPrisma.gameDefinition.findUniqueOrThrow({ where: { slug: spec.slug } }).catch(() => {
         throw new Error(`Contract: Game-Definition ${spec.slug} fehlt (Seed nötig).`);
       });
-      await prisma.session.create({ data: { id: `sess-f5-${randomUUID()}`, userId: HOST_USER_ID, expiresAt: new Date(Date.now() + 60000) } });
+      await contractPrisma.session.create({ data: { id: `sess-f5-${randomUUID()}`, userId: HOST_USER_ID, expiresAt: new Date(Date.now() + 60000) } });
 
       httpServer = createServer();
       io = new Server(httpServer);
@@ -98,33 +130,36 @@ export function contractSuite(spec: ContractEngineSpec) {
       for (const s of sockets) s.disconnect();
       await new Promise<void>((resolve) => io.close(() => httpServer.close(() => resolve())));
       for (const id of rooms) {
-        await prisma.commandReceipt.deleteMany({ where: { roomId: id } });
-        await prisma.participation.deleteMany({ where: { roomId: id } });
-        await prisma.room.deleteMany({ where: { id } });
+        await contractPrisma.commandReceipt.deleteMany({ where: { roomId: id } });
+        await contractPrisma.participation.deleteMany({ where: { roomId: id } });
+        await contractPrisma.room.deleteMany({ where: { id } });
       }
+      // Isolation: toten Client NICHT im worker-weiten Global lassen →
+      // der lazy Proxy legt bei nächstem Zugriff einen frischen Client an.
+      await contractTeardown();
     });
 
     it('1. Protokoll: inkompatible protocolVersion (2) → CLIENT_VERSION_UNSUPPORTED VOR Mutation', async () => {
       const { id, code } = await makeRoom();
-      const h = await connect(createSessionCookie((await prisma.session.findFirst({ where: { userId: HOST_USER_ID }, orderBy: { createdAt: 'desc' } }))!.id, config.sessionSecret));
+      const h = await connect(createSessionCookie((await contractPrisma.session.findFirst({ where: { userId: HOST_USER_ID }, orderBy: { createdAt: 'desc' } }))!.id, config.sessionSecret));
       expect((await ack(h, 'room:subscribe', { roomCode: code })).success).toBe(true);
       const res = await ack(h, 'game:start', { roomCode: code, protocolVersion: 2 });
       expect(res.success).toBe(false);
       expect(res.error).toBe('CLIENT_VERSION_UNSUPPORTED');
       // VOR Mutation: Raum bleibt LOBBY.
-      expect((await prisma.room.findUniqueOrThrow({ where: { id } })).status).toBe('LOBBY');
+      expect((await contractPrisma.room.findUniqueOrThrow({ where: { id } })).status).toBe('LOBBY');
     });
 
     it('2. Replay/CAS: identischer Command → genau eine Wirkung, Duplicate liefert gespeicherte Antwort', async () => {
       const { id, code } = await makeRoom();
-      const h = await connect(createSessionCookie((await prisma.session.findFirst({ where: { userId: HOST_USER_ID }, orderBy: { createdAt: 'desc' } }))!.id, config.sessionSecret));
+      const h = await connect(createSessionCookie((await contractPrisma.session.findFirst({ where: { userId: HOST_USER_ID }, orderBy: { createdAt: 'desc' } }))!.id, config.sessionSecret));
       expect((await ack(h, 'room:subscribe', { roomCode: code })).success).toBe(true);
       const commandId = `f5-${randomUUID()}`;
       const first = await ack(h, 'game:start', { roomCode: code, commandId });
       expect(first.success).toBe(true);
       expect(first.replayed).toBeUndefined();
-      expect((await prisma.room.findUniqueOrThrow({ where: { id } })).status).toBe('RUNNING');
-      const receipt1 = await prisma.commandReceipt.findUnique({ where: { roomId_commandId: { roomId: id, commandId } } });
+      expect((await contractPrisma.room.findUniqueOrThrow({ where: { id } })).status).toBe('RUNNING');
+      const receipt1 = await contractPrisma.commandReceipt.findUnique({ where: { roomId_commandId: { roomId: id, commandId } } });
       expect(receipt1?.status).toBe('COMPLETED');
 
       // Identischer Command (gleiche Absicht) → gespeicherte Antwort, keine
@@ -132,17 +167,17 @@ export function contractSuite(spec: ContractEngineSpec) {
       const dup = await ack(h, 'game:start', { roomCode: code, commandId });
       expect(dup.replayed).toBe(true);
       // Raum bleibt genau einmal gestartet; keine Doppelwirkung.
-      const roomAfter = await prisma.room.findUniqueOrThrow({ where: { id } });
+      const roomAfter = await contractPrisma.room.findUniqueOrThrow({ where: { id } });
       expect(roomAfter.status).toBe('RUNNING');
       // Nur genau ein Receipt für den Command.
-      const receipts = await prisma.commandReceipt.findMany({ where: { roomId: id, commandId } });
+      const receipts = await contractPrisma.commandReceipt.findMany({ where: { roomId: id, commandId } });
       expect(receipts.length).toBe(1);
     });
 
     it('3. Autorisierung: Viewer wird bei privilegierter Aktion (GAME_PAUSE) vom Guard verweigert; Host NICHT', async () => {
       const { code } = await makeRoom();
       // Host startet (Legitimation für GAME_PAUSE vorhanden).
-      const h = await connect(createSessionCookie((await prisma.session.findFirst({ where: { userId: HOST_USER_ID }, orderBy: { createdAt: 'desc' } }))!.id, config.sessionSecret));
+      const h = await connect(createSessionCookie((await contractPrisma.session.findFirst({ where: { userId: HOST_USER_ID }, orderBy: { createdAt: 'desc' } }))!.id, config.sessionSecret));
       expect((await ack(h, 'room:subscribe', { roomCode: code })).success).toBe(true);
       expect((await ack(h, 'game:start', { roomCode: code })).success).toBe(true);
       // Viewer im selben Raum (kein Login → keine GAME_PAUSE-Berechtigung).
@@ -168,10 +203,10 @@ export function contractSuite(spec: ContractEngineSpec) {
 
     it('4. Config-Snapshot: nach Start unveränderlicher Start-Snapshot (engineVersion)', async () => {
       const { id, code } = await makeRoom();
-      const h = await connect(createSessionCookie((await prisma.session.findFirst({ where: { userId: HOST_USER_ID }, orderBy: { createdAt: 'desc' } }))!.id, config.sessionSecret));
+      const h = await connect(createSessionCookie((await contractPrisma.session.findFirst({ where: { userId: HOST_USER_ID }, orderBy: { createdAt: 'desc' } }))!.id, config.sessionSecret));
       expect((await ack(h, 'room:subscribe', { roomCode: code })).success).toBe(true);
       expect((await ack(h, 'game:start', { roomCode: code })).success).toBe(true);
-      const room = await prisma.room.findUniqueOrThrow({ where: { id } });
+      const room = await contractPrisma.room.findUniqueOrThrow({ where: { id } });
       expect(room.configSchemaVersion).toBe(1);
       expect(room.gameConfigSnapshotJson).toBeTruthy();
       const snap = JSON.parse(room.gameConfigSnapshotJson!);

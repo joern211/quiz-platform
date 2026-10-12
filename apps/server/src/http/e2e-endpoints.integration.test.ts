@@ -60,10 +60,19 @@ async function createTestApp() {
   return { app, prisma: freshPrisma, request: supertest(app), dbUrl, tmpDir };
 }
 
-// ── Module-level production guard app ────────────────────────
+// ── Module-level production guard app ──────────────────────────
 // Safe: no DB access needed for simple 404 guard tests.
 // Uses a temp DB so production app doesn't try to open a non-existent default path.
+//
+// ISOLATION (vmForks, isolate:false — ein Worker pro Suite): DATABASE_URL und
+// NODE_ENV werden HIER persistent überschrieben. Ohne Restore würden alle
+// TESTDATEIEN danach, die ihren Prisma-Client (lazy) aus process.env.DATABASE_URL
+// auflösen, auf die in afterAll gelöschte Temp-DB zeigen →
+// "Error code 14: Unable to open the database file". Ursprungswerte werden
+// daher vor der Override gesichert und im afterAll der Production-Suite
+// wiederhergestellt.
 const savedNodeEnv = process.env.NODE_ENV;
+const savedDatabaseUrl = process.env.DATABASE_URL;
 process.env.NODE_ENV = 'production';
 // Must set DATABASE_URL here so the production app doesn't try to use
 // the default './storage/database/quiz.db' which doesn't exist in CI/test.
@@ -82,8 +91,9 @@ describe('E2E Endpoints — Production Block', () => {
   // createTestApp() sets NODE_ENV=development, so production tests
   // use productionRequest (module-level, correct NODE_ENV at creation time).
   beforeAll(() => { process.env.NODE_ENV = 'production'; });
-  // Restore after suite so subsequent describe blocks aren't polluted.
-  afterAll(() => { process.env.NODE_ENV = savedNodeEnv; });
+  // Restore after suite so subsequent test files in this shared vmFork worker
+  // run with the original NODE_ENV AND the shared test-DB DATABASE_URL again.
+  afterAll(() => { process.env.NODE_ENV = savedNodeEnv; process.env.DATABASE_URL = savedDatabaseUrl; });
 
   describe('POST /api/v1/auth/e2e-token', () => {
     it('returns 404 in production', async () => {

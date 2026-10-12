@@ -34,7 +34,7 @@ Lokale Server-/Web-Tests laufen gegen eine frische, geseedete SQLite-Test-DB (`/
 | Typecheck (alle 5 Pakete) | `pnpm typecheck` | **0 Fehler** (shared, game-sdk, web, server) |
 | Lint | `pnpm lint` | **0 Fehler** (104 Vorab-Warnungen, u.a. bestehende `no-explicit-any`; keine neuen) |
 | Build | `pnpm build` (server `tsc` + web `vite`) | ✓ (web: 175 Module, `built in ~1 s`) |
-| Server-Tests (Migration+Seed+Vitest) | `pnpm --filter @quiz/server build` → `pnpm --filter @quiz/server test` | **312/312 passed, 35/35 Dateien** (Baseline 283 + 29 neue Abnahme-/Contract-Tests) |
+| Server-Tests (Migration+Seed+Vitest) | `pnpm --filter @quiz/server build` → `pnpm --filter @quiz/server test` | **312/312 passed, 35/35 Dateien** (Baseline 283 + 29 neue Abnahme-/Contract-Tests) — gegen **frisch** erzeugte Test-DB (CI-Flow: `test-database.ts && seed && vitest run` in einem Lauf) ×2 stabil |
 | Web-Tests | `pnpm --filter @quiz/web test` | **52/52 passed, 6/6 Dateien** |
 | E2E (Chromium, frische E2E-DB) | `prisma migrate deploy` + `db:seed` → `playwright test --project=chromium` | **17/18** (1 rot = WID W1–W10, vorbestehend — siehe Kontroll-Experiment oben) |
 
@@ -48,6 +48,35 @@ Lokale Server-/Web-Tests laufen gegen eine frische, geseedete SQLite-Test-DB (`/
 | `games/core/config.integration.test.ts` | 3 | 3/3 | E1–E5 (Resolver 0/false, 7 Ebenen, LOCKED_AFTER_START, Start-Snapshot unveränderlich, Revision/CAS/No-op) |
 | `games/contract/geo.contract.test.ts` + `jeopardy.contract.test.ts` | 4+4 | 8/8 | F5 (2 echte Engines, dieselbe `contractSuite`: Protocol, Authorization, Replay/CAS, Config-Snapshot) |
 
+## CI-Root-Cause: `Error code 14` in den Contract-Tests (befunden + behoben)
+
+Erster CI-Lauf (Head `529fdba`): **CI = failure** — `Server tests`-Step: die beiden neuen
+Contract-Testdateien (`games/contract/{geo,jeopardy}.contract.test.ts`) scheiterten in `beforeAll`
+mit `PrismaClientInitializationError … Error code 14: Unable to open the database file`
+(304 passed, 8 skipped). Lokal zuvor grün — aber lokal gegen eine **bereits existierende** Test-DB.
+
+**Root Cause (vorbestehende Test-Isolationslücke, von den neuen Tests erst exposed):**
+`http/e2e-endpoints.integration.test.ts` überschreibt `process.env.DATABASE_URL` auf **Modul-Ebene**
+(Zeile 72) dauerhaft auf eine eigene `mkdtemp`-Temp-DB (für die Production-Guard-App) und **restored
+es nie**. Vitest läuft mit `pool:'vmForks', isolate:false` → ein gemeinsamer Worker, ein gemeinsamer
+`process.env`. Der `afterAll` der Datei **löscht die Temp-DB**. Jede darauffolgende Testdatei, die
+ihren Prisma-Client (lazy) aus `process.env.DATABASE_URL` auflöst — der lazy Singleton `prisma` und
+die Contract-Tests — zeigt danach auf die **gelöschte** Datei → `Error code 14`. Ob das zuschlägt,
+hängt von der Abschlussreihenfolge ab → **nichtdeterministisch** (je nach Lauf fiel Geo oder Jeopardy
+oder keines aus; bei existierender DB fiel es nie auf).
+
+**Fix (beide Seiten):**
+1. `e2e-endpoints.integration.test.ts`: Ursprungs-`DATABASE_URL` + `NODE_ENV` werden vor der
+   Override gesichert und im `afterAll` der Production-Suite wiederhergestellt (Isolation für die
+   ganze Suite).
+2. Abnahme-Tests (B/C/E + F-Contract): verwenden jetzt **eigene, dedizierte `PrismaClient`-Instanzen**
+   auf `DATABASE_URL` und patchen den worker-weiten `globalThis.__prisma` nur für die eigene Laufzeit,
+   mit Reset in `afterAll` (gleicher Muster wie `composite`/`fusion` — „eigener Client, toten
+   Client nie hinterlassen"). Defense-in-Depth gegen `__prisma`-Verweihung.
+
+**Nachweis:** voller CI-Flow (frische DB: `test-database.ts && seed && vitest run`) ×2 lokal:
+**35/35 Dateien, 312/312 Tests, Contract-Tests 4+4 executed (nicht skipped)** — stabil.
+
 ## Migration
 
 | DB | Befehl | Ergebnis |
@@ -57,8 +86,11 @@ Lokale Server-/Web-Tests laufen gegen eine frische, geseedete SQLite-Test-DB (`/
 
 ## GitHub-CI / E2E am finalen Head
 
-(offen — erst nach finaler Push; PR-Head = Remote-Head = geprüfter Head; Draft-PR, kein Merge.)
-Lokal am exakt gleichen finalen Stand: typecheck ✓, lint ✓, build ✓, Server 312/312 ✓, Web 52/52 ✓, E2E 17/18 (rotes WID = vorbestehend).
+- **Erster Lauf (Head `529fdba`):** CI = **failure** (Server tests: `Error code 14` in Contract-Tests,
+  Root Cause oben), E2E = skipped (needs: ci).
+- **Fix-Commit (dieser Stand):** CI-Isolations-Fix + Test-Härtung. Lokal exakt CI-Flow grün (s.o.).
+- **CI-Lauf am finalen Head:** nach Push zu lesen (Draft-PR #14, kein Merge). Erwartung: CI grün;
+  E2E: WID W1–W10 bleibt das bekannte vorbestehende/umgebungsbedingte Problem (siehe oben).
 
 ## Historische Nachweise (nur Beleg, nicht Neu-Assertion)
 

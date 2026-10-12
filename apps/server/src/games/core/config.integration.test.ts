@@ -17,7 +17,8 @@ import { createServer, type Server as HttpServer } from 'node:http';
 import { randomUUID } from 'node:crypto';
 import { Server } from 'socket.io';
 import type { Socket as ClientSocket } from 'socket.io-client';
-import { prisma } from '../../persistence/prisma.js';
+import type { PrismaClient } from '@prisma/client';
+let testPrisma: PrismaClient;
 import { setupSocketHandlers } from '../../sockets/index.js';
 import { createSessionCookie } from '../../auth/session.js';
 import { config } from '../../config/index.js';
@@ -43,10 +44,17 @@ describe('E: Config-Resolver + Start-Snapshot + Revision', () => {
   }
 
   beforeAll(async () => {
-    await prisma.user.upsert({ where: { id: HOST_USER_ID }, update: {}, create: { id: HOST_USER_ID, displayName: 'E Host', passwordHash: 'x', role: 'HOST' } });
-    await prisma.gameDefinition.upsert({ where: { slug: 'geo' }, update: {}, create: { slug: 'geo', name: 'Wissensduell (Geo)', category: 'Knowledge', status: 'AVAILABLE', minPlayers: 2, maxPlayers: 10, engineVersion: 3 } });
-    await prisma.session.create({ data: { id: `sess-e-${randomUUID()}`, userId: HOST_USER_ID, expiresAt: new Date(Date.now() + 60000) } });
-    const hostSession = await prisma.session.findFirst({ where: { userId: HOST_USER_ID }, orderBy: { createdAt: 'desc' } });
+    // Eigener gültiger Client auf DATABASE_URL (Isolation, vmForks isolate:false):
+    // vorbestehende Temp-DB-Tests lassen globalThis.__prisma einen TOTEN Client
+    // (disconnect + rm) stehen → wir patchen den Global auf unseren Client.
+    const { PrismaClient } = await import('@prisma/client');
+    testPrisma = new PrismaClient({ datasourceUrl: process.env.DATABASE_URL });
+    await testPrisma.$connect();
+    (globalThis as Record<string, unknown>).__prisma = testPrisma;
+    await testPrisma.user.upsert({ where: { id: HOST_USER_ID }, update: {}, create: { id: HOST_USER_ID, displayName: 'E Host', passwordHash: 'x', role: 'HOST' } });
+    await testPrisma.gameDefinition.upsert({ where: { slug: 'geo' }, update: {}, create: { slug: 'geo', name: 'Wissensduell (Geo)', category: 'Knowledge', status: 'AVAILABLE', minPlayers: 2, maxPlayers: 10, engineVersion: 3 } });
+    await testPrisma.session.create({ data: { id: `sess-e-${randomUUID()}`, userId: HOST_USER_ID, expiresAt: new Date(Date.now() + 60000) } });
+    const hostSession = await testPrisma.session.findFirst({ where: { userId: HOST_USER_ID }, orderBy: { createdAt: 'desc' } });
 
     httpServer = createServer();
     io = new Server(httpServer);
@@ -64,9 +72,13 @@ describe('E: Config-Resolver + Start-Snapshot + Revision', () => {
     // NUR die eigenen Test-Fragen/Packs räumen — nie global (andere
     // Testdateilen in derselben Suite brauchen die geseedeten Fragen).
     if (cleanupPackIds.length) {
-      await prisma.geoQuestion.deleteMany({ where: { packId: { in: cleanupPackIds } } });
-      await prisma.questionPack.deleteMany({ where: { id: { in: cleanupPackIds } } });
+      await testPrisma.geoQuestion.deleteMany({ where: { packId: { in: cleanupPackIds } } });
+      await testPrisma.questionPack.deleteMany({ where: { id: { in: cleanupPackIds } } });
     }
+    // Isolation: toten Client NICHT im worker-weiten Global lassen →
+    // der lazy Proxy legt bei nächstem Zugriff einen frischen Client an.
+    await testPrisma.$disconnect();
+    (globalThis as Record<string, unknown>).__prisma = undefined;
   });
 
   // ── E1/E2: Resolver (reine Funktion, deterministisch) ──────────────
@@ -85,8 +97,8 @@ describe('E: Config-Resolver + Start-Snapshot + Revision', () => {
 
     // updateRoomConfig lehnt ungültige Einheiten ab (count/durationMs < 0,
     // nicht-Integer, unbekanntes Feld).
-    const room = await prisma.room.create({
-      data: { code: `E1${Math.floor(Math.random() * 900000 + 100000)}`.replace(/(\d{3})(\d{3})/, '$1-$2'), roomName: 'E1', gameDefinitionId: (await prisma.gameDefinition.findUniqueOrThrow({ where: { slug: 'geo' } })).id, hostUserId: HOST_USER_ID, status: 'LOBBY', runPhase: 'LOBBY' },
+    const room = await testPrisma.room.create({
+      data: { code: `E1${Math.floor(Math.random() * 900000 + 100000)}`.replace(/(\d{3})(\d{3})/, '$1-$2'), roomName: 'E1', gameDefinitionId: (await testPrisma.gameDefinition.findUniqueOrThrow({ where: { slug: 'geo' } })).id, hostUserId: HOST_USER_ID, status: 'LOBBY', runPhase: 'LOBBY' },
     });
     const invalidCases: Record<string, unknown>[] = [
       { questionCount: -1 }, { timerDurationMs: 2.5 }, { unknownField: 1 },
@@ -96,7 +108,7 @@ describe('E: Config-Resolver + Start-Snapshot + Revision', () => {
       if (res.ok) throw new Error(`expected rejection for ${JSON.stringify(changes)}`);
       expect(res.error).toBe('INVALID_CONFIG');
     }
-    await prisma.room.delete({ where: { id: room.id } });
+    await testPrisma.room.delete({ where: { id: room.id } });
   });
 
   it('E2: 7-Ebenen-Priorität — spezifischer Ebene gewinnt', async () => {
@@ -131,28 +143,28 @@ describe('E: Config-Resolver + Start-Snapshot + Revision', () => {
   // ── E3/E4/E5: echter Start + Live-Änderung via geroutetem Socket ────
   it('E3+E4+E5: Start-Snapshot unveränderlich; LOCKED_AFTER_START gesperrt; Revision via CAS', async () => {
     // Geo-Raum mit 2 Fragen + 2 ready Player → game:start erfolgreich.
-    const pack = await prisma.questionPack.create({ data: { gameSlug: 'geo', title: 'E Pack', status: 'PUBLISHED' } });
+    const pack = await testPrisma.questionPack.create({ data: { gameSlug: 'geo', title: 'E Pack', status: 'PUBLISHED' } });
     cleanupPackIds.push(pack.id);
-    const q1 = await prisma.geoQuestion.create({ data: { packId: pack.id, prompt: 'A?', category: 'G', options: JSON.stringify([{ id: 'a', text: 'x' }, { id: 'b', text: 'y' }]), correctOptionId: 'a' } });
-    const q2 = await prisma.geoQuestion.create({ data: { packId: pack.id, prompt: 'B?', category: 'G', options: JSON.stringify([{ id: 'a', text: 'x' }, { id: 'b', text: 'y' }]), correctOptionId: 'b' } });
+    const q1 = await testPrisma.geoQuestion.create({ data: { packId: pack.id, prompt: 'A?', category: 'G', options: JSON.stringify([{ id: 'a', text: 'x' }, { id: 'b', text: 'y' }]), correctOptionId: 'a' } });
+    const q2 = await testPrisma.geoQuestion.create({ data: { packId: pack.id, prompt: 'B?', category: 'G', options: JSON.stringify([{ id: 'a', text: 'x' }, { id: 'b', text: 'y' }]), correctOptionId: 'b' } });
     const roomCode = `E4${Math.floor(Math.random() * 900000 + 100000)}`.replace(/(\d{3})(\d{3})/, '$1-$2');
-    const room = await prisma.room.create({
+    const room = await testPrisma.room.create({
       data: {
         code: roomCode, roomName: 'E Start',
-        gameDefinitionId: (await prisma.gameDefinition.findUniqueOrThrow({ where: { slug: 'geo' } })).id,
+        gameDefinitionId: (await testPrisma.gameDefinition.findUniqueOrThrow({ where: { slug: 'geo' } })).id,
         hostUserId: HOST_USER_ID, status: 'LOBBY', runPhase: 'LOBBY',
         setupSnapshotJson: JSON.stringify({ selectedQuestionIds: [q1.id, q2.id], timerDuration: 25 }),
       },
     });
     for (const name of ['E1', 'E2']) {
-      await prisma.participation.create({ data: { roomId: room.id, displayName: name, normalizedName: `${name.toLowerCase()}-e`, role: 'PLAYER', rejoinToken: randomUUID(), connected: true, ready: true } });
+      await testPrisma.participation.create({ data: { roomId: room.id, displayName: name, normalizedName: `${name.toLowerCase()}-e`, role: 'PLAYER', rejoinToken: randomUUID(), connected: true, ready: true } });
     }
     expect((await ack(hostSocket, 'room:subscribe', { roomCode })).success).toBe(true);
 
     // ── E4: Echter Start persistiert den unveränderlichen Start-Snapshot. ──
     const start = await ack(hostSocket, 'game:start', { roomCode });
     expect(start.success).toBe(true);
-    const startedRoom = await prisma.room.findUniqueOrThrow({ where: { id: room.id } });
+    const startedRoom = await testPrisma.room.findUniqueOrThrow({ where: { id: room.id } });
     expect(startedRoom.status).toBe('RUNNING');
     expect(startedRoom.configSchemaVersion).toBe(1);
     const snap: GameConfigSnapshot = JSON.parse(startedRoom.gameConfigSnapshotJson!);
@@ -163,9 +175,9 @@ describe('E: Config-Resolver + Start-Snapshot + Revision', () => {
     const snapshotJsonBefore = startedRoom.gameConfigSnapshotJson;
 
     // E4: EDITABLE-Live-Änderung überschreibt den START-Snapshot NICHT.
-    const editable = await ack(hostSocket, 'room:config:update', { roomCode, expectedRevision: (await prisma.room.findUniqueOrThrow({ where: { id: room.id } })).revision, changes: { timerDurationMs: 30000 } });
+    const editable = await ack(hostSocket, 'room:config:update', { roomCode, expectedRevision: (await testPrisma.room.findUniqueOrThrow({ where: { id: room.id } })).revision, changes: { timerDurationMs: 30000 } });
     expect(editable.success).toBe(true);
-    const afterLive = await prisma.room.findUniqueOrThrow({ where: { id: room.id } });
+    const afterLive = await testPrisma.room.findUniqueOrThrow({ where: { id: room.id } });
     expect(afterLive.gameConfigSnapshotJson).toBe(snapshotJsonBefore); // unverändert
     // loadGameConfig: Snapshot + aktive Live-Überschreibung.
     const loaded = await loadGameConfig(afterLive, 'geo');
@@ -179,18 +191,18 @@ describe('E: Config-Resolver + Start-Snapshot + Revision', () => {
 
     // Cleanup des gestarteten Raums (Engine läuft weiter; nur DB aufräumen).
     hostSocket.disconnect();
-    await prisma.participation.deleteMany({ where: { roomId: room.id } });
-    await prisma.room.delete({ where: { id: room.id } });
+    await testPrisma.participation.deleteMany({ where: { roomId: room.id } });
+    await testPrisma.room.delete({ where: { id: room.id } });
 
     // ── E3 + E5: stabeler RUNNING-Raum (ohne Engine-AfterStart-Bumps) ────
     const room2Code = `E5${Math.floor(Math.random() * 900000 + 100000)}`.replace(/(\d{3})(\d{3})/, '$1-$2');
-    const room2 = await prisma.room.create({
-      data: { code: room2Code, roomName: 'E5 stable', gameDefinitionId: (await prisma.gameDefinition.findUniqueOrThrow({ where: { slug: 'geo' } })).id, hostUserId: HOST_USER_ID, status: 'RUNNING', runPhase: 'ROUND_ACTIVE', setupSnapshotJson: JSON.stringify({ timerDuration: 25 }) },
+    const room2 = await testPrisma.room.create({
+      data: { code: room2Code, roomName: 'E5 stable', gameDefinitionId: (await testPrisma.gameDefinition.findUniqueOrThrow({ where: { slug: 'geo' } })).id, hostUserId: HOST_USER_ID, status: 'RUNNING', runPhase: 'ROUND_ACTIVE', setupSnapshotJson: JSON.stringify({ timerDuration: 25 }) },
     });
     await persistConfigSnapshot(room2, 'geo', 1); // Snapshot für deterministische Base
-    const hostSocket2 = await connect(createSessionCookie((await prisma.session.findFirst({ where: { userId: HOST_USER_ID }, orderBy: { createdAt: 'desc' } }))!.id, config.sessionSecret));
+    const hostSocket2 = await connect(createSessionCookie((await testPrisma.session.findFirst({ where: { userId: HOST_USER_ID }, orderBy: { createdAt: 'desc' } }))!.id, config.sessionSecret));
     expect((await ack(hostSocket2, 'room:subscribe', { roomCode: room2Code })).success).toBe(true);
-    const rev0 = (await prisma.room.findUniqueOrThrow({ where: { id: room2.id } })).revision;
+    const rev0 = (await testPrisma.room.findUniqueOrThrow({ where: { id: room2.id } })).revision;
 
     // E3: LOCKED_AFTER_START (questionCount) im RUNNING-Zustand gesperrt.
     const locked = await ack(hostSocket2, 'room:config:update', { roomCode: room2Code, expectedRevision: rev0, changes: { questionCount: 99 } });
@@ -201,14 +213,14 @@ describe('E: Config-Resolver + Start-Snapshot + Revision', () => {
     const editable2 = await ack(hostSocket2, 'room:config:update', { roomCode: room2Code, expectedRevision: rev0, changes: { timerDurationMs: 30000 } });
     expect(editable2.success).toBe(true);
     expect(editable2.changed).toBe(true);
-    const rev1 = (await prisma.room.findUniqueOrThrow({ where: { id: room2.id } })).revision;
+    const rev1 = (await testPrisma.room.findUniqueOrThrow({ where: { id: room2.id } })).revision;
     expect(rev1).toBe(rev0 + 1);
 
     // E5: No-op (gleicher Wert) → keine Revisionserhöhung.
     const noOp = await ack(hostSocket2, 'room:config:update', { roomCode: room2Code, expectedRevision: rev1, changes: { timerDurationMs: 30000 } });
     expect(noOp.success).toBe(true);
     expect(noOp.changed).toBe(false);
-    const revAfterNoOp = (await prisma.room.findUniqueOrThrow({ where: { id: room2.id } })).revision;
+    const revAfterNoOp = (await testPrisma.room.findUniqueOrThrow({ where: { id: room2.id } })).revision;
     expect(revAfterNoOp).toBe(rev1);
 
     // E5: veraltete expectedRevision (valide, aber nicht aktuell) →
@@ -216,16 +228,16 @@ describe('E: Config-Resolver + Start-Snapshot + Revision', () => {
     const stale = await ack(hostSocket2, 'room:config:update', { roomCode: room2Code, expectedRevision: Math.max(0, rev1 - 1), changes: { timerDurationMs: 35000 } });
     expect(stale.success).toBe(false);
     expect(stale.error).toBe('REVISION_CONFLICT');
-    expect((await prisma.room.findUniqueOrThrow({ where: { id: room2.id } })).revision).toBe(rev1);
+    expect((await testPrisma.room.findUniqueOrThrow({ where: { id: room2.id } })).revision).toBe(rev1);
 
     // Cleanup.
     hostSocket2.disconnect();
-    await prisma.participation.deleteMany({ where: { roomId: room2.id } });
-    await prisma.room.delete({ where: { id: room2.id } });
+    await testPrisma.participation.deleteMany({ where: { roomId: room2.id } });
+    await testPrisma.room.delete({ where: { id: room2.id } });
     // NUR die eigenen Test-Fragen/Packs räumen — nie global.
     if (cleanupPackIds.length) {
-      await prisma.geoQuestion.deleteMany({ where: { packId: { in: cleanupPackIds } } });
-      await prisma.questionPack.deleteMany({ where: { id: { in: cleanupPackIds } } });
+      await testPrisma.geoQuestion.deleteMany({ where: { packId: { in: cleanupPackIds } } });
+      await testPrisma.questionPack.deleteMany({ where: { id: { in: cleanupPackIds } } });
     }
   });
 });

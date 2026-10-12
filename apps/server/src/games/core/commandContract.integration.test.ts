@@ -17,8 +17,8 @@ import { createServer, type Server as HttpServer } from 'node:http';
 import { randomUUID } from 'node:crypto';
 import { Server } from 'socket.io';
 import type { Socket as ClientSocket } from 'socket.io-client';
-import { PrismaClient } from '@prisma/client';
-import { prisma } from '../../persistence/prisma.js';
+import type { PrismaClient } from '@prisma/client';
+let testPrisma: PrismaClient;
 import { setupSocketHandlers } from '../../sockets/index.js';
 import { createSessionCookie } from '../../auth/session.js';
 import { config } from '../../config/index.js';
@@ -33,7 +33,7 @@ describe('C: Command-Envelope + Protokoll + Replay', () => {
   let io: Server;
   let origin: string;
   const sockets: ClientSocket[] = [];
-  const prismaC: PrismaClient = prisma;
+  let prismaC: PrismaClient;
   let roomId: string;
   let roomCode: string;
   let cleanupPackId: string;
@@ -47,28 +47,36 @@ describe('C: Command-Envelope + Protokoll + Replay', () => {
   }
 
   beforeAll(async () => {
-    await prisma.user.upsert({
+    // Eigener gültiger Client auf DATABASE_URL (Isolation, vmForks isolate:false):
+    // vorbestehende Temp-DB-Tests lassen globalThis.__prisma einen TOTEN Client
+    // (disconnect + rm) stehen → wir patchen den Global auf unseren Client.
+    const { PrismaClient } = await import('@prisma/client');
+    testPrisma = new PrismaClient({ datasourceUrl: process.env.DATABASE_URL });
+    await testPrisma.$connect();
+    (globalThis as Record<string, unknown>).__prisma = testPrisma;
+    prismaC = testPrisma;
+    await testPrisma.user.upsert({
       where: { id: HOST_USER_ID }, update: {},
       create: { id: HOST_USER_ID, displayName: 'C Host', passwordHash: 'x', role: 'HOST' },
     });
-    await prisma.gameDefinition.upsert({
+    await testPrisma.gameDefinition.upsert({
       where: { slug: 'geo' }, update: {},
       create: { slug: 'geo', name: 'Wissensduell (Geo)', category: 'Knowledge', status: 'AVAILABLE', minPlayers: 2, maxPlayers: 10, engineVersion: 3 },
     });
-    await prisma.session.create({ data: { id: `sess-c-${randomUUID()}`, userId: HOST_USER_ID, expiresAt: new Date(Date.now() + 60000) } });
-    const hostSession = await prisma.session.findFirst({ where: { userId: HOST_USER_ID }, orderBy: { createdAt: 'desc' } });
+    await testPrisma.session.create({ data: { id: `sess-c-${randomUUID()}`, userId: HOST_USER_ID, expiresAt: new Date(Date.now() + 60000) } });
+    const hostSession = await testPrisma.session.findFirst({ where: { userId: HOST_USER_ID }, orderBy: { createdAt: 'desc' } });
 
     // Deterministische Geo-Fragen für den Start (independent vom Seed).
-    const pack = await prisma.questionPack.create({ data: { gameSlug: 'geo', title: 'C Pack', status: 'PUBLISHED' } });
+    const pack = await testPrisma.questionPack.create({ data: { gameSlug: 'geo', title: 'C Pack', status: 'PUBLISHED' } });
     cleanupPackId = pack.id;
-    const q1 = await prisma.geoQuestion.create({ data: { packId: pack.id, prompt: 'Hauptstadt FR?', category: 'Geo', options: JSON.stringify([{ id: 'a', text: 'London' }, { id: 'b', text: 'Paris' }]), correctOptionId: 'b' } });
-    const q2 = await prisma.geoQuestion.create({ data: { packId: pack.id, prompt: 'Hauptstadt DE?', category: 'Geo', options: JSON.stringify([{ id: 'a', text: 'Berlin' }, { id: 'b', text: 'Hamburg' }]), correctOptionId: 'a' } });
+    const q1 = await testPrisma.geoQuestion.create({ data: { packId: pack.id, prompt: 'Hauptstadt FR?', category: 'Geo', options: JSON.stringify([{ id: 'a', text: 'London' }, { id: 'b', text: 'Paris' }]), correctOptionId: 'b' } });
+    const q2 = await testPrisma.geoQuestion.create({ data: { packId: pack.id, prompt: 'Hauptstadt DE?', category: 'Geo', options: JSON.stringify([{ id: 'a', text: 'Berlin' }, { id: 'b', text: 'Hamburg' }]), correctOptionId: 'a' } });
 
     roomCode = String(Math.floor(100000 + Math.random() * 900000)).replace(/(\d{3})(\d{3})/, '$1-$2');
-    const room = await prisma.room.create({
+    const room = await testPrisma.room.create({
       data: {
         code: roomCode, roomName: 'C Replay Raum',
-        gameDefinitionId: (await prisma.gameDefinition.findUniqueOrThrow({ where: { slug: 'geo' } })).id,
+        gameDefinitionId: (await testPrisma.gameDefinition.findUniqueOrThrow({ where: { slug: 'geo' } })).id,
         hostUserId: HOST_USER_ID, status: 'LOBBY', runPhase: 'LOBBY', viewerRequiresPin: false,
         setupSnapshotJson: JSON.stringify({ selectedQuestionIds: [q1.id, q2.id] }),
       },
@@ -76,7 +84,7 @@ describe('C: Command-Envelope + Protokoll + Replay', () => {
     roomId = room.id;
     // 2 ready Player → game:start kann nach Guard erfolgreich sein.
     for (const name of ['P1', 'P2']) {
-      await prisma.participation.create({
+      await testPrisma.participation.create({
         data: { roomId, displayName: name, normalizedName: `${name.toLowerCase()}-c`, role: 'PLAYER', rejoinToken: randomUUID(), connected: true, ready: true },
       });
     }
@@ -96,13 +104,17 @@ describe('C: Command-Envelope + Protokoll + Replay', () => {
   afterAll(async () => {
     for (const s of sockets) s.disconnect();
     await new Promise<void>((resolve) => io.close(() => httpServer.close(() => resolve())));
-    await prisma.commandReceipt.deleteMany({ where: { roomId } });
-    await prisma.participation.deleteMany({ where: { roomId } });
-    await prisma.room.deleteMany({ where: { id: roomId } });
+    await testPrisma.commandReceipt.deleteMany({ where: { roomId } });
+    await testPrisma.participation.deleteMany({ where: { roomId } });
+    await testPrisma.room.deleteMany({ where: { id: roomId } });
     // NUR die eigenen Test-Fragen/Packs räumen — nie global (Sonstige
     // Testdateien in derselben Suite brauchen die geseedeten Fragen).
-    await prisma.geoQuestion.deleteMany({ where: { packId: cleanupPackId } });
-    await prisma.questionPack.deleteMany({ where: { id: cleanupPackId } });
+    await testPrisma.geoQuestion.deleteMany({ where: { packId: cleanupPackId } });
+    await testPrisma.questionPack.deleteMany({ where: { id: cleanupPackId } });
+    // Isolation: toten Client NICHT im worker-weiten Global lassen →
+    // der lazy Proxy legt bei nächstem Zugriff einen frischen Client an.
+    await testPrisma.$disconnect();
+    (globalThis as Record<string, unknown>).__prisma = undefined;
   });
 
   it('C1: Envelope — requestId↔commandId / stateVersion↔expectedRevision, Widerspruch abgelehnt', async () => {
@@ -138,7 +150,7 @@ describe('C: Command-Envelope + Protokoll + Replay', () => {
     const rejected = await ack(hostSocket, 'game:start', { roomCode, protocolVersion: 2 });
     expect(rejected.success).toBe(false);
     expect(rejected.error).toBe('CLIENT_VERSION_UNSUPPORTED');
-    const roomAfter = await prisma.room.findUniqueOrThrow({ where: { id: roomId } });
+    const roomAfter = await testPrisma.room.findUniqueOrThrow({ where: { id: roomId } });
     expect(roomAfter.status).toBe('LOBBY');
 
     // protocolVersion=1 (oder missing) → Guard + Start-Prüfungen laufen (kein
@@ -147,23 +159,23 @@ describe('C: Command-Envelope + Protokoll + Replay', () => {
     expect(withV1.error).not.toBe('CLIENT_VERSION_UNSUPPORTED');
     expect(withV1.success).toBe(true);
     // Nach erfolgreichem Start: Room ist RUNNING (Mutation fand statt).
-    const roomV1 = await prisma.room.findUniqueOrThrow({ where: { id: roomId } });
+    const roomV1 = await testPrisma.room.findUniqueOrThrow({ where: { id: roomId } });
     expect(roomV1.status).toBe('RUNNING');
   });
 
   it('C4: serialer Duplicate → gespeicherte Antwort, genau eine fachliche Wirkung', async () => {
     // Reset: neuen Raum, damit GAME_START neu claimbar ist.
-    const room2 = await prisma.room.create({
+    const room2 = await testPrisma.room.create({
       data: {
         code: String(Math.floor(100000 + Math.random() * 900000)).replace(/(\d{3})(\d{3})/, '$1-$2'),
         roomName: 'C Replay 2',
-        gameDefinitionId: (await prisma.gameDefinition.findUniqueOrThrow({ where: { slug: 'geo' } })).id,
+        gameDefinitionId: (await testPrisma.gameDefinition.findUniqueOrThrow({ where: { slug: 'geo' } })).id,
         hostUserId: HOST_USER_ID, status: 'LOBBY', runPhase: 'LOBBY',
       },
     });
     const roomId2 = room2.id;
     for (const name of ['R1', 'R2']) {
-      await prisma.participation.create({
+      await testPrisma.participation.create({
         data: { roomId: roomId2, displayName: name, normalizedName: `${name.toLowerCase()}-c2`, role: 'PLAYER', rejoinToken: randomUUID(), connected: true, ready: true },
       });
     }
@@ -171,7 +183,7 @@ describe('C: Command-Envelope + Protokoll + Replay', () => {
     // Fachliche Mutation: CAS (LOBBY→RUNNING) in einer TX (Engine-CAS).
     let mutations = 0;
     const commandId = `cmd-${randomUUID()}`;
-    const mutate = async () => prisma.$transaction(async (tx) => {
+    const mutate = async () => testPrisma.$transaction(async (tx) => {
       const cas = await tx.room.updateMany({
         where: { id: roomId2, status: 'LOBBY' },
         data: { status: 'RUNNING', runPhase: 'INTRO', revision: { increment: 1 } },
@@ -203,15 +215,15 @@ describe('C: Command-Envelope + Protokoll + Replay', () => {
     expect(dup.replayed).toBe(true);
     expect(mutations).toBe(1); // keine zweite fachliche Wirkung
 
-    await prisma.room.delete({ where: { id: roomId2 } });
+    await testPrisma.room.delete({ where: { id: roomId2 } });
   });
 
   it('C4 (parallel): parallel identische Commands → genau eine fachliche Wirkung', async () => {
-    const room3 = await prisma.room.create({
+    const room3 = await testPrisma.room.create({
       data: {
         code: String(Math.floor(100000 + Math.random() * 900000)).replace(/(\d{3})(\d{3})/, '$1-$2'),
         roomName: 'C Parallel',
-        gameDefinitionId: (await prisma.gameDefinition.findUniqueOrThrow({ where: { slug: 'geo' } })).id,
+        gameDefinitionId: (await testPrisma.gameDefinition.findUniqueOrThrow({ where: { slug: 'geo' } })).id,
         hostUserId: HOST_USER_ID, status: 'LOBBY', runPhase: 'LOBBY',
       },
     });
@@ -222,7 +234,7 @@ describe('C: Command-Envelope + Protokoll + Replay', () => {
     // (saveGameStateIfRevision-Äquivalent). Der Duplicate wird vom
     // atomaren PENDING-Claim (roomId, commandId) von runReceipted gehalten,
     // bis der Gewinner committet — dadurch läuft die Mutation nur einmal.
-    const mutate = async () => prisma.$transaction(async (tx) => {
+    const mutate = async () => testPrisma.$transaction(async (tx) => {
       const cas = await tx.room.updateMany({
         where: { id: roomId3, status: 'LOBBY' },
         data: { status: 'RUNNING', runPhase: 'INTRO', revision: { increment: 1 } },
@@ -245,19 +257,19 @@ describe('C: Command-Envelope + Protokoll + Replay', () => {
     expect(sorted[1].replayed).toBe(true);
     expect(sorted[1].success).toBe(sorted[0].success); // gespeicherte Antwort
     // Nur genau ein COMPLETED-Receipt für den Command (kein doppeltes Claim).
-    const receipts = await prisma.commandReceipt.findMany({ where: { roomId: roomId3, commandId } });
+    const receipts = await testPrisma.commandReceipt.findMany({ where: { roomId: roomId3, commandId } });
     expect(receipts.length).toBe(1);
     expect(receipts[0].status).toBe('COMPLETED');
 
-    await prisma.room.delete({ where: { id: roomId3 } });
+    await testPrisma.room.delete({ where: { id: roomId3 } });
   });
 
   it('C5: FAILED-Command → sicherer Retry (kein Erfolgseintrag, neue Wirkung erlaubt)', async () => {
-    const room4 = await prisma.room.create({
+    const room4 = await testPrisma.room.create({
       data: {
         code: String(Math.floor(100000 + Math.random() * 900000)).replace(/(\d{3})(\d{3})/, '$1-$2'),
         roomName: 'C Retry',
-        gameDefinitionId: (await prisma.gameDefinition.findUniqueOrThrow({ where: { slug: 'geo' } })).id,
+        gameDefinitionId: (await testPrisma.gameDefinition.findUniqueOrThrow({ where: { slug: 'geo' } })).id,
         hostUserId: HOST_USER_ID, status: 'LOBBY', runPhase: 'LOBBY',
       },
     });
@@ -267,7 +279,7 @@ describe('C: Command-Envelope + Protokoll + Replay', () => {
     const mutate = async () => {
       attempts += 1;
       if (attempts === 1) throw new Error('DB_FAILOVER'); // erster Versuch schlägt fehl
-      const cas = await prisma.room.updateMany({
+      const cas = await testPrisma.room.updateMany({
         where: { id: roomId4, status: 'LOBBY' },
         data: { status: 'RUNNING', revision: { increment: 1 } },
       });
@@ -278,25 +290,25 @@ describe('C: Command-Envelope + Protokoll + Replay', () => {
 
     // Erster Versuch: Mutation wirft → FAILED, kein Erfolgseintrag.
     await expect(runReceipted(prismaC, ctx)).rejects.toThrow('DB_FAILOVER');
-    const row1 = await prisma.commandReceipt.findUnique({ where: { roomId_commandId: { roomId: roomId4, commandId } } });
+    const row1 = await testPrisma.commandReceipt.findUnique({ where: { roomId_commandId: { roomId: roomId4, commandId } } });
     expect(row1?.status).toBe('FAILED');
 
     // Retry (gleicher commandId) → diesmal Erfolg.
     const retried = await runReceipted(prismaC, ctx);
     expect(retried.success).toBe(true);
     expect(retried.replayed).toBe(false);
-    const row2 = await prisma.commandReceipt.findUnique({ where: { roomId_commandId: { roomId: roomId4, commandId } } });
+    const row2 = await testPrisma.commandReceipt.findUnique({ where: { roomId_commandId: { roomId: roomId4, commandId } } });
     expect(row2?.status).toBe('COMPLETED');
 
-    await prisma.room.delete({ where: { id: roomId4 } });
+    await testPrisma.room.delete({ where: { id: roomId4 } });
   });
 
   it('C6: gleicher commandId mit anderer Akteur-/Payload-Identität → COMMAND_CONFLICT', async () => {
-    const room5 = await prisma.room.create({
+    const room5 = await testPrisma.room.create({
       data: {
         code: String(Math.floor(100000 + Math.random() * 900000)).replace(/(\d{3})(\d{3})/, '$1-$2'),
         roomName: 'C Conflict',
-        gameDefinitionId: (await prisma.gameDefinition.findUniqueOrThrow({ where: { slug: 'geo' } })).id,
+        gameDefinitionId: (await testPrisma.gameDefinition.findUniqueOrThrow({ where: { slug: 'geo' } })).id,
         hostUserId: HOST_USER_ID, status: 'LOBBY', runPhase: 'LOBBY',
       },
     });
@@ -312,6 +324,6 @@ describe('C: Command-Envelope + Protokoll + Replay', () => {
     expect(conflict.success).toBe(false);
     expect((conflict as { error: string }).error).toBe('COMMAND_CONFLICT');
 
-    await prisma.room.delete({ where: { id: roomId5 } });
+    await testPrisma.room.delete({ where: { id: roomId5 } });
   });
 });

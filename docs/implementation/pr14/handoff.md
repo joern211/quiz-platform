@@ -14,8 +14,8 @@ Nächster Planplatz **PR14 = TEAM-ROOM** bleibt offen und darf nicht als erledig
 | Basis (main) | `3dba9ff5cc19e53c0f6d764b5f41f5880ff92e52` (PR #13 Merge) |
 | Gemergt vorab | PR11 `d52fa52`, PR12 `afef936`, PR13 `3dba9ff` |
 | Node / Paketmanager | Node 26.7.0 (Hermes-Session; Projekt-`.nvmrc` sagt 22), pnpm 9.12.0 |
-| **PR-Zustand** | **Draft — nicht mergen, nicht Ready-for-review** (Nutzer prüft und merge selbst) |
-| Letzte Sicherung | Stage-2-Commit (Code+Doku) auf `feature/pr14-foundation-standards`, gepusht |
+| **PR-Zustand** | **Draft #14 — nicht mergen, nicht Ready-for-review** (Nutzer prüft und merge selbst) |
+| Letzte Sicherung | Stage-3-Commit (CI-Isolations-Fix + finale Doku) auf `feature/pr14-foundation-standards`, gepusht |
 
 ## Wiederaufnahme-Aktion
 
@@ -44,7 +44,13 @@ Nächster Planplatz **PR14 = TEAM-ROOM** bleibt offen und darf nicht als erledig
 
 - **Letzter gesicherter Commit:** Stage-2 auf `feature/pr14-foundation-standards` (gepusht). Stage-1 = `1097cb8` (Doku + Schemas + Migration + Manifest).
 - **Ungesicherte Änderungen:** keine (Arbeitsbaum nach Stage-2-Commit sauber).
-- **Tests (finaler Stand):** typecheck ✓ · lint 0 Fehler ✓ · build ✓ · **Server 312/312** (35 Dateien) ✓ · **Web 52/52** ✓ · **E2E 17/18** (1 rot = WID W1–W10).
+- **Tests (finaler Stand):** typecheck ✓ · lint 0 Fehler ✓ · build ✓ · **Server 312/312** (35 Dateien) ✓ — exakt CI-Flow (frische DB) ×2 stabil · **Web 52/52** ✓ · **E2E 17/18** (1 rot = WID W1–W10).
+- **CI-Isolations-Fix (Stage 3):** Erster CI-Lauf (`529fdba`) = failure: `Error code 14` in den neuen
+  Contract-Tests. Root Cause: `e2e-endpoints.integration.test.ts` überschreibt `process.env.DATABASE_URL`
+  auf Modul-Ebene und restored nie; afterAll löscht die Temp-DB → alle folgenden Dateien, die Prisma
+  lazy aus `DATABASE_URL` auflösen, zeigen auf die gelöschte Datei (vmForks, isolate:false = ein
+  Worker). Fix: env-Restore in der Datei + dedizierte Prisma-Clients in den Abnahme-Tests (B/C/E/F).
+  Details: `verification.md` Abschnitt „CI-Root-Cause".
 - **E2E-Befund (offen, aber nicht PR-Regression):** WID `W1-W10` (`weristdas-e2e.spec.ts`) schlägt isoliert **auf beiden Heads** (`3dba9ff` Basis **und** PR-Head) fehl — 30 s-Timeout / Browser-Context-Abbruch in der Cleanup-Zeile (144:15), keine Game-Logik-Assertion. Vorbestehend/umgebungsbedingt (4 Kontexte + 2 Sharp-Composites + Vite-Cold-Compile; Test dokumentiert selbst die >30 s-Kaltlauf-Grenze). → **kein PR14-Regression**; alle 17 übrigen E2E (Geo G4-* + Jeopardy J1–J10, über die neuen Guard/Receipt/Envelope-Flows) grün. Details + Kontroll-Experiment in `verification.md`.
-- **Offene Punkte:** (1) CI-Ergebnis am exakt gleichen finalen Head steht nach Push noch aus (Draft-PR, kein Merge) — nach Push in der PR zu lesen. (2) Gekennzeichneter Folgebereich (nicht in diesem PR, nicht als erledigt): volles Co-Host-UI/Room-Settings, TEAM-ROOM (Planplatz PR14), Display-Bedienflow, Config-Editor-UI, Event-/RoundTransition-/Finalisierungs-Architektur, Receipt-GC (Storage-GC).
+- **Offene Punkte:** (1) **CI-Lauf am finalen (Stage-3-)Head steht nach Push noch aus** — der erste CI-Lauf (Stage-2 `529fdba`) war rot (Root Cause oben behoben); nach Push in der PR zu lesen. Lokal ist der exakt gleiche CI-Flow (frische DB) ×2 grün. (2) Gekennzeichneter Folgebereich (nicht in diesem PR, nicht als erledigt): volles Co-Host-UI/Room-Settings, TEAM-ROOM (Planplatz PR14), Display-Bedienflow, Config-Editor-UI, Event-/RoundTransition-/Finalisierungs-Architektur, Receipt-GC (Storage-GC).
 - **Genau die nächste Aktion:** PR ist fertig als **Draft** gepusht (pr-body.md + Doku aktuell). Nutzer prüft + merge selbst. Bei Wiederaufnahme: CI am finalen Head in der PR lesen; falls grün, PR-Status bleibt Draft, bis der Nutzer entscheidet.

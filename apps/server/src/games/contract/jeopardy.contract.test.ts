@@ -5,17 +5,20 @@
 // zweiten, unterschiedlichen echten Engine aus — der Nachweis, dass die
 // gemeinsame Grundlage (Guard/Receipt/Config) engineübergreifend gilt.
 // Jeopardy benötigt ein Board → wird hier deterministisch erzeugt.
+//
+// Isolation (vmForks, isolate:false): nutzt contractClient() = eigenen
+// gültigen Client auf DATABASE_URL (siehe contractSuite.ts).
 // ============================================================
 
 import { beforeAll } from 'vitest';
-import { prisma } from '../../persistence/prisma.js';
-import { contractSuite } from './contractSuite.js';
+import { contractClient, contractSuite } from './contractSuite.js';
 
 const SECRET = 'CONTRACT_SECRET_DO_NOT_LEAK';
 
 beforeAll(async () => {
-  await prisma.user.upsert({ where: { id: 'mod-1' }, update: {}, create: { id: 'mod-1', displayName: 'F5 Host', passwordHash: 'x', role: 'HOST' } });
-  await prisma.gameDefinition.upsert({
+  const db = await contractClient();
+  await db.user.upsert({ where: { id: 'mod-1' }, update: {}, create: { id: 'mod-1', displayName: 'F5 Host', passwordHash: 'x', role: 'HOST' } });
+  await db.gameDefinition.upsert({
     where: { slug: 'jeopardy' }, update: {},
     create: { slug: 'jeopardy', name: 'Jeopardy', category: 'buzzer-reaktion', status: 'AVAILABLE', minPlayers: 2, maxPlayers: 10, hasBuzzer: true, engineVersion: 1 },
   });

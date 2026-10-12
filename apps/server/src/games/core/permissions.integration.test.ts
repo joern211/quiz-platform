@@ -20,7 +20,8 @@ import { createServer, type Server as HttpServer } from 'node:http';
 import { randomUUID } from 'node:crypto';
 import { Server } from 'socket.io';
 import type { Socket as ClientSocket } from 'socket.io-client';
-import { prisma } from '../../persistence/prisma.js';
+import type { PrismaClient } from '@prisma/client';
+let testPrisma: PrismaClient;
 import { setupSocketHandlers } from '../../sockets/index.js';
 import { createSessionCookie } from '../../auth/session.js';
 import { config } from '../../config/index.js';
@@ -48,32 +49,39 @@ describe('B: Permission Core + Grant/Revoke (echte Sockets)', () => {
   }
 
   beforeAll(async () => {
+    // Eigener gültiger Client auf DATABASE_URL (Isolation, vmForks isolate:false):
+    // vorbestehende Temp-DB-Tests lassen globalThis.__prisma einen TOTEN Client
+    // (disconnect + rm) stehen → wir patchen den Global auf unseren Client.
+    const { PrismaClient } = await import('@prisma/client');
+    testPrisma = new PrismaClient({ datasourceUrl: process.env.DATABASE_URL });
+    await testPrisma.$connect();
+    (globalThis as Record<string, unknown>).__prisma = testPrisma;
     // Host-User (idempotent, funktioniert mit oder ohne Seed).
-    await prisma.user.upsert({
+    await testPrisma.user.upsert({
       where: { id: HOST_USER_ID },
       update: {},
       create: { id: HOST_USER_ID, displayName: 'B Host', passwordHash: 'x', role: 'HOST' },
     });
     // Game-Definition sicherstellen (Seed liefert sie; upsert = robust).
-    await prisma.gameDefinition.upsert({
+    await testPrisma.gameDefinition.upsert({
       where: { slug: 'geo' },
       update: {},
       create: { slug: 'geo', name: 'Wissensduell (Geo)', category: 'Knowledge', status: 'AVAILABLE', minPlayers: 2, maxPlayers: 10, engineVersion: 3 },
     });
     // Host-Session für den eingeloggten Host-Client.
-    await prisma.session.create({ data: { id: `sess-b-${randomUUID()}`, userId: HOST_USER_ID, expiresAt: new Date(Date.now() + 60000) } });
-    const hostSession = await prisma.session.findFirst({ where: { userId: HOST_USER_ID }, orderBy: { createdAt: 'desc' } });
+    await testPrisma.session.create({ data: { id: `sess-b-${randomUUID()}`, userId: HOST_USER_ID, expiresAt: new Date(Date.now() + 60000) } });
+    const hostSession = await testPrisma.session.findFirst({ where: { userId: HOST_USER_ID }, orderBy: { createdAt: 'desc' } });
 
     roomCode = String(Math.floor(100000 + Math.random() * 900000)).replace(/(\d{3})(\d{3})/, '$1-$2');
-    const room = await prisma.room.create({
+    const room = await testPrisma.room.create({
       data: {
         code: roomCode, roomName: 'B Perm Raum',
-        gameDefinitionId: (await prisma.gameDefinition.findUniqueOrThrow({ where: { slug: 'geo' } })).id,
+        gameDefinitionId: (await testPrisma.gameDefinition.findUniqueOrThrow({ where: { slug: 'geo' } })).id,
         hostUserId: HOST_USER_ID, status: 'LOBBY', runPhase: 'LOBBY', viewerRequiresPin: false,
       },
     });
     roomId = room.id;
-    await prisma.participation.create({
+    await testPrisma.participation.create({
       data: { roomId, displayName: 'Alice', normalizedName: 'alice-b', role: 'PLAYER', rejoinToken: PLAYER_REJOIN, connected: true, ready: true },
     });
 
@@ -99,10 +107,14 @@ describe('B: Permission Core + Grant/Revoke (echte Sockets)', () => {
   afterAll(async () => {
     for (const s of sockets) s.disconnect();
     await new Promise<void>((resolve) => io.close(() => httpServer.close(() => resolve())));
-    await prisma.commandReceipt.deleteMany({ where: { roomId } });
-    await prisma.roomPermissionGrant.deleteMany({ where: { roomId } });
-    await prisma.participation.deleteMany({ where: { roomId } });
-    await prisma.room.deleteMany({ where: { id: roomId } });
+    await testPrisma.commandReceipt.deleteMany({ where: { roomId } });
+    await testPrisma.roomPermissionGrant.deleteMany({ where: { roomId } });
+    await testPrisma.participation.deleteMany({ where: { roomId } });
+    await testPrisma.room.deleteMany({ where: { id: roomId } });
+    // Isolation: toten Client NICHT im worker-weiten Global lassen →
+    // der lazy Proxy legt bei nächstem Zugriff einen frischen Client an.
+    await testPrisma.$disconnect();
+    (globalThis as Record<string, unknown>).__prisma = undefined;
   });
 
   it('B1: 11 Rechte zentral definiert; Rollen liefern Defaultpakete (Secret ≠ Verwaltung)', async () => {
@@ -128,7 +140,7 @@ describe('B: Permission Core + Grant/Revoke (echte Sockets)', () => {
 
     // Entzug: GAME_START vom Host wegnehmen → wirkt SOFORT auf demselben,
     // bereits verbundenen Socket (DB-Neu-Lese pro Aktion, kein gecachter Wert).
-    await prisma.roomPermissionGrant.create({
+    await testPrisma.roomPermissionGrant.create({
       data: { roomId, userId: HOST_USER_ID, permission: 'GAME_START', direction: 'REVOKE', grantedBy: 'admin-1' },
     });
     const revoked = await ack(hostSocket, 'game:start', { roomCode });
@@ -136,7 +148,7 @@ describe('B: Permission Core + Grant/Revoke (echte Sockets)', () => {
     expect(revoked.error).toBe('UNAUTHORIZED');
 
     // Entzug aufheben (revokedAt) → Guard läßt wieder durch (kein Reconnect).
-    await prisma.roomPermissionGrant.updateMany({
+    await testPrisma.roomPermissionGrant.updateMany({
       where: { roomId, userId: HOST_USER_ID, permission: 'GAME_START', direction: 'REVOKE' },
       data: { revokedAt: new Date() },
     });
@@ -158,17 +170,17 @@ describe('B: Permission Core + Grant/Revoke (echte Sockets)', () => {
     // Cross-Room: Player behauptet roomCode eines ANDEREN Raums. Die
     // Berechtigung wird aus der serverseitigen Socket-Identität (nicht aus
     // dem Payload) aufgelöst → bleibt an den tatsächlichen Raum gebunden.
-    const other = await prisma.room.create({
+    const other = await testPrisma.room.create({
       data: {
         code: String(Math.floor(100000 + Math.random() * 900000)).replace(/(\d{3})(\d{3})/, '$1-$2'),
-        roomName: 'Other', gameDefinitionId: (await prisma.gameDefinition.findUniqueOrThrow({ where: { slug: 'geo' } })).id,
+        roomName: 'Other', gameDefinitionId: (await testPrisma.gameDefinition.findUniqueOrThrow({ where: { slug: 'geo' } })).id,
         hostUserId: HOST_USER_ID, status: 'LOBBY', runPhase: 'LOBBY',
       },
     });
     const cross = await ack(playerSocket, 'game:start', { roomCode: other.code });
     expect(cross.success).toBe(false);
     expect(cross.error).toBe('NOT_IN_ROOM'); // Membership aus Socket-Identität, nicht Payload
-    await prisma.room.delete({ where: { id: other.id } });
+    await testPrisma.room.delete({ where: { id: other.id } });
 
     // Kein Socket-Identität → NOT_IN_ROOM.
     const outsider = await connect();
