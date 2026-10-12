@@ -304,9 +304,10 @@ describe('Catalog-API ↔ @quiz/shared Übereinstimmung (§12.1)', () => {
     expect(res.body.data).toHaveLength(visible.length);
     const apiSlugs = new Set(res.body.data.map((g: GameManifest) => g.slug));
     for (const m of visible) expect(apiSlugs.has(m.slug)).toBe(true);
-    // Manifest-Inhalte identisch (Shared ist Single Source)
+    // Manifest-Inhalte identisch (Shared ist Single Source). Die API liefert
+    // die aufgelöste (normalized) Form — der Vergleich nutzt dieselbe Auflösung.
     for (const apiGame of res.body.data as GameManifest[]) {
-      const expected = GAME_MANIFESTS.find((m) => m.slug === apiGame.slug)!;
+      const expected = normalizeManifest(GAME_MANIFESTS.find((m) => m.slug === apiGame.slug)!);
       expect(apiGame).toEqual(expected);
     }
   });

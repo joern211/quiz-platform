@@ -77,6 +77,11 @@ export function setupSocketHandlers(io: Server) {
       handleRoomEvents.resync(io, socket, data, callback);
     });
 
+    // BASIS-STANDARDS (E): serverseitig validierte Live-Config-Änderung.
+    socket.on('room:config:update', (data, callback) => {
+      handleRoomEvents.configUpdate(io, socket, data, callback);
+    });
+
     // Kick player (moderator only)
     socket.on('room:kick', (data, callback) => {
       handleKickPlayer(io, socket, data, callback);

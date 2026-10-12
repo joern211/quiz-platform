@@ -32,6 +32,8 @@ UPDATE "participations" SET "role" = 'HOST' WHERE "role" = 'MODERATOR';
 --     setupSnapshotJson + Manifest-Defaults, nie eine Neu-Interpretation.
 ALTER TABLE "rooms" ADD COLUMN "configSchemaVersion" INTEGER NOT NULL DEFAULT 0;
 ALTER TABLE "rooms" ADD COLUMN "gameConfigSnapshotJson" TEXT;
+--     Mutables Live-Override-Ziel (EDITABLE-Felder, auch nach Start).
+ALTER TABLE "rooms" ADD COLUMN "liveConfigJson" TEXT;
 
 -- (4) Berechtigungs-Delegation (Grants/Revocations, getrennt je Recht).
 CREATE TABLE "room_permission_grants" (

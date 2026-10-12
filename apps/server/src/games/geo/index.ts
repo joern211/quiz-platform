@@ -6,6 +6,7 @@ import { Server, Socket } from 'socket.io';
 import { prisma } from '../../persistence/prisma.js';
 import { resolveCanonicalSlug, slugWithLegacy } from '@quiz/shared';
 import { finishRunningGame, saveGameStateIfRevision, upsertGameState } from '../core/state.js';
+import { loadGameConfig } from '../core/config.js';
 import { authorizeGameContext } from '../core/access.js';
 import { gameErrorCode } from '../core/errors.js';
 import { applyScoreDelta, recordScoreMutation } from '../core/score.js';
@@ -278,9 +279,17 @@ export const handleGeoGame = {
     // Parse options
     const options = JSON.parse(question.options);
 
-    // P0-16: Use setup.timerDuration (in seconds) or default to 20
-    const setup = JSON.parse(roomRecord.setupSnapshotJson || '{}');
-    const timerDuration = (setup.timerDuration || 20) * 1000; // Convert to ms
+    // BASIS-STANDARDS (E): Timer kommt aus der zentralen Config-Auflösung
+    // (Start-Snapshot, falls vorhanden; sonst Legacy-Setup via loadGameConfig,
+    // die setup.timerDuration in Sekunden → ms umrechnet und den zentralen
+    // Default 20000 ms anwendet). Kein direktes setup-||-Default-Muster mehr.
+    let timerDuration: number;
+    try {
+      const loaded = await loadGameConfig(roomRecord, 'geo');
+      timerDuration = (loaded?.values.timerDurationMs?.value ?? 20000) as number;
+    } catch {
+      timerDuration = 20000;
+    }
     const timerStartMs = Date.now();
     const timerEndMs = timerStartMs + timerDuration;
 

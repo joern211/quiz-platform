@@ -1219,15 +1219,36 @@ export const ROLE_PERMISSION_PACKAGES: Record<AccountRole, readonly GamePermissi
     'GAME_START', 'GAME_PAUSE', 'ROUND_ADVANCE', 'JUDGE_ANSWER', 'SCORE_ADJUST',
     'BUZZER_CONTROL', 'TIMER_CONTROL', 'REVEAL_CONTENT', 'TEAM_MANAGE', 'PLAYER_MANAGE', 'GAME_ABORT',
   ],
-  // HOST = eingeloggter Raum-Verwalter. Administrative Rechte ohne zusätzliche
-  // Gameplay-Secrets (§2.1/§2.2): die Standardpakete enthalten JUDGE/REVEAL nur
-  // im Spielkontext des Hosts — aber ein spielender Host sieht dadurch keine
-  // Player-Geheimnisse (das regeln Projektion + Secret-Gates).
+  // HOST = eingeloggter Raum-Verwalter. Administrative Rechte; JUDGE/REVEAL/
+  // SCORE_ADJUST sind SECRET-Rechte und werden projektionsseitig zusätzlich
+  // durch die Spielkontext-Gates begrenzt (ein spielender Host sieht dadurch
+  // keine Player-Geheimnisse, §2.1/§2.2).
   HOST: [
     'GAME_START', 'GAME_PAUSE', 'ROUND_ADVANCE', 'JUDGE_ANSWER', 'SCORE_ADJUST',
     'BUZZER_CONTROL', 'TIMER_CONTROL', 'REVEAL_CONTENT', 'TEAM_MANAGE', 'PLAYER_MANAGE', 'GAME_ABORT',
   ],
 };
+
+/**
+ * Spielerische Basisrechte: mit diesen Rechten ist eine ACTIVE Teilnahme
+ * (nicht nur Beobachtung) möglich. Der Guard prüft Rolle UND Recht — ein
+ * Player/Viewer, der eine Hostrolle fälscht, scheitert am Rechtesatz
+ * (VIEWER/Pure-Viewer haben KEINE dieser Rechte).
+ */
+/**
+ * Spielerische Basisrechte: mit diesen Rechten ist eine ACTIVE Teilnahme
+ * (nicht nur Beobachtung) möglich. Der Guard prüft Rolle UND Recht.
+ */
+export const PLAYER_PLAY_PERMISSIONS: readonly GamePermission[] = ['BUZZER_CONTROL', 'SCORE_ADJUST'];
+
+/**
+ * Spielerische Basisrechte einer aktiven Teilnahme. Ein PLAYER erhält
+ * genau die Rechte seiner Spielrolle (Antwort/Buzzer) — KEINE
+ * Verwaltungs-/Secret-Rechte. Ein VIEWER/DISPLAY erhält leere Pakete
+ * (read-only). Der Guard prüft zusätzlich Raum + aktuelle Grants.
+ */
+export const ROLE_PLAYER_PERMISSIONS: readonly GamePermission[] = ['BUZZER_CONTROL'];
+
 
 /**
  * Wirksame Rechte einer Rolle im Raum: Defaultpaket ± Grants/Entzüge.
@@ -1242,7 +1263,9 @@ export function effectivePermissions(
   grants: readonly GamePermission[] = [],
   revocations: readonly GamePermission[] = [],
 ): Set<GamePermission> {
-  const base = new Set<GamePermission>(ROLE_PERMISSION_PACKAGES[role as AccountRole] ?? []);
+  const accountBase = ROLE_PERMISSION_PACKAGES[role as AccountRole] ?? [];
+  const playerBase = role === 'PLAYER' ? ROLE_PLAYER_PERMISSIONS : [];
+  const base = new Set<GamePermission>([...accountBase, ...playerBase]);
   for (const g of grants) base.add(g);
   for (const r of revocations) base.delete(r);
   return base;
@@ -1302,9 +1325,8 @@ export function resolveCommandEnvelope(input: {
   if (!commandId) return null;
   const hasStateNew = typeof input.stateVersion === 'number';
   const hasStateOld = typeof input.expectedRevision === 'number';
-  let stateVersion: number | undefined;
   if (hasStateNew && hasStateOld && input.stateVersion !== input.expectedRevision) return null;
-  stateVersion = hasStateNew ? input.stateVersion : input.expectedRevision;
+  const stateVersion: number | undefined = hasStateNew ? input.stateVersion : input.expectedRevision;
   return {
     commandId,
     protocolVersion: input.protocolVersion,
@@ -1407,7 +1429,7 @@ export const GameConfigSnapshotSchema = z.object({
   gameSlug: z.string(),
   engineVersion: z.number().int(),
   values: z.record(z.object({
-    value: z.unknown(),
+    value: z.any(),
     source: z.enum(CONFIG_SOURCES),
   })),
   createdAt: z.string().datetime(),

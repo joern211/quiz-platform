@@ -185,6 +185,11 @@ model Room {
   configSchemaVersion    Int      @default(0)
   gameConfigSnapshotJson String?
 
+  // BASIS-STANDARDS (E3/E4): effektive LIVE-Überschreibungen (Resolved-Werte,
+  // Quelle LIVE_OVERRIDE). MUTABEL — auch nach Start (nur EDITABLE-Felder);
+  // gameConfigSnapshotJson (Start-Snapshot) bleibt dabei unverändert.
+  liveConfigJson         String?
+
   // Audit 11-06 (P1): serverseitige Idempotenz für Raum-Erstellungs-Requests.
   // Ein Client (Doppelklick/Timeout-Retry) sendet dasselbe Idempotency-Token;
   // der erste Request legt den Raum an, identische Wiederholungen erhalten die

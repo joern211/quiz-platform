@@ -8,6 +8,8 @@ import { getSocketDataIdentity } from '../../sockets/auth.js';
 import { roomChannel } from '../../sockets/channel.js';
 import { prisma } from '../../persistence/prisma.js';
 import { resolveCanonicalSlug } from '@quiz/shared';
+import type { GamePermission } from '@quiz/shared';
+import { requireGamePermission } from './permissions.js';
 import type { GameDefinition, Room } from '@prisma/client';
 
 export type GameRole = 'HOST' | 'PLAYER' | 'VIEWER';
@@ -98,4 +100,33 @@ export async function authorizeGameContext(
     if (!participant) return { ok: false, error: 'NO_PARTICIPATION' };
   }
   return { ...auth, room };
+}
+
+// ============================================================
+// BASIS-STANDARDS: gemeinsamer Guard = Rolle (bestehende Engine-Grenze)
+// + wirksames Recht (Permission-Vertrag, aktuelle DB-Rechte).
+// ============================================================
+
+export type GamePermissionGuardResult =
+  | { ok: true; permission: GamePermission }
+  | { ok: false; error: 'NOT_IN_ROOM' | 'NO_PARTICIPATION' | 'FORBIDDEN' };
+
+/**
+ * Prüft die Engine-Rolle (bestehende Grenze) UND das erforderliche
+ * Recht aus dem Permission-Vertrag (§2.3). Grants/Revocations wirken
+ * sofort (DB-Auslese pro Aktion) — auch für bereits verbundene Sockets.
+ */
+export async function authorizeGameActionWithPermission(
+  socket: Socket,
+  options: {
+    roles: readonly GameRole[];
+    permission: GamePermission;
+    requireParticipation?: boolean;
+  },
+): Promise<GamePermissionGuardResult> {
+  const base = authorizeGameAction(socket, { roles: options.roles, requireParticipation: options.requireParticipation });
+  if (!base.ok) return { ok: false, error: base.error };
+  const perm = await requireGamePermission(socket, options.permission);
+  if (!perm.ok) return { ok: false, error: perm.error === 'NOT_IN_ROOM' ? 'NOT_IN_ROOM' : 'FORBIDDEN' };
+  return { ok: true, permission: options.permission };
 }

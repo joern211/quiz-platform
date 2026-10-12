@@ -5,6 +5,8 @@
 import { Server, Socket } from 'socket.io';
 import { prisma } from '../persistence/prisma.js';
 import { logger } from '../observability/logger.js';
+import { z } from 'zod';
+import { updateRoomConfig, GAME_CONFIG_FIELDS } from '../games/core/config.js';
 import { socketIdentityMap, type Role } from '../http/middleware/auth.js';
 import { roomChannel } from './index.js';
 
@@ -24,6 +26,9 @@ type RoomAcknowledgement = (result: {
   error?: string;
   snapshot?: unknown;
   state?: unknown;
+  details?: unknown;
+  changed?: boolean;
+  revision?: number;
 }) => void;
 
 function isRole(role: string): role is Role {
@@ -515,6 +520,70 @@ export async function handleKickPlayer(
 }
 
 export const handleRoomEvents = {
+  // BASIS-STANDARDS (E): serverseitig validierte Live-Konfigurationsänderung
+  // (LIVE_OVERRIDE) mit Optimistic Locking. Nur eingeloggte Raum-Hosts.
+  // LOCKED_AFTER_START-Felder werden im RUNNING-Zustand abgelehnen; No-ops
+  // erhöhen die Revision nicht (E5).
+  async configUpdate(
+    io: Server,
+    socket: Socket,
+    data: { roomCode?: string; expectedRevision?: number; changes?: Record<string, unknown> },
+    callback?: RoomAcknowledgement
+  ) {
+    const identity = socket.data as { roomId?: string; role?: string };
+    if (!identity.roomId || !identity.role || !socket.rooms.has(roomChannel(identity.roomId))) {
+      callback?.({ success: false, error: 'NOT_IN_ROOM' });
+      return;
+    }
+    const parsed = z.object({
+      roomCode: z.string().min(1),
+      expectedRevision: z.number().int().nonnegative(),
+      changes: z.record(z.unknown()).refine((c) => Object.keys(c).length > 0, { message: 'EMPTY_CHANGES' }),
+    }).safeParse(data);
+    if (!parsed.success) {
+      callback?.({ success: false, error: 'INVALID_PAYLOAD' });
+      return;
+    }
+    const room = await prisma.room.findUnique({
+      where: { id: identity.roomId },
+      include: { gameDefinition: true },
+    });
+    if (!room || room.code !== parsed.data.roomCode) {
+      callback?.({ success: false, error: 'WRONG_ROOM' });
+      return;
+    }
+    // Konfigurationsänderung: nur eingeloggte Nutzer (hostUserId-Check in
+    // updateRoomConfig). Keine SECRET-Rechte erforderlich (E3/E5).
+    const user = (socket as AuthenticatedSocket).user;
+    if (!user) {
+      callback?.({ success: false, error: 'ROLE_REQUIRED' });
+      return;
+    }
+    const unknownFields = Object.keys(parsed.data.changes).filter((k) => !(k in (GAME_CONFIG_FIELDS[room.gameDefinition.slug] ?? {})));
+    if (unknownFields.length > 0) {
+      callback?.({ success: false, error: 'INVALID_CONFIG', details: { fields: unknownFields } });
+      return;
+    }
+    const result = await updateRoomConfig({
+      roomId: room.id,
+      actorUserId: user.id,
+      expectedRevision: parsed.data.expectedRevision,
+      changes: parsed.data.changes,
+    });
+    if (!result.ok) {
+      callback?.({ success: false, error: result.error });
+      return;
+    }
+    if (result.changed) {
+      io.to(roomChannel(room.id)).emit('room:config:changed', {
+        roomId: room.id,
+        revision: result.revision,
+        values: result.values,
+      });
+    }
+    callback?.({ success: true, changed: result.changed, revision: result.revision });
+  },
+
   async resync(
     io: Server,
     socket: Socket,
