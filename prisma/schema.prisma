@@ -496,6 +496,18 @@ model CommandReceipt {
   action      String   // z.B. ANSWER_SUBMIT, BUZZ, JUDGE, REVEAL, START, PAUSE, ABORT
   payloadHash String   // SHA-256 über (action + normalized payload)
   stateVersion Int?    // Versionserwartung (expectedRevision) zum Zeitpunkt des Claims
+  // Audit PR14, 14-02: Room-Revision, die atomar MIT dem Claim gelesen wurde.
+  // Ermöglicht einem Retry zu unterscheiden, ob der ursprüngliche Command
+  // bereits eine Wirkung committet hat (Revision fortgeschritten → NEUERE
+  // Ausführung verboten, kontrollierter Resync) oder nicht (Revision
+  // unverändert → sichere Neu-Ausführung). Ohne diese Spalte ist ein
+  // Retry nach einem verlorenen Erfolgs-Receipt nicht sicher.
+  beforeRevision Int?
+  // Audit PR14, 14-02: Lease für PENDING-Zeilen. Ein Prozessabbruch zwischen
+  // Claim und Abschluss hinterlässt PENDING; ohne Lease ist ein Retry
+  // dauerhaft COMMAND_IN_PROGRESS. Ist die Lease abgelaufen, gilt der
+  // ursprüngliche Besitzer als abgestürzt (Recovery).
+  leaseExpiresAt DateTime?
   status      String   // PENDING | COMPLETED | REJECTED | FAILED
   responseJson String? // persistierte Erfolgs-/Ablehnungsantwort (Duplicate liefert gespeicherte Antwort)
   createdAt   DateTime @default(now())

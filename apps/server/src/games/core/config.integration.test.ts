@@ -83,17 +83,21 @@ describe('E: Config-Resolver + Start-Snapshot + Revision', () => {
 
   // ── E1/E2: Resolver (reine Funktion, deterministisch) ──────────────
   it('E1: Resolver behält 0/false (kein value||default); ungültige Einheiten abgelehnt', async () => {
-    // timerDurationMs: 0 bleibt 0 (nicht durch Default ersetzt).
-    const r = resolveGameConfig('geo', { gameConfig: { timerDurationMs: 0 } });
+    // Audit PR14, 14-04: KANONISCHER Slug 'wissensduell' (Produktionsfall);
+    // der Legacy-Slug 'geo' wird an derselben Grenze normalisiert.
+    const r = resolveGameConfig('wissensduell', { gameConfig: { timerDurationMs: 0 } });
     expect(r.timerDurationMs.value).toBe(0);
     expect(r.timerDurationMs.source).toBe('GAME_CONFIG');
     // questionCount: 0 bleibt 0.
-    const r2 = resolveGameConfig('geo', { gameConfig: { questionCount: 0 } });
+    const r2 = resolveGameConfig('wissensduell', { gameConfig: { questionCount: 0 } });
     expect(r2.questionCount.value).toBe(0);
     // Nicht gesetzt → SYSTEM_DEFAULT.
-    const r3 = resolveGameConfig('geo', {});
-    expect(r3.questionCount.value).toBe(GAME_CONFIG_FIELDS.geo.questionCount.systemDefault);
+    const r3 = resolveGameConfig('wissensduell', {});
+    expect(r3.questionCount.value).toBe(GAME_CONFIG_FIELDS['wissensduell'].questionCount.systemDefault);
     expect(r3.questionCount.source).toBe('SYSTEM_DEFAULT');
+    // Legacy-Slug normalisiert auf denselben kanonischen Feldsatz.
+    const r4 = resolveGameConfig('geo', { gameConfig: { timerDurationMs: 0 } });
+    expect(r4.timerDurationMs.value).toBe(0);
 
     // updateRoomConfig lehnt ungültige Einheiten ab (count/durationMs < 0,
     // nicht-Integer, unbekanntes Feld).
@@ -142,8 +146,10 @@ describe('E: Config-Resolver + Start-Snapshot + Revision', () => {
 
   // ── E3/E4/E5: echter Start + Live-Änderung via geroutetem Socket ────
   it('E3+E4+E5: Start-Snapshot unveränderlich; LOCKED_AFTER_START gesperrt; Revision via CAS', async () => {
-    // Geo-Raum mit 2 Fragen + 2 ready Player → game:start erfolgreich.
-    const pack = await testPrisma.questionPack.create({ data: { gameSlug: 'geo', title: 'E Pack', status: 'PUBLISHED' } });
+    // Audit PR14, 14-04: KANONISCHER Produktionsfall — Raum mit der
+    // geseedeten Definition 'wissensduell' (nicht Legacy 'geo'), nicht-
+    // default Timer (25 s) und echten Frage-IDs.
+    const pack = await testPrisma.questionPack.create({ data: { gameSlug: 'wissensduell', title: 'E Pack', status: 'PUBLISHED' } });
     cleanupPackIds.push(pack.id);
     const q1 = await testPrisma.geoQuestion.create({ data: { packId: pack.id, prompt: 'A?', category: 'G', options: JSON.stringify([{ id: 'a', text: 'x' }, { id: 'b', text: 'y' }]), correctOptionId: 'a' } });
     const q2 = await testPrisma.geoQuestion.create({ data: { packId: pack.id, prompt: 'B?', category: 'G', options: JSON.stringify([{ id: 'a', text: 'x' }, { id: 'b', text: 'y' }]), correctOptionId: 'b' } });
@@ -151,7 +157,7 @@ describe('E: Config-Resolver + Start-Snapshot + Revision', () => {
     const room = await testPrisma.room.create({
       data: {
         code: roomCode, roomName: 'E Start',
-        gameDefinitionId: (await testPrisma.gameDefinition.findUniqueOrThrow({ where: { slug: 'geo' } })).id,
+        gameDefinitionId: (await testPrisma.gameDefinition.findUniqueOrThrow({ where: { slug: 'wissensduell' } })).id,
         hostUserId: HOST_USER_ID, status: 'LOBBY', runPhase: 'LOBBY',
         setupSnapshotJson: JSON.stringify({ selectedQuestionIds: [q1.id, q2.id], timerDuration: 25 }),
       },
@@ -168,8 +174,12 @@ describe('E: Config-Resolver + Start-Snapshot + Revision', () => {
     expect(startedRoom.status).toBe('RUNNING');
     expect(startedRoom.configSchemaVersion).toBe(1);
     const snap: GameConfigSnapshot = JSON.parse(startedRoom.gameConfigSnapshotJson!);
-    expect(snap.gameSlug).toBe('geo');
+    // Audit PR14, 14-04: Snapshot trägt kanonischen Slug, tatsächliche
+    // Engine-Version und TATSÄCHLICHE Setupwerte (questionCount=2 aus
+    // selectedQuestionIds, Timer 25 s → 25000 ms) — keine leeren values.
+    expect(snap.gameSlug).toBe('wissensduell');
     expect(snap.engineVersion).toBe(1);
+    expect(snap.values.questionCount.value).toBe(2);
     // Legacy timerDuration 25s → 25000 ms im Snapshot (Auflösung, kein Default).
     expect(snap.values.timerDurationMs.value).toBe(25000);
     const snapshotJsonBefore = startedRoom.gameConfigSnapshotJson;

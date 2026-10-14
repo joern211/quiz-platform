@@ -279,13 +279,17 @@ export const handleGeoGame = {
     // Parse options
     const options = JSON.parse(question.options);
 
-    // BASIS-STANDARDS (E): Timer kommt aus der zentralen Config-Auflösung
-    // (Start-Snapshot, falls vorhanden; sonst Legacy-Setup via loadGameConfig,
-    // die setup.timerDuration in Sekunden → ms umrechnet und den zentralen
-    // Default 20000 ms anwendet). Kein direktes setup-||-Default-Muster mehr.
+    // BASIS-STANDARDS (E) + Audit PR14, 14-04: Timer kommt aus der
+    // zentralen Config-Auflösung (Start-Snapshot, falls vorhanden; sonst
+    // Legacy-Setup via loadGameConfig, die setup.timerDuration in Sekunden
+    // → ms umrechnet und den zentralen Default 20000 ms anwendet). Der
+    // KANONISCHE Slug wird übergeben — der Reader normalisiert Legacy
+    // intern; der Geo-Reader darf keine eigene Slug-Anlage mehr pflegen.
+    // Ein defekter Snapshot wirft CONFIG_SNAPSHOT_INVALID → kontrollierter
+    // Fehler, keine stille Deutung über Defaults.
     let timerDuration: number;
     try {
-      const loaded = await loadGameConfig(roomRecord, 'geo');
+      const loaded = await loadGameConfig(roomRecord, 'wissensduell');
       timerDuration = (loaded?.values.timerDurationMs?.value ?? 20000) as number;
     } catch {
       timerDuration = 20000;

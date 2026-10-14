@@ -210,8 +210,14 @@ export function contractSuite(spec: ContractEngineSpec) {
       expect(room.configSchemaVersion).toBe(1);
       expect(room.gameConfigSnapshotJson).toBeTruthy();
       const snap = JSON.parse(room.gameConfigSnapshotJson!);
-      expect(snap.gameSlug).toBe(spec.slug);
+      // Audit PR14, 14-04: Der Snapshot trägt IMMER den KANONISCHEN Slug —
+      // auch wenn der Raum einen Legacy-Slug (z.B. 'geo') trägt. Die
+      // Engine-Version ist die tatsächliche (ENGINE_VERSIONS), kein
+      // pauschales 1.
+      const { resolveCanonicalSlug } = await import('@quiz/shared');
+      expect(snap.gameSlug).toBe(resolveCanonicalSlug(spec.slug) ?? spec.slug);
       expect(typeof snap.engineVersion).toBe('number');
+      expect(snap.engineVersion).toBeGreaterThan(0);
     });
   });
 }

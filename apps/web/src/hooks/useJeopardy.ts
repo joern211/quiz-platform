@@ -4,7 +4,7 @@
 // ============================================================
 
 import { useEffect, useRef, useState, useCallback } from 'react';
-import { getSocket, connectSocket, disconnectSocket, getSessionData, withCommandEnvelope, type PlayerRole, type JeopardyResyncResponse } from '../lib/socket';
+import { getSocket, connectSocket, disconnectSocket, getSessionData, emitCommand, type PlayerRole, type JeopardyResyncResponse } from '../lib/socket';
 
 // ── Event payload types ────────────────────────────────────────
 
@@ -357,12 +357,11 @@ export function useJeopardy(roomCode: string, role: PlayerRole) {
   const openField = useCallback(
     (boardIndex: 1 | 2, categoryIndex: number, value: number) => {
       if (!socketRef.current) return;
-      socketRef.current.emit(
+      emitCommand(
+        socketRef.current,
         'jeopardy:field:open',
-        withCommandEnvelope(
-          { boardIndex, categoryIndex, value },
-          `${roomCode}:jp:open:${boardIndex}-${categoryIndex}-${value}`
-        ),
+        { boardIndex, categoryIndex, value },
+        `${roomCode}:jp:open:${boardIndex}-${categoryIndex}-${value}`,
         (res: { success: boolean; error?: string }) => {
           if (!res.success) setError(`Feld öffnen fehlgeschlagen: ${res.error}`);
         }
@@ -373,7 +372,10 @@ export function useJeopardy(roomCode: string, role: PlayerRole) {
 
   const buzz = useCallback(() => {
     if (!socketRef.current) return;
-    socketRef.current.emit('jeopardy:buzz', withCommandEnvelope({}, `${roomCode}:jp:buzz:${fieldKey()}`), (res: { success: boolean; error?: string }) => {
+    // Audit PR14, 14-01: Token-Lebenszyklus über emitCommand — ein Buzzer-
+    // Retry (Doppelklick/ACK-Verlust) sendet denselben Token; die nächste
+    // zulässige Absicht erhält ein frisches Token.
+    emitCommand(socketRef.current, 'jeopardy:buzz', {}, `${roomCode}:jp:buzz:${fieldKey()}`, (res: { success: boolean; error?: string }) => {
       if (!res.success && res.error !== 'BUZZER_ALREADY_WON') {
         setError(`Buzzer fehlgeschlagen: ${res.error}`);
       }
@@ -384,9 +386,11 @@ export function useJeopardy(roomCode: string, role: PlayerRole) {
     (correct: boolean) => {
       if (!socketRef.current) return;
       // Andere Bewertung (correct/!correct) = andere Absicht → eigener Key.
-      socketRef.current.emit(
+      emitCommand(
+        socketRef.current,
         'jeopardy:judge',
-        withCommandEnvelope({ correct }, `${roomCode}:jp:judge:${fieldKey()}:${correct}`),
+        { correct },
+        `${roomCode}:jp:judge:${fieldKey()}:${correct}`,
         (res: { success: boolean; error?: string }) => {
           if (!res.success) setError(`Urteil fehlgeschlagen: ${res.error}`);
         }
@@ -397,9 +401,11 @@ export function useJeopardy(roomCode: string, role: PlayerRole) {
 
   const stealBuzz = useCallback(() => {
     if (!socketRef.current) return;
-    socketRef.current.emit(
+    emitCommand(
+      socketRef.current,
       'jeopardy:steal:buzz',
-      withCommandEnvelope({}, `${roomCode}:jp:stealBuzz:${fieldKey()}`),
+      {},
+      `${roomCode}:jp:stealBuzz:${fieldKey()}`,
       (res: { success: boolean; error?: string }) => {
         if (!res.success && res.error !== 'STEAL_ALREADY_WON') {
           setError(`Abstauber-Buzzer fehlgeschlagen: ${res.error}`);
@@ -411,9 +417,11 @@ export function useJeopardy(roomCode: string, role: PlayerRole) {
   const stealJudge = useCallback(
     (correct: boolean) => {
       if (!socketRef.current) return;
-      socketRef.current.emit(
+      emitCommand(
+        socketRef.current,
         'jeopardy:steal:judge',
-        withCommandEnvelope({ correct }, `${roomCode}:jp:stealJudge:${fieldKey()}:${correct}`),
+        { correct },
+        `${roomCode}:jp:stealJudge:${fieldKey()}:${correct}`,
         (res: { success: boolean; error?: string }) => {
           if (!res.success) setError(`Abstauber-Urteil fehlgeschlagen: ${res.error}`);
         }
@@ -424,7 +432,7 @@ export function useJeopardy(roomCode: string, role: PlayerRole) {
 
   const next = useCallback(() => {
     if (!socketRef.current) return;
-    socketRef.current.emit('jeopardy:next', withCommandEnvelope({}, `${roomCode}:jp:next:${fieldKey()}`), (res: { success: boolean; error?: string }) => {
+    emitCommand(socketRef.current, 'jeopardy:next', {}, `${roomCode}:jp:next:${fieldKey()}`, (res: { success: boolean; error?: string }) => {
       if (!res.success) setError(`Weiter fehlgeschlagen: ${res.error}`);
     });
   }, [roomCode]);
@@ -432,9 +440,11 @@ export function useJeopardy(roomCode: string, role: PlayerRole) {
   const switchBoard = useCallback(
     (toBoard: 2 | 1) => {
       if (!socketRef.current) return;
-      socketRef.current.emit(
+      emitCommand(
+        socketRef.current,
         'jeopardy:board:switch',
-        withCommandEnvelope({ toBoard }, `${roomCode}:jp:board:${toBoard}`),
+        { toBoard },
+        `${roomCode}:jp:board:${toBoard}`,
         (res: { success: boolean; error?: string }) => {
           if (!res.success) setError(`Board-Wechsel fehlgeschlagen: ${res.error}`);
         }

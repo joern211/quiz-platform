@@ -5,7 +5,7 @@
 import { useParams, useNavigate } from 'react-router-dom';
 import { gamePath } from '../lib/gamePaths';
 import { useEffect, useState, useRef } from 'react';
-import { getSocket, connectSocket, disconnectSocket, withCommandEnvelope } from '../lib/socket';
+import { getSocket, connectSocket, disconnectSocket, emitCommand } from '../lib/socket';
 import { setSession } from '../lib/sessionStore';
 import { Card, Button, Badge } from '@quiz/ui';
 import styles from './ModeratorLobbyPage.module.css';
@@ -129,7 +129,7 @@ export function ModeratorLobbyPage() {
     }
     setLoading(true);
     setKickError('');
-    socketRef.current.emit('game:start', withCommandEnvelope({ roomCode }, `${roomCode}:game:start`), (response) => {
+    emitCommand(socketRef.current, 'game:start', { roomCode }, `${roomCode}:game:start`, (response) => {
       setLoading(false);
       if (response.success) {
         const gameSlug = response.gameSlug ?? '';
@@ -149,7 +149,7 @@ export function ModeratorLobbyPage() {
         setKickError('Socket-Verbindung ist nicht verfügbar.');
         return;
       }
-      socketRef.current.emit('game:start', withCommandEnvelope({ roomCode }, `${roomCode}:game:start`), (response) => {
+      emitCommand(socketRef.current, 'game:start', { roomCode }, `${roomCode}:game:start`, (response) => {
         setLoading(false);
         if (response.success) {
           const gameSlug = response.gameSlug ?? '';

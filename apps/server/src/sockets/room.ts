@@ -7,7 +7,9 @@ import { prisma } from '../persistence/prisma.js';
 import { logger } from '../observability/logger.js';
 import { z } from 'zod';
 import { updateRoomConfig, GAME_CONFIG_FIELDS } from '../games/core/config.js';
+import { resolveCanonicalSlug } from '@quiz/shared';
 import { socketIdentityMap, type Role } from '../http/middleware/auth.js';
+import { requireGamePermission } from '../games/core/permissions.js';
 import { roomChannel } from './index.js';
 
 type AuthenticatedSocket = Socket & {
@@ -431,12 +433,19 @@ export async function handleKickPlayer(
   callback?: RoomAcknowledgement
 ) {
   try {
-    // Require HOST role (identity check via socketIdentityMap)
-    const identity = socketIdentityMap.get(socket.id);
-    if (!identity || identity.role !== 'HOST') {
-      callback?.({ success: false, error: 'UNAUTHORIZED' });
+    // Audit PR14, 14-06: Kicken ist eine Verwaltungs-Mutation und läuft über
+    // den GEMEINSAMEN Permission-Guard mit dem wirksamen Recht PLAYER_MANAGE
+    // (Defaultpaket ± Grants/Revocations, aktuelle DB-Werte). Die frühere
+    // reine ROLE-Prüfung (identity.role === 'HOST') umging einen Entzug von
+    // PLAYER_MANAGE bei verbundenen Sockets — das ist geschlossen.
+    const perm = await requireGamePermission(socket, 'PLAYER_MANAGE');
+    if (!perm.ok) {
+      // Wire-Kompatibilität: bestehende Clients erhielten UNAUTHORIZED.
+      callback?.({ success: false, error: perm.error === 'NOT_IN_ROOM' ? 'UNAUTHORIZED' : 'UNAUTHORIZED' });
       return;
     }
+
+    const identity = socketIdentityMap.get(socket.id);
 
     const room = await prisma.room.findUnique({
       where: { code: data.roomCode },
@@ -447,8 +456,8 @@ export async function handleKickPlayer(
       return;
     }
 
-    // Verify moderator belongs to this room
-    if (identity.roomId !== room.id) {
+    // Verify moderator belongs to this room (serverseitiger Raumbezug).
+    if (perm.roomId !== room.id || (identity && identity.roomId !== room.id)) {
       callback?.({ success: false, error: 'WRONG_ROOM' });
       return;
     }
@@ -559,7 +568,7 @@ export const handleRoomEvents = {
       callback?.({ success: false, error: 'ROLE_REQUIRED' });
       return;
     }
-    const unknownFields = Object.keys(parsed.data.changes).filter((k) => !(k in (GAME_CONFIG_FIELDS[room.gameDefinition.slug] ?? {})));
+    const unknownFields = Object.keys(parsed.data.changes).filter((k) => !(k in (GAME_CONFIG_FIELDS[resolveCanonicalSlug(room.gameDefinition.slug) ?? ''] ?? {})));
     if (unknownFields.length > 0) {
       callback?.({ success: false, error: 'INVALID_CONFIG', details: { fields: unknownFields } });
       return;

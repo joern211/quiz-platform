@@ -131,11 +131,20 @@ export async function runGuardedCriticalAction(
         actor: { actorId: cmdCtx.ctx.actorId, actorRole: perm.role },
         action: toReceiptAction(args.action),
         payload: args.payload,
+        // Audit PR14, 14-02/14-03: mitgesendete Versionserwartung wird
+        // serverseitig gegen die aktuelle Room-Revision geprüft.
+        stateVersion: cmdCtx.ctx.envelope?.stateVersion,
         mutate: () => awaitEngineResult((onResult) => args.handler(onResult)),
         toResponse: (d) => d,
       });
       if (receipted.success) {
         finish(receipted.data, receipted.replayed);
+      } else if ('resyncRequired' in receipted && receipted.resyncRequired) {
+        // Audit PR14, 14-02: Die ursprüngliche Absicht hat bereits gewirkt,
+        // die Erfolgs-Quittung ging verloren. Neue Ausführung verboten —
+        // kontrollierter Resync statt Doppelwirkung.
+        const appError = wireErrorToAppError(receipted.error, { context: { action: args.action } });
+        callback?.({ success: false, error: receipted.error, resyncRequired: true, code: appError.code, messageKey: appError.messageKey, traceId: appError.traceId });
       } else {
         callback?.({ success: false, error: receipted.error, ...(receipted.replayed ? { replayed: true } : {}) });
       }

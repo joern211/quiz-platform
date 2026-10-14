@@ -348,7 +348,7 @@ export function intentToken(intentKey: string): string {
 }
 
 /**
- * Neue Absicht: altes Token verwerfen (z.B. nach abgeschlossener
+ * Neue Absicht: altes Token verwerfen (z. B. nach abgeschlossener
  * Runde/Handlung). Ohne Aufruf bleibt das Token für dieselbe Absicht.
  */
 export function discardIntentToken(intentKey: string): void {
@@ -357,8 +357,48 @@ export function discardIntentToken(intentKey: string): void {
 
 /**
  * Fügt einem kritischen Payload das Absichtstoken + Protokollversion
- * hinzu (Command-Envelope, v1).
+ * hinzu (Command-Envelope, v1). Reiner Builder — die Token-Verwaltung
+ * (Lebenszyklus pro Absicht) läuft zentral über `emitCommand`
+ * (Audit PR14, 14-01).
  */
 export function withCommandEnvelope<T extends object>(payload: T, intentKey: string): T & { commandId: string; protocolVersion: number } {
   return { ...payload, commandId: intentToken(intentKey), protocolVersion: PROTOCOL_VERSION };
+}
+
+export type CommandResponse = { success: boolean; error?: string; [k: string]: unknown };
+
+/**
+ * Sendet eine kritische Socket-Aktion mit Absichtstoken und verwaltet den
+ * Token-Lebenszyklus zentral (Audit PR14, 14-01):
+ *
+ *   - Gleiche Absicht (Doppelklick, Retry nach ACK-Verlust/Timeout) →
+ *     GLEICHES Token, solange noch kein ACK eingetroffen ist (determinischer
+ *     Replay bzw. sichere Neu-Ausführung serverseitig).
+ *   - Bestätigter Erfolg (success:true, inkl. replayed:true) → Token wird
+ *     verbraucht; die NÄCHSTE zulässige Absicht (erneutes Buzzer-Öffnen der
+ *     selben Runde nach einer WRONG-Bewertung, zweite Pause, nächste
+ *     Bewertung) erhält automatisch ein frisches Token.
+ *   - Fehler/Rejection → Token bleibt (gleiche Absicht → serverseitig wird
+ *     die gespeicherte Ablehnung repliziert; eine geänderte Absicht nutzt
+ *     ohnehin einen neuen Key/Token).
+ *
+ * ALLE kritischen Emits laufen über diesen Pfad, damit kein Aufrufer den
+ * Verwurf nach erfolgreichem ACK vergessen kann.
+ */
+export function emitCommand<TPayload extends object>(
+  socket: Socket,
+  event: string,
+  payload: TPayload,
+  intentKey: string,
+  onResponse?: (res: CommandResponse) => void,
+): void {
+  const envelope = withCommandEnvelope(payload, intentKey);
+  const emitter = socket as unknown as {
+    emit: (event: string, payload: unknown, ack?: (response: unknown) => void) => void;
+  };
+  emitter.emit(event, envelope, (raw: unknown) => {
+    const res = (raw && typeof raw === 'object' ? raw : {}) as CommandResponse;
+    if (res.success === true) discardIntentToken(intentKey);
+    onResponse?.(res);
+  });
 }

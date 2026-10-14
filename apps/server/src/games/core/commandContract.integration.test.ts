@@ -119,21 +119,47 @@ describe('C: Command-Envelope + Protokoll + Replay', () => {
 
   it('C1: Envelope — requestId↔commandId / stateVersion↔expectedRevision, Widerspruch abgelehnt', async () => {
     const { resolveCommandEnvelope } = await import('@quiz/shared');
+    // Audit PR14, 14-03: Der Resolver ist ein VALIDIERTER Boundary-Contract
+    // (roomCode-Format, stateVersion ≥ 0, commandId-Länge) — Tests nutzen
+    // gültige Raumcodes ('123-456') und prüfen ungültige Werte getrennt.
+    const ROOM = '123-456';
     // Legacy requestId → commandId.
-    expect(resolveCommandEnvelope({ requestId: 'r-1', roomCode: 'X' })?.commandId).toBe('r-1');
+    expect(resolveCommandEnvelope({ requestId: 'r-1', roomCode: ROOM })?.commandId).toBe('r-1');
     // Neues commandId.
-    expect(resolveCommandEnvelope({ commandId: 'c-1', roomCode: 'X' })?.commandId).toBe('c-1');
+    expect(resolveCommandEnvelope({ commandId: 'c-1', roomCode: ROOM })?.commandId).toBe('c-1');
     // Gleiche Werte (commandId === requestId) → ok.
-    expect(resolveCommandEnvelope({ commandId: 'same', requestId: 'same', roomCode: 'X' })?.commandId).toBe('same');
+    expect(resolveCommandEnvelope({ commandId: 'same', requestId: 'same', roomCode: ROOM })?.commandId).toBe('same');
     // Widerspruch commandId ≠ requestId → null.
-    expect(resolveCommandEnvelope({ commandId: 'a', requestId: 'b', roomCode: 'X' })).toBeNull();
+    expect(resolveCommandEnvelope({ commandId: 'a', requestId: 'b', roomCode: ROOM })).toBeNull();
     // stateVersion/expectedRevision kompatibel.
-    expect(resolveCommandEnvelope({ commandId: 'c', roomCode: 'X', expectedRevision: 5 })?.stateVersion).toBe(5);
-    expect(resolveCommandEnvelope({ commandId: 'c', roomCode: 'X', stateVersion: 7 })?.stateVersion).toBe(7);
+    expect(resolveCommandEnvelope({ commandId: 'c', roomCode: ROOM, expectedRevision: 5 })?.stateVersion).toBe(5);
+    expect(resolveCommandEnvelope({ commandId: 'c', roomCode: ROOM, stateVersion: 7 })?.stateVersion).toBe(7);
     // Widerspruch stateVersion ≠ expectedRevision → null.
-    expect(resolveCommandEnvelope({ commandId: 'c', roomCode: 'X', stateVersion: 1, expectedRevision: 2 })).toBeNull();
+    expect(resolveCommandEnvelope({ commandId: 'c', roomCode: ROOM, stateVersion: 1, expectedRevision: 2 })).toBeNull();
     // Kein Token → null (Legacy-Modus, kein Receipt).
-    expect(resolveCommandEnvelope({ roomCode: 'X' })).toBeNull();
+    expect(resolveCommandEnvelope({ roomCode: ROOM })).toBeNull();
+
+    // Audit PR14, 14-03 (Schema-Gegenprobe): ungültige Werte werden am
+    // Boundary-Contract abgelehnt — das Ergebnis muss CommandEnvelopeSchema
+    // erfüllen, ein ungültiges Command ist KEIN Legacy-Pfad.
+    const { CommandEnvelopeSchema } = await import('@quiz/shared');
+    // Ungültiges roomCode-Format → null.
+    expect(resolveCommandEnvelope({ commandId: 'c', roomCode: 'X' })).toBeNull();
+    // Negative stateVersion → null.
+    expect(resolveCommandEnvelope({ commandId: 'c', roomCode: ROOM, stateVersion: -123 })).toBeNull();
+    // Überlange commandId (>128) → null.
+    expect(resolveCommandEnvelope({ commandId: 'x'.repeat(129), roomCode: ROOM })).toBeNull();
+    // Rückkopplung: jeder zurückgegebene Envelope gilt gegen das Schema.
+    for (const input of [
+      { commandId: 'c-1', roomCode: ROOM },
+      { requestId: 'r-1', roomCode: ROOM, expectedRevision: 0 },
+      { commandId: 'c', roomCode: ROOM, stateVersion: 7 },
+      { commandId: 'c' }, // roomCode optional (serverseitige Membership)
+    ]) {
+      const resolved = resolveCommandEnvelope(input as Parameters<typeof resolveCommandEnvelope>[0]);
+      expect(resolved, JSON.stringify(input)).not.toBeNull();
+      expect(CommandEnvelopeSchema.safeParse(resolved).success, JSON.stringify(input)).toBe(true);
+    }
   });
 
   it('C2: inkompatible protocolVersion (2) → CLIENT_VERSION_UNSUPPORTED VOR Mutation; v1/missing ok', async () => {

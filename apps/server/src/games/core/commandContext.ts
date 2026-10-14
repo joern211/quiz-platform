@@ -71,6 +71,7 @@ export function resolveCommandContextForSocket(
     protocolVersion?: unknown;
     expectedRevision?: unknown;
     stateVersion?: unknown;
+    roomCode?: unknown;
   } | null | undefined,
   socket: { data: Record<string, unknown> } & {
     // Minimaler Socket-Stub für Tests; echtes socket.io-Socket erfüllt das.
@@ -88,22 +89,27 @@ export function resolveCommandContextForSocket(
   const identity = getSocketIdentityStub(socket);
   const actorId = participationId ?? identity?.participationId ?? roomId;
 
-  const commandId = typeof data?.commandId === 'string' && data.commandId.length > 0
-    ? data.commandId
-    : typeof data?.requestId === 'string' && data.requestId.length > 0
-      ? data.requestId
-      : undefined;
-
-  const expectedRevision = typeof data?.expectedRevision === 'number' ? data.expectedRevision
-    : typeof data?.stateVersion === 'number' ? data.stateVersion : undefined;
-
+  // Audit PR14, 14-03: ALTE UND NEUE Feldbezeichnungen werden GEMEINSAM an
+  // den validierten Resolver übergeben (nicht einer vor dem anderen
+  // ausgewählt). Widersprüchliche Paare (commandId ≠ requestId,
+  // stateVersion ≠ expectedRevision) und ungültige Werte (Länge, negatives
+  // stateVersion, roomCode-Format) → null → INVALID_PAYLOAD, VOR jeder
+  // Mutation. Der client-angegebene roomCode dient NUR der Envelope-
+  // Validierung — Membership kommt weiterhin ausschließlich aus der
+  // serverseitigen Socket-Identität.
+  const rawRoomCode = typeof data?.roomCode === 'string' ? data.roomCode : '';
   let envelope: CommandEnvelope | undefined;
+  const hasNewId = typeof data?.commandId === 'string' && data.commandId.length > 0;
+  const hasOldId = typeof data?.requestId === 'string' && data.requestId.length > 0;
+  const commandId = hasNewId ? data.commandId as string : hasOldId ? data.requestId as string : undefined;
   if (commandId) {
     const resolved: CommandEnvelope | null = resolveCommandEnvelope({
-      commandId,
+      commandId: hasNewId ? data.commandId as string : undefined,
+      requestId: hasOldId ? data.requestId as string : undefined,
       protocolVersion: data?.protocolVersion === undefined ? undefined : resolveProtocolVersion(data?.protocolVersion),
-      roomCode: '', // Raumbezug ist serverseitig aufgelöst (roomId), client roomCode ersetzt keine Membership.
-      stateVersion: expectedRevision,
+      roomCode: rawRoomCode || undefined, // fehlend = undefined (optional im Envelope)
+      stateVersion: typeof data?.stateVersion === 'number' ? data.stateVersion : undefined,
+      expectedRevision: typeof data?.expectedRevision === 'number' ? data.expectedRevision : undefined,
       payload: data,
     });
     if (resolved === null) return { ok: false, error: 'INVALID_PAYLOAD' };

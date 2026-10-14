@@ -243,6 +243,11 @@ export async function failCommand(
 
 const PENDING_WAIT_MS = 40;
 const PENDING_MAX_MS = 4000;
+// Audit PR14, 14-02: PENDING-Lease. Ein normaler Command (Engine-Mutation
+// + Persistenz) läuft deutlich unter dieser Grenze; ein abgestürzter
+// Prozess hinterlässt PENDING und der Retry wartet höchstens die Lease
+// statt COMMAND_IN_PROGRESS für immer.
+const PENDING_LEASE_MS = 3000;
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 export interface ReceiptContext {
@@ -256,7 +261,12 @@ export interface ReceiptContext {
 
 export type ReceiptedResult<T> =
   | { success: true; replayed: boolean; data: T }
-  | { success: false; replayed: boolean; error: string };
+  | { success: false; replayed: boolean; error: string }
+  // Audit PR14, 14-02: Der ursprüngliche Command hat bereits eine Wirkung
+  // committet (Room-Revision fortgeschritten), aber die Erfolgs-Quittung
+  // ist verloren gegangen. Eine NEUE Ausführung ist verboten (Doppelwirkung
+  // unmöglich); der Client resync-t, statt erneut zu mutieren.
+  | { success: false; replayed: false; resyncRequired: true; error: 'COMMAND_STATE_ADVANCED' };
 
 function isBusinessDuplicateError(error: unknown): boolean {
   const msg = error instanceof Error ? error.message : String(error);
@@ -267,7 +277,70 @@ function isBusinessDuplicateError(error: unknown): boolean {
 }
 
 /**
+ * Audit PR14, 14-02: Exklusive Übernahme einer Receipt-Zeile (FAILED→PENDING
+ * oder PENDING-Recovery). `updateMany` unterstützt den Composite-Key
+ * (roomId, commandId) nicht als Filter — die einzelnen Skalaren roomId +
+ * commandId sind jedoch ein vollständig atomares CAS: genau eine der
+ * parallelen Retry-Zeilen erfüllt Status + Lease-Bedingung und gewinnt,
+ * die anderen sehen count 0 und verlieren fair (keine Doppelwirkung).
+ */
+export async function claimTakeover(
+  prismaClient: PrismaClient,
+  args: {
+    roomId: string;
+    commandId: string;
+    expectedStatus: 'FAILED' | 'PENDING';
+    /** Exakte Lease zum Übernahme-Zeitpunkt (Date) oder null (Legacy-Zeile). */
+    expectedLease: Date | null;
+  },
+): Promise<boolean> {
+  const taken = await prismaClient.commandReceipt.updateMany({
+    where: {
+      roomId: args.roomId,
+      commandId: args.commandId,
+      status: args.expectedStatus,
+      // Atomare CAS-Bedingung auf die EXAKTE Lease (DateTime-Filter auf
+      // den gespeicherten Wert): ein bereits übernommener Gewinner hat eine
+      // neuere Lease und lässt das Update nicht mehr zu.
+      leaseExpiresAt: args.expectedLease,
+    },
+    data: {
+      status: 'PENDING',
+      responseJson: null,
+      leaseExpiresAt: new Date(Date.now() + PENDING_LEASE_MS),
+    },
+  });
+  return taken.count === 1;
+}
+
+/**
  * Führt eine kritische Mutation mit Receipt-Schutz aus (s. Block oben).
+ *
+ * Audit PR14, 14-02 — Wiederholungssicherheit über die CAS-Ebene hinaus:
+ *   1) VOR dem Claim wird die aktuelle Room-Revision gelesen. Eine
+ *      mitgesendete Versionserwartung (stateVersion/expectedRevision) wird
+ *      hier serverseitig geprüft: Abweichung → REVISION_CONFLICT, VOR jeder
+ *      Mutation. Die Revision wird als `beforeRevision` atomar mit dem
+ *      Claim-Write persistiert.
+ *   2) Der Claim trägt zusätzlich eine PENDING-Lease (`leaseExpiresAt`).
+ *      Ein Prozessabbruch zwischen Claim und Abschluss hinterlässt PENDING;
+ *      ist die Lease abgelaufen, gilt der Besitzer als abgestürzt (Recovery).
+ *   3) Retry auf FAILED / abgelaufenes PENDING ist NUR erlaubt, wenn die
+ *      Room-Revision gleich `beforeRevision` ist (die ursprüngliche Mutation
+ *      kann dann keine Wirkung committet haben). War die Revision
+ *      fortgeschritten, hat der ursprüngliche Command bereits gewirkt —
+ *      eine zweite Ausführung ist VERBOTEN; der Client erhält
+ *      COMMAND_STATE_ADVANCED (resyncRequired) statt einer Doppelwirkung.
+ *      Das schließt genau die Lücke, in der ein verlorenes Erfolgs-Receipt
+ *      (COMPLETED-Write schlägt nach committiertem CAS fehl) sonst einen
+ *      sicheren Double-Apply erlaubte.
+ *   4) Die FAILED→PENDING-Übernahme ist ein exklusiver CAS (Status +
+ *      alte Lease als Bedingung): parallele Retry-Claims konkurrieren fair,
+ *      genau einer gewinnt.
+ *   5) Die Engine-Mutation behält ihre eigene CAS-Transaktion
+ *      (saveGameStateIfRevision & Co.); der Receipt-Zustand und die
+ *      fachliche Wirkung werden NIE gegeneinander "optimistisch"
+ *      ausgeglichen — im Zweifel resync-t der Client.
  */
 export async function runReceipted<T>(
   prismaClient: PrismaClient,
@@ -281,7 +354,20 @@ export async function runReceipted<T>(
   const { roomId, commandId } = args;
   const payloadHash = hashCommandPayload(args.action, args.payload);
 
-  // 1) Atomarer Claim (createUnique — kein Check-then-Create).
+  // 0) Serverseitiger Versionscheck VOR jeder Mutation (Audit PR14, 14-03):
+  //    eine mitgesendete stateVersion/expectedRevision muss zur aktuellen
+  //    Room-Revision passen, sonst REVISION_CONFLICT (keine Mutation,
+  //    kein Receipt). Frischer Read unmittelbar vor dem Claim.
+  const roomNow = await prismaClient.room.findUnique({ where: { id: roomId }, select: { revision: true } });
+  if (!roomNow) {
+    return { success: false, replayed: false, error: 'ROOM_NOT_FOUND' };
+  }
+  if (args.stateVersion !== undefined && args.stateVersion !== null && roomNow.revision !== args.stateVersion) {
+    return { success: false, replayed: false, error: 'REVISION_CONFLICT' };
+  }
+
+  // 1) Atomarer Claim (createUnique — kein Check-then-Create) MIT
+  //    beforeRevision (Revision zum Claim-Zeitpunkt) + PENDING-Lease.
   let claimed = false;
   try {
     await prismaClient.commandReceipt.create({
@@ -290,13 +376,16 @@ export async function runReceipted<T>(
         actorId: args.actor.actorId, actorRole: args.actor.actorRole,
         action: args.action, payloadHash,
         stateVersion: args.stateVersion ?? null,
+        beforeRevision: roomNow.revision,
+        leaseExpiresAt: new Date(Date.now() + PENDING_LEASE_MS),
         status: 'PENDING',
       },
     });
     claimed = true;
   } catch (error) {
     if (!isUniqueConstraintError(error)) throw error;
-    // 1b) Duplicate-Pfad: auf den Gewinner warten bzw. gespeicherte Antwort liefern.
+    // 1b) Duplicate-Pfad: auf den Gewinner warten bzw. gespeicherte Antwort
+    //     liefern; abgelaufene PENDING-Lease / FAILED → sichere Retry-Entscheidung.
     for (let waited = 0; ; waited += PENDING_WAIT_MS) {
       const existing = await prismaClient.commandReceipt.findUnique({
         where: { roomId_commandId: { roomId, commandId } },
@@ -312,15 +401,60 @@ export async function runReceipted<T>(
         return { success: false, replayed: true, error: (JSON.parse(existing.responseJson ?? '{}') as { error?: string }).error ?? 'COMMAND_CONFLICT' };
       }
       if (existing.status === 'FAILED') {
-        // Kein Erfolgseintrag → sicherer Retry: erneut als Claimant starten.
-        await prismaClient.commandReceipt.update({
-          where: { roomId_commandId: { roomId, commandId } },
-          data: { status: 'PENDING', responseJson: null },
+        // Audit PR14, 14-02: FAILED bedeutet "kein Erfolgseintrag" — der
+        // Retry ist nur sicher, wenn der Zustand zum Claim-Zeitpunkt
+        // unverändert ist. Fortgeschrittene Revision → der ursprüngliche
+        // Command hat gewirkt (verlorenes Erfolgs-Receipt) → Resync, NICHT
+        // neu ausführen.
+        if (existing.beforeRevision === null) {
+          // Legacy-Zeile (vor 14-02): keine Entscheidungsgrundlage →
+          // konservative Behandlung (keine Neu-Ausführung).
+          return { success: false, replayed: false, resyncRequired: true, error: 'COMMAND_STATE_ADVANCED' };
+        }
+        const current = await prismaClient.room.findUnique({ where: { id: roomId }, select: { revision: true } });
+        if (!current || current.revision !== existing.beforeRevision) {
+          return { success: false, replayed: false, resyncRequired: true, error: 'COMMAND_STATE_ADVANCED' };
+        }
+        // Zustand unverändert → sichere Neu-Ausführung. Exklusive Übernahme
+        // (Status + alte Lease als CAS-Bedingung): parallele Retries
+        // konkurrieren fair, genau einer gewinnt.
+        const claimedOver = await claimTakeover(prismaClient, {
+          roomId, commandId, expectedStatus: 'FAILED', expectedLease: existing.leaseExpiresAt,
         });
-        claimed = true;
-        break;
+        if (claimedOver) { claimed = true; break; }
+        // Jemand anderes hat übernommen (oder CAS verloren) → erneut lesen.
+        if (waited >= PENDING_MAX_MS) {
+          return { success: false, replayed: false, error: 'COMMAND_IN_PROGRESS' };
+        }
+        await sleep(PENDING_WAIT_MS);
       }
-      // PENDING: Gewinner in Bearbeitung — kurz warten.
+      // PENDING: Gewinn in Bearbeitung ODER abgestürzt.
+      const leaseLive = existing.leaseExpiresAt !== null && existing.leaseExpiresAt.getTime() > Date.now();
+      if (leaseLive) {
+        // Lebender Besitzer: kurz warten.
+        if (waited >= PENDING_MAX_MS) {
+          return { success: false, replayed: false, error: 'COMMAND_IN_PROGRESS' };
+        }
+        await sleep(PENDING_WAIT_MS);
+        continue;
+      }
+      // Lease abgelaufen (oder Legacy-Zeile ohne Lease) → der ursprüngliche
+      // Besitzer gilt als abgestürzt (Recovery, Audit PR14, 14-02).
+      if (existing.status !== 'PENDING') continue; // FAILED oben behandelt
+      if (existing.beforeRevision === null) {
+        // Legacy-PENDING ohne Entscheidungsgrundlage → keine Neu-Ausführung.
+        return { success: false, replayed: false, resyncRequired: true, error: 'COMMAND_STATE_ADVANCED' };
+      }
+      const current = await prismaClient.room.findUnique({ where: { id: roomId }, select: { revision: true } });
+      if (!current || current.revision !== existing.beforeRevision) {
+        return { success: false, replayed: false, resyncRequired: true, error: 'COMMAND_STATE_ADVANCED' };
+      }
+      // Zustand unverändert → der abgestürzte Claim hat keine Wirkung
+      // committet. Exklusive Übernahme über alte Lease als CAS.
+      const recovered = await claimTakeover(prismaClient, {
+        roomId, commandId, expectedStatus: 'PENDING', expectedLease: existing.leaseExpiresAt,
+      });
+      if (recovered) { claimed = true; break; }
       if (waited >= PENDING_MAX_MS) {
         return { success: false, replayed: false, error: 'COMMAND_IN_PROGRESS' };
       }
@@ -335,13 +469,13 @@ export async function runReceipted<T>(
     if (response.success) {
       await prismaClient.commandReceipt.update({
         where: { roomId_commandId: { roomId, commandId } },
-        data: { status: 'COMPLETED', responseJson: JSON.stringify(response) },
+        data: { status: 'COMPLETED', responseJson: JSON.stringify(response), leaseExpiresAt: null },
       });
       return { success: true, replayed: false, data };
     }
     await prismaClient.commandReceipt.update({
       where: { roomId_commandId: { roomId, commandId } },
-      data: { status: 'REJECTED', responseJson: JSON.stringify(response) },
+      data: { status: 'REJECTED', responseJson: JSON.stringify(response), leaseExpiresAt: null },
     });
     return { success: false, replayed: false, error: (response.error as string) ?? 'REJECTED' };
   } catch (error) {
@@ -351,13 +485,17 @@ export async function runReceipted<T>(
         const msg = error instanceof Error ? error.message : 'STATE_CONFLICT';
         await prismaClient.commandReceipt.update({
           where: { roomId_commandId: { roomId, commandId } },
-          data: { status: 'REJECTED', responseJson: JSON.stringify({ success: false, error: msg }) },
+          data: { status: 'REJECTED', responseJson: JSON.stringify({ success: false, error: msg }), leaseExpiresAt: null },
         }).catch(() => undefined);
         return { success: false, replayed: true, error: msg };
       }
+      // Mutation fehlgeschlagen (oder COMPLETED-Write fehlgeschlagen —
+      // Audit PR14, 14-02): FAILED + beforeRevision bleibt bestehen. Der
+      // nachfolgende Retry entscheidet über beforeRevision, ob die Wirkung
+      // committiert wurde oder nicht → keine Doppelwirkung.
       await prismaClient.commandReceipt.update({
         where: { roomId_commandId: { roomId, commandId } },
-        data: { status: 'FAILED', responseJson: null },
+        data: { status: 'FAILED', responseJson: null, leaseExpiresAt: null },
       }).catch(() => undefined);
     }
     throw error;

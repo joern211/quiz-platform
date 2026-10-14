@@ -23,7 +23,8 @@ import { requireRoomRole, getSocketDataIdentity } from './auth.js';
 import { requireGamePermission } from '../games/core/permissions.js';
 import { runReceipted } from '../games/core/commands.js';
 import { resolveCommandContextForSocket } from '../games/core/commandContext.js';
-import { persistConfigSnapshot } from '../games/core/config.js';
+import { persistConfigSnapshot, ENGINE_VERSIONS } from '../games/core/config.js';
+import { resolveCanonicalSlug } from '@quiz/shared';
 import { wireErrorToAppError } from '../games/core/appError.js';
 import { roomChannel } from './index.js';
 
@@ -180,15 +181,39 @@ export const handleGameEvents = {
           throw error;
         }
 
-        // BASIS-STANDARDS (E): unveränderlicher Start-Snapshot (gameSlug +
-        // engineVersion + aufgelöste Werte). Ein Snapshot-Fehler blockiert
-        // den (bereits erfolgreichen) Spielstart nicht — der Legacy-Reader
-        // bleibt verfügbar; der Fehler wird kontrolliert geloggt.
+        // BASIS-STANDARDS (E) + Audit PR14, 14-04/14-05: unveränderlicher
+        // Start-Snapshot als START-INVARIANTE (kein degradierter Start ohne
+        // Snapshot mehr). Der Snapshot trägt den KANONISCHEN Slug und die
+        // TATSÄCHLICHE Engine-Version (ENGINE_VERSIONS — kein pauschales 1
+        // mehr) und die aufgelösten TATSÄCHLICHEN Werte. Ein Fehler hier
+        // (z.B. defektes Setup, unbekannte Engine-Version) → Rollback der
+        // Start-Übergabe (kein RUNNING ohne Snapshot).
+        // Audit PR14, 14-04: Der Raum kann einen LEGACY-Slug tragen
+        // (Migration läuft/übersprungen) — für die Engine-Version-Auflösung
+        // muss der KANONISCHE Slug her, sonst greift der Fallback `?? 1`
+        // (WID-Snapshot v1 statt v2). persistConfigSnapshot normalisiert
+        // intern ebenfalls; hier wird die Version korrekt gewählt.
+        const canonicalSlug = resolveCanonicalSlug(room.gameDefinition.slug) ?? room.gameDefinition.slug;
+        const engineVersion = ENGINE_VERSIONS[canonicalSlug]?.current ?? 1;
         try {
           const snapshotRoom = await prisma.room.findUniqueOrThrow({ where: { id: room.id } });
-          await persistConfigSnapshot(snapshotRoom, room.gameDefinition.slug, 1);
+          await persistConfigSnapshot(snapshotRoom, canonicalSlug, engineVersion);
         } catch (snapshotError) {
-          logger.error('config snapshot at start failed', { roomId: room.id, error: snapshotError });
+          // Rollback der (bereits committierten) Start-Übergabe — gleiche
+          // Semantik wie bei einem initialize-Fehler.
+          const failedRoom = await prisma.room.findUnique({ where: { id: room.id } });
+          await prisma.$transaction(async (tx) => {
+            const reverted = await tx.room.updateMany({
+              where: { id: room.id, status: 'RUNNING', revision: (failedRoom?.revision ?? room.revision + 1) },
+              data: { status: 'LOBBY', runPhase: 'LOBBY', startedAt: null, revision: { increment: 1 } },
+            });
+            if (reverted.count === 1) {
+              await tx.roomGameState.deleteMany({ where: { roomId: room.id } });
+              await tx.commandReceipt.deleteMany({ where: { roomId: room.id, status: 'PENDING', action: 'GAME_START' } });
+              await tx.room.update({ where: { id: room.id }, data: { gameConfigSnapshotJson: null, configSchemaVersion: 0 } });
+            }
+          });
+          throw snapshotError;
         }
 
         // Emit game start
@@ -218,13 +243,16 @@ export const handleGameEvents = {
             actor: { actorId: identity.participationId ?? room.id, actorRole: perm.role },
             action: 'GAME_START',
             payload: { roomCode: data.roomCode },
+            // Audit PR14, 14-02/14-03: mitgesendete Versionserwartung wird
+            // serverseitig gegen die aktuelle Room-Revision geprüft.
+            stateVersion: cmdCtx.ctx.envelope?.stateVersion,
             mutate: performStart,
             toResponse: (d) => ({ success: true, ...d }),
           });
           if (receipted.success) {
             callback?.({ success: true, gameSlug: receipted.data.gameSlug, ...(receipted.replayed ? { replayed: true } : {}) });
           } else {
-            callback?.({ success: false, error: receipted.error, ...(receipted.replayed ? { replayed: true } : {}) });
+            callback?.({ success: false, error: receipted.error, ...(receipted.replayed ? { replayed: true } : {}), ...('resyncRequired' in receipted && receipted.resyncRequired ? { resyncRequired: true } : {}) });
           }
           return;
         } catch (error) {
@@ -320,11 +348,12 @@ export const handleGameEvents = {
             actor: { actorId: identity.participationId ?? room.id, actorRole: perm.role },
             action: 'GAME_PAUSE',
             payload: data,
+            stateVersion: cmdCtx.ctx.envelope?.stateVersion,
             mutate: perform,
             toResponse: (d) => d,
           });
           if (receipted.success) callback?.({ success: true, ...(receipted.replayed ? { replayed: true } : {}) });
-          else callback?.({ success: false, error: receipted.error, ...(receipted.replayed ? { replayed: true } : {}) });
+          else callback?.({ success: false, error: receipted.error, ...(receipted.replayed ? { replayed: true } : {}), ...('resyncRequired' in receipted && receipted.resyncRequired ? { resyncRequired: true } : {}) });
         } catch (error) {
           const e2 = wireErrorToAppError(gameErrorCode(error), { internalDetail: error, context: { socketId: socket.id } });
           logger.error('Game pause (receipted) error', { error });
@@ -414,11 +443,12 @@ export const handleGameEvents = {
             actor: { actorId: identity.participationId ?? room.id, actorRole: perm.role },
             action: 'GAME_RESUME',
             payload: data,
+            stateVersion: cmdCtx.ctx.envelope?.stateVersion,
             mutate: perform,
             toResponse: (d) => d,
           });
           if (receipted.success) callback?.({ success: true, ...(receipted.replayed ? { replayed: true } : {}) });
-          else callback?.({ success: false, error: receipted.error, ...(receipted.replayed ? { replayed: true } : {}) });
+          else callback?.({ success: false, error: receipted.error, ...(receipted.replayed ? { replayed: true } : {}), ...('resyncRequired' in receipted && receipted.resyncRequired ? { resyncRequired: true } : {}) });
         } catch (error) {
           const e2 = wireErrorToAppError(gameErrorCode(error), { internalDetail: error, context: { socketId: socket.id } });
           logger.error('Game resume (receipted) error', { error });
@@ -503,11 +533,12 @@ export const handleGameEvents = {
             actor: { actorId: identity.participationId ?? room.id, actorRole: perm.role },
             action: 'GAME_ABORT',
             payload: data,
+            stateVersion: cmdCtx.ctx.envelope?.stateVersion,
             mutate: perform,
             toResponse: (d) => d,
           });
           if (receipted.success) callback?.({ success: true, ...(receipted.replayed ? { replayed: true } : {}) });
-          else callback?.({ success: false, error: receipted.error, ...(receipted.replayed ? { replayed: true } : {}) });
+          else callback?.({ success: false, error: receipted.error, ...(receipted.replayed ? { replayed: true } : {}), ...('resyncRequired' in receipted && receipted.resyncRequired ? { resyncRequired: true } : {}) });
         } catch (error) {
           const e2 = wireErrorToAppError(gameErrorCode(error), { internalDetail: error, context: { socketId: socket.id } });
           logger.error('Game end (receipted) error', { error });

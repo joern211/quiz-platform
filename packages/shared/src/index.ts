@@ -54,15 +54,25 @@ export function isParticipationRole(r: string): r is ParticipationRole {
  * Eindeutige Normalisierung LEGACY → kanonisch. Unbekannte Werte werden
  * NIE still gecastet: `normalizeRole` gibt `null` zurück, der Aufrufer
  * entscheidet (Ablehnung vs. Fallback). Kein allgemeiner String-Cast.
+ *
+ * Audit PR14, 14-10: Der Legacy-Lookup läuft über ein Objekt OHNE
+ * Prototype (`Object.create(null)`) und das Ergebnis wird zusätzlich
+ * gegen die kanonische Rollenmenge geprüft. Damit liefern Prototype-
+ * Namen wie `constructor`/`__proto__`/`toString` keine geerbten Werte
+ * mehr (vorher: `LEGACY_ROLE_VALUES['constructor']` = geerbte
+ * Object-Konstruktorfunktion) und kein fremder String kann als Rolle
+ * durchgehen.
  */
-export const LEGACY_ROLE_VALUES: Readonly<Record<string, PlatformRole>> = {
-  MODERATOR: 'HOST',
-};
+export const LEGACY_ROLE_VALUES: Readonly<Record<string, PlatformRole>> = Object.assign(
+  Object.create(null) as Record<string, PlatformRole>,
+  { MODERATOR: 'HOST' },
+);
 export function normalizeRole(value: string | null | undefined): PlatformRole | null {
   if (!value) return null;
   if ((PLATFORM_ROLES as readonly string[]).includes(value)) return value as PlatformRole;
-  const mapped = LEGACY_ROLE_VALUES[value];
-  return mapped ?? null;
+  if (!Object.prototype.hasOwnProperty.call(LEGACY_ROLE_VALUES, value)) return null;
+  const mapped = (LEGACY_ROLE_VALUES as Record<string, PlatformRole>)[value];
+  return (PLATFORM_ROLES as readonly string[]).includes(mapped) ? mapped : null;
 }
 
 export type RoomStatus = 'CREATED' | 'LOBBY' | 'RUNNING' | 'ENDED' | 'ARCHIVED';
@@ -602,7 +612,9 @@ export const GAME_MANIFESTS: GameManifestSpec[] = [
     hasAudio: false,
     hasTimer: false,
     setupSchemaVersion: 2,
-    engineVersion: 1,
+    // Audit PR14, 14-04: Manifest trägt die TATSÄCHLICHE Engine-Version
+    // (v2: Composite-Setup, rollenbasierte Projektion) — war fälschlich 1.
+    engineVersion: 2,
     capabilities: ['BUZZER', 'JUDGE', 'CONTENT_POOLS', 'VIEWER'],
     lateJoin: false,
     viewer: true,
@@ -1289,8 +1301,14 @@ export function hasPermission(
 export const CommandEnvelopeSchema = z.object({
   commandId: z.string().min(1).max(128),
   protocolVersion: z.number().int().optional(),
-  roomCode: z.string().regex(/^\d{3}-\d{3}$/),
-  stateVersion: z.number().int().optional(),
+  // Optional: der serverseitige Raumbezug stammt ausschließlich aus der
+  // Socket-Identity; roomCode im Payload dient der Client-Korrelation.
+  // Ist es vorhanden, muss es das Raumbenennungsformat erfüllen
+  // (Audit PR14, 14-03: ungültiges roomCode wird abgelehnt, fehlendes ist ok).
+  roomCode: z.string().regex(/^\d{3}-\d{3}$/).optional(),
+  // Revisions-/Versionsnummern sind nicht-negativ (Audit PR14, 14-03:
+  // negative Werte sind ungültig, kein Legacy-Pfad).
+  stateVersion: z.number().int().min(0).optional(),
   payload: z.unknown(),
 });
 export type CommandEnvelope = z.infer<typeof CommandEnvelopeSchema>;
@@ -1306,7 +1324,7 @@ export function resolveCommandEnvelope(input: {
   commandId?: string;
   requestId?: string;
   protocolVersion?: number;
-  roomCode: string;
+  roomCode?: string;
   stateVersion?: number;
   expectedRevision?: number;
   payload?: unknown;
@@ -1327,13 +1345,19 @@ export function resolveCommandEnvelope(input: {
   const hasStateOld = typeof input.expectedRevision === 'number';
   if (hasStateNew && hasStateOld && input.stateVersion !== input.expectedRevision) return null;
   const stateVersion: number | undefined = hasStateNew ? input.stateVersion : input.expectedRevision;
-  return {
+  // Audit PR14, 14-03: Der Resolver ist ein VALIDIERTER Boundary-Contract —
+  // das Ergebnis muss CommandEnvelopeSchema passieren (commandId-Länge,
+  // roomCode-Format, nicht-negative stateVersion). Ein ungültiges Command
+  // ist eine Ablehnung, KEINE Umleitung in einen Legacy-Pfad.
+  const candidate = {
     commandId,
     protocolVersion: input.protocolVersion,
     roomCode: input.roomCode,
     stateVersion,
     payload: input.payload,
   };
+  const parsed = CommandEnvelopeSchema.safeParse(candidate);
+  return parsed.success ? parsed.data : null;
 }
 
 /**
