@@ -207,7 +207,20 @@ toString/hasOwnProperty → null; gültige + Legacy-Rolle korrekt".
 > Ergebnisse sind getrennt von den GitHub-Nachweisen ausgewiesen (Audit-Regel
 > „lokale Gegenproben getrennt von GitHub").
 
-## GitHub (wird am finalen Head ergänzt)
+## GitHub (am finalen Head `ec8ef51` — geprüft, nicht erwartet)
 
-[noch offengehalten — nach Push + CI am finalen Commit: CI-Job, E2E-Job und
-Status am exakten gepuschten Head]
+Fixes in `feature/pr14-foundation-standards` (PR #14) per Fast-Forward übernommen
+(Basis `dea0d92` → Head `ec8ef51`, kein Überschreiben), PR-Beschreibung auf
+`docs/implementation/pr14/pr14-body.md` aktualisiert (REST `PATCH /pulls/14`, HTTP 200).
+
+| GitHub-Check am exakten Head `ec8ef51ee3753c5408ed6e53147a73ea98b72a08` | Status |
+|---|---|
+| **CI** (typecheck, lint, build, Server-Tests, Web-Tests) | ✅ `completed / success` |
+| **E2E** (Playwright, Geo + Jeopardy + **WID W1–W10**) | ✅ `completed / success` |
+| PR #14 Zustand | `OPEN`, **Draft = true** (nicht gemerged, nicht Ready) |
+
+**WID-Timeout (14-01) am GitHub-Head behoben:** Der E2E-Check, der am Audit-Head
+`dea0d92` wegen WID W1–W10 rot war, ist am finalen Head `ec8ef51` **grün**. Die
+lokal reproduzierte Ursache (nie verbrauchtes Intent-Token → erneutes Buzzer-Öffnen
+wird als Replay behandelt) ist mit dem `emitCommand`-Verbrauch behoben; lokal
+**17/17** (WID 6,3 s), GitHub **E2E success** — beide Ebenen getrennt belegt.
