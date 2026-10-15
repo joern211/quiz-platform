@@ -207,20 +207,25 @@ toString/hasOwnProperty → null; gültige + Legacy-Rolle korrekt".
 > Ergebnisse sind getrennt von den GitHub-Nachweisen ausgewiesen (Audit-Regel
 > „lokale Gegenproben getrennt von GitHub").
 
-## GitHub (am finalen Head `ec8ef51` — geprüft, nicht erwartet)
+## GitHub (am finalen Head `3329f86` — geprüft, nicht erwartet)
 
 Fixes in `feature/pr14-foundation-standards` (PR #14) per Fast-Forward übernommen
-(Basis `dea0d92` → Head `ec8ef51`, kein Überschreiben), PR-Beschreibung auf
+(Basis `dea0d92` → Head `3329f86`, kein Überschreiben), PR-Beschreibung auf
 `docs/implementation/pr14/pr14-body.md` aktualisiert (REST `PATCH /pulls/14`, HTTP 200).
 
-| GitHub-Check am exakten Head `ec8ef51ee3753c5408ed6e53147a73ea98b72a08` | Status |
+| GitHub-Check am exakten Head | Status |
 |---|---|
-| **CI** (typecheck, lint, build, Server-Tests, Web-Tests) | ✅ `completed / success` |
-| **E2E** (Playwright, Geo + Jeopardy + **WID W1–W10**) | ✅ `completed / success` |
+| **CI** (typecheck, lint, build, Server-Tests, Web-Tests) am `ec8ef51` | ✅ `completed / success` |
+| **E2E** (Playwright, Geo + Jeopardy + **WID W1–W10**) am `ec8ef51` | ✅ `completed / success` |
+| **CI + E2E** am finalen Head `3329f86` (docs-only-Nachtrag) | ✅ beide `completed / success` |
 | PR #14 Zustand | `OPEN`, **Draft = true** (nicht gemerged, nicht Ready) |
 
+`ec8ef51` = Head mit allen Code-Fixes + Abnahmedoku; `3329f86` = zusätzlicher
+Doku-Nachtrag (GitHub-Ergebnis hier). Beide Heads CI + E2E grün; der maßgebliche
+Produktcode-Head ist `ec8ef51`, der gepuschte PR-Head `3329f86`.
+
 **WID-Timeout (14-01) am GitHub-Head behoben:** Der E2E-Check, der am Audit-Head
-`dea0d92` wegen WID W1–W10 rot war, ist am finalen Head `ec8ef51` **grün**. Die
+`dea0d92` wegen WID W1–W10 rot war, ist am finalen Head **grün**. Die
 lokal reproduzierte Ursache (nie verbrauchtes Intent-Token → erneutes Buzzer-Öffnen
 wird als Replay behandelt) ist mit dem `emitCommand`-Verbrauch behoben; lokal
 **17/17** (WID 6,3 s), GitHub **E2E success** — beide Ebenen getrennt belegt.
