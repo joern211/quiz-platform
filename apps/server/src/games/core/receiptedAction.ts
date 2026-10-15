@@ -90,14 +90,20 @@ export async function runGuardedCriticalAction(
   args: GuardedActionArgs,
   callback?: (result: { success: boolean; error?: string; [k: string]: unknown }) => void,
 ): Promise<void> {
-  const data = args.payload as { commandId?: unknown; requestId?: unknown; protocolVersion?: unknown };
+  const data = args.payload as {
+    commandId?: unknown; requestId?: unknown; protocolVersion?: unknown;
+    roomCode?: unknown; stateVersion?: unknown; expectedRevision?: unknown;
+  };
   const cmdCtx: CommandContextResult = resolveCommandContextForSocket(data, args.socket);
   if (!cmdCtx.ok) {
-    if (cmdCtx.error === 'CLIENT_VERSION_UNSUPPORTED') {
-      callback?.({ success: false, error: 'CLIENT_VERSION_UNSUPPORTED' });
+    // Audit PR14, 14-03: inkompatible Version UND ungültige/widersprüchliche
+    // Command-Felder (INVALID_PAYLOAD) werden VOR der Mutation abgelehnt —
+    // ein ungültiges Command läuft NICHT im Legacy-Pfad. NOT_IN_ROOM bleibt
+    // nachsichtig: die Engine-Handler prüfen Membership ohnehin.
+    if (cmdCtx.error === 'CLIENT_VERSION_UNSUPPORTED' || cmdCtx.error === 'INVALID_PAYLOAD') {
+      callback?.({ success: false, error: cmdCtx.error });
       return;
     }
-    // NOT_IN_ROOM/INVALID_PAYLOAD: Engine-Handler prüft Membership ohnehin.
   }
 
   // BASIS-STANDARDS (B): gemeinsamer Guard — wirksames Recht aus der DB

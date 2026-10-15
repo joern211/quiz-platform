@@ -42,6 +42,14 @@ export const handleGameEvents = {
     logger.info('game:start received', { socketId: socket.id, roomCode: data.roomCode, socketData: socket.data });
 
     try {
+      // Audit PR14, 14-03: Command-Gültigkeit VOR der roomCode-Auflösung
+      // prüfen (Version + Feld-Widersprüche) — ungültiges Command erhält
+      // INVALID_PAYLOAD, keine Umleitung in den Legacy-Pfad.
+      const preCtx = resolveCommandContextForSocket(data, socket);
+      if (!preCtx.ok && (preCtx.error === 'CLIENT_VERSION_UNSUPPORTED' || preCtx.error === 'INVALID_PAYLOAD')) {
+        callback?.({ success: false, error: preCtx.error });
+        return;
+      }
       const room = await prisma.room.findUnique({
         where: { code: data.roomCode },
         include: { gameDefinition: true },
@@ -83,9 +91,11 @@ export const handleGameEvents = {
       }
 
       // Protokollversion: explizit inkompatible Version → VOR Mutation ablehnen.
+      // Audit PR14, 14-03: auch INVALID_PAYLOAD (widersprüchliche/ungültige
+      // Command-Felder) wird VOR der Mutation abgelehnt — kein Legacy-Pfad.
       const cmdCtx = resolveCommandContextForSocket(data, socket);
-      if (!cmdCtx.ok && cmdCtx.error === 'CLIENT_VERSION_UNSUPPORTED') {
-        callback?.({ success: false, error: 'CLIENT_VERSION_UNSUPPORTED' });
+      if (!cmdCtx.ok && (cmdCtx.error === 'CLIENT_VERSION_UNSUPPORTED' || cmdCtx.error === 'INVALID_PAYLOAD')) {
+        callback?.({ success: false, error: cmdCtx.error });
         return;
       }
 
@@ -283,6 +293,17 @@ export const handleGameEvents = {
     callback?: (result: any) => void
   ) {
     try {
+      // Audit PR14, 14-03: Die Command-Gültigkeit (Version + Feld-Widersprüche
+      // + Envelope-Boundary) wird VOR der roomCode-Auflösung geprüft — ein
+      // ungültiges/widersprüchliches Command erhält INVALID_PAYLOAD, auch
+      // wenn das roomCode nicht existiert (keine Umleitung in den
+      // Legacy-Pfad, keine Mutation).
+      const preCtx = resolveCommandContextForSocket(data, socket);
+      if (!preCtx.ok && (preCtx.error === 'CLIENT_VERSION_UNSUPPORTED' || preCtx.error === 'INVALID_PAYLOAD')) {
+        callback?.({ success: false, error: preCtx.error });
+        return;
+      }
+
       const room = await prisma.room.findUnique({
         where: { code: data.roomCode },
         include: { gameDefinition: true },
@@ -320,9 +341,11 @@ export const handleGameEvents = {
       }
 
       // Protokollversion: explizit inkompatibel → VOR der Mutation ablehnen.
-      const cmdCtx = resolveCommandContextForSocket(data, socket);
-      if (!cmdCtx.ok && cmdCtx.error === 'CLIENT_VERSION_UNSUPPORTED') {
-        callback?.({ success: false, error: 'CLIENT_VERSION_UNSUPPORTED' });
+      // Audit PR14, 14-03: auch ein UNGÜLTIGES/WEIDERSPRÜCHLICHES Command
+      // (INVALID_PAYLOAD) wird VOR der Mutation abgelehnt — ungültige
+      // Commands werden NICHT in einen Legacy-Pfad umgeleitet.
+      if (!cmdCtx.ok && (cmdCtx.error === 'CLIENT_VERSION_UNSUPPORTED' || cmdCtx.error === 'INVALID_PAYLOAD')) {
+        callback?.({ success: false, error: cmdCtx.error });
         return;
       }
 
@@ -378,6 +401,17 @@ export const handleGameEvents = {
     callback?: (result: any) => void
   ) {
     try {
+      // Audit PR14, 14-03: Die Command-Gültigkeit (Version + Feld-Widersprüche
+      // + Envelope-Boundary) wird VOR der roomCode-Auflösung geprüft — ein
+      // ungültiges/widersprüchliches Command erhält INVALID_PAYLOAD, auch
+      // wenn das roomCode nicht existiert (keine Umleitung in den
+      // Legacy-Pfad, keine Mutation).
+      const preCtx = resolveCommandContextForSocket(data, socket);
+      if (!preCtx.ok && (preCtx.error === 'CLIENT_VERSION_UNSUPPORTED' || preCtx.error === 'INVALID_PAYLOAD')) {
+        callback?.({ success: false, error: preCtx.error });
+        return;
+      }
+
       const room = await prisma.room.findUnique({
         where: { code: data.roomCode },
         include: { gameDefinition: true },
@@ -415,9 +449,11 @@ export const handleGameEvents = {
       }
 
       // Protokollversion: explizit inkompatibel → VOR der Mutation ablehnen.
-      const cmdCtx = resolveCommandContextForSocket(data, socket);
-      if (!cmdCtx.ok && cmdCtx.error === 'CLIENT_VERSION_UNSUPPORTED') {
-        callback?.({ success: false, error: 'CLIENT_VERSION_UNSUPPORTED' });
+      // Audit PR14, 14-03: auch ein UNGÜLTIGES/WEIDERSPRÜCHLICHES Command
+      // (INVALID_PAYLOAD) wird VOR der Mutation abgelehnt — ungültige
+      // Commands werden NICHT in einen Legacy-Pfad umgeleitet.
+      if (!cmdCtx.ok && (cmdCtx.error === 'CLIENT_VERSION_UNSUPPORTED' || cmdCtx.error === 'INVALID_PAYLOAD')) {
+        callback?.({ success: false, error: cmdCtx.error });
         return;
       }
 
@@ -473,6 +509,17 @@ export const handleGameEvents = {
     callback?: (result: any) => void
   ) {
     try {
+      // Audit PR14, 14-03: Die Command-Gültigkeit (Version + Feld-Widersprüche
+      // + Envelope-Boundary) wird VOR der roomCode-Auflösung geprüft — ein
+      // ungültiges/widersprüchliches Command erhält INVALID_PAYLOAD, auch
+      // wenn das roomCode nicht existiert (keine Umleitung in den
+      // Legacy-Pfad, keine Mutation).
+      const preCtx = resolveCommandContextForSocket(data, socket);
+      if (!preCtx.ok && (preCtx.error === 'CLIENT_VERSION_UNSUPPORTED' || preCtx.error === 'INVALID_PAYLOAD')) {
+        callback?.({ success: false, error: preCtx.error });
+        return;
+      }
+
       const room = await prisma.room.findUnique({
         where: { code: data.roomCode },
       });
@@ -509,9 +556,11 @@ export const handleGameEvents = {
       }
 
       // Protokollversion: explizit inkompatibel → VOR der Mutation ablehnen.
-      const cmdCtx = resolveCommandContextForSocket(data, socket);
-      if (!cmdCtx.ok && cmdCtx.error === 'CLIENT_VERSION_UNSUPPORTED') {
-        callback?.({ success: false, error: 'CLIENT_VERSION_UNSUPPORTED' });
+      // Audit PR14, 14-03: auch ein UNGÜLTIGES/WEIDERSPRÜCHLICHES Command
+      // (INVALID_PAYLOAD) wird VOR der Mutation abgelehnt — ungültige
+      // Commands werden NICHT in einen Legacy-Pfad umgeleitet.
+      if (!cmdCtx.ok && (cmdCtx.error === 'CLIENT_VERSION_UNSUPPORTED' || cmdCtx.error === 'INVALID_PAYLOAD')) {
+        callback?.({ success: false, error: cmdCtx.error });
         return;
       }
 
