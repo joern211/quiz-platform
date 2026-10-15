@@ -79,8 +79,8 @@ export default function App() {
           <Route path="/moderator/raum/:code/spiel"                      element={<ModeratorGamePage />} />
           <Route path="/moderator/raum/:code/ergebnis"                   element={<ModeratorResultPage />} />
           <Route path="/moderator/raum/:code/jeopardy"                     element={<JeopardyModeratorPage />} />
-          <Route path="/moderator/raum/:code/wer-ist-das" element={<WerIstDasGamePage role="MODERATOR" />} />
-          <Route path="/moderator/raum/:code/weristdas" element={<WerIstDasGamePage role="MODERATOR" />} />
+          <Route path="/moderator/raum/:code/wer-ist-das" element={<WerIstDasGamePage role="HOST" />} />
+          <Route path="/moderator/raum/:code/weristdas" element={<WerIstDasGamePage role="HOST" />} />
 
           {/* ── Spieler ── */}
           <Route path="/raum/:code/lobby"     element={<PlayerLobbyPage />} />

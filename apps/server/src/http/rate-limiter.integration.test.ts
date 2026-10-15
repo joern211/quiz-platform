@@ -173,7 +173,7 @@ describe('Rate Limiter — Join Route (dev mode)', () => {
     const modUser = await prisma.user.upsert({
       where: { id: `mod-rl-dev-${Date.now()}` },
       update: {},
-      create: { id: `mod-rl-dev-${Date.now()}`, displayName: 'RLHost', email: `rl-dev-${Date.now()}@test.local`, passwordHash: '$argon2id$v=19$m=65536,t=3,p=4$test', role: 'MODERATOR' },
+      create: { id: `mod-rl-dev-${Date.now()}`, displayName: 'RLHost', email: `rl-dev-${Date.now()}@test.local`, passwordHash: '$argon2id$v=19$m=65536,t=3,p=4$test', role: 'HOST' },
     });
 
     const req = supertest(app);
@@ -207,7 +207,7 @@ describe('Rate Limiter — Production (real behavior)', () => {
     const modUser = await prisma.user.upsert({
       where: { id: modId },
       update: {},
-      create: { id: modId, displayName: 'RateLimitHost', email: `${modId}@test.local`, passwordHash: '$argon2id$v=19$m=65536,t=3,p=4$test', role: 'MODERATOR' },
+      create: { id: modId, displayName: 'RateLimitHost', email: `${modId}@test.local`, passwordHash: '$argon2id$v=19$m=65536,t=3,p=4$test', role: 'HOST' },
     });
     const session = await prisma.session.create({ data: { id: `rl-prod-sess-${Date.now()}`, userId: modUser.id, expiresAt: new Date(Date.now() + 86400000) } });
     const sig = createHmac('sha256', config.sessionSecret).update(session.id).digest('base64url');

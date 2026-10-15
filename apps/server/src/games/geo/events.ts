@@ -1,18 +1,34 @@
 // Geo-specific socket action adapters. Generic room lifecycle lives in sockets/game.ts.
+// ============================================================
+// BASIS-STANDARDS-Integration:
+//   - Kritische Mutationen (Antwort, Joker, Reveal, Weiter) laufen über
+//     den gemeinsamen Guard (runGuardedCriticalAction): wirksames Recht
+//     (BUZZER_CONTROL/REVEAL_CONTENT/ROUND_ADVANCE) aus der DB +
+//     Command-Receipts im Absichtstoken-Modus + Protokollversions-Check
+//     + AppError-Metadaten (code/messageKey/traceId) bei Fehlern.
+//   - VIEWER bleiben read-only: sie haben KEIN Basis-Spielrecht.
+// ============================================================
 import { Server, Socket } from 'socket.io';
 import { z } from 'zod';
-import { prisma } from '../../persistence/prisma.js';
 import { handleGeoGame } from './index.js';
-import { requireRoomRole, getSocketDataIdentity } from '../../sockets/auth.js';
+import { getSocketDataIdentity } from '../../sockets/auth.js';
 import { registerGeoResync } from './resync.js';
+import { runGuardedCriticalAction } from '../core/receiptedAction.js';
+import { prisma } from '../../persistence/prisma.js';
 
 const roomAction = z.object({
   roomCode: z.string().regex(/^\d{3}-\d{3}$/),
   rejoinToken: z.string().optional(),
+  commandId: z.string().min(1).max(128).optional(),
+  requestId: z.string().min(1).max(128).optional(),
+  protocolVersion: z.number().int().optional(),
 });
 const answerAction = z.object({
   optionId: z.string().min(1),
   questionIndex: z.number().int().nonnegative().optional(),
+  commandId: z.string().min(1).max(128).optional(),
+  requestId: z.string().min(1).max(128).optional(),
+  protocolVersion: z.number().int().optional(),
 });
 
 function validate<T>(schema: z.ZodType<T>, data: unknown, callback?: (result: { success: boolean; error: string }) => void): T | null {
@@ -58,156 +74,197 @@ export const handleGeoEvents = {
   async geoAnswer(
     io: Server,
     socket: Socket,
-    data: { questionIndex?: number; optionId: string },
+    data: { questionIndex?: number; optionId: string; commandId?: string; requestId?: string; protocolVersion?: number },
     callback?: (result: any) => void
   ) {
-    // VIEWER role check: only PLAYER and MODERATOR can answer
-    const identity = getSocketDataIdentity(socket);
-    if (!identity || !identity.roomId) {
-      callback?.({ success: false, error: 'NOT_IN_ROOM' });
-      return;
-    }
-    if (identity.role === 'VIEWER') {
-      callback?.({ success: false, error: 'VIEWERS_CANNOT_MODIFY' });
-      return;
-    }
+    await runGuardedCriticalAction({
+      io,
+      socket,
+      action: 'answer',
+      permission: 'BUZZER_CONTROL',
+      payload: data,
+      handler: async (onResult) => {
+        // VIEWER role check: only PLAYER and HOST can answer (Rollen-Grenze).
+        const identity = getSocketDataIdentity(socket);
+        if (!identity || !identity.roomId) {
+          onResult({ success: false, error: 'NOT_IN_ROOM' });
+          return;
+        }
+        if (identity.role === 'VIEWER') {
+          onResult({ success: false, error: 'VIEWERS_CANNOT_MODIFY' });
+          return;
+        }
 
-    const room = await prisma.room.findUnique({
-      where: { id: identity.roomId },
-    });
+        const room = await prisma.room.findUnique({
+          where: { id: identity.roomId },
+        });
 
-    if (!room) {
-      callback?.({ success: false, error: 'ROOM_NOT_FOUND' });
-      return;
-    }
+        if (!room) {
+          onResult({ success: false, error: 'ROOM_NOT_FOUND' });
+          return;
+        }
 
-    // P0-10: Use socket.data.participationId instead of rejoinToken
-    const dataWithRoom = {
-      ...data,
-      roomCode: room.code,
-      participationId: socket.data.participationId,
-    };
+        // P0-10: Use socket.data.participationId instead of rejoinToken
+        const dataWithRoom = {
+          ...data,
+          roomCode: room.code,
+          participationId: socket.data.participationId,
+        };
 
-    return handleGeoGame.handleAnswer(io, socket, dataWithRoom, callback);
+        await handleGeoGame.handleAnswer(io, socket, dataWithRoom, onResult);
+      },
+    }, callback);
   },
 
   async geoJoker5050(
     io: Server,
     socket: Socket,
-    data: { roomCode: string; rejoinToken?: string },
+    data: { roomCode: string; rejoinToken?: string; commandId?: string; requestId?: string; protocolVersion?: number },
     callback?: (result: any) => void
   ) {
-    // VIEWER role check: only PLAYER and MODERATOR can use jokers
-    const identity = getSocketDataIdentity(socket);
-    if (!identity || !identity.roomId) {
-      callback?.({ success: false, error: 'NOT_IN_ROOM' });
-      return;
-    }
-    if (identity.role === 'VIEWER') {
-      callback?.({ success: false, error: 'VIEWERS_CANNOT_MODIFY' });
-      return;
-    }
-    return handleGeoGame.handleJoker5050(io, socket, data, callback);
+    await runGuardedCriticalAction({
+      io,
+      socket,
+      action: 'joker5050',
+      permission: 'BUZZER_CONTROL',
+      payload: data,
+      handler: async (onResult) => {
+        const identity = getSocketDataIdentity(socket);
+        if (!identity || !identity.roomId) {
+          onResult({ success: false, error: 'NOT_IN_ROOM' });
+          return;
+        }
+        if (identity.role === 'VIEWER') {
+          onResult({ success: false, error: 'VIEWERS_CANNOT_MODIFY' });
+          return;
+        }
+        await handleGeoGame.handleJoker5050(io, socket, data, onResult);
+      },
+    }, callback);
   },
 
   async geoJokerSpy(
     io: Server,
     socket: Socket,
-    data: { roomCode: string; rejoinToken?: string },
+    data: { roomCode: string; rejoinToken?: string; commandId?: string; requestId?: string; protocolVersion?: number },
     callback?: (result: any) => void
   ) {
-    // VIEWER role check: only PLAYER and MODERATOR can use jokers
-    const identity = getSocketDataIdentity(socket);
-    if (!identity || !identity.roomId) {
-      callback?.({ success: false, error: 'NOT_IN_ROOM' });
-      return;
-    }
-    if (identity.role === 'VIEWER') {
-      callback?.({ success: false, error: 'VIEWERS_CANNOT_MODIFY' });
-      return;
-    }
-    return handleGeoGame.handleJokerSpy(io, socket, data, callback);
+    await runGuardedCriticalAction({
+      io,
+      socket,
+      action: 'jokerSpy',
+      permission: 'BUZZER_CONTROL',
+      payload: data,
+      handler: async (onResult) => {
+        const identity = getSocketDataIdentity(socket);
+        if (!identity || !identity.roomId) {
+          onResult({ success: false, error: 'NOT_IN_ROOM' });
+          return;
+        }
+        if (identity.role === 'VIEWER') {
+          onResult({ success: false, error: 'VIEWERS_CANNOT_MODIFY' });
+          return;
+        }
+        await handleGeoGame.handleJokerSpy(io, socket, data, onResult);
+      },
+    }, callback);
   },
 
   async geoJokerRisk(
     io: Server,
     socket: Socket,
-    data: { roomCode: string; rejoinToken?: string },
+    data: { roomCode: string; rejoinToken?: string; commandId?: string; requestId?: string; protocolVersion?: number },
     callback?: (result: any) => void
   ) {
-    // VIEWER role check: only PLAYER and MODERATOR can use jokers
-    const identity = getSocketDataIdentity(socket);
-    if (!identity || !identity.roomId) {
-      callback?.({ success: false, error: 'NOT_IN_ROOM' });
-      return;
-    }
-    if (identity.role === 'VIEWER') {
-      callback?.({ success: false, error: 'VIEWERS_CANNOT_MODIFY' });
-      return;
-    }
-    return handleGeoGame.handleJokerRisk(io, socket, data, callback);
+    await runGuardedCriticalAction({
+      io,
+      socket,
+      action: 'jokerRisk',
+      permission: 'BUZZER_CONTROL',
+      payload: data,
+      handler: async (onResult) => {
+        const identity = getSocketDataIdentity(socket);
+        if (!identity || !identity.roomId) {
+          onResult({ success: false, error: 'NOT_IN_ROOM' });
+          return;
+        }
+        if (identity.role === 'VIEWER') {
+          onResult({ success: false, error: 'VIEWERS_CANNOT_MODIFY' });
+          return;
+        }
+        await handleGeoGame.handleJokerRisk(io, socket, data, onResult);
+      },
+    }, callback);
   },
 
   async geoReveal(
     io: Server,
     socket: Socket,
-    data: { roomCode: string },
+    data: { roomCode: string; commandId?: string; requestId?: string; protocolVersion?: number },
     callback?: (result: any) => void
   ) {
-    // P0-17: Use socket identity for authorization
-    const identity = getSocketDataIdentity(socket);
-    if (!identity || !identity.roomId) {
-      callback?.({ success: false, error: 'NOT_IN_ROOM' });
-      return;
-    }
+    await runGuardedCriticalAction({
+      io,
+      socket,
+      action: 'reveal',
+      permission: 'REVEAL_CONTENT',
+      payload: data,
+      handler: async (onResult) => {
+        // P0-17: Use socket identity for authorization
+        const identity = getSocketDataIdentity(socket);
+        if (!identity || !identity.roomId) {
+          onResult({ success: false, error: 'NOT_IN_ROOM' });
+          return;
+        }
 
-    const room = await prisma.room.findUnique({
-      where: { id: identity.roomId },
-    });
+        const room = await prisma.room.findUnique({
+          where: { id: identity.roomId },
+        });
 
-    if (!room) {
-      callback?.({ success: false, error: 'ROOM_NOT_FOUND' });
-      return;
-    }
+        if (!room) {
+          onResult({ success: false, error: 'ROOM_NOT_FOUND' });
+          return;
+        }
 
-    const authorized = requireRoomRole(socket, 'MODERATOR');
-    if (!authorized) {
-      callback?.({ success: false, error: 'UNAUTHORIZED' });
-      return;
-    }
 
-    return handleGeoGame.handleReveal(io, socket, { roomCode: room.code }, callback);
+        await handleGeoGame.handleReveal(io, socket, { roomCode: room.code }, onResult);
+      },
+    }, callback);
   },
 
   async geoNext(
     io: Server,
     socket: Socket,
-    data: { roomCode: string },
+    data: { roomCode: string; commandId?: string; requestId?: string; protocolVersion?: number },
     callback?: (result: any) => void
   ) {
-    // P0-17: Use socket identity for authorization
-    const identity = getSocketDataIdentity(socket);
-    if (!identity || !identity.roomId) {
-      callback?.({ success: false, error: 'NOT_IN_ROOM' });
-      return;
-    }
+    await runGuardedCriticalAction({
+      io,
+      socket,
+      action: 'next',
+      permission: 'ROUND_ADVANCE',
+      payload: data,
+      handler: async (onResult) => {
+        // P0-17: Use socket identity for authorization
+        const identity = getSocketDataIdentity(socket);
+        if (!identity || !identity.roomId) {
+          onResult({ success: false, error: 'NOT_IN_ROOM' });
+          return;
+        }
 
-    const room = await prisma.room.findUnique({
-      where: { id: identity.roomId },
-    });
+        const room = await prisma.room.findUnique({
+          where: { id: identity.roomId },
+        });
 
-    if (!room) {
-      callback?.({ success: false, error: 'ROOM_NOT_FOUND' });
-      return;
-    }
+        if (!room) {
+          onResult({ success: false, error: 'ROOM_NOT_FOUND' });
+          return;
+        }
 
-    const authorized = requireRoomRole(socket, 'MODERATOR');
-    if (!authorized) {
-      callback?.({ success: false, error: 'UNAUTHORIZED' });
-      return;
-    }
 
-    return handleGeoGame.handleNext(io, socket, { roomCode: room.code }, callback);
+        await handleGeoGame.handleNext(io, socket, { roomCode: room.code }, onResult);
+      },
+    }, callback);
   },
 
 };

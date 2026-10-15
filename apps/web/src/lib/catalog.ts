@@ -12,7 +12,9 @@ import {
   CATALOG_CATEGORIES,
   deriveVisibleCategories,
   resolveCanonicalSlug,
+  normalizeManifest,
   type GameManifest,
+  type GameManifestSpec,
   type GameStatus,
   type VisibleCategory,
 } from '@quiz/shared';
@@ -45,20 +47,21 @@ function durationLabel(minutes: number): string {
   return `~${minutes} Min`;
 }
 
-/** Kanonisches Manifest → UI-Shape. */
-export function toUiGame(m: GameManifest): UiGame {
+/** Kanonisches Manifest → UI-Shape (eingabefähige Specs werden aufgelöst). */
+export function toUiGame(m: GameManifestSpec): UiGame {
+  const resolved = normalizeManifest(m);
   return {
-    slug: m.slug,
-    name: m.name,
-    category: categoryName(m.category),
-    shortRules: m.shortDescription,
-    playerCount: { min: m.minPlayers, max: m.maxPlayers },
-    duration: durationLabel(m.estimatedDurationMinutes),
-    hasBuzzer: m.hasBuzzer,
-    hasTeams: m.hasTeams,
-    hasCamera: m.hasCamera,
-    hasAudio: m.hasAudio,
-    status: m.status,
+    slug: resolved.slug,
+    name: resolved.name,
+    category: categoryName(resolved.category),
+    shortRules: resolved.shortDescription,
+    playerCount: { min: resolved.minPlayers, max: resolved.maxPlayers },
+    duration: durationLabel(resolved.estimatedDurationMinutes),
+    hasBuzzer: resolved.hasBuzzer,
+    hasTeams: resolved.hasTeams,
+    hasCamera: resolved.hasCamera,
+    hasAudio: resolved.hasAudio,
+    status: resolved.status,
   };
 }
 
@@ -70,7 +73,9 @@ export function visibleCategories(): VisibleCategory[] {
 // ── Spiel-Lookups (Legacy-Slugs werden auf kanonisch aufgelöst) ──
 export function findManifest(slug: string | undefined): GameManifest | undefined {
   const canonical = resolveCanonicalSlug(slug) ?? slug;
-  return GAME_MANIFESTS.find((m) => m.slug === canonical);
+  const spec = GAME_MANIFESTS.find((m) => m.slug === canonical);
+  if (!spec) return undefined;
+  return normalizeManifest(spec);
 }
 
 export function gamesByCategory(categorySlug: string): UiGame[] {

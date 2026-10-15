@@ -4,7 +4,7 @@
 
 import { useParams, useNavigate } from 'react-router-dom';
 import { useEffect, useState, useRef } from 'react';
-import { getSocket, connectSocket, disconnectSocket } from '../lib/socket';
+import { getSocket, connectSocket, disconnectSocket, emitCommand } from '../lib/socket';
 import { getSession } from '../lib/sessionStore';
 import { Card, Button } from '@quiz/ui';
 import { Timer } from '@quiz/ui';
@@ -144,10 +144,11 @@ export function PlayerGamePage() {
     setSelectedOption(optionId);
     setLocked(true);
     
-    socketRef.current.emit('geo:answer', {
+    emitCommand(socketRef.current, 'geo:answer', {
       roomCode,
       optionId,
-    }, (response) => {
+      rejoinToken: rejoinToken ?? undefined,
+    }, `${roomCode}:geo:answer:${question?.id ?? 'q'}`, (response) => {
       if (response.success) {
         setAnswerSubmitted(true);
       } else {
@@ -162,9 +163,9 @@ export function PlayerGamePage() {
     if (jokers.used5050 || locked) return;
     if (!socketRef.current) return setActionError('Socket-Verbindung ist nicht verfügbar.');
 
-    socketRef.current.emit('geo:joker:5050', {
+    emitCommand(socketRef.current, 'geo:joker:5050', {
       roomCode,
-    }, (response) => {
+    }, `${roomCode}:geo:joker:5050:${question?.id ?? 'q'}`, (response) => {
       if (!response.success) setActionError(`50:50-Joker fehlgeschlagen: ${response.error ?? 'Unbekannter Fehler'}`);
     });
   };
@@ -173,9 +174,9 @@ export function PlayerGamePage() {
     if (jokers.usedSpy) return;
     if (!socketRef.current) return setActionError('Socket-Verbindung ist nicht verfügbar.');
 
-    socketRef.current.emit('geo:joker:spy', {
+    emitCommand(socketRef.current, 'geo:joker:spy', {
       roomCode,
-    }, (response) => {
+    }, `${roomCode}:geo:joker:spy:${question?.id ?? 'q'}`, (response) => {
       if (!response.success) setActionError(`Spy-Joker fehlgeschlagen: ${response.error ?? 'Unbekannter Fehler'}`);
     });
   };
@@ -184,9 +185,9 @@ export function PlayerGamePage() {
     if (jokers.usedRisk || locked) return;
     if (!socketRef.current) return setActionError('Socket-Verbindung ist nicht verfügbar.');
 
-    socketRef.current.emit('geo:joker:risk', {
+    emitCommand(socketRef.current, 'geo:joker:risk', {
       roomCode,
-    }, (response) => {
+    }, `${roomCode}:geo:joker:risk:${question?.id ?? 'q'}`, (response) => {
       if (!response.success) setActionError(`Risk-Joker fehlgeschlagen: ${response.error ?? 'Unbekannter Fehler'}`);
     });
   };

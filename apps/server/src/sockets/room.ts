@@ -5,7 +5,11 @@
 import { Server, Socket } from 'socket.io';
 import { prisma } from '../persistence/prisma.js';
 import { logger } from '../observability/logger.js';
+import { z } from 'zod';
+import { updateRoomConfig, GAME_CONFIG_FIELDS } from '../games/core/config.js';
+import { resolveCanonicalSlug } from '@quiz/shared';
 import { socketIdentityMap, type Role } from '../http/middleware/auth.js';
+import { requireGamePermission } from '../games/core/permissions.js';
 import { roomChannel } from './index.js';
 
 type AuthenticatedSocket = Socket & {
@@ -24,10 +28,13 @@ type RoomAcknowledgement = (result: {
   error?: string;
   snapshot?: unknown;
   state?: unknown;
+  details?: unknown;
+  changed?: boolean;
+  revision?: number;
 }) => void;
 
 function isRole(role: string): role is Role {
-  return role === 'MODERATOR' || role === 'PLAYER' || role === 'VIEWER';
+  return role === 'HOST' || role === 'PLAYER' || role === 'VIEWER';
 }
 
 /**
@@ -134,14 +141,14 @@ export async function handleRoomSubscription(
     }
 
     // Phase 3: Moderator Identity Validation
-    // If participation is MODERATOR in DB, require moderatorToken to match
-    // Token + Participation (MODERATOR role) + Host-User + Room must all align
+    // If participation is HOST in DB, require moderatorToken to match
+    // Token + Participation (HOST role) + Host-User + Room must all align
     if (!isRole(participation.role)) {
       callback?.({ success: false, error: 'INVALID_PARTICIPATION_ROLE' });
       return;
     }
 
-    if (participation.role === 'MODERATOR') {
+    if (participation.role === 'HOST') {
       // A moderator MUST provide a valid moderatorToken that matches their participation
       // moderatorToken is the same as rejoinToken for the moderator's own participation
       if (!isAuthenticatedHost || !moderatorToken || moderatorToken !== participation.rejoinToken) {
@@ -154,7 +161,7 @@ export async function handleRoomSubscription(
           tokenMatches: moderatorToken === participation.rejoinToken,
         });
         // P0 Security: Immediately disconnect - do NOT silently create anonymous viewer
-        socket.emit('error', { code: 'INVALID_MODERATOR_TOKEN' });
+        socket.emit('error', { code: 'INVALID_HOST_TOKEN' });
         socket.disconnect(true);
         return;
       }
@@ -239,7 +246,7 @@ export async function handleRoomSubscription(
 
     // P0-SECURITY / E2E-FIX: If the authenticated user is the room host,
     // DON'T create a VIEWER session here — they will be auto-upgraded to
-    // MODERATOR below. Creating a real VIEWER Session would leave a stale
+    // HOST below. Creating a real VIEWER Session would leave a stale
     // connected=true entry in the DB that triggers spurious player:join events.
     if (isAuthenticatedHost) {
       // Set a placeholder identity — auto-upgrade will replace it below
@@ -263,7 +270,7 @@ export async function handleRoomSubscription(
   // creating another database row.
   if (isAuthenticatedHost) {
     const existingModPart = await prisma.participation.findFirst({
-      where: { roomId: room.id, role: 'MODERATOR' },
+      where: { roomId: room.id, role: 'HOST' },
       orderBy: { createdAt: 'asc' },
     });
 
@@ -275,7 +282,7 @@ export async function handleRoomSubscription(
       identity = {
         participationId: refreshedModerator.id,
         roomId: room.id,
-        role: 'MODERATOR',
+        role: 'HOST',
         displayName: refreshedModerator.displayName,
       };
       const index = room.participations.findIndex(p => p.id === refreshedModerator.id);
@@ -289,7 +296,7 @@ export async function handleRoomSubscription(
           roomId: room.id,
           displayName,
           normalizedName: displayName.toLowerCase().trim(),
-          role: 'MODERATOR',
+          role: 'HOST',
           connected: true,
           ready: true,
           rejoinToken: crypto.randomUUID(),
@@ -299,7 +306,7 @@ export async function handleRoomSubscription(
       identity = {
         participationId: newModPart.id,
         roomId: room.id,
-        role: 'MODERATOR',
+        role: 'HOST',
         displayName: newModPart.displayName,
       };
       room.participations.push(newModPart);
@@ -426,12 +433,19 @@ export async function handleKickPlayer(
   callback?: RoomAcknowledgement
 ) {
   try {
-    // Require MODERATOR role (identity check via socketIdentityMap)
-    const identity = socketIdentityMap.get(socket.id);
-    if (!identity || identity.role !== 'MODERATOR') {
-      callback?.({ success: false, error: 'UNAUTHORIZED' });
+    // Audit PR14, 14-06: Kicken ist eine Verwaltungs-Mutation und läuft über
+    // den GEMEINSAMEN Permission-Guard mit dem wirksamen Recht PLAYER_MANAGE
+    // (Defaultpaket ± Grants/Revocations, aktuelle DB-Werte). Die frühere
+    // reine ROLE-Prüfung (identity.role === 'HOST') umging einen Entzug von
+    // PLAYER_MANAGE bei verbundenen Sockets — das ist geschlossen.
+    const perm = await requireGamePermission(socket, 'PLAYER_MANAGE');
+    if (!perm.ok) {
+      // Wire-Kompatibilität: bestehende Clients erhielten UNAUTHORIZED.
+      callback?.({ success: false, error: perm.error === 'NOT_IN_ROOM' ? 'UNAUTHORIZED' : 'UNAUTHORIZED' });
       return;
     }
+
+    const identity = socketIdentityMap.get(socket.id);
 
     const room = await prisma.room.findUnique({
       where: { code: data.roomCode },
@@ -442,15 +456,15 @@ export async function handleKickPlayer(
       return;
     }
 
-    // Verify moderator belongs to this room
-    if (identity.roomId !== room.id) {
+    // Verify moderator belongs to this room (serverseitiger Raumbezug).
+    if (perm.roomId !== room.id || (identity && identity.roomId !== room.id)) {
       callback?.({ success: false, error: 'WRONG_ROOM' });
       return;
     }
 
     // Find the participation to kick
     const participation = await prisma.participation.findFirst({
-      where: { id: data.playerId, roomId: room.id, role: { not: 'MODERATOR' } },
+      where: { id: data.playerId, roomId: room.id, role: { not: 'HOST' } },
     });
 
     if (!participation) {
@@ -515,6 +529,70 @@ export async function handleKickPlayer(
 }
 
 export const handleRoomEvents = {
+  // BASIS-STANDARDS (E): serverseitig validierte Live-Konfigurationsänderung
+  // (LIVE_OVERRIDE) mit Optimistic Locking. Nur eingeloggte Raum-Hosts.
+  // LOCKED_AFTER_START-Felder werden im RUNNING-Zustand abgelehnen; No-ops
+  // erhöhen die Revision nicht (E5).
+  async configUpdate(
+    io: Server,
+    socket: Socket,
+    data: { roomCode?: string; expectedRevision?: number; changes?: Record<string, unknown> },
+    callback?: RoomAcknowledgement
+  ) {
+    const identity = socket.data as { roomId?: string; role?: string };
+    if (!identity.roomId || !identity.role || !socket.rooms.has(roomChannel(identity.roomId))) {
+      callback?.({ success: false, error: 'NOT_IN_ROOM' });
+      return;
+    }
+    const parsed = z.object({
+      roomCode: z.string().min(1),
+      expectedRevision: z.number().int().nonnegative(),
+      changes: z.record(z.unknown()).refine((c) => Object.keys(c).length > 0, { message: 'EMPTY_CHANGES' }),
+    }).safeParse(data);
+    if (!parsed.success) {
+      callback?.({ success: false, error: 'INVALID_PAYLOAD' });
+      return;
+    }
+    const room = await prisma.room.findUnique({
+      where: { id: identity.roomId },
+      include: { gameDefinition: true },
+    });
+    if (!room || room.code !== parsed.data.roomCode) {
+      callback?.({ success: false, error: 'WRONG_ROOM' });
+      return;
+    }
+    // Konfigurationsänderung: nur eingeloggte Nutzer (hostUserId-Check in
+    // updateRoomConfig). Keine SECRET-Rechte erforderlich (E3/E5).
+    const user = (socket as AuthenticatedSocket).user;
+    if (!user) {
+      callback?.({ success: false, error: 'ROLE_REQUIRED' });
+      return;
+    }
+    const unknownFields = Object.keys(parsed.data.changes).filter((k) => !(k in (GAME_CONFIG_FIELDS[resolveCanonicalSlug(room.gameDefinition.slug) ?? ''] ?? {})));
+    if (unknownFields.length > 0) {
+      callback?.({ success: false, error: 'INVALID_CONFIG', details: { fields: unknownFields } });
+      return;
+    }
+    const result = await updateRoomConfig({
+      roomId: room.id,
+      actorUserId: user.id,
+      expectedRevision: parsed.data.expectedRevision,
+      changes: parsed.data.changes,
+    });
+    if (!result.ok) {
+      callback?.({ success: false, error: result.error });
+      return;
+    }
+    if (result.changed) {
+      io.to(roomChannel(room.id)).emit('room:config:changed', {
+        roomId: room.id,
+        revision: result.revision,
+        values: result.values,
+      });
+    }
+    callback?.({ success: true, changed: result.changed, revision: result.revision });
+  },
+
   async resync(
     io: Server,
     socket: Socket,

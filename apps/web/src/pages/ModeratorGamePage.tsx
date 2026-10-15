@@ -4,7 +4,7 @@
 
 import { useParams, useNavigate } from 'react-router-dom';
 import { useEffect, useState, useRef } from 'react';
-import { getSocket, connectSocket, disconnectSocket } from '../lib/socket';
+import { getSocket, connectSocket, disconnectSocket, emitCommand } from '../lib/socket';
 import { Card, Button } from '@quiz/ui';
 import { Timer } from '@quiz/ui';
 import { GameShell } from '../components/GameShell';
@@ -34,7 +34,7 @@ export function ModeratorGamePage() {
     const socket = socketRef.current;
 
     const subscribe = () => {
-      socket.emit('room:subscribe', { roomCode, role: 'MODERATOR' }, (response) => {
+      socket.emit('room:subscribe', { roomCode, role: 'HOST' }, (response) => {
         if (!response.success) {
           setActionError(`Raumverbindung fehlgeschlagen: ${response.error ?? 'Unbekannter Fehler'}`);
           return;
@@ -116,7 +116,10 @@ export function ModeratorGamePage() {
 
   const handlePauseTimer = () => {
     if (!socketRef.current) return setActionError('Socket-Verbindung ist nicht verfügbar.');
-    socketRef.current.emit('game:pause', { roomCode }, (response) => {
+    // Audit PR14, 14-01: emitCommand — der Pause-Token wird nach
+    // bestätigtem Erfolg verbraucht; die nächste Pause erhält ein frisches
+    // Token (Replay der ersten Pause würde sonst stattlaufen).
+    emitCommand(socketRef.current, 'game:pause', { roomCode }, `${roomCode}:game:pause`, (response) => {
       if (response.success) setTimerPaused(true);
       else setActionError(`Pause fehlgeschlagen: ${response.error ?? 'Unbekannter Fehler'}`);
     });
@@ -124,7 +127,7 @@ export function ModeratorGamePage() {
 
   const handleResumeTimer = () => {
     if (!socketRef.current) return setActionError('Socket-Verbindung ist nicht verfügbar.');
-    socketRef.current.emit('game:resume', { roomCode }, (response) => {
+    emitCommand(socketRef.current, 'game:resume', { roomCode }, `${roomCode}:game:resume`, (response) => {
       if (response.success) setTimerPaused(false);
       else setActionError(`Fortsetzen fehlgeschlagen: ${response.error ?? 'Unbekannter Fehler'}`);
     });
@@ -135,7 +138,7 @@ export function ModeratorGamePage() {
       setActionError('Socket-Verbindung ist nicht verfügbar.');
       return;
     }
-    socketRef.current.emit('geo:reveal', { roomCode }, (response) => {
+    emitCommand(socketRef.current, 'geo:reveal', { roomCode }, `${roomCode}:geo:reveal:${question?.id ?? 'q'}`, (response) => {
       if (!response.success) setActionError(`Auflösung fehlgeschlagen: ${response.error ?? 'Unbekannter Fehler'}`);
     });
   };
@@ -145,7 +148,7 @@ export function ModeratorGamePage() {
       setActionError('Socket-Verbindung ist nicht verfügbar.');
       return;
     }
-    socketRef.current.emit('geo:next', { roomCode }, (response) => {
+    emitCommand(socketRef.current!, 'geo:next', { roomCode }, `${roomCode}:geo:next:${question?.id ?? 'q'}`, (response) => {
       if (!response.success) setActionError(`Nächste Frage konnte nicht geladen werden: ${response.error ?? 'Unbekannter Fehler'}`);
       if (response.ended) navigate(`/moderator/raum/${roomCode}/ergebnis`);
     });
@@ -156,7 +159,7 @@ export function ModeratorGamePage() {
       setActionError('Socket-Verbindung ist nicht verfügbar.');
       return;
     }
-    socketRef.current.emit('game:end', { roomCode }, (response) => {
+    emitCommand(socketRef.current, 'game:end', { roomCode }, `${roomCode}:game:end`, (response) => {
       if (response.success) navigate(`/moderator/raum/${roomCode}/ergebnis`);
       else setActionError('Spiel konnte nicht beendet werden.');
     });

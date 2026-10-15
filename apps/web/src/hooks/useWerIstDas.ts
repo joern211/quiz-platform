@@ -1,9 +1,13 @@
-import { useCallback, useEffect, useState } from 'react';
-import { connectSocket, disconnectSocket, getSessionData, getSocket,
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { connectSocket, disconnectSocket, emitCommand, getSessionData, getSocket,
   type PlayerRole, type WerIstDasView } from '../lib/socket';
 
 export function useWerIstDas(roomCode: string, role: PlayerRole) {
   const [state, setState] = useState<WerIstDasView | null>(null);
+  // BASIS-STANDARDS: Intent-Kontext (aktuelle Runde) per Ref.
+  const stateRef = useRef<WerIstDasView | null>(state);
+  useEffect(() => { stateRef.current = state; }, [state]);
+  const roundKey = () => stateRef.current?.roundIndex ?? 0;
   const [connected, setConnected] = useState(false);
   const [error, setError] = useState('');
 
@@ -31,15 +35,23 @@ export function useWerIstDas(roomCode: string, role: PlayerRole) {
 
   const act = useCallback((event: 'weristdas:buzzer:open' | 'weristdas:buzz' | 'weristdas:hint' |
     'weristdas:reveal' | 'weristdas:next', data: Record<string, never> = {}) => {
-    getSocket().emit(event, data, res => { if (!res.success) setError(res.error ?? 'Aktion fehlgeschlagen'); else setError(''); });
-  }, []);
+    // Audit PR14, 14-01: Token-Lebenszyklus über emitCommand — der Token wird
+    // nach bestätigtem Erfolg verbraucht. Doppelklick/ACK-Verlust → gleiches
+    // Token (Replay); erneutes Öffnen derselben Runde nach einer
+    // WRONG-Bewertung → frisches Token, damit die neue zulässige Absicht
+    // ausgeführt wird.
+    emitCommand(getSocket(), event, data, `${roomCode}:wid:${event}:r${roundKey()}`, res => {
+      if (!res.success) setError(res.error ?? 'Aktion fehlgeschlagen'); else setError('');
+    });
+  }, [roomCode]);
   const judge = useCallback((result: 'BOTH_CORRECT' | 'ONE_CORRECT' | 'WRONG') => {
-    getSocket().emit('weristdas:judge', { result }, res => {
+    // Bewertung je Runde + Ergebnis = Absicht (anderes Ergebnis = neuer Key).
+    emitCommand(getSocket(), 'weristdas:judge', { result }, `${roomCode}:wid:judge:r${roundKey()}:${result}`, res => {
       if (!res.success) setError(res.error ?? 'Bewertung fehlgeschlagen'); else setError('');
     });
-  }, []);
+  }, [roomCode]);
   const end = useCallback(() => {
-    getSocket().emit('game:end', { roomCode }, res => {
+    emitCommand(getSocket(), 'game:end', { roomCode }, `${roomCode}:game:end`, res => {
       if (!res.success) setError(res.error ?? 'Spielende fehlgeschlagen');
     });
   }, [roomCode]);

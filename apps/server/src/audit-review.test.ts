@@ -540,7 +540,7 @@ it('11-06: Raum + Moderator-Teilnahme entstehen atomar (kein null-Token, keine W
   const r = await request.post('/api/v1/rooms').set('Cookie', owner.cookie).send(body);
   expect(r.status).toBe(201);
   const roomId = r.body.data.roomId;
-  const mod = await db.participation.findFirst({ where: { roomId, role: 'MODERATOR' } });
+  const mod = await db.participation.findFirst({ where: { roomId, role: 'HOST' } });
   expect(mod).not.toBeNull();
   expect(mod!.rejoinToken).toBe(r.body.data.moderatorToken);
   expect(mod!.rejoinToken).toBeTruthy();

@@ -6,6 +6,7 @@ import { Server, Socket } from 'socket.io';
 import { prisma } from '../../persistence/prisma.js';
 import { resolveCanonicalSlug, slugWithLegacy } from '@quiz/shared';
 import { finishRunningGame, saveGameStateIfRevision, upsertGameState } from '../core/state.js';
+import { loadGameConfig } from '../core/config.js';
 import { authorizeGameContext } from '../core/access.js';
 import { gameErrorCode } from '../core/errors.js';
 import { applyScoreDelta, recordScoreMutation } from '../core/score.js';
@@ -278,9 +279,21 @@ export const handleGeoGame = {
     // Parse options
     const options = JSON.parse(question.options);
 
-    // P0-16: Use setup.timerDuration (in seconds) or default to 20
-    const setup = JSON.parse(roomRecord.setupSnapshotJson || '{}');
-    const timerDuration = (setup.timerDuration || 20) * 1000; // Convert to ms
+    // BASIS-STANDARDS (E) + Audit PR14, 14-04: Timer kommt aus der
+    // zentralen Config-Auflösung (Start-Snapshot, falls vorhanden; sonst
+    // Legacy-Setup via loadGameConfig, die setup.timerDuration in Sekunden
+    // → ms umrechnet und den zentralen Default 20000 ms anwendet). Der
+    // KANONISCHE Slug wird übergeben — der Reader normalisiert Legacy
+    // intern; der Geo-Reader darf keine eigene Slug-Anlage mehr pflegen.
+    // Ein defekter Snapshot wirft CONFIG_SNAPSHOT_INVALID → kontrollierter
+    // Fehler, keine stille Deutung über Defaults.
+    let timerDuration: number;
+    try {
+      const loaded = await loadGameConfig(roomRecord, 'wissensduell');
+      timerDuration = (loaded?.values.timerDurationMs?.value ?? 20000) as number;
+    } catch {
+      timerDuration = 20000;
+    }
     const timerStartMs = Date.now();
     const timerEndMs = timerStartMs + timerDuration;
 
@@ -492,7 +505,7 @@ export const handleGeoGame = {
       });
       const roomSockets = await io.in(roomChannel(room.id)).fetchSockets();
       for (const moderator of roomSockets) {
-        if (moderator.data.role === 'MODERATOR' && moderator.data.roomId === room.id) {
+        if (moderator.data.role === 'HOST' && moderator.data.roomId === room.id) {
           moderator.emit('geo:answered:moderator', {
             questionIndex: roundIndex, participantId: participationId, optionId: data.optionId,
           });
@@ -813,7 +826,7 @@ export const handleGeoGame = {
         }
 
         const auth = await authorizeGameContext(socket, {
-          roles: ['MODERATOR'], requireParticipation: true, gameSlug: resolveCanonicalSlug('geo')!, requireRunning: true,
+          roles: ['HOST'], requireParticipation: true, gameSlug: resolveCanonicalSlug('geo')!, requireRunning: true,
         });
         if (!auth.ok || auth.room.id !== roomRecord.id) {
           callback?.({ success: false, error: auth.ok ? 'WRONG_ROOM' : auth.error });
@@ -977,7 +990,7 @@ export const handleGeoGame = {
 
       // P0-17: Authorization check
       const auth = await authorizeGameContext(socket, {
-        roles: ['MODERATOR'], requireParticipation: true, gameSlug: resolveCanonicalSlug('geo')!, requireRunning: true,
+        roles: ['HOST'], requireParticipation: true, gameSlug: resolveCanonicalSlug('geo')!, requireRunning: true,
       });
       if (!auth.ok || auth.room.id !== room.id) {
         callback?.({ success: false, error: auth.ok ? 'WRONG_ROOM' : auth.error });
@@ -1053,7 +1066,7 @@ export const handleGeoGame = {
       }
 
       const auth = await authorizeGameContext(socket, {
-        roles: ['MODERATOR'], requireParticipation: true, gameSlug: resolveCanonicalSlug('geo')!, requireRunning: true,
+        roles: ['HOST'], requireParticipation: true, gameSlug: resolveCanonicalSlug('geo')!, requireRunning: true,
       });
       if (!auth.ok || auth.room.id !== room.id) {
         callback?.({ success: false, error: auth.ok ? 'WRONG_ROOM' : auth.error });
@@ -1129,7 +1142,7 @@ export const handleGeoGame = {
       }
 
       const auth = await authorizeGameContext(socket, {
-        roles: ['MODERATOR'], requireParticipation: true, gameSlug: resolveCanonicalSlug('geo')!, requireRunning: true,
+        roles: ['HOST'], requireParticipation: true, gameSlug: resolveCanonicalSlug('geo')!, requireRunning: true,
       });
       if (!auth.ok || auth.room.id !== room.id) {
         callback?.({ success: false, error: auth.ok ? 'WRONG_ROOM' : auth.error });

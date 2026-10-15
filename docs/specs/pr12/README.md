@@ -19,6 +19,7 @@ Tests → Abnahme** für V1.0 mit **19 Spielen** (18 kanonische Slugs FEST
 | [technical-mapping.md](technical-mapping.md) | Technisches **Zielmodell** (kein Runtime-Code): Datenmodell, ID-/Zeit-/Revisions-Standards, Command-/Event-/Snapshot-Verträge, alle Game-Cores mit API-Skizzen, Fachbereichs-Mapping, Migration & Recovery, Monitoring, offene technische Optionen. |
 | [decision-register.md](decision-register.md) | Offene **fachliche Nutzerentscheidungen** (DEC-DDF-01…06, DEC-<Spiel>-01, DEC-JEO/KAT/WID, DEC-EVT/ACC) getrennt von **Routine-Entscheidungen** (RUT-01…18) + gebündelte Nutzer-Fragenliste. |
 | [dependencies-and-parallel-work.md](dependencies-and-parallel-work.md) | Abhängigkeitsgraph PR13–50, harte Voraussetzungen, zentrale Verträge, Dateizuständigkeiten, Worktree-/Branch-Plan, Integrationsreihenfolge, 3-Wochen-Startplan. |
+| [main-abgleich-1407.md](main-abgleich-1407.md) | **Datierter Main-Abgleich (Nachtrag 2026-10-15, Audit PR14 14-07):** tatsächlicher Merge-Iststand, Arbeitspaket↔GitHub-Nummer-Zuordnung, Datierung der historischen Basis-Referenzen (`411a5b7`/`1470894`) — ohne Umbruch der atomaren Zeilen. |
 | [games/index.md](games/index.md) | Kanonischer Katalog (19 Spiele) + gemeinsame Spiel-DoD + Konventionen. |
 | [games/*.md](games/index.md) | **19 Spielespezifikationen**: feste Regeln (mit Quellenstellen), offene Regeln (mit Decision-IDs), Setup/Content/Phasen/Commands, Wertung, Projektionen/Secrets, Rejoin/Recovery, Results/Stats, Tests. DDF als klar markierter Vorschlag. |
 

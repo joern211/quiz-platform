@@ -1,0 +1,100 @@
+// ============================================================
+// Error Contract Helper (BASIS-STANDARDS, Master §12.2/§12.13)
+// ============================================================
+// Baut AppError-Antworten (code, messageKey, traceId, optional
+// details/retryable) und koppelt die traceId kontrolliert an den
+// Server-Log. Interne Details (Stack, SQL, Pfade, Tokens) bleiben
+// AUSSERHALB der Antwort — sie gehen nur in den Log (serverseitig).
+//
+// Kompatibilität: die bestehenden Wire-Codes (z.B. 'STATE_CONFLICT',
+// 'NOT_ENOUGH_PLAYERS') bleiben als `code` erhalten, damit Clients
+// weiter funktionieren; `messageKey` ist der neue, lokalisierte
+// Schlüssel. Das lesbare `message`-Feld wird im Kompatibilitätsfenster
+// nur für bekannte, client-gelesene Codes gesetzt.
+// ============================================================
+
+import { randomUUID } from 'node:crypto';
+import { logger } from '../../observability/logger.js';
+import type { AppError, ErrorCode } from '@quiz/shared';
+
+/**
+ * Erzeugt einen AppError und loggt ihn kontrolliert (traceId verbindet
+ * Antwort und Serverlog; der Client erhält dadurch KEINE zusätzlichen
+ * Rechte). `internalDetail` geht NUR in den Log, nie in die Antwort.
+ */
+export function buildAppError(
+  code: string,
+  messageKey: string,
+  opts: {
+    message?: string;
+    traceId?: string;
+    details?: Record<string, unknown>;
+    retryable?: boolean;
+    /** Nur Log: interne Fehler, nie in die Antwort. */
+    internalDetail?: unknown;
+    context?: Record<string, unknown>;
+  } = {},
+): AppError {
+  const traceId = opts.traceId ?? randomUUID();
+  logger.warn(`[APP_ERROR] ${code} ${messageKey}`, { traceId, ...opts.context, ...(opts.internalDetail !== undefined ? { internalDetail: opts.internalDetail } : {}) });
+  const error: AppError = { code, messageKey, traceId };
+  if (opts.message !== undefined) error.message = opts.message;
+  if (opts.details !== undefined) error.details = opts.details;
+  if (opts.retryable !== undefined) error.retryable = opts.retryable;
+  return error;
+}
+
+/**
+ * Mapping bestehender Wire-Codes → AppError-Code (Dokumentation der
+ * Abbildung; stabile Codes bleiben erhalten, neue Codes ergänzend).
+ * `INTERNAL_ERROR` fängt alles, was nicht publiziert werden darf.
+ */
+const WIRE_TO_ERROR_CODE: Record<string, ErrorCode> = {
+  STATE_CONFLICT: 'STALE_STATE',
+  NOT_ENOUGH_PLAYERS: 'NOT_ENOUGH_PLAYERS',
+  NOT_ALL_READY: 'NOT_ALL_READY',
+  ROOM_NOT_FOUND: 'ROOM_NOT_FOUND',
+  GAME_NOT_FOUND: 'GAME_NOT_IMPLEMENTED',
+  GAME_NOT_IMPLEMENTED: 'GAME_NOT_IMPLEMENTED',
+  GAME_NOT_RUNNING: 'GAME_NOT_RUNNING',
+  GAME_ALREADY_STARTED: 'GAME_ALREADY_STARTED',
+  GAME_NOT_STARTABLE: 'GAME_NOT_STARTABLE',
+  INVALID_PAYLOAD: 'INVALID_PAYLOAD',
+  INVALID_OPTION: 'INVALID_PAYLOAD',
+  INVALID_PHASE: 'INVALID_PHASE',
+  INVALID_SETUP: 'INVALID_PAYLOAD',
+  ALREADY_ANSWERED: 'ALREADY_PROCESSED',
+  TIME_EXPIRED: 'INVALID_PHASE',
+  COMMAND_CONFLICT: 'COMMAND_CONFLICT',
+  COMMAND_IN_PROGRESS: 'ALREADY_PROCESSED',
+  REVISION_CONFLICT: 'REVISION_CONFLICT',
+  LOCKED_AFTER_START: 'ROOM_LOCKED',
+  UNSUPPORTED_ENGINE_VERSION: 'RECOVERY_REQUIRED',
+  CLIENT_VERSION_UNSUPPORTED: 'CLIENT_VERSION_UNSUPPORTED',
+  INSUFFICIENT_ROLE: 'NOT_AUTHORIZED',
+  UNAUTHORIZED: 'NOT_AUTHORIZED',
+  FORBIDDEN: 'NOT_AUTHORIZED',
+  NOT_IN_ROOM: 'RESOURCE_NOT_ACCESSIBLE',
+  WRONG_ROOM: 'WRONG_ROOM',
+  NO_PARTICIPATION: 'NO_PARTICIPATION',
+  VIEWERS_CANNOT_MODIFY: 'SCOPE_VIOLATION',
+  OWNERSHIP_REQUIRED: 'OWNERSHIP_REQUIRED',
+};
+
+/**
+ * Übersetzt einen (vielleicht internen) Fehlercode in einen
+ * publishbaren AppError. Unbekannte/interne Codes → INTERNAL_ERROR
+ * ohne Details (keine Stack-/SQL-/Pfad-Ausgabe).
+ */
+export function wireErrorToAppError(
+  wireCode: string,
+  opts: { context?: Record<string, unknown>; internalDetail?: unknown } = {},
+): AppError {
+  const code = WIRE_TO_ERROR_CODE[wireCode] ?? 'INTERNAL_ERROR';
+  const publishable = WIRE_TO_ERROR_CODE[wireCode] !== undefined || wireCode in WIRE_TO_ERROR_CODE;
+  return buildAppError(code, wireCode, {
+    context: opts.context,
+    internalDetail: publishable ? undefined : opts.internalDetail,
+    retryable: code === 'REVISION_CONFLICT' || code === 'ALREADY_PROCESSED' ? false : undefined,
+  });
+}

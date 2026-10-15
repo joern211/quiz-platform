@@ -41,7 +41,7 @@ export function projectGeoStateForClient(state: GeoState, actor: GameActor) {
     ? round?.playerStates[actor.participationId] : undefined;
   const revealed = round?.revealed ?? false;
   const answerStats: Record<string, number> = {};
-  if (actor.role === 'MODERATOR') {
+  if (actor.role === 'HOST') {
     for (const player of Object.values(round?.playerStates ?? {})) {
       if (player.answered && player.selectedOptionId) {
         answerStats[player.selectedOptionId] = (answerStats[player.selectedOptionId] ?? 0) + 1;
@@ -55,7 +55,7 @@ export function projectGeoStateForClient(state: GeoState, actor: GameActor) {
     totalQuestions: state.questions.length,
     question: round?.question ? {
       ...round.question,
-      ...(revealed || actor.role === 'MODERATOR'
+      ...(revealed || actor.role === 'HOST'
         ? { correctOptionId: state.questions[state.currentRoundIndex]?.correctOptionId } : {}),
     } : null,
     timerEndMs: state.phase === 'PAUSED' ? null : round?.timerEndMs ?? null,
@@ -67,14 +67,14 @@ export function projectGeoStateForClient(state: GeoState, actor: GameActor) {
     ownJokers: own?.jokers ?? null,
     ownEliminatedOptions: own?.eliminatedOptions ?? [],
     ownSpyDistribution: own?.spyDistribution ?? null,
-    ...(actor.role === 'MODERATOR' ? { answerStats } : {}),
+    ...(actor.role === 'HOST' ? { answerStats } : {}),
   };
 }
 
 export function registerGeoResync(_io: Server, socket: Socket): void {
   socket.on('geo:resync', async (_data, callback) => {
     try {
-      const auth = authorizeGameAction(socket, { roles: ['MODERATOR', 'PLAYER', 'VIEWER'] });
+      const auth = authorizeGameAction(socket, { roles: ['HOST', 'PLAYER', 'VIEWER'] });
       if (!auth.ok) { callback?.({ success: false, error: auth.error }); return; }
       const room = await prisma.room.findUnique({
         where: { id: auth.actor.roomId }, include: { gameDefinition: true },
