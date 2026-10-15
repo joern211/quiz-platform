@@ -19,24 +19,26 @@ Lokale Server-/Web-Tests laufen gegen eine frische, geseedete SQLite-Test-DB (`/
 | main `3dba9ff` (lokal, nach `build` + Browser) | 17 | — | 1 (WID W1–W10, **identisch** wie auf PR-Head) | 0 |
 
 > Historisch (Auftrag): PR13-Feature-Lauf 38071538705 = 16 direkt, 2 nach Retry (J4, W1–W10). Main-Lauf 38071998240 grün.
-> **Kontroll-Experiment (final):** WID `W1-W10` (`weristdas-e2e.spec.ts`) wird isoliert auf **beiden** Heads
-> (`3dba9ff` Basis **und** PR-Head `feature/pr14-…`) gegen eigene frische E2E-DBs ausgeführt. Beide Läufe schlagen
-> fehl — `Test timeout of 30000ms exceeded` bzw. Browser-Context-Abbruch in der `finally`-Cleanup-Zeile
-> (`weristdas-e2e.spec.ts:144:15`), **keine** Game-Logik-Assertion. Damit ist das eine rote E2E **vorbestehend /
-> umgebungsbedingt** (4 Browser-Kontexte + 2 echte Sharp-Composites + Vite-Cold-Compile; die Test-Datei selbst
-> dokumentiert, dass der kalte Erstlauf die 30 s-Grenze überschreitet) und **kein PR14-Regression**. Die übrigen
-> 17 E2E (volle Geo G4-* + volle Jeopardy J1–J10 — alle über die neuen Guard-/Receipt-/Envelope-Flows) sind grün.
+> **Audit-Korrektur (14-01; Datum 2026-10-15).** Die ursprüngliche Diagnose
+> „vorbestehend/umgebungsbedingt, kein PR14-Regression" war **falsch** — der
+> Audit-Beitrag reproduzierte es als **echte Token-Logik-Regression** (14-01):
+> der WID-E2E-Ablauf „öffnen → buzz → falsch bewerten → **erneut öffnen**" wird
+> vom alten, nie verbrauchten Intent-Token als Replay behandelt (State bleibt
+> ROUND_READY statt BUZZ_OPEN) → der Browser-Wait bricht ab. Nach dem
+> `emitCommand`-Token-Verbrauch (14-01-Fix) läuft **WID W1–W10 lokal grün
+> (6,3 s)** — das bestätigt den Root-Cause. Die übrigen E2E (Geo G4-*, Jeopardy
+> J1–J10) waren schon vor dem Fix grün und bleiben grün.
 
-## Lokale Läufe nach BASIS-STANDARDS-Änderungen (finaler Stand)
+## Lokale Läufe nach BASIS-STANDARDS-Änderungen (finaler Stand, nach Audit-Fix)
 
 | Prüfung | Befehl | Ergebnis |
 |---|---|---|
-| Typecheck (alle 5 Pakete) | `pnpm typecheck` | **0 Fehler** (shared, game-sdk, web, server) |
-| Lint | `pnpm lint` | **0 Fehler** (104 Vorab-Warnungen, u.a. bestehende `no-explicit-any`; keine neuen) |
+| Typecheck (alle 5 Pakete) | `pnpm typecheck` | **0 Fehler** (shared, game-sdk, web, server, ui) |
+| Lint | `pnpm lint` | **0 Fehler** (108 Vorab-Warnungen, u.a. bestehende `no-explicit-any`; keine neuen) |
 | Build | `pnpm build` (server `tsc` + web `vite`) | ✓ (web: 175 Module, `built in ~1 s`) |
-| Server-Tests (Migration+Seed+Vitest) | `pnpm --filter @quiz/server build` → `pnpm --filter @quiz/server test` | **312/312 passed, 35/35 Dateien** (Baseline 283 + 29 neue Abnahme-/Contract-Tests) — gegen **frisch** erzeugte Test-DB (CI-Flow: `test-database.ts && seed && vitest run` in einem Lauf) ×2 stabil |
-| Web-Tests | `pnpm --filter @quiz/web test` | **52/52 passed, 6/6 Dateien** |
-| E2E (Chromium, frische E2E-DB) | `prisma migrate deploy` + `db:seed` → `playwright test --project=chromium` | **17/18** (1 rot = WID W1–W10, vorbestehend — siehe Kontroll-Experiment oben) |
+| Server-Tests (Migration+Seed+Vitest, nach `build`) | `pnpm --filter @quiz/server build` → `pnpm --filter @quiz/server test` | **325/325 passed, 37/37 Dateien** (Baseline 283 + 29 Abnahme-/Contract + 13 Audit-Regressionstests: `audit14.regression.test.ts` + `migration.deploy.test.ts`) — gegen frisch erzeugte Test-DB (CI-Flow) ×2 stabil |
+| Web-Tests | `pnpm --filter @quiz/web test` | **61/61 passed, 7/7 Dateien** (Baseline 52 + 9 neuer `intentLifecycle.test.ts` (14-01)) |
+| E2E (Chromium, frische E2E-DB) | `prisma migrate deploy` + `db:seed` → `playwright test --project=chromium` | **17/17** — WID W1–W10 **grün** (vorher Timeout, 14-01 behoben) |
 
 ### Neue Abnahme-/Contract-Tests (im PR enthalten)
 
@@ -84,20 +86,28 @@ oder keines aus; bei existierender DB fiel es nie auf).
 | frisch | `migrate deploy` ×2 | ✓ (Idempotenz: zweiter Lauf = No-op; `migration.roles.test.ts`) |
 | Bestandskopie (ADMIN/MODERATOR, Host-Teilnahme, aktive+beendete Räume, WID v1/v2, Sessions/Rejoin) | `migrate deploy` ×2 + Invarianten | ✓ (MODERATOR→HOST, ADMIN bleibt ADMIN, UNKNOWN unverändert=keine Rechte, Rejoin-Tokens erhalten; `migration.roles.test.ts` 8/8) |
 
-## GitHub-CI / E2E am finalen Head `38a8e3b` (geprüft, nicht nur erwartet)
+## GitHub-CI / E2E am Head `38a8e3b` (historischer Stage-2-Head — vor Audit-Fix)
+
+> **Hinweis (Audit-Korrektur 14-09):** `38a8e3b` ist der *historische* Stage-2-Head.
+> Die E2E-Wertung „WID vorbestehend/umgebungsbedingt" unten war **falsch** — sie ist
+> die Ursache der 14-01-Regression. Der **aktuelle** GitHub-Abgleich (CI + E2E)
+> erfolgt am **finalen Audit-Fix-Head** nach Übernahme in
+> `feature/pr14-foundation-standards`; das Ergebnis wird dort (und in
+> `evidence/audit-14-results.md` Abschnitt GitHub) ergänzt.
 
 - **CI (typecheck, lint, build, Server-Tests, Web-Tests): ✅ success** am exakt gleichen Head
   (Run 38321190533). Der rote Server-Test-Lauf vom Stage-2-Head `529fdba` (`Error code 14`,
   Root Cause oben) ist damit behoben und nachgewiesen.
-- **E2E (Chromium): ausgeführt am gleichen Head — Job rot, ohne funktionale Regression:**
-  - `W1-W10` (weristdas): **30 s-Timeout in beiden Versuchen** — das bekannte, vorbestehende /
-    umgebungsbedingte Problem (am Basis-Head `3dba9ff` **und** am Stage-2-Head identisch; s. oben).
+- **E2E (Chromium): ausgeführt am gleichen Head — Job rot (damals):**
+  - `W1-W10` (weristdas): **30 s-Timeout in beiden Versuchen** — *damals* als „vorbestehend"
+    gedeutet; **tatsächlich** die 14-01-Token-Regression (Audit), nach dem Fix lokal grün.
   - `G4-6` (geo): **1. Versuch flaky** (`toBeVisible`-Timeout auf langsamer CI-Maschine),
-    **Retry #1 grün** → Playwright-Reetry, kein Funktionsfehler.
+    **Retry #1 grün** → Playwright-Retry, kein Funktionsfehler.
   - Die übrigen **16/18 E2E** (Geo G4-1..G4-5, Jeopardy J1–J10 — alle über die neuen
     Guard-/Receipt-/Envelope-Flows) **grün direkt**.
-- **Fazit:** CI am finalen Head grün; E2E am finalen Head geprüft mit den beiden bekannten
-  Punkten (WID vorbestehend, G4-6 flaky/Retry-grün). Kein neuer E2E-Fehler durch PR14.
+- **Fazit (historisch, `38a8e3b`):** CI grün; E2E rot wegen WID W1–W10 (damals falsch als
+  „vorbestehend" deklariert — siehe Audit-Korrektur oben). Der WID-Fehler ist durch den
+  14-01-Fix behoben; der finale GitHub-E2E-Lauf am Audit-Fix-Head ist der maßgebliche.
 
 ## Historische Nachweise (nur Beleg, nicht Neu-Assertion)
 
