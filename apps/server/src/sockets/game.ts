@@ -344,6 +344,7 @@ export const handleGameEvents = {
       // Audit PR14, 14-03: auch ein UNGÜLTIGES/WEIDERSPRÜCHLICHES Command
       // (INVALID_PAYLOAD) wird VOR der Mutation abgelehnt — ungültige
       // Commands werden NICHT in einen Legacy-Pfad umgeleitet.
+      const cmdCtx = resolveCommandContextForSocket(data, socket);
       if (!cmdCtx.ok && (cmdCtx.error === 'CLIENT_VERSION_UNSUPPORTED' || cmdCtx.error === 'INVALID_PAYLOAD')) {
         callback?.({ success: false, error: cmdCtx.error });
         return;
@@ -452,6 +453,7 @@ export const handleGameEvents = {
       // Audit PR14, 14-03: auch ein UNGÜLTIGES/WEIDERSPRÜCHLICHES Command
       // (INVALID_PAYLOAD) wird VOR der Mutation abgelehnt — ungültige
       // Commands werden NICHT in einen Legacy-Pfad umgeleitet.
+      const cmdCtx = resolveCommandContextForSocket(data, socket);
       if (!cmdCtx.ok && (cmdCtx.error === 'CLIENT_VERSION_UNSUPPORTED' || cmdCtx.error === 'INVALID_PAYLOAD')) {
         callback?.({ success: false, error: cmdCtx.error });
         return;
@@ -559,6 +561,7 @@ export const handleGameEvents = {
       // Audit PR14, 14-03: auch ein UNGÜLTIGES/WEIDERSPRÜCHLICHES Command
       // (INVALID_PAYLOAD) wird VOR der Mutation abgelehnt — ungültige
       // Commands werden NICHT in einen Legacy-Pfad umgeleitet.
+      const cmdCtx = resolveCommandContextForSocket(data, socket);
       if (!cmdCtx.ok && (cmdCtx.error === 'CLIENT_VERSION_UNSUPPORTED' || cmdCtx.error === 'INVALID_PAYLOAD')) {
         callback?.({ success: false, error: cmdCtx.error });
         return;
