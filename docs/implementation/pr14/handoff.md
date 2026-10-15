@@ -28,7 +28,7 @@ Nächster Planplatz **PR14 = TEAM-ROOM** bleibt offen und darf nicht als erledig
 | Etappe | Inhalt | Status |
 |---|---|---|
 | 0 | Bestandsaufnahme (main, CI, Code-Pfade, Baseline-Tests) | DONE (Baseline 283/283) |
-| 0b | PR12-Doku-Abgleich + Arbeitspaket-Zuordnung | DONE (acceptance.md „Istabgleich\") |
+| 0b | PR12-Doku-Abgleich + Arbeitspaket-Zuordnung | **PARTIAL → erledigt (2026-10-15, Audit 14-07):** initial nur Bestandsübersicht (acceptance.md) — ersetzt keinen Einzelbeleg-Abgleich. Jetzt erledigt via datiertem Nachtrag `docs/specs/pr12/main-abgleich-1407.md` (tatsächlicher Merge-Iststand, Arbeitspaket↔GitHub-Nummer, Datierung der historischen Basis-Referenzen `411a5b7`/`1470894`, ohne Umbruch der atomaren Zeilen). |
 | A | Rollen/Begriffe (HOST), Schemas, Bestandsmigration | VERIFIED (8/8) |
 | D | Fehler-/Result-Vertrag (AppError, Wire-Code-Mapping) | VERIFIED |
 | B | Permission-Vertrag + Grants + Guard-Integration | VERIFIED (4/4) |
