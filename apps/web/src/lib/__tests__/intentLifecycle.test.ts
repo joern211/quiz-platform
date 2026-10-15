@@ -13,11 +13,14 @@
 // vergessen.
 // ============================================================
 
+import type { Socket } from 'socket.io-client';
 import { describe, it, expect, vi } from 'vitest';
 import { emitCommand, withCommandEnvelope, intentToken, discardIntentToken } from '../socket';
 
-function mockSocket() {
-  return { emit: vi.fn() };
+type EmitMock = { emit: ReturnType<typeof vi.fn> };
+
+function mockSocket(): EmitMock & Socket {
+  return { emit: vi.fn() } as unknown as EmitMock & Socket;
 }
 
 function lastEmit(socket: ReturnType<typeof mockSocket>): { event: string; payload: Record<string, unknown> } {

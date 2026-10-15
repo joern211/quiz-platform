@@ -132,7 +132,7 @@ export function ModeratorLobbyPage() {
     emitCommand(socketRef.current, 'game:start', { roomCode }, `${roomCode}:game:start`, (response) => {
       setLoading(false);
       if (response.success) {
-        const gameSlug = response.gameSlug ?? '';
+        const gameSlug = (response.gameSlug as string | undefined) ?? '';
         const path = gamePath(gameSlug, 'HOST', roomCode);
         navigate(path);
       } else {
@@ -152,7 +152,7 @@ export function ModeratorLobbyPage() {
       emitCommand(socketRef.current, 'game:start', { roomCode }, `${roomCode}:game:start`, (response) => {
         setLoading(false);
         if (response.success) {
-          const gameSlug = response.gameSlug ?? '';
+          const gameSlug = (response.gameSlug as string | undefined) ?? '';
           const path = gamePath(gameSlug, 'HOST', roomCode);
           navigate(path);
         } else {

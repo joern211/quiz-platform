@@ -22,7 +22,7 @@ import { createServer, type Server as HttpServer } from 'node:http';
 import { randomUUID } from 'node:crypto';
 import { Server } from 'socket.io';
 import type { Socket as ClientSocket } from 'socket.io-client';
-import type { PrismaClient } from '@prisma/client';
+import type { PrismaClient, Prisma } from '@prisma/client';
 import { setupSocketHandlers } from './sockets/index.js';
 import { createSessionCookie } from './auth/session.js';
 import { config } from './config/index.js';
@@ -255,7 +255,7 @@ describe('14-03: Command-Konflikte an der Socket-Grenze', () => {
   });
 
   it('game:pause mit negativer stateVersion + ungültigem roomCode → abgelehnt, keine Mutation', async () => {
-    const { id, code, host } = await makeHostRoom({ slug: 'wer-ist-das', setup: {}, players: 2 });
+    const { id, host } = await makeHostRoom({ slug: 'wer-ist-das', setup: {}, players: 2 });
     const revBefore = (await testPrisma.room.findUniqueOrThrow({ where: { id } })).revision;
     const res = await ack(host, 'game:pause', { roomCode: 'X', commandId: 'C', stateVersion: -123, protocolVersion: 1 });
     expect(res.success).toBe(false);

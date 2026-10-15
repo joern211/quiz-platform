@@ -87,7 +87,7 @@ let proc: ChildProcess | null = null;
 let procStderr = '';
 const sockets: ClientSocket[] = [];
 
-const sleep = (ms: number) => new Promise(r => setTimeout(r));
+const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
 const origin = () => `http://127.0.0.1:${port}`;
 
 function serverEnv() {
@@ -228,7 +228,7 @@ async function seedBaseState() {
     'gd-wid-mig', 'wer-ist-das', 'Wer ist das?', 'buzzer-reaktion', 'BETA', 2, 10, 15, 1, 0, 0, 0, 0, '[]', now);
 
   // Medien-Assets (echte Zeilen; Dateien werden im Rejoin-Pfad nicht gelesen).
-  const asset = (id: string, mime: string, fn: string, sha: string, visibility: string = 'PRIVATE', derived: string = null) =>
+  const asset = (id: string, mime: string, fn: string, sha: string, visibility: string = 'PRIVATE', derived: string | null = null) =>
     ex('INSERT INTO media_assets (id, type, mimeType, filename, originalName, fileSize, sha256, storagePath, uploadedBy, visibility, derivedFromAssetIds, processStatus) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)',
       id, 'image', mime, fn, fn, 12, sha, `/tmp/${fn}`, MOD_USER_ID, visibility, derived, 'READY');
   await asset(MEDIA.imgV1, 'image/png', 'v1.png', 'h-v1');

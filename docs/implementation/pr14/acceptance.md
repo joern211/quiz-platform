@@ -5,11 +5,18 @@ geplante Verhalten, Gegenprobe, Code-/Testreferenz, Ergebnis und Status.
 Status: `OPEN` · `IN_PROGRESS` · `VERIFIED` · `BLOCKED`. `VERIFIED` nur mit positiv **und** negativ belegtem Flow — nie aus einer Datei/Typecheck/Mock allein.
 Nebenpflichten, die in **späteren** Paketen anfallen, stehen getrennt als „Folge" und werden hier nicht als erledigt ausgegeben.
 
-> **Stand: final (Stage 2).** Alle `VERIFIED`-Markierungen unten sind mit den im PR-Commit enthaltenen
-> Tests gegen die geseedete Test-DB (echte Sockets/HTTP) belegt. Volle Regression auf dem finalen Stand:
-> typecheck ✓ · lint (0 Fehler) ✓ · build ✓ · Server **312/312** (35 Dateien) ✓ · Web **52/52** ✓ ·
-> E2E **17/18** (das eine rote WID-W1-W10 ist vorbestehend/umgebungsbedingt — am Basis-Commit `3dba9ff`
-> identisch rot; siehe `verification.md` Abschnitt E2E).
+> **Audit-Korrektur (Audit PR14, 14-09; Datum 2026-10-15).** Die ursprüngliche
+> Stage-2-Fassung dieses Dokuments erklärte die Pflicht-Tabellen pauschal
+> `VERIFIED` („Stand: final … Server 312/312 … E2E 17/18") — die grünen Tests
+> belegten **nicht** die von Audit 14-01…14-10 reproduzierten Fehlerbedingungen.
+> Das ist hiermit korrigiert: Der historische Befund der Stage-2-Phase bleibt
+> als *historischer Nachweis* erhalten (unverändert, kein Umbruch), aber der
+> **aktuelle Status** jeder Zeile gilt erst nach dem Audit-Fix-Commit, in dem
+> die gezielten Regressionstests die **tatsächlichen** Fehlergrenzen
+> (Socket/DB/HTTP) abdecken. Details und Testbeleg pro Auditpunkt:
+> `evidence/audit-14-results.md` + `compatibility.md`. Ein Zeilen-`VERIFIED`
+> ist nur gültig, wenn die konkrete Gegenprobe (Fehlerbedingung) im
+> Audit-Regressionstest grün ist — nicht aus dem alten grünen Suite-Run allein.
 
 ## Istabgleich (Basis `3dba9ff`, vor jeder Codeänderung)
 
