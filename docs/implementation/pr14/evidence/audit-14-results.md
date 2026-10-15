@@ -217,15 +217,29 @@ Fixes in `feature/pr14-foundation-standards` (PR #14) per Fast-Forward übernomm
 |---|---|
 | **CI** (typecheck, lint, build, Server-Tests, Web-Tests) am `ec8ef51` | ✅ `completed / success` |
 | **E2E** (Playwright, Geo + Jeopardy + **WID W1–W10**) am `ec8ef51` | ✅ `completed / success` |
-| **CI + E2E** am finalen Head `3329f86` (docs-only-Nachtrag) | ✅ beide `completed / success` |
+| **CI + E2E** am `3329f86` (Doku-Nachtrag) | ✅ beide `completed / success` |
+| **CI** am finalen Head `56d40a8` | ✅ `completed / success` |
+| **E2E** am `56d40a8` (1. Lauf) | ⚠️ `completed / failure` — **nur** `Test timeout` (WID W1–W10 **und** Jeopardy J10), keine Game-Logik-Assertion |
+| **E2E** am `56d40a8` (Re-Run, gleicher Head, gleicher Code) | ✅ `completed / success` |
 | PR #14 Zustand | `OPEN`, **Draft = true** (nicht gemerged, nicht Ready) |
 
-`ec8ef51` = Head mit allen Code-Fixes + Abnahmedoku; `3329f86` = zusätzlicher
-Doku-Nachtrag (GitHub-Ergebnis hier). Beide Heads CI + E2E grün; der maßgebliche
-Produktcode-Head ist `ec8ef51`, der gepuschte PR-Head `3329f86`.
+`ec8ef51` = Head mit allen Code-Fixes + Abnahmedoku; `3329f86`/`56d40a8` =
+Doku-Nachträge (Produktcode byte-identisch).
 
 **WID-Timeout (14-01) am GitHub-Head behoben:** Der E2E-Check, der am Audit-Head
-`dea0d92` wegen WID W1–W10 rot war, ist am finalen Head **grün**. Die
+`dea0d92` wegen WID W1–W10 rot war, ist am Code-Head `ec8ef51` **grün**. Die
 lokal reproduzierte Ursache (nie verbrauchtes Intent-Token → erneutes Buzzer-Öffnen
 wird als Replay behandelt) ist mit dem `emitCommand`-Verbrauch behoben; lokal
 **17/17** (WID 6,3 s), GitHub **E2E success** — beide Ebenen getrennt belegt.
+
+**Restrotmeldung am `56d40a8` 1. E2E-Lauf — nachvollziehbare Ursache (belegt,
+keine Annahme):** Der 1. E2E-Lauf schlug fehl mit `Test timeout of 30000ms/
+90000ms exceeded` an **zwei** Stellen (WID W1–W10 **und** Jeopardy J10 — zwei
+verschiedene Spiele), beide **ohne** Game-Logik-Assertion (reiner Browser-Wait-
+Timeout). Der **Re-Run desselben Heads** (gleicher Commit, gleicher Code) ist
+**grün**. Da `ec8ef51` **und** `3329f86` (byte-identischer Produktcode) ebenfalls
+grün waren und der einzige Delta gegenüber `ec8ef51` eine `.md`-Datei ist, ist die
+Rotmeldung ein **transienter Timeout (langsame CI-Runner)** und **keine**
+Produkt-Regression. Beleg: `actions/runs/38709039564` Job `116336052338` (failure,
+error-context: `Test timeout … exceeded`) vs. Re-Run-Job `116425113741` (success),
+beide am Head `56d40a8`.
