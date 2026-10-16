@@ -279,20 +279,38 @@ export const handleGeoGame = {
     // Parse options
     const options = JSON.parse(question.options);
 
-    // BASIS-STANDARDS (E) + Audit PR14, 14-04: Timer kommt aus der
-    // zentralen Config-Auflösung (Start-Snapshot, falls vorhanden; sonst
-    // Legacy-Setup via loadGameConfig, die setup.timerDuration in Sekunden
-    // → ms umrechnet und den zentralen Default 20000 ms anwendet). Der
-    // KANONISCHE Slug wird übergeben — der Reader normalisiert Legacy
+    // BASIS-STANDARDS (E) + Audit PR14, 14-04 (Nacharbeit): Timer kommt aus
+    // der zentralen Config-Auflösung (Start-Snapshot, falls vorhanden;
+    // sonst Legacy-Setup via loadGameConfig, die setup.timerDuration in
+    // Sekunden → ms umrechnet und den zentralen Default 20000 ms anwendet).
+    // Der KANONISCHE Slug wird übergeben — der Reader normalisiert Legacy
     // intern; der Geo-Reader darf keine eigene Slug-Anlage mehr pflegen.
-    // Ein defekter Snapshot wirft CONFIG_SNAPSHOT_INVALID → kontrollierter
-    // Fehler, keine stille Deutung über Defaults.
+    //
+    // EINE gültige, aber inkonsistente/inkompatible/fehlgewidmete
+    // Config-Snapshot wird NICHT stillschweigend durch heutige Defaults
+    // (20000 ms) verschluckt: die Runde startet NICHT (keine State-Mutation,
+    // keine Timer-Erzeugung), der Raum erhält ein kontrolliertes Fehler-
+    // Event (CONFIG_SNAPSHOT_INVALID) und der Fehler wird protokolliert.
+    // Der ausdrücklich unterstützte Legacy-Pfad (Bestandsräume OHNE neuen
+    // Snapshot, configSchemaVersion < 1) läuft über loadGameConfig weiter.
     let timerDuration: number;
     try {
       const loaded = await loadGameConfig(roomRecord, 'wissensduell');
-      timerDuration = (loaded?.values.timerDurationMs?.value ?? 20000) as number;
-    } catch {
-      timerDuration = 20000;
+      timerDuration = loaded?.values.timerDurationMs?.value as number;
+      if (typeof timerDuration !== 'number' || !Number.isFinite(timerDuration) || timerDuration <= 0) {
+        throw new Error(`CONFIG_SNAPSHOT_INVALID: nicht gültiger timerDurationMs-Wert (${String(timerDuration)})`);
+      }
+    } catch (error) {
+      // Kontrollierter Fehler: keine Runde, keine Mutation, kein Timer.
+      logger.error('Geo startRound: ungültige Spielkonfiguration — Runde wird nicht gestartet (14-04)', {
+        roomId: roomRecord.id,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      io.to(roomChannelName).emit('geo:round:error', {
+        error: 'CONFIG_SNAPSHOT_INVALID',
+        message: 'Spielkonfiguration ist ungültig oder inkompatibel — Runde nicht gestartet.',
+      });
+      return;
     }
     const timerStartMs = Date.now();
     const timerEndMs = timerStartMs + timerDuration;

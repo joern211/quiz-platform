@@ -300,6 +300,67 @@ describe('14-04: kanonischer wissensduell-Raum (11 s → 11000 ms)', () => {
     const loaded = await loadGameConfig(room, 'wissensduell');
     expect(loaded?.values.timerDurationMs.value).toBe(11000);
   }, 20000);
+
+  it('defekter/inkompatibler Snapshot → startRound startet die Runde NICHT (keine Mutation, kein Timer, kein stummer 20000-Fallback)', async () => {
+    const q = await testPrisma.geoQuestion.create({ data: { packId: (await testPrisma.questionPack.create({ data: { gameSlug: 'wissensduell', title: 'A14b', status: 'PUBLISHED' } })).id, prompt: 'Q?', category: 'G', options: JSON.stringify([{ id: 'a', text: 'x' }]), correctOptionId: 'a' } });
+    const { id, code, host } = await makeHostRoom({
+      slug: 'wissensduell',
+      setup: { selectedQuestionIds: [q.id], timerDuration: 11 },
+    });
+    expect((await ack(host, 'game:start', { roomCode: code })).success).toBe(true);
+    const gsBefore = await testPrisma.roomGameState.findUniqueOrThrow({ where: { roomId: id } });
+    const revBefore = gsBefore.revision;
+    // Fehlgewidmeten Snapshot eintragen (Snapshot gehört zu 'jeopardy',
+    // Raum zu 'wissensduell') — exakt der Audit-Fall: ungültiger,
+    // inkompatibler oder fremdzugeordneter Snapshot.
+    await testPrisma.room.update({
+      where: { id },
+      data: {
+        gameConfigSnapshotJson: JSON.stringify({
+          gameSlug: 'jeopardy', engineVersion: 1,
+          values: { timerDurationMs: { value: 20000, source: 'SYSTEM_DEFAULT' } },
+          createdAt: new Date().toISOString(),
+        }),
+        configSchemaVersion: 1,
+      },
+    });
+    const { handleGeoGame, __activeTimerRoomIdsForTest, cancelGeoTimer } = await import('./games/geo/index.js');
+    try {
+      await handleGeoGame.startRound(io, code);
+      // Keine unerlaubte Mutation: Phase bleibt INTRO, Revision unverändert.
+      const gsAfter = await testPrisma.roomGameState.findUniqueOrThrow({ where: { roomId: id } });
+      expect(JSON.parse(gsAfter.stateJson).phase).toBe(JSON.parse(gsBefore.stateJson).phase);
+      expect(gsAfter.revision).toBe(revBefore);
+      // Keine Timer-Erzeugung (und damit KEINE stille 20000-Default-Runde).
+      expect(__activeTimerRoomIdsForTest()).not.toContain(id);
+    } finally {
+      cancelGeoTimer(id);
+    }
+  }, 20000);
+
+  it('Legacy-Bestandsraum OHNE Snapshot → Timer aus Legacy-Setup (11 s → 11000 ms), Runde startet (unterstützter Pfad bleibt erhalten)', async () => {
+    const q = await testPrisma.geoQuestion.create({ data: { packId: (await testPrisma.questionPack.create({ data: { gameSlug: 'wissensduell', title: 'A14c', status: 'PUBLISHED' } })).id, prompt: 'Q?', category: 'G', options: JSON.stringify([{ id: 'a', text: 'x' }]), correctOptionId: 'a' } });
+    const { id, code, host } = await makeHostRoom({
+      slug: 'wissensduell',
+      setup: { selectedQuestionIds: [q.id], timerDuration: 11 },
+    });
+    expect((await ack(host, 'game:start', { roomCode: code })).success).toBe(true);
+    // Bestandsraum-Simulation: keinen Start-Snapshot (configSchemaVersion < 1)
+    // → die Legacy-Auflösung (Setup-Setupwerte + Defaults) muss weiterlaufen.
+    await testPrisma.room.update({ where: { id }, data: { gameConfigSnapshotJson: null, configSchemaVersion: 0 } });
+    const { handleGeoGame, cancelGeoTimer } = await import('./games/geo/index.js');
+    try {
+      await handleGeoGame.startRound(io, code);
+      const gsAfter = await testPrisma.roomGameState.findUniqueOrThrow({ where: { roomId: id } });
+      const state = JSON.parse(gsAfter.stateJson);
+      expect(state.phase).toBe('INPUT_OPEN');
+      const round = state.roundStates[0];
+      // Tatsächlicher Legacy-Setupwert (11 s → 11000 ms), nicht 20000.
+      expect(round.timerEndMs - round.timerStartMs).toBe(11000);
+    } finally {
+      cancelGeoTimer(id);
+    }
+  }, 20000);
 });
 
 // ------------------------------------------------------------
@@ -381,6 +442,43 @@ describe('14-10: normalizeRole (Prototype-Sicherheit)', () => {
     expect(normalizeRole('totally-unknown')).toBeNull();
     expect(normalizeRole(null)).toBeNull();
   });
+});
+
+// ------------------------------------------------------------
+// 14-03 — Adapter-Socket-Grenzen (Geo + Jeopardy, echte Sockets)
+// ------------------------------------------------------------
+// Die Audit-Gegenprobe war WID-spezifisch (Event-Schema streicht
+// stateVersion/expectedRevision vor der zentralen Prüfung). Die Systematik
+// gilt für ALLE Adapter — hier direkt an den betroffenen Event-Grenzen
+// belegt, nicht nur über den Shared-Resolver.
+describe('14-03: Adapter-Socket-Grenzen (Geo + Jeopardy)', () => {
+  it('Geo-Adapter (echtes Socket): negative stateVersion + widersprüchliches expectedRevision → VOR der Mutation abgelehnt, keine Mutation', async () => {
+    const { id, code, host } = await makeHostRoom({ slug: 'wissensduell', setup: {}, players: 2 });
+    const revBefore = (await testPrisma.room.findUniqueOrThrow({ where: { id } })).revision;
+    // Widersprüchliche Versionserwartung (stateVersion 1, expectedRevision 2)
+    // + negatives stateVersion in einem zweiten Versuch — beides muss
+    // INVALID_PAYLOAD sein, NICHT still gestrichen oder Legacy-Pfad.
+    const res = await ack(host, 'geo:reveal', { roomCode: code, commandId: 'geo-c1', stateVersion: 1, expectedRevision: 2, protocolVersion: 1 });
+    expect(res.success).toBe(false);
+    expect(res.error).toBe('INVALID_PAYLOAD');
+    const resNeg = await ack(host, 'geo:reveal', { roomCode: code, commandId: 'geo-c2', stateVersion: -1, protocolVersion: 1 });
+    expect(resNeg.success).toBe(false);
+    expect(resNeg.error).toBe('INVALID_PAYLOAD');
+    const revAfter = (await testPrisma.room.findUniqueOrThrow({ where: { id } })).revision;
+    expect(revAfter).toBe(revBefore); // keine Mutation
+  });
+
+  it('Jeopardy-Adapter (echtes Socket): falsch typisierte stateVersion → VOR der Mutation abgelehnt, keine Mutation', async () => {
+    const { id, host } = await makeHostRoom({ slug: 'jeopardy', setup: {}, players: 2 });
+    const revBefore = (await testPrisma.room.findUniqueOrThrow({ where: { id } })).revision;
+    // Falscher Typ (String statt Zahl) → Schema-Grenze lehnt ab (zod
+    // z.number().int() auf stateVersion). Das Feld wird nicht still
+    // entfernt, sondern abgelehnt.
+    const res = await ack(host, 'jeopardy:next', { commandId: 'jp-c1', stateVersion: 'abc', protocolVersion: 1 });
+    expect(res.success).toBe(false);
+    const revAfter = (await testPrisma.room.findUniqueOrThrow({ where: { id } })).revision;
+    expect(revAfter).toBe(revBefore); // keine Mutation
+  }, 20000);
 });
 
 // ------------------------------------------------------------
