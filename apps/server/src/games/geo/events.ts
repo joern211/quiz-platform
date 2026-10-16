@@ -16,12 +16,18 @@ import { registerGeoResync } from './resync.js';
 import { runGuardedCriticalAction } from '../core/receiptedAction.js';
 import { prisma } from '../../persistence/prisma.js';
 
+// Audit PR14, 14-03 (Nacharbeit): Envelope-Felder (stateVersion/
+// expectedRevision) werden VOLLSTÄNDIG erlaubt und an die zentrale Prüfung
+// übergeben — nie still entfernt (die zentrale Prüfung verwirft sie
+// sonst, bevor sie stateVersion:-1 & Co. sehen kann). Legacy = Feld fehlt.
 const roomAction = z.object({
   roomCode: z.string().regex(/^\d{3}-\d{3}$/),
   rejoinToken: z.string().optional(),
   commandId: z.string().min(1).max(128).optional(),
   requestId: z.string().min(1).max(128).optional(),
   protocolVersion: z.number().int().optional(),
+  stateVersion: z.number().int().optional(),
+  expectedRevision: z.number().int().optional(),
 });
 const answerAction = z.object({
   optionId: z.string().min(1),
@@ -29,6 +35,8 @@ const answerAction = z.object({
   commandId: z.string().min(1).max(128).optional(),
   requestId: z.string().min(1).max(128).optional(),
   protocolVersion: z.number().int().optional(),
+  stateVersion: z.number().int().optional(),
+  expectedRevision: z.number().int().optional(),
 });
 
 function validate<T>(schema: z.ZodType<T>, data: unknown, callback?: (result: { success: boolean; error: string }) => void): T | null {

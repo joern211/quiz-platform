@@ -97,19 +97,67 @@ describe('emitCommand — Token-Verwaltung an der Sendegrenze (14-01)', () => {
     expect(secondToken).not.toBe(firstToken);
   });
 
-  it('Fehler/Rejection → Token bleibt (gleiche Absicht → serverseitig gespeicherte Ablehnung)', () => {
+  it('bestätigte Ablehnung → Token verbraucht; NÄCHSTE Absicht (gleicher Key) → frisches Token (14-01: keine vergiftete Absicht)', () => {
+    // Audit-Beleg REVIEW_POISONED_INTENT: Buzzer-Öffnen wird mit
+    // INVALID_PHASE abgelehnt; nach einer WRONG-Bewertung wäre Öffnen
+    // wieder zulässig. Der NÄCHSTE Klick muss ein FRISCHES Token erhalten
+    // und wird von Grund neu geprüft — die gespeicherte Ablehnung darf
+    // nicht dauerhaft repliziert werden.
     const socket = mockSocket();
-    const key = '888-888:geo:next:q1';
+    const key = '888-888:wid:buzzer:open:r0';
     socket.emit.mockImplementation((_ev: string, _p: unknown, cb?: (r: unknown) => void) => {
       cb?.({ success: false, error: 'INVALID_PHASE' });
     });
+    emitCommand(socket, 'weristdas:buzzer:open', {}, key);
+    const firstToken = (socket.emit.mock.calls[0][1] as Record<string, unknown>).commandId as string;
+    // Nach bestätigter Ablehnung ist die Absicht beendet → nächster Klick
+    // (neue Benutzerabsicht, gleiche Key-Form) → frisches Token:
+    socket.emit.mockClear();
+    emitCommand(socket, 'weristdas:buzzer:open', {}, key);
+    const secondToken = (socket.emit.mock.calls[0][1] as Record<string, unknown>).commandId as string;
+    expect(secondToken).not.toBe(firstToken);
+  });
+
+  it('verlorenes ACK (Callback läuft nicht) → Token bleibt; Retry derselben Absicht → GLEICHES Token (14-01: unklarer Ausgang)', () => {
+    const socket = mockSocket();
+    const key = '888-888:geo:next:q1';
+    // emit ohne Ack-Callback → Ausgang unklar:
+    socket.emit.mockImplementation(() => undefined);
     emitCommand(socket, 'geo:next', { roomCode: '888-888' }, key);
     const firstToken = (socket.emit.mock.calls[0][1] as Record<string, unknown>).commandId as string;
-    // Retry nach Fehler (gleiche Absicht) → gleiches Token:
+    // Retry nach ACK-Verlust → gleiches Token (determinischer Replay
+    // bzw. sichere Neu-Ausführung serverseitig):
     socket.emit.mockClear();
     emitCommand(socket, 'geo:next', { roomCode: '888-888' }, key);
     const secondToken = (socket.emit.mock.calls[0][1] as Record<string, unknown>).commandId as string;
     expect(secondToken).toBe(firstToken);
+  });
+
+  it('verspätetes ACK eines älteren Requests löscht kein neueres Token (14-01)', () => {
+    const socket = mockSocket();
+    const key = '888-888:wid:judge:r0:WRONG';
+    const callbacks: Array<(r: unknown) => void> = [];
+    socket.emit.mockImplementation((_ev: string, _p: unknown, cb?: (r: unknown) => void) => {
+      if (cb) callbacks.push(cb);
+    });
+    // #1: erste Absicht → Token A; ACK kommt (noch) nicht.
+    emitCommand(socket, 'weristdas:judge', { result: 'WRONG' }, key);
+    const firstToken = (socket.emit.mock.calls[0][1] as Record<string, unknown>).commandId as string;
+    // #2: Doppelklick vor ACK (gleiche Absicht) → GLEICHES Token A.
+    socket.emit.mockClear();
+    emitCommand(socket, 'weristdas:judge', { result: 'WRONG' }, key);
+    const secondToken = (socket.emit.mock.calls[0][1] as Record<string, unknown>).commandId as string;
+    expect(secondToken).toBe(firstToken);
+    // ACK von #1 trifft ein → Absicht abgeschlossen → Token A verbraucht.
+    callbacks[0]({ success: true });
+    // #3: neue Benutzerabsicht → frisches Token B.
+    socket.emit.mockClear();
+    emitCommand(socket, 'weristdas:judge', { result: 'WRONG' }, key);
+    const thirdToken = (socket.emit.mock.calls[0][1] as Record<string, unknown>).commandId as string;
+    expect(thirdToken).not.toBe(firstToken);
+    // VERSPÄTETES ACK von #2 (hat Token A gesendet) → darf B NICHT löschen.
+    callbacks[1]({ success: true });
+    expect(intentToken(key)).toBe(thirdToken);
   });
 
   it('gibt den ACK an den Aufrufer weiter (success und Fehler)', () => {

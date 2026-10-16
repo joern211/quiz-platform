@@ -30,12 +30,16 @@ const JeopardyFieldOpenSchema = z.object({
   commandId: z.string().min(1).max(128).optional(),
   requestId: z.string().min(1).max(128).optional(),
   protocolVersion: z.number().int().optional(),
+  stateVersion: z.number().int().optional(),
+  expectedRevision: z.number().int().optional(),
 });
 
 const JeopardyBuzzSchema = z.object({
   commandId: z.string().min(1).max(128).optional(),
   requestId: z.string().min(1).max(128).optional(),
   protocolVersion: z.number().int().optional(),
+  stateVersion: z.number().int().optional(),
+  expectedRevision: z.number().int().optional(),
 });
 
 const JeopardyJudgeSchema = z.object({
@@ -44,6 +48,8 @@ const JeopardyJudgeSchema = z.object({
   commandId: z.string().min(1).max(128).optional(),
   requestId: z.string().min(1).max(128).optional(),
   protocolVersion: z.number().int().optional(),
+  stateVersion: z.number().int().optional(),
+  expectedRevision: z.number().int().optional(),
 });
 
 const JeopardyNextSchema = z.object({
@@ -51,6 +57,8 @@ const JeopardyNextSchema = z.object({
   commandId: z.string().min(1).max(128).optional(),
   requestId: z.string().min(1).max(128).optional(),
   protocolVersion: z.number().int().optional(),
+  stateVersion: z.number().int().optional(),
+  expectedRevision: z.number().int().optional(),
 });
 
 const JeopardyBoardSwitchSchema = z.object({
@@ -59,6 +67,8 @@ const JeopardyBoardSwitchSchema = z.object({
   commandId: z.string().min(1).max(128).optional(),
   requestId: z.string().min(1).max(128).optional(),
   protocolVersion: z.number().int().optional(),
+  stateVersion: z.number().int().optional(),
+  expectedRevision: z.number().int().optional(),
 });
 
 // ── Helper: validate with Zod, return error code ─────────────

@@ -10,10 +10,20 @@ import type { GamePermission } from '@quiz/shared';
 
 type Ack = (result: { success: boolean; error?: string; state?: unknown }) => void;
 const empty = z.object({});
+// Audit PR14, 14-03 (Nacharbeit): Die Envelope-Felder werden VOLLSTÄNDIG
+// ERLAUBT UND ERHALTEN — nie still entfernt. Die zentrale Prüfung
+// (resolveCommandContextForSocket → CommandEnvelope-Schema) validiert
+// Widersprüche, negative Werte und Typen VOR jeder Mutation
+// (INVALID_PAYLOAD). Wäre hier das Feld gestrichen, sähe die zentrale
+// Prüfung stateVersion:-1 nie (Audit-Beleg: REVIEW_STRIPPED_VERSION).
+// Legacy-Kompatibilität = Feld FEHLT (optional); vorhandene ungültige
+// Werte werden abgelehnt, nicht als Legacy gedeutet.
 const emptyEnveloped = z.object({
   commandId: z.string().min(1).max(128).optional(),
   requestId: z.string().min(1).max(128).optional(),
   protocolVersion: z.number().int().optional(),
+  stateVersion: z.number().int().optional(),
+  expectedRevision: z.number().int().optional(),
 });
 const publicError = (error: unknown) => error instanceof InvalidGameAction ? error.code : gameErrorCode(error);
 

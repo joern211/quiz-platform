@@ -356,6 +356,20 @@ export function discardIntentToken(intentKey: string): void {
 }
 
 /**
+ * Audit PR14, 14-01 (Nacharbeit): Token nur verwerfen, wenn es das GLEICHE
+ * ist, das mit dem zugehörigen Request gesendet wurde. Ein VERSPÄTETES ACK
+ * eines älteren Requests darf ein bereits für eine NEUERE Absicht vergebene
+ * Token nicht löschen (sonst würde die neuere Absicht ihr Token verlieren
+ * und der nächste Sendevorgang versehentlich den alten commandId wieder
+ * aufgreifen).
+ */
+export function discardIntentTokenIfCurrent(intentKey: string, sentToken: string): void {
+  if (intentTokens.get(intentKey) === sentToken) {
+    intentTokens.delete(intentKey);
+  }
+}
+
+/**
  * Fügt einem kritischen Payload das Absichtstoken + Protokollversion
  * hinzu (Command-Envelope, v1). Reiner Builder — die Token-Verwaltung
  * (Lebenszyklus pro Absicht) läuft zentral über `emitCommand`
@@ -369,21 +383,26 @@ export type CommandResponse = { success: boolean; error?: string; [k: string]: u
 
 /**
  * Sendet eine kritische Socket-Aktion mit Absichtstoken und verwaltet den
- * Token-Lebenszyklus zentral (Audit PR14, 14-01):
+ * Token-Lebenszyklus zentral (Audit PR14, 14-01, Nacharbeit):
  *
- *   - Gleiche Absicht (Doppelklick, Retry nach ACK-Verlust/Timeout) →
- *     GLEICHES Token, solange noch kein ACK eingetroffen ist (determinischer
- *     Replay bzw. sichere Neu-Ausführung serverseitig).
- *   - Bestätigter Erfolg (success:true, inkl. replayed:true) → Token wird
- *     verbraucht; die NÄCHSTE zulässige Absicht (erneutes Buzzer-Öffnen der
- *     selben Runde nach einer WRONG-Bewertung, zweite Pause, nächste
- *     Bewertung) erhält automatisch ein frisches Token.
- *   - Fehler/Rejection → Token bleibt (gleiche Absicht → serverseitig wird
- *     die gespeicherte Ablehnung repliziert; eine geänderte Absicht nutzt
- *     ohnehin einen neuen Key/Token).
+ *   - Unklarer Ausgang (ACK-Verlust/Timeout — der Callback läuft NICHT):
+ *     Token bleibt → ein Retry derselben Absicht verwendet GLEICHES Token
+ *     (determinischer Replay bzw. sichere Neu-Ausführung serverseitig).
+ *   - Abschließend bestätigter Ausgang — Erfolg ODER bestätigte Ablehnung:
+ *     Token wird VERBRAUCHT. Die NÄCHSTE Benutzerabsicht (erneutes
+ *     Buzzer-Öffnen derselben Runde nach einer WRONG-Bewertung, zweiter
+ *     Start-Versuch nach NOT_ALL_READY) erhält ein FRISCHES Token und wird
+ *     VON GRUND NEU geprüft — eine gespeicherte Ablehnung repliziert der
+ *     Server dann nicht mehr "dauerhaft" (Audit-Beleg:
+ *     REVIEW_POISONED_INTENT). Der serverseitige Replay einer
+ *     abgeschlossenen Ablehnung bleibt für den GLEICHEN Token
+ *     deterministisch erhalten (derselbe Token = dieselbe Absicht).
+ *   - Verspätetes ACK eines älteren Requests: verwirft das Token nur, wenn
+ *     es das gesendete Token ist (discardIntentTokenIfCurrent) — ein
+ *     neueres Token einer neueren Absicht bleibt unberührt.
  *
  * ALLE kritischen Emits laufen über diesen Pfad, damit kein Aufrufer den
- * Verwurf nach erfolgreichem ACK vergessen kann.
+ * Verbrauch nach bestätigtem ACK vergessen kann.
  */
 export function emitCommand<TPayload extends object>(
   socket: Socket,
@@ -393,12 +412,16 @@ export function emitCommand<TPayload extends object>(
   onResponse?: (res: CommandResponse) => void,
 ): void {
   const envelope = withCommandEnvelope(payload, intentKey);
+  const sentToken = envelope.commandId;
   const emitter = socket as unknown as {
     emit: (event: string, payload: unknown, ack?: (response: unknown) => void) => void;
   };
   emitter.emit(event, envelope, (raw: unknown) => {
     const res = (raw && typeof raw === 'object' ? raw : {}) as CommandResponse;
-    if (res.success === true) discardIntentToken(intentKey);
+    // Audit PR14, 14-01 (Nacharbeit): Jeder ABSCHLIESSEND bestätigte Ausgang
+    // (success ODER rejection) beendet die Absicht → Token verbraucht.
+    // Verlorenes ACK: dieser Callback läuft nie → Token bleibt für den Retry.
+    discardIntentTokenIfCurrent(intentKey, sentToken);
     onResponse?.(res);
   });
 }
