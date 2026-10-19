@@ -30,22 +30,21 @@ No merge is authorized or performed.
 - WID E2E sets its documented 90-second timeout through `test.setTimeout`;
   `timeout` in test metadata was not applying the intended limit.
 
-## Checkpoint status
+## Abschlussstand
 
-Typecheck, lint and both builds pass. Web tests: 76/76. Full server regression
-is rerun after extending the migration fixture (its old hardcoded count of 7
-was corrected to derive from the staged migration list).
+Produktcode-/Test-Commit: `c4bcc00b79de3e5a72368e9a23707010fb2ebdcb`, in PR14.
+Typecheck, Lint ohne Fehler und beide Builds grün. Lokal 334/334 Servertests
+und 76/76 Webtests, keine skipped; alle acht Migrationen frisch und wiederholt
+sowie alle drei PR14-Migrationen in der Bestandskopie mit echtem WID-Rejoin
+und receipted game:end/Replay geprüft.
 
-Local browser execution is unavailable: Chromium exits before loading any
-application page because this runtime denies its process-singleton Unix socket
-(`socket() failed: Operation not permitted`). The complete Playwright suite
-must therefore be verified in GitHub Actions at the pushed PR head; it is not
-represented as a local pass. No tests are skipped to work around this limit.
+GitHub CI und E2E am Code-Head sind erfolgreich (Run 39249235352).
+18/18 Browserfälle im ersten Versuch, keine Retries/Flakes, keine skipped.
+Die vorher ungültige Ready-/Timeout-Abfolge wird nicht als bloßer Runnerfehler
+abgetan. Lokal blockiert die Laufzeit Chromium vor der ersten Seite durch
+verbotene Unix-Sockets; kein lokaler E2E-Pass wird behauptet.
 
-## Next actions
-
-Run the final server suite, push the existing PR head by fast-forward, inspect
-both GitHub CI and E2E, correct any actual failures, update canonical handoff,
-acceptance, verification and PR text, then mark Ready only with green checks.
-Planplatz PR14 (TEAM-ROOM), full editor/voice/display, new games and the full
-V1 audit remain separate follow-up packages.
+Kanonischer aktueller Handoff/Abnahme/Verifikation/Audit-Evidenz sind aktualisiert.
+Der abschließende Dokumentations-Head wird erneut in GitHub geprüft, bevor
+Ready markiert wird. Nutzer merged selbst. TEAM-ROOM und vollständiger V1-Scope
+bleiben getrennte Folgepakete.

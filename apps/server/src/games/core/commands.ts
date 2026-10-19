@@ -3,26 +3,17 @@
 // ============================================================
 // Wiederholungssicherheit für kritische Mutationen.
 //
-// Semantik (verbindlich):
-//   - Ein Receipt pro (roomId, commandId). Der Claim läuft als
-//     createUnique IMMER innerhalb derselben interaktiven Transaktion
-//     wie die State-/Score-Mutation → kein Check-then-Create-Race:
-//     parallele Duplikate erhalten P2002 und lesen den Gewinner.
-//   - COMPLETED  → Duplicate liefert die GESPEICHERTE Antwort
-//                  (replayed: true) — exakt dieselbe fachliche Wirkung.
-//   - REJECTED   → Duplicate liefert die gespeicherte Ablehnung
-//                  (z.B. COMMAND_CONFLICT).
-//   - PENDING    → der erste Request ist noch in Bearbeitung (nur
-//                  während derselben Transaktion sichtbar); parallele
-//                  Duplikate warten kurz (SQLite serialisiert Writes)
-//                  und liefern danach das finale Ergebnis.
-//   - FAILED     → Mutation fehlgeschlagen/Rollback; es existiert KEIN
-//                  Erfolgseintrag → ein sicherer Retry ist erlaubt
-//                  (der Claim wird erneut gestellt).
-//   - Gleiche commandId mit anderer Akteur-/Payload-Identität
-//                  (anderer actorId ODER anderer payloadHash) →
-//                  COMMAND_CONFLICT: keine fremden Ergebnisse, keine
-//                  zusätzlichen Rechte.
+// Geroutete Socket-Aktionen nutzen runReceipted (weiter unten):
+//   - Claim per unique create auf (roomId, commandId), eigene Engine-CAS-
+//     Transaktionen, danach separate Erfolgsquittung. Das ist KEINE gemeinsame
+//     Receipt-/Engine-Transaktion.
+//   - COMPLETED/REJECTED liefern gespeicherte Antworten vor der erneuten
+//     Versionsprüfung. Akteur-/Payload-Konflikte werden abgelehnt.
+//   - FAILED oder abgelaufenes PENDING: konservativer Vergleich von Room- UND
+//     GameState-Revision; fortgeschrittener Zustand verlangt Resync, keine
+//     erneute Wirkung. Takeover konkurriert per Status-/Lease-CAS.
+//   - Die separaten transaktionalen Hilfsfunktionen claimCommand usw. sind
+//     nicht der von den aktuellen Socket-Adaptern verwendete Ausführungspfad.
 //
 // Ein neues Absichtstoken (commandId) für dieselbe Payload ist eine
 // NEUE, zulässige Absicht — Receipts ersetzen keinen Fach-Check.
@@ -225,20 +216,10 @@ export async function failCommand(
 // ============================================================
 // Event-Ebenen-Wrapper (Integration ohne Engine-Umschreibung)
 // ============================================================
-// Wichtige Semantik (ehrlich dokumentiert):
-//   Der Claim läuft als atomarer createUnique (unique auf (roomId,
-//   commandId)) — kein Check-then-Create. Die fachliche Mutation nutzt
-//   die CAS-geschützten Transaktionen der Engines (saveGameStateIfRevision
-//   / updateMany mit Revision). Diese CAS-Schicht verhindert eine zweite
-//   fachliche Wirkung, auch wenn ein PENDING-Receipt nach einem
-//   Prozess-/ACK-Verlust erneut ausgeführt wird → "Receipt + CAS passen
-//   zusammen". Duplicate liefert die GESPEICHTE Antwort (COMPLETED) bzw.
-//   gespeicherte Ablehnung (REJECTED) mit replayed:true.
-//   Ein Prozess-/ACK-Verlust NACH Commit lässt den Gewinner COMPLETED;
-//   der Duplicate-Client holt sich die gespeicherte Antwort. Ein Verlust
-//   VOR Commit lässt PENDING → Retry läuft die Mutation erneut; die
-//   CAS-Schicht verhindert die zweite Wirkung (Business-Duplicate-Error
-//   wird REJECTED gespeichert und deterministisch repliziert).
+// Die Engine behält ihre eigene CAS-Transaktion. Der Wrapper ergänzt eine
+// persistierte Absichtsidentität und Recovery-Beobachtungen. Ein verlorenes
+// COMPLETED-Write NACH einer Spielmutation wird durch die Revisionsbeobachtung
+// erkannt (Room ODER GameState); der Retry erhält Resync statt Neu-Ausführung.
 // ============================================================
 
 const PENDING_WAIT_MS = 40;

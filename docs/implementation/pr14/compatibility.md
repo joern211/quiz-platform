@@ -1,6 +1,6 @@
 # BASIS-STANDARDS — Kompatibilität & Legacy-Kontrakte (compatibility.md)
 
-**Paket:** BASIS-STANDARDS (Roadmap-Planplatz „PR13") · **GitHub-PR:** #14 (Draft).
+**Paket:** BASIS-STANDARDS (Roadmap-Planplatz „PR13") · **GitHub-PR:** #14. Aktueller Abschlussnachweis: verification.md (19.10.2026).
 **Zweck (Audit PR14, 14-09):** Verbindliche, zentrale Übersicht ALLER
 Legacy-Kontrakte, die dieses Paket bewusst beibehält, umschreibt oder ablehnt —
 sodass Bestandsdaten, alte Clients und laufende Spiele nach dem Upgrade
@@ -132,3 +132,26 @@ bestehenden Wire-Codes bleiben lesbar.)
 | WID v1/v2 Rejoin über Migration | `migration.deploy.test.ts` (2/2), `weristdas/recovery.integration.test.ts` |
 | Bestands-Migration (Rollen + Receipt-Spalten) additiv | `migration.deploy.test.ts` (echtes `migrate deploy` ×2, Idempotenz) |
 | Permission-Guard + Revocation wirkt sofort | `permissions.integration.test.ts`, `audit14.regression.test.ts` §14-06 |
+
+
+## Abschlusspräzisierungen vom 19.10.2026
+
+- Runtime-Wrapper runReceipted nutzt **keine** gemeinsame Transaktion um
+  Receipt und Engine. Die Engines behalten ihre CAS-Transaktionen. Ein
+  verlorener Abschluss wird anhand beider persistierten Revisionsbeobachtungen
+  konservativ behandelt: Resync statt möglicher Doppelwirkung. Kommentare zu
+  separat angebotenen transaktionalen Hilfsfunktionen sind kein Beleg für die
+  Transaktionsgrenze der tatsächlich gerouteten Socket-Aktionen.
+- Migration `20261016130000_receipt_before_state_revision` ergänzt die
+  GameState-Beobachtung. Sie ist zusätzlich zu den beiden älteren PR14-
+  Migrationen im echten migrate-deploy-Bestandsnachweis enthalten.
+- Intent-Verwaltung liegt in shared, Frontend-Schnittstelle bleibt gleich.
+  Finales success/Fehler-ACK beendet eine Benutzerabsicht; verlorene, ungültige
+  und COMMAND_IN_PROGRESS-ACKs behalten deren ID. Späte ACKs konsumieren nur
+  die tatsächlich gesendete ID. Neue Absicht nach Ablehnung wird neu geprüft.
+- Ein defekter Geo-Snapshot wird niemals als aktuelle Defaults interpretiert.
+  ERROR_RECOVERY ist gespeichert und wird rollenabhängig resynchronisiert;
+  öffentlich ist nur der konstante Fehlercode, kein Snapshotinhalt. Der Host
+  kann das Spiel beenden. Bereits gespeicherte Punkte bleiben erhalten.
+- game:end mit commandId speichert success:true und replayt dasselbe Resultat.
+- Permission-Rollennormalisierung verwendet ausschließlich shared normalizeRole.

@@ -1,6 +1,6 @@
 # PR12 — Regelwerk Mapping und V1-Spezifikation (Dokumentations-PR)
 
-**Status:** Vorbereitung/Draft — **nicht** merge-ready. Kein Anwendungscode,
+**Historischer Dokumentumfang:** Vorbereitung; GitHub-PR #12 wurde am 10.10.2026 gemergt. Kein Anwendungscode,
 keine Schema-/Migration-/CI-Änderungen. Rein dokumentarisch.
 
 ## Was diese PR liefert
@@ -57,3 +57,13 @@ Tests → Abnahme** für V1.0 mit **19 Spielen** (18 kanonische Slugs FEST
   Detailregeln bleiben Rest; keine erfundenen Freigaben).
 - Nach dem PR11-Merge müssen SHAs/PR11-Vergleich/Links neu geprüft werden
   (siehe dependencies-and-parallel-work.md §7, Woche 2).
+
+
+## Datierter Abgleich 19.10.2026
+
+Die Zeilen-Istbasis `411a5b7` und der PR11-Vergleich `1470894` bleiben
+historische Snapshots. Tatsächlich ist main bei `3dba9ff` einschließlich
+PR11/12/13; BASIS-STANDARDS wird in GitHub-PR #14 vervollständigt. Seine
+konkrete Paketabnahme steht in [acceptance.md](../../implementation/pr14/acceptance.md).
+Die 1.292 Zeilen werden nicht pauschal als umgesetzt markiert. Offene
+Spieledetails bleiben Vorschläge, kein neuer Nutzerentscheid wird erfunden.

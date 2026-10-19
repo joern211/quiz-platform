@@ -16,7 +16,7 @@ Nachtrag dient dazu, dass keine veraltete Basis-Referenz mehr als
 | PR10 — Kanonischer Spielekatalog & Slug-Migration | PR10 | #10 | ja | `411a5b783e5857bca5b208598fade43affc108b5` |
 | PR11 — „Wer ist das?" Composite + Medien-Geheimhaltung (BETA) | PR11 | #11 | **ja** (früher „offener Draft") | `d52fa52` |
 | PR12 — Regelwerk Mapping + V1-Spezifikation (dieses Paket) | PR12 | #12 | **ja** (früher „Vorbereitung/Draft") | `afef936` |
-| PR13 — Standards/Schemas/Permissions/Config (kleiner fs.rm-Retry-Fix) | PR13 | #13 | **ja** (aktueller main-Head) | `3dba9ff5cc19e53c0f6d764b5f41f5880ff92e52` |
+| PR13 — Test-Cleanup (fs.rm-Retry-Fix) | eingeschobener Fix | #13 | **ja** (aktueller main-Head) | `3dba9ff5cc19e53c0f6d764b5f41f5880ff92e52` |
 | BASIS-STANDARDS — Schemas/Rechte/Config (dieses Handoff) | Planplatz „PR13" (nie umgesetzt) | **#14** | **offen, DRAFT** | — |
 | TEAM-ROOM — Room/Team-Core | Planplatz PR14 | (noch offen) | offen | — |
 
@@ -58,3 +58,17 @@ git merge-base --is-ancestor afef936 origin/main   # PR12 ON main
 git merge-base --is-ancestor 3dba9ff origin/main   # PR13 ON main (Head)
 git diff --stat 1470894 d52fa52           # 33 Dateien (gepinnter Snapshot vs. gemergter PR11)
 ```
+
+
+## 5. Fortschreibung 19.10.2026
+
+main-Basis bleibt `3dba9ff`. GitHub-PR #14 enthält jetzt auch die zwei letzten
+Audit-Commits `8a4398f`/`4a0e3ae` und den Abschluss-Code/Teststand `c4bcc00`.
+Die zuvor widersprüchliche Bezeichnung von GitHub #13 als Standards-Paket in
+Abschnitt 1 ist historisch falsch: **#13 war ausschließlich der Test-Cleanup**.
+BASIS-STANDARDS = Planplatz PR13 = GitHub #14; TEAM-ROOM = Planplatz PR14,
+weiterhin offen. Konkrete neue Nachweise stehen in
+[PR14-Abnahme](../../implementation/pr14/acceptance.md),
+[Verifikation](../../implementation/pr14/verification.md) und
+[Audit-Evidenz](../../implementation/pr14/evidence/audit-14-results.md).
+Dies ersetzt keine zeilenweise V1-Neuabnahme der historischen Matrix.

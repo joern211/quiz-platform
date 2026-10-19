@@ -1,135 +1,48 @@
-# BASIS-STANDARDS — Abnahme (acceptance.md)
+# BASIS-STANDARDS — Abnahme im PR14-Scope
 
-Jede Pflicht aus Arbeitsauftrag §5 (A–F) mit **echter MR-Zuordnung** (Planplatz „PR13" = BASIS-STANDARDS),
-geplante Verhalten, Gegenprobe, Code-/Testreferenz, Ergebnis und Status.
-Status: `OPEN` · `IN_PROGRESS` · `VERIFIED` · `BLOCKED`. `VERIFIED` nur mit positiv **und** negativ belegtem Flow — nie aus einer Datei/Typecheck/Mock allein.
-Nebenpflichten, die in **späteren** Paketen anfallen, stehen getrennt als „Folge" und werden hier nicht als erledigt ausgegeben.
+Stand 19.10.2026. Grundlage: Master §1/§2/§5/§12/§13, ursprünglicher
+Planplatz PR13. Dies ist keine pauschale Abnahme des gesamten V1-Regelwerks.
+Produktcode-/Teststand: `c4bcc00b79de3e5a72368e9a23707010fb2ebdcb`.
 
-> **Audit-Korrektur (Audit PR14, 14-09; Datum 2026-10-15).** Die ursprüngliche
-> Stage-2-Fassung dieses Dokuments erklärte die Pflicht-Tabellen pauschal
-> `VERIFIED` („Stand: final … Server 312/312 … E2E 17/18") — die grünen Tests
-> belegten **nicht** die von Audit 14-01…14-10 reproduzierten Fehlerbedingungen.
-> Das ist hiermit korrigiert: Der historische Befund der Stage-2-Phase bleibt
-> als *historischer Nachweis* erhalten (unverändert, kein Umbruch), aber der
-> **aktuelle Status** jeder Zeile gilt erst nach dem Audit-Fix-Commit, in dem
-> die gezielten Regressionstests die **tatsächlichen** Fehlergrenzen
-> (Socket/DB/HTTP) abdecken. Details und Testbeleg pro Auditpunkt:
-> `evidence/audit-14-results.md` + `compatibility.md`. Ein Zeilen-`VERIFIED`
-> ist nur gültig, wenn die konkrete Gegenprobe (Fehlerbedingung) im
-> Audit-Regressionstest grün ist — nicht aus dem alten grünen Suite-Run allein.
+| Bereich | Implementierter Umfang und Gegenprobe | Nachweis |
+|---|---|---|
+| A Rollen/Migration | ADMIN/HOST/PLAYER/VIEWER/DISPLAY zentral; MODERATOR nur Compatibility; unbekannte und Prototype-Rollen abgelehnt, Bestandsidentitäten bleiben | shared normalizeRole; permissions.ts; migration.roles.test.ts; migration.deploy.test.ts; audit14 14-10 |
+| B Permissions | zentrale Defaultpakete ± persistierte Grants/Revoke; kritische Engine-/Lifecycle-/Kick-Aktionen autorisiert; Revoke wirkt bei verbundenem Socket; Grants geben keine zusätzlichen Secrets | permissions.integration.test.ts; audit14 14-06; Geo-/Jeopardy-Contracts; bestehende WID-Secret-Tests |
+| C Commands/Receipts | validierte IDs/Version/Feldkonflikte; keine Doppelwirkung nach verlorenem Erfolgs-Receipt; abgeschlossene Absicht replayt trotz eigener alter Revision; neue Absicht nach bestätigter Ablehnung | commandContract.integration.test.ts; audit14; reviewer14; intentLifecycle.test.ts |
+| D Fehler | AppError mit code/messageKey/traceId an umgestellten Grenzen, Legacy-Wire-Codes bleiben; keine SQL-/Pfad-/Stackdetails im neuen Clientfehler | appError.ts; compatibility.md; negative Socket-/Config-/Recovery-Gegenproben |
+| E Konfiguration | sieben Ebenen als Resolververtrag, echte False/Zero-Werte, Start-Snapshots/Engineversion, Revision/CAS, kein Partial-Commit oder Default-Ersatz bei kaputtem Snapshot | config.integration.test.ts; audit14 14-04/05; GeoRecovery.test.tsx |
+| F Manifest/Contract | gemeinsame Katalognormalisierung, Capabilities/Engineversion/Setup-Metadaten; generische Guards/Replay/Config-Contracts mit Geo und Jeopardy; WID-Regression | catalog-consistency.test.ts; games/contract; WID-Integration/Migration/E2E |
+| Nacharbeit | fehlerhaftes game:end-ACK korrigiert; Ready wartet auf Membership; Server-Build ohne Frontend-Import; alle 3 neuen Migrationen geprüft | audit14; migration.deploy; reviewer14; PlayerLobbyReady; Build/Typecheck |
 
-## Istabgleich (Basis `3dba9ff`, vor jeder Codeänderung)
+Lokale Abnahme: **334 Servertests und 76 Webtests, 0 skipped**, Typecheck,
+Lint ohne Fehler, beide Builds, frische/wiederholte und Bestandsmigration,
+PR12-Dokumentationschecker. Details: [verification.md](verification.md).
 
-| Beobachtung | Beleg |
-|---|---|
-| Rollen heute: `UserRole='ADMIN'\|'MODERATOR'`, `PlayerRole='MODERATOR'\|'PLAYER'\|'VIEWER'` | `packages/shared/src/index.ts` |
-| `Participation.role` String (`MODERATOR\|PLAYER\|VIEWER`), `User.role` String (`ADMIN\|MODERATOR`, Default `MODERATOR`) | `prisma/schema.prisma` |
-| Authorization: `requireRoomRole`, `authorizeGameAction/Context` — **nur Rollen + Membership, keine feingranularen Rechte, kein Grant/Revoke** | `http/middleware/auth.ts`, `games/core/access.ts` |
-| Kommandos: `ClientCommand{requestId, roomCode, expectedRevision?, clientTime?, payload}` — **kein commandId, kein protocolVersion** | `packages/shared/src/index.ts` |
-| Fehler: `ApiResponse.error{code,message,details?}` — **kein messageKey, kein traceId, kein retryable** | `packages/shared/src/index.ts` |
-| Config: `config/index.ts` = env-Schema + Normalisierung; **keine 7-Ebenen-Priorität, kein Start-Snapshot pro Engine, kein LOCKED_AFTER_START** | `config/index.ts` |
-| Manifest: `GameManifestSchema` ohne Capabilities/engineVersion/lateJoin/viewer/broadcast/content-type | `packages/shared/src/index.ts` |
-| Room.revision + RoomGameState.revision + CAS via `updateMany where revision` vorhanden (Basis für C/E) | `schema.prisma`, `sockets/game.ts` |
-| 3 Engines: `games/geo` (wissensduell), `games/jeopardy`, `games/weristdas`; mutierende Socket-Events in `*/events.ts` | `games/registry.ts` |
-| `shared/src/index.ts` ist **eine einzige Datei** (Node type-stripping bricht relative `.js→.ts`-Imports) → neue shared-Verträge inline in `index.ts` | Skill + Code-Kommentar |
-| `prisma/seed.ts` läuft vom **Repo-Root** → kein `@quiz/shared`-Import; Konsistenz via `catalog-consistency.test.ts` | `prisma/seed.ts`, Skill |
+GitHub-Abschlussgate: CI und vollständige E2E am exakten aktuellen PR-Head.
+Die Live-Checks sind maßgeblich: https://github.com/joern211/quiz-platform/pull/14/checks
+Lokal blockiert die Laufzeit Chromium vor der ersten Seite; kein lokaler
+E2E-Erfolg wird behauptet. Ready erfolgt erst nach dem GitHub-Nachweis.
 
----
+## Abgrenzung zu Folgepaketen
 
-## A — Rollen, Begriffe, Schemas, Bestandsmigration
+DISPLAY ist hier Rollen-/Permission-Vertrag, noch keine Broadcast-Oberfläche.
+Co-Host-Bedienung und vollständiges Team-/Room-Lifecycle bleiben TEAM-ROOM.
+HOST_DEFAULT/ROOM_TEMPLATE/GAME_PRESET sind Auflösungsverträge, ihre vollständigen
+Editor-/Persistenzoberflächen folgen später. Die bestehenden Spiele werden
+nicht allein durch diese Typen auf vollständigen V1-Status angehoben.
 
-| ID | Pflicht (Quelle/MR) | Verhalten | Gegenprobe (Fehlerbedingung) | Code-/Test-Ref | Ergebnis | Status |
-|---|---|---|---|---|---|---|
-| A1 | Kanonische Rollen `ADMIN,HOST,PLAYER,VIEWER,DISPLAY` zentral in shared (MR-02-01-02-A01..A03, MR-12-01-01-A01) | Runtime/UI nutzen `HOST` statt `MODERATOR`; `ADMIN,PLAYER,VIEWER,DISPLAY` ergänzt | unbekannte Rolle wird **abgelehnt**, kein String-Cast | `PLATFORM_ROLES`/`normalizeRole`/`normalizePlatformRole` (shared); `persistence/migration.roles.test.ts` | `normalizeRole`/`normalizePlatformRole` verwerfen unbekannte Werte (negativ getestet); `HOST` zentral definiert | VERIFIED |
-| A2 | `MODERATOR`→`HOST` in Runtime/UI (MR-02-01-02-A03, MR-01-00-02-A01) | Auth, Guards, HTTP, Socket, Registry, Seeds, Fixtures, sichtbare UI-Bezeichnungen, geroutete Seiten auf `HOST`; `MODERATOR` nur Migration/Compatibility/Legacy-Routen | grep: kein `MODERATOR` in Runtime-Pfaden außer abgegrenzter Compatibility; UI zeigt „Host" | `prisma/schema.prisma` (Default `HOST`), `http/middleware/auth.ts` (`LEGACY_MAP`), `sockets/*`, UI-Seiten | Schema-Default + Auth-Map + UI auf `HOST`; `MODERATOR` nur noch in Legacy-Map/Migration; Server-Suite grün (alle Auth-Flows) | VERIFIED |
-| A3 | Trennung Accountrolle / Verwaltungsrecht / Teilnahme / Projektionskontext (MR-01-00-02-A01, MR-02-01-03-A01..A02) | `HOST`-Rolle ≠ pauschaler Anspruch auf Player-Geheimnisse/fremde Lösungen | Admin/Host im Spielbetrieb erhält **keine** allwissende Projektion; WID `HOST_CANNOT_PLAY_OWN_ROUND` bleibt | `games/core/permissions.ts`, `games/weristdas/events.ts` | Permission-Paket trennt Verwaltungs- und Secret-Rechte (B-Test); WID-Eigentümerprüfung intakt (Server-Suite grün) | VERIFIED |
-| A4 | Sichere versionierte Migration `User.role`/`Participation.role` (MR-05-23-01-A01..A06) | Neue Migration (keine bestehende umschreiben); `MODERATOR`→`HOST`; IDs, Sessions, Räume, Rejoin-Tokens, Referenzen, Ergebnisse, Engine-Versionen bleiben | frische DB + Bestandskopie (ADMIN/MODERATOR, Host-Teilnahme, aktive+beendete Räume, WID v1/v2, Sessions/Rejoin); wiederholtes `migrate deploy`; ADMIN bleibt ADMIN; Rejoin funktioniert; unbekannte Rolle → keine Rechte | `prisma/migrations/20261010120000_…/migration.sql`, `persistence/migration.roles.test.ts` (8/8) | Bestands-Fixtur mit MODERATOR/ADMIN/PLAYER/VIEWER/UNKNOWN: UPDATE→HOST, ADMIN bleibt ADMIN, UNKNOWN unverändert (keine Rechte), Rejoin-Tokens erhalten, Idempotenz (zweites `migrate deploy` = No-op) — 8/8 Tests grün | VERIFIED |
-| A5 | Legacy-Normalisierung an klaren Grenzen (MR-05-23-01-A03, MR-12-01-01-A05) | alte Client-/DB-Werte nur an der vorgesehenen Grenze normalisiert; gecachte Socketrolle wird nicht für immer gültig angenommen | alter Client mit `MODERATOR` wird an der Grenze zu `HOST` normalisiert, nicht im ganzen Code | `LEGACY_ROLE_VALUES`/`normalizeRole` (shared), `migration.roles.test.ts` (Boundary) | `normalizeRole('MODERATOR')='HOST'` nur an der Grenze (DB-Read/Auth-Map); kein `MODERATOR` in Runtime-Logik; negativ: unbekannter Wert → Ablehnung | VERIFIED |
-| A6 | `DISPLAY` Read-only/Public-Vertrag (MR-02-01-06-A01..A05) | `DISPLAY`-Rolle + Enum + Vertrag: keine Secrets, keine Eingaben, kein Player/Viewer-Slot; **nur Vertrag + Enum jetzt**, voller Bedienflow später (→ PR20/TEAM-ROOM) | Display-Client erhält keine Gameplay-Eingabe/Secrets; belegt keinen Slot | `DISPLAY` in `PLATFORM_ROLES`/`ROLE_PERMISSION_PACKAGES` (shared), `migration.roles.test.ts` | `DISPLAY`-Rolle existiert + leerer Permission-Pack (keine Spielrechte, keine Secrets); negativ: DISPLAY erhält kein GAME_START/BUZZ/Secret-Recht | VERIFIED |
+Die 1.292 historischen PR12-Matrixzeilen werden nicht ohne Einzelbeleg als
+IMPLEMENTED umgebucht. Der datierte Main-Abgleich und diese konkrete
+Paketabnahme dokumentieren die Änderung; keine V1-Prozentzahl wird daraus
+abgeleitet. Ein full V1-/Team-/Voice-/Display-/Result-Core-DONE wird hier nicht
+behauptet.
 
-**Folge (nicht in diesem PR):** volles Team-Modell, Room-Lifecycle-Zustände `DRAFT_ROOM/SCHEDULED/EXPIRED/IDLE` (MR-04-03-01 → TEAM-ROOM); Display-Bedienflow (→ PR20).
 
----
+## GitHub-Nachweis des Produktcode-Heads
 
-## B — Berechtigungen und Informationsschutz
-
-| ID | Pflicht (Quelle/MR) | Verhalten | Gegenprobe | Code-/Test-Ref | Ergebnis | Status |
-|---|---|---|---|---|---|---|
-| B1 | Permission-Vertrag mit den 11 Rechten (MR-02-03-01-A01..A03, §2.3) | `GAME_START, GAME_PAUSE, ROUND_ADVANCE, JUDGE_ANSWER, SCORE_ADJUST, BUZZER_CONTROL, TIMER_CONTROL, REVEAL_CONTENT, TEAM_MANAGE, PLAYER_MANAGE, GAME_ABORT` zentral definiert; Rollen liefern Defaultpakete | — | `packages/shared/src/index.ts` (`GAME_PERMISSIONS`, `ROLE_PERMISSION_PACKAGES`), `games/core/permissions.integration.test.ts` (B1) | Die 11 Rechte sind exakt zentral definiert (Sort-Vergleich); Rollen-Defaultpakete liefern die erwarteten Rechte (Secret ≠ Verwaltung) — Test grün | VERIFIED |
-| B2 | Wirksame Rechte = Default ± Grants/Entzüge (MR-02-03-01-A03) | Grant/Revoke pro Recht; **vollständig autorisierte, validierte, getestete** API, falls eingeführt | Grant für genau ein Recht wirkt; entzogenes Recht wird auch bei **bereits verbundenem** Socket verweigert (Revoke/Reconnect) | `room_permission_grants` (Prisma), `games/core/permissions.ts` (`loadEffectivePermissions`), `permissions.integration.test.ts` (B2) | Grant auf `GAME_PAUSE` (kein Secret) wird gewährt; Revoke wirkt **auf dem bereits verbundenen Socket** (Guard liest DB live) — negativ: entzogenes Recht → `UNAUTHORIZED`/`NOT_AUTHORIZED` — Test grün | VERIFIED |
-| B3 | Guard in kritischen Aktionen integriert (MR-02-03-01-A01, MR-05-17-01-A01) | Guard serverseitig in existierenden kritischen Mutations (Start/Pause/Reveal/Weiter/Judge/Points/Kick), **nicht** nur exportiert | Player/Viewer fälscht Hostrolle → verweigert; falscher Raum → verweigert; Cross-Room verweigert | `games/core/permissions.ts` (`requireGamePermission`), `receiptedAction.ts`, `sockets/game.ts`, `games/{geo,jeopardy,weristdas}/events.ts`, `games/contract/*` (F-Test, 2 Engines) | Guard läuft in allen kritischen Lifecycle-/Engine-Mutationen (Start/Pause/Resume/End + Geo/Jeopardy/WID-Actions); negativ: Viewer bei `game:pause` → `UNAUTHORIZED` (F-Test, beide Engines); falscher Raum → `NOT_IN_ROOM`; Server-Suite + F-Test grün | VERIFIED |
-| B4 | Verwaltungs- vs Secret-Rechte getrennt (MR-02-02-01-A01..A02, MR-01-00-02-A01) | delegiertes Pause-Recht verleiht **keine** Judge/Reveal/Lösungsansicht; eingeloggter ADMIN erhält im Spielbetrieb keine allwissende Projektion | Host mit Pause-Grant sieht keine fremden Lösungen; ADMIN-Login ≠ Secret-Zugriff | `permissions.integration.test.ts` (B4) | Grant auf genau ein Verwaltungs-Recht gewährt **keine** Secret-Rechte (negativ: `JUDGE_ANSWER`/`REVEAL_CONTENT` bleiben entzogen); ADMIN-Login allein verleiht im Spielbetrieb keine Secrets — Test grün | VERIFIED |
-| B5 | Co-Host-Grundlage (MR-02-04-01-A01..A08) | kein neuer Hauptrollentyp, Default OFF, nur eingeloggte Nutzer, keine zusätzlichen Secrets; **Grundlage jetzt, volles Room-Setting/UI → TEAM-ROOM** | kein Co-Host durch Gastidentität; Gast kann nicht delegiert werden | `room_permission_grants` (nur `hostUserId`-bezogene Grants), `permissions.ts` | Grant-Mechanismus ist an eingeloggte `hostUserId`-Akteure gebunden (Gast kann nicht delegiert werden); volles Co-Host-UI/Bedienablauf → TEAM-ROOM (Folge) | VERIFIED (Grundlage) |
-| B6 | VIEWER/DISPLAY read-only, nur freigegebene PUBLIC (MR-02-01-04-A02, §2.1) | Viewer/Display sehen vor Reveal keine Lösungen; WID-Eigentümerprüfung + Signed-URL-Audience + `HOST_CANNOT_PLAY_OWN_ROUND` intakt | Player/Viewer-Snapshot vor Reveal enthält keine Antworten (negativ via direktem HTTP/Socket-Request, nicht nur UI) | `games/{geo,jeopardy,weristdas}/resync`, `games/contract/*` (F: Viewer-Denial), bestehende socket-flow/E2E-Tests | Viewer/Denial via Guard (F-Test) + Resync-Tests ohne Antwort-Exposure (Server-Suite grün) + WID-Eigentümer-/Secret-E2E an Base grün | VERIFIED |
-| B7 | Kein generischer Host-as-Player-Modus (MR-02-01-03, §1) | bestehende Engines behalten ehrliche Mitspiel-Grenzen; Guard muss Konflikt „Admin sieht Lösungen" vs. „als benachteiligter Player" abbilden | Host mit bekannten Lösungen wird nicht als normaler wissensbenachteiligter Player freigeschaltet | `games/weristdas/events.ts` (`HOST_CANNOT_PLAY_OWN_ROUND`), `permissions.ts` | WID-Eigentümer-/`HOST_CANNOT_PLAY_OWN_ROUND`-Pfad intakt (Server-Suite grün); Guard trennt Verwaltungs- und Spielrechte (B4) | VERIFIED |
-
-**Folge:** volles Co-Host-Bedienablauf + Room-Settings-UI (→ TEAM-ROOM); vollständige Finalisierungs-/Event-Architektur (→ später).
-
----
-
-## C — Commands, Protokoll, Wiederholungssicherheit
-
-| ID | Pflicht (Quelle/MR) | Verhalten | Gegenprobe | Code-/Test-Ref | Ergebnis | Status |
-|---|---|---|---|---|---|---|
-| C1 | Command-Envelope: `commandId, protocolVersion, autoritativer Raumbezug, Versionserwartung, Payload-Schema` (MR-05-17-01-A01..A06) | zentrale validierte Envelope; bestehende `requestId/roomCode/expectedRevision` kompatibel abgebildet; widersprüchliche alte/neue Felder abgelehnt; Client-Raum ≠ Membership | fehlende/ungültige Felder abgelehnt; Widerspruch `commandId` vs `requestId` → Ablehnung | `resolveCommandEnvelope` (shared), `commandContext.ts`, `commandContract.integration.test.ts` (C1) | Envelope auflöst requestId↔commandId, expectedRevision↔stateVersion; Widerspruch `commandId`≠`requestId` → `null` (negativ); Client-Raum ersetzt keine Membership (serverseitig aus Socket-Identität) — Test grün | VERIFIED |
-| C2 | `protocolVersion=1` im Handshake + bei Commands (MR-12-04-01-A02..A06, MR-10-11-01-A03..A04) | unbekannte inkompatible Version → `CLIENT_VERSION_UNSUPPORTED` **vor** Mutation; fehlende Legacy-Version nur über dokumentierten, getesteten Pfad; Rejoin behält Version | Client mit Version 2 → `CLIENT_VERSION_UNSUPPORTED` vor jeglicher Mutation; Rejoin einer laufenden Session behält Vertrag | `checkCommandProtocolVersion`/`isSupportedProtocolVersion` (shared + `commandContext.ts`), `commandContract.integration.test.ts` (C2), `games/contract/*` (F-Test 1) | `protocolVersion=2` → `CLIENT_VERSION_UNSUPPORTED` **vor** Mutation (Room bleibt LOBBY, negativ: kein RUNNING); v1/missing → ok, Start erfolgt; F-Test 1 auf **beiden** Engines grün | VERIFIED |
-| C3 | Ein Token pro Benutzerabsicht (Frontend) | Frontend erzeugt ein Token pro Absicht, nutzt es bei Wiederholung erneut, neue Absicht → neues Token; gleiche Payload ≠ gleiche Absicht; kein Zeit-/Payload-Fingerprint | neue Absicht mit identischer Payload → neues Token → neue zulässige Wirkung | `apps/web/src/lib/socket.ts` (`withCommandEnvelope`), `hooks/useJeopardy.ts`, `hooks/useWerIstDas.ts`, geroutete `Player/ModeratorGamePage` | Ein `commandId` pro explizitem Intent-Key (neue Absicht → `crypto.randomUUID()`); Wiederholung derselben Absicht wiederverwendet das Token; Web-Tests 52/52 + E2E (Geo/Jeopardy) grün | VERIFIED |
-| C4 | Command-Receipts in kritischen Mutationen (MR-10-06-01-A01..A04, MR-05-17-01-A04) | Receipts für Antworten/Joker, Buzz/Judge/Points, Reveal/Weiter, Start/Pause/Abort (soweit vorhanden); vollständige Handler-Abdeckung dokumentiert | identischer Command seriell **und** parallel → genau eine fachliche Wirkung; Commit ok + Antwort verloren + Retry → keine zweite Wirkung | `games/core/commands.ts` (`runReceipted`), `receiptedAction.ts`, `commandContract.integration.test.ts` (C4 seriell+parallel), `games/contract/*` (F-Test 2) | Serialer Duplicate → gespeicherte Antwort (`replayed:true`), `mutations===1`; parallele identische Commands → genau eine Mutation; echtes `game:start` mit `commandId` liefert Duplicate als Replay (F-Test 2, beide Engines) — grün | VERIFIED |
-| C5 | Duplicate-Nachweis + Mutation + Receipt in einer DB-Transaktion/CAS (MR-10-06-01-A02, MR-05-19-01-A04) | kein Check-then-create bei parallelen Requests; kein Erfolgseintrag ohne abgeschlossene Aktion; keine doppelte Wirkung nach Commit vor ACK-Verlust | parallele identische Commands; Fehler-Injektion **innerhalb** der Transaktion → Rollback → keine Erfolgsquittung | `claimCommand` (atomares `createUnique`), `runReceipted`, Engine-CAS (`updateMany where revision`), `commandContract.integration.test.ts` (C4 parallel) | Claim via atomarem `createUnique` (kein Check-then-Create); CAS verhindert zweite fachliche Wirkung; parallele Duplikate → `mutations===1` — Test grün | VERIFIED |
-| C6 | Receipt bindet Raum + Akteur + Aktion + Payload (MR-10-06-01) | gleiche commandId mit anderem Akteur/Payload → kontrollierte Ablehnung, keine fremden Ergebnisse/Rechte | Replay mit anderem Akteur/Payload → Ablehnung; Wiederholung nach aktueller Autorisierung | `hashCommandPayload`/`claimCommand` (ACTOR/PAYLOAD_MISMATCH), `commands.ts` | `payloadHash` = `action`+canonical(payload); Akteur-/Payload-Abweichung → `COMMAND_CONFLICT` (negativ getestet); gleiche Absicht → Replay | VERIFIED |
-| C7 | Duplicate liefert gespeicherte Antwort ODER `ALREADY_PROCESSED` (MR-10-06-01-A02) | eindeutig definiert + Fehler/Retry-Verhalten; DB-Fehler vor Commit erlaubt sicheren Retry; Retention/Restart ehrlich dokumentiert; kein stilles Löschen relevanter Receipts in laufender Session | Retry nach DB-Fehler heilt ohne Doppelwirkung | `runReceipted` (COMPLETED→replay, FAILED→sicherer Retry), `games/contract/*` | COMPLETED → gespeicherte Antwort mit `replayed:true`; FAILED (kein Erfolgseintrag) → sicherer Retry erlaubt; keine Doppelwirkung; Retention dokumentiert (kein GC in laufender Session) — F-Test 2 grün | VERIFIED |
-
-**Folge:** vollständige Event-/RoundTransition-/Finalisierungs-Architektur (→ spätere Pakete); aber die hier umgestellten Aktionen haben echte Replay-Sicherheit.
-
----
-
-## D — Einheitliche Fehler und Validierung
-
-| ID | Pflicht (Quelle/MR) | Verhalten | Gegenprobe | Code-/Test-Ref | Ergebnis | Status |
-|---|---|---|---|---|---|---|
-| D1 | Zentrale Fehler-/Result-Struktur (MR-12-02-01-A01) | `code, messageKey, traceId` + optional `details`, `retryable` (Master §12.2/12.13) | fehlende/ungültige Felder → strukturierter Fehler | `games/core/appError.ts` (`wireErrorToAppError`, AppError-Contract) | AppError-Vertrag `code/messageKey/traceId(+details/retryable)` zentral; Server-Suite grün (alle Fehlerpfade) | VERIFIED |
-| D2 | Bekannte Codes + Namespaces (MR-12-02-01-A02..A03) | `NOT_AUTHORIZED, INVALID_PHASE, STALE_STATE, ALREADY_PROCESSED, ROOM_LOCKED, PLAYER_NOT_FOUND, CONTENT_NOT_READY, CLIENT_VERSION_UNSUPPORTED, RATE_LIMITED, RECOVERY_REQUIRED` + Game-Namespace | Konflikt-, Rechte-, interner DB-Fehler → korrekter Code | `appError.ts` (Codes), `errors.ts` (`gameErrorCode`), `games/contract/*` | Bekannte Wire-Codes + AppError-Codes; z.B. `CLIENT_VERSION_UNSUPPORTED` (F-Test), `REVISION_CONFLICT`/`LOCKED_AFTER_START` (E-Test), `NOT_IN_ROOM`/`UNAUTHORIZED` (F-Test) — grün | VERIFIED |
-| D3 | In geänderten HTTP-/Socket-Flows + Frontend-Verbrauchern genutzt (MR-12-02-01) | alte lesbare `message` im Kompatibilitätsfenster erhalten; Wire-Codes nicht unkontrolliert gebrochen; Abbildung/Deprecation dokumentiert | Legacy-Antwortformat weiterhin benutzbar; UI behandelt Fehler sichtbar und beendet Loading-/Klicksperren | `receiptedAction.ts` + `sockets/game.ts` (Wire-Code-Mapping), `errors.ts` (`publicError`) | Permission-Denials werden auf **Legacy-Wire-Codes** abgebildet (Engine: `FORBIDDEN`/`NOT_IN_ROOM`; Lifecycle: `UNAUTHORIZED`/`NOT_IN_ROOM`) — bestehende Clients/Tests brechen nicht; Frontend zeigt Fehler sichtbar; Server-Suite + E2E grün | VERIFIED |
-| D4 | Validierte Schemas, keine kritischen neuen `any` (MR-12-03-01-A01..A03) | API/Socket/Command/Event/Snapshot/Manifest/Config-Schemas; Server validiert immer | verschachtelt falsche Payload, unbekannter Command → kontrollierte Validierungsfehler | zod-Schemas (shared), `commandContext.ts`, `config.ts` (updateRoomConfig-Validierung) | Envelope/Config/Manifest via zod validiert; ungültige Config (neg. Zahlen, nicht-Integer, unbekanntes Feld) → `INVALID_CONFIG` (E-Test); Envelope-Widerspruch → Ablehnung (C-Test) — grün | VERIFIED |
-| D5 | Keine Sensitivlecks in Antworten/Logs (MR-12-13-01-A02, §10.7) | Auth/Ownership/Scope-Denials ohne unnötige Infos über fremde private Ressourcen; keine Stacktraces/SQL/Pfade/Tokens/Secrets in Antworten/sensiblen Logs | Denial auf fremde private Ressource enthält keine Details; Trace-ID verbindet Antwort+Log, verleiht keine Rechte | `errors.ts` (`publicError`), `appError.ts`, E2E WID-Header-Check | `publicError` bürstet interne Details (Stack/SQL/Pfade) ab; WID-E2E prüft, dass Secrets nicht in Antworten/Headers landen; Trace-ID in AppError-Vertrag | VERIFIED |
-
----
-
-## E — Konfiguration, Revisionsschutz, Start-Snapshots
-
-| ID | Pflicht (Quelle/MR) | Verhalten | Gegenprobe | Code-/Test-Ref | Ergebnis | Status |
-|---|---|---|---|---|---|---|
-| E1 | Zentrale validierte Defaults, Einheiten/Nullability (MR-11-14-01-A01..A03, MR-12-07-01, MR-12-08-01) | `durationMs`, Bytes, Prozent 0–100 (Nachkommastellen erlaubt), Punkte Integer; klare Herkunft; „nicht gesetzt" ≠ `null` ≠ Vererbung ≠ Reset; kein `value \|\| default` | `false`, `0`, optionales/nullbares Feld bleiben erhalten; ungültige Werte abgelehnt | `games/core/config.ts` (`resolveGameConfig`, `GAME_CONFIG_FIELDS`), `config.integration.test.ts` (E1) | `timerDurationMs:0` → 0 (kein Default-Override); ungültige Einheiten (neg., nicht-Integer, unbekanntes Feld) → `INVALID_CONFIG` (negativ) — Test grün | VERIFIED |
-| E2 | 7-Ebenen-Priorität (MR-12-14-01-A01..A02) | `SYSTEM_DEFAULT → HOST_DEFAULT → ROOM_TEMPLATE → GAME_PRESET → ROOM_CONFIG → GAME_CONFIG → LIVE_OVERRIDE`, spezifischer gewinnt | jede Prioritätsstufe mit unterschiedlichen Werten → korrekte Auflösung | `resolveConfigValue` (shared), `games/core/config.ts`, `config.integration.test.ts` (E2) | Jede der 7 Ebenen mit unterschiedlichen Werten → spezifischste gewinnt (`LIVE_OVERRIDE`); unabhängig pro Feld — Test grün | VERIFIED |
-| E3 | Änderungsklassen / LOCKED_AFTER_START (MR-12-14-01-A03) | nach Start nicht live überschreibbar; erlaubte Live-Änderungen serverseitig geprüft + nachvollziehbar erfasst | ungültige Live-Änderung nach Start → abgelehnt, Snapshot unverändert | `canLiveOverride` (shared), `games/core/config.ts` (`updateRoomConfig`), `sockets/room.ts` (`room:config:update`), `config.integration.test.ts` (E3) | `questionCount` (LOCKED_AFTER_START) im RUNNING → `LOCKED_AFTER_START` (negativ); `timerDurationMs` (EDITABLE) live änderbar; via geroutetem `room:config:update` — Test grün | VERIFIED |
-| E4 | Resolver in Setup-/Start-Flows + unveränderlicher Start-Snapshot (MR-05-22-01-A01, MR-05-24, MR-11-14-01-A04) | endgültige Werte mit `gameSlug, engineVersion` + vorhandenem Setup-/Referenzdaten beim Start unveränderlich gespeichert; keine Platzhalter für Teams/Content/Events als fertig | Snapshot bleibt nach Default-/Live-Änderung unverändert; Rejoin + DB-Reopen liefern dieselben Regeln; WID v1/v2 bleiben spielbar | `games/core/config.ts` (`persistConfigSnapshot`, `loadGameConfig`), `games/geo/index.ts` (Timer via `loadGameConfig`), `config.integration.test.ts` (E4), `games/contract/*` (F-Test 4) | Echter `game:start` persistiert unveränderlichen Start-Snapshot (`gameSlug`+`engineVersion`, Legacy 25s→25000ms); Live-Änderung überschreibt Snapshot **nicht** (byte-identisch); Geo liest Timer im echten Round-Flow via `loadGameConfig`; F-Test 4 auf beiden Engines — grün | VERIFIED |
-| E5 | Revision + Optimistic Locking (MR-12-15-01-A01..A04, A08) | fachliche Änderung erhöht Revision; bloßes Lesen/Rejoin/No-op nicht; Konflikt → `REVISION_CONFLICT` ohne Überschreiben | zwei Updates auf derselben Revision → einer bekommt `REVISION_CONFLICT`; No-op/Read ohne Revisionserhöhung | `games/core/config.ts` (`updateRoomConfig` CAS), `config.integration.test.ts` (E5) | EDITABLE-Änderung → Revision +1; No-op (gleicher Wert) → `changed:false`, Revision unverändert; veraltete `expectedRevision` → `REVISION_CONFLICT`, kein Überschreiben (negativ) — Test grün | VERIFIED |
-| E6 | Setup-v1/v2 + Engine-Versionen weiter lesen; explizite Legacy-Strategie (MR-05-23-01) | keine erfundenen historischen Snapshots aus heutigen Defaults; fehlende sichere Migration → laufender Raum **nicht** still umgedeutet | WID-v1-Raum (ein Bild) und v2 (Fusion) bleiben lauffähig nach Migration | `games/weristdas` (v1/v2-Lese), `migration.roles.test.ts` | WID-v1 (ein Bild) + v2 (Fusion) bleiben nach Migration lauffähig; `engineVersion` wird im Snapshot konserviert; WID-E2E an Base grün | VERIFIED |
-| E7 | HOST_DEFAULT/ROOM_TEMPLATE/GAME_PRESET als Auflösungsvertrag (MR-12-14-01) | als Vertrag unterstützt; volles Editor-/Persistenz-UI → späteres Paket (gekennzeichnet) | — | `resolveConfigValue` (shared, alle 7 Ebenen), `config.integration.test.ts` (E2) | Alle drei Ebenen im Resolver-Vertrag unterstützt und getestet (E2); volles Editor-/Persistenz-UI → Folgepaket (gekennzeichnet) | VERIFIED |
-
----
-
-## F — Manifeste und wiederverwendbare Contract-Tests
-
-| ID | Pflicht (Quelle/MR) | Verhalten | Gegenprobe | Code-/Test-Ref | Ergebnis | Status |
-|---|---|---|---|---|---|---|
-| F1 | Manifest-Vergleicher (MR-01-00-04-A01, §5.3) | `GameManifest` um Capabilities, engineVersion, Content-/Setup-Typ, Late-Join, Viewer, Broadcast ergänzt (volle Feldliste aus Master) | absichtlich ungültiges Manifest wird abgelehnt | `GameManifestSchema` + `normalizeManifest()` (shared, Input/Output-Split) | Manifest-Schema um Capabilities/engineVersion/lateJoin/viewer/etc. ergänzt; `normalizeManifest()` = Single Source of Truth; Input/Output-Split per `z.input` | VERIFIED |
-| F2 | Single Source of Truth (MR-01-00-04-A01) | shared-Manifest für Katalog, API, Registry, Oberfläche; keine doppelten Listen/driftenden Defaults | API/UI/Seed/Registry nutzen dieselbe Quelle (Konsistenztest) | `games/catalog-consistency.test.ts` | API-Katalog-Output wird gegen `normalizeManifest(GAME_MANIFESTS[…])` abgeglichen (nicht gegen rohe Manifeste); Seed-Konsistenz via Konsistenztest — Server-Suite grün | VERIFIED |
-| F3 | Ehrliche Capabilities/Status (MR-05-28-01-A11..A12, §5.4) | Capability/Status beschreiben realen Stand; neues optionales Feld aktiviert kein Team-/Voice-/Display-Feature; **WID bleibt BETA**; kein AVAILABLE-Durch-Typen | Capability stimmt mit registriertem Verhalten überein; Statuswechsel durch Typen nicht möglich | `GAME_MANIFESTS`/`normalizeManifest` (shared), `catalog-consistency.test.ts` | Status `AVAILABLE` nur für wissensduell+jeopardy; **WID = BETA**; Status/Features nicht durch Typen-Feld schaltbar; Konsistenztest belegt Abgleich | VERIFIED |
-| F4 | Keine DDF-Manifestregistrierung (Scope) | DDF-Regeln/Slug/Engine bleiben getrennt | — | — | DDF-Regeln/Slug/Engine nicht im Manifest-Katalog registriert (getrennt erhalten) | VERIFIED |
-| F5 | Wiederverwendbares Contract-Testgerüst (MR-05-28-01-A01..A12, §13.2) | Schema/Manifest, Autorisierung, Informationsgrenzen, Protokollfehler, Replay/CAS, Config-Snapshot | **mindestens 2 unterschiedliche echte Engines** laufen dieselbe Prüfung; 3. bekommt Regression; bewusst falsche Rollen-/Secret-/Replay-Bedingung lässt die Prüfung **fehlgeschlagen** | `games/contract/contractSuite.ts` + `geo.contract.test.ts` + `jeopardy.contract.test.ts` (8/8) | **Zwei echte Engines (Geo + Jeopardy)** laufen dieselbe `contractSuite` (4 Prüfungen/Engine): (1) inkompatible `protocolVersion`→`CLIENT_VERSION_UNSUPPORTED` vor Mutation (negativ), (2) Replay/CAS identischer Command→genau eine Wirkung + gespeicherte Antwort, (3) Viewer→`UNAUTHORIZED`, Host nicht (negativ), (4) unveränderlicher Start-Snapshot. Jede Assertion hat eine negative Kontrolle (falsche Rolle/Version/Dup-Bedingung → Test rot). 8/8 grün | VERIFIED |
-| F6 | Geroutete Frontend-Seiten + Konsistenz | bestehende Katalog-/Seed-/Registry-Prüfungen weiter; **geroutete** Seiten getestet (v.a. generische `ModeratorSetupPage`) | — | web e2e/tests, `catalog-consistency.test.ts` | Geroutete `ModeratorSetupPage`/`ModeratorLobbyPage`/`PlayerGamePage` über Envelope-Emits getestet (Web-Tests 52/52 + E2E Geo/Jeopardy grün); Katalog-/Seed-/Registry-Konsistenz weiter grün | VERIFIED |
-
----
-
-## Abschlusskriterien (Arbeitsauftrag §8)
-
-1. **Alle Pflichten A–F** im definierten Umfang implementiert **und** mit positiv + negativ belegten Gegenproben abgenommen. → **erfüllt** (jeweils `VERIFIED` oben; Co-Host-UI/Team/Display-Bedienablauf/Config-Editor bleiben gekennzeichneter Folge-Auftrag, nicht als erledigt ausgegeben).
-2. Verträge von echten existierenden Flows genutzt; Core-DoD in ≥2 Engines nachgewiesen (F5). → **erfüllt** (Guard/Receipt/Envelope/Config in gerouteten Socket-Flows; F5 auf Geo + Jeopardy; Geo liest Config im echten Round-Flow).
-3. Bestandsmigration, Rejoin, WID v1/v2 und die 3 Engines funktionieren; keine neuen Secret-Leaks / doppelten Wirkungen. → **erfüllt** (A4/Migration 8/8; F-Test Replay `mutations===1`; WID-E2E + Server-Suite grün; keine neuen Leaks).
-4. Alle Checks (Migration frisch+Bestand, typecheck, lint, build, Server-Tests mit Migration+Seed, Web-Tests, E2E, Gegenproben) auf dem **finalen** Stand ausgeführt und bewertet. → **erfüllt** (Details + exakte Zahlen in `verification.md`).
-5. Code + Doku gepusht, PR-Beschreibung aktuell, CI **und** E2E am exakt gleichen Head geprüft. → Code + Doku im Stage-2-Commit gepusht; PR-Beschreibung (`pr-body.md`) aktuell. **CI-Ergebnis am exakt gleichen Head:** nach Push zu lesen (Draft-PR, kein Merge). E2E am gleichen Head lokal geprüft (17/18; roter WID-W1-W10 = vorbestehend, am Base identisch).
-6. Handoff/Acceptance/Wiederaufnahme vollständig; keine stille „nur lokal" Restarbeit. → **erfüllt** (`handoff.md` + `acceptance.md` + `verification.md` aktuell; offene Punkte nur die gekennzeichneter Folgebereiche, siehe `handoff.md`).
-
-> Ein Typ/Stub/delegierter Folgeauftrag/grüner Normalpfad erfüllt **keine** Runtime-Pflicht.
-> Matrix-`VERIFIED` nur für wirklich einzeln belegte Pflichten; dieses Paket markiert nicht alle V1-Anforderungen als erledigt.
+Am Code-/Test-Head `c4bcc00b79de3e5a72368e9a23707010fb2ebdcb` sind CI und
+vollständige E2E erfolgreich: [Run 39249235352](https://github.com/joern211/quiz-platform/actions/runs/39249235352).
+**18/18 Browserfälle im ersten Versuch bestanden**, keine Retries/Flakes,
+keine übersprungenen Tests; WID W1–W10 in 9,7 s, Gesamtlauf 55,1 s.
+Nachfolgende Dokumentationsänderungen erhalten vor der Freigabe ebenfalls
+CI/E2E am exakten aktuellen PR-Head; deren Live-Nachweis steht in den PR-Checks.
