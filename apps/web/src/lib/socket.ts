@@ -74,6 +74,7 @@ export interface GeoResyncResponse {
   error?: string;
   phase?: string;
   gameEnded?: boolean;
+  recoveryError?: string;
   roundIndex?: number;
   totalQuestions?: number;
   question?: {
@@ -123,6 +124,7 @@ export type ServerToClientEvents = {
     buzzOpen: boolean;
   }) => void;
   'geo:reveal': (data: { correctOptionId?: string; correctOptionText?: string; explanation?: string; scores: Array<{ participationId: string; displayName: string; score: number; correct: boolean; bonus: number }> }) => void;
+  'geo:round:error': (data: { error: string }) => void;
   'geo:timer-expired': (data: { roundIndex: number }) => void;
   'geo:paused': (data: { roundIndex: number; remainingMs: number }) => void;
   'geo:resumed': (data: { timerEndMs: number }) => void;
@@ -322,106 +324,21 @@ export function kickPlayer(roomCode: string, playerId: string, callback?: (res: 
 // Payload-Fingerprint.
 // ============================================================
 
-import { PROTOCOL_VERSION } from '@quiz/shared';
+import { createCommandIntentClient, type CommandEmitter, type CommandResponse } from '@quiz/shared';
+export type { CommandResponse } from '@quiz/shared';
 
-const intentTokens = new Map<string, string>();
+const commandIntents = createCommandIntentClient();
+export const {
+  intentToken, discardIntentToken, discardIntentTokenIfCurrent, withCommandEnvelope,
+} = commandIntents;
 
-function newCommandId(): string {
-  if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) {
-    return crypto.randomUUID();
-  }
-  return `cmd-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
-}
-
-/**
- * Liefert das Absichtstoken für eine Benutzerabsicht (erzeugt es bei
- * Bedarf). Der Intent-Key muss die fachliche Absicht tragen — z.B.
- * `${roomCode}:geo:answer:${roundIndex}` oder `${roomCode}:game:start`.
- */
-export function intentToken(intentKey: string): string {
-  let token = intentTokens.get(intentKey);
-  if (!token) {
-    token = newCommandId();
-    intentTokens.set(intentKey, token);
-  }
-  return token;
-}
-
-/**
- * Neue Absicht: altes Token verwerfen (z. B. nach abgeschlossener
- * Runde/Handlung). Ohne Aufruf bleibt das Token für dieselbe Absicht.
- */
-export function discardIntentToken(intentKey: string): void {
-  intentTokens.delete(intentKey);
-}
-
-/**
- * Audit PR14, 14-01 (Nacharbeit): Token nur verwerfen, wenn es das GLEICHE
- * ist, das mit dem zugehörigen Request gesendet wurde. Ein VERSPÄTETES ACK
- * eines älteren Requests darf ein bereits für eine NEUERE Absicht vergebene
- * Token nicht löschen (sonst würde die neuere Absicht ihr Token verlieren
- * und der nächste Sendevorgang versehentlich den alten commandId wieder
- * aufgreifen).
- */
-export function discardIntentTokenIfCurrent(intentKey: string, sentToken: string): void {
-  if (intentTokens.get(intentKey) === sentToken) {
-    intentTokens.delete(intentKey);
-  }
-}
-
-/**
- * Fügt einem kritischen Payload das Absichtstoken + Protokollversion
- * hinzu (Command-Envelope, v1). Reiner Builder — die Token-Verwaltung
- * (Lebenszyklus pro Absicht) läuft zentral über `emitCommand`
- * (Audit PR14, 14-01).
- */
-export function withCommandEnvelope<T extends object>(payload: T, intentKey: string): T & { commandId: string; protocolVersion: number } {
-  return { ...payload, commandId: intentToken(intentKey), protocolVersion: PROTOCOL_VERSION };
-}
-
-export type CommandResponse = { success: boolean; error?: string; [k: string]: unknown };
-
-/**
- * Sendet eine kritische Socket-Aktion mit Absichtstoken und verwaltet den
- * Token-Lebenszyklus zentral (Audit PR14, 14-01, Nacharbeit):
- *
- *   - Unklarer Ausgang (ACK-Verlust/Timeout — der Callback läuft NICHT):
- *     Token bleibt → ein Retry derselben Absicht verwendet GLEICHES Token
- *     (determinischer Replay bzw. sichere Neu-Ausführung serverseitig).
- *   - Abschließend bestätigter Ausgang — Erfolg ODER bestätigte Ablehnung:
- *     Token wird VERBRAUCHT. Die NÄCHSTE Benutzerabsicht (erneutes
- *     Buzzer-Öffnen derselben Runde nach einer WRONG-Bewertung, zweiter
- *     Start-Versuch nach NOT_ALL_READY) erhält ein FRISCHES Token und wird
- *     VON GRUND NEU geprüft — eine gespeicherte Ablehnung repliziert der
- *     Server dann nicht mehr "dauerhaft" (Audit-Beleg:
- *     REVIEW_POISONED_INTENT). Der serverseitige Replay einer
- *     abgeschlossenen Ablehnung bleibt für den GLEICHEN Token
- *     deterministisch erhalten (derselbe Token = dieselbe Absicht).
- *   - Verspätetes ACK eines älteren Requests: verwirft das Token nur, wenn
- *     es das gesendete Token ist (discardIntentTokenIfCurrent) — ein
- *     neueres Token einer neueren Absicht bleibt unberührt.
- *
- * ALLE kritischen Emits laufen über diesen Pfad, damit kein Aufrufer den
- * Verbrauch nach bestätigtem ACK vergessen kann.
- */
+/** Keep one ID while a response is unknown; consume it after a final ACK. */
 export function emitCommand<TPayload extends object>(
   socket: Socket,
   event: string,
   payload: TPayload,
   intentKey: string,
-  onResponse?: (res: CommandResponse) => void,
+  onResponse?: (response: CommandResponse) => void,
 ): void {
-  const envelope = withCommandEnvelope(payload, intentKey);
-  const sentToken = envelope.commandId;
-  const emitter = socket as unknown as {
-    emit: (event: string, payload: unknown, ack?: (response: unknown) => void) => void;
-  };
-  emitter.emit(event, envelope, (raw: unknown) => {
-    const res = (raw && typeof raw === 'object' ? raw : {}) as CommandResponse;
-    // Audit PR14, 14-01 (Nacharbeit): Jeder ABSCHLIESSEND bestätigte Ausgang
-    // (success ODER rejection) beendet die Absicht → Token verbraucht.
-    // Verlorenes ACK: dieser Callback läuft nie → Token bleibt für den Retry.
-    discardIntentTokenIfCurrent(intentKey, sentToken);
-    onResponse?.(res);
-  });
+  commandIntents.emitCommand(socket as unknown as CommandEmitter, event, payload, intentKey, onResponse);
 }

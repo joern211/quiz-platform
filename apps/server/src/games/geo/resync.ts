@@ -24,6 +24,7 @@ type GeoState = {
   questions: Array<{ correctOptionId: string; explanation?: string }>;
   roundStates: Record<number, GeoRound>;
   scores: Record<string, number>;
+  recoveryError?: 'CONFIG_SNAPSHOT_INVALID';
 };
 
 /** Only return public state plus the actor's own data. Never serialize questions[] to a socket. */
@@ -58,7 +59,8 @@ export function projectGeoStateForClient(state: GeoState, actor: GameActor) {
       ...(revealed || actor.role === 'HOST'
         ? { correctOptionId: state.questions[state.currentRoundIndex]?.correctOptionId } : {}),
     } : null,
-    timerEndMs: state.phase === 'PAUSED' ? null : round?.timerEndMs ?? null,
+    recoveryError: state.recoveryError,
+    timerEndMs: ['PAUSED', 'ERROR_RECOVERY'].includes(state.phase) ? null : round?.timerEndMs ?? null,
     pauseRemainingMs: state.phase === 'PAUSED' ? round?.pauseRemainingMs ?? null : null,
     revealed,
     scores: state.scores,

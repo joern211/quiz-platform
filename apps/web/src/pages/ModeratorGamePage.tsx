@@ -28,6 +28,8 @@ export function ModeratorGamePage() {
   const [timerPaused, setTimerPaused] = useState(false);
   const [correctOptionId, setCorrectOptionId] = useState<string | null>(null);
   const [actionError, setActionError] = useState('');
+  const [recoveryError, setRecoveryError] = useState(false);
+  const recoveryMessage = 'Die Spielkonfiguration konnte nicht geladen werden. Das Spiel ist angehalten. Bitte beende es und erstelle einen neuen Raum.';
 
   useEffect(() => {
     socketRef.current = getSocket();
@@ -45,6 +47,8 @@ export function ModeratorGamePage() {
             navigate(`/moderator/raum/${roomCode}/ergebnis`, { replace: true });
             return;
           }
+          setRecoveryError(Boolean(res.recoveryError));
+          if (res.recoveryError) setActionError(recoveryMessage);
           if (res.question) setQuestion(res.question);
           setEndsAt(res.timerEndMs ?? 0);
           setRevealed(res.revealed ?? false);
@@ -73,7 +77,14 @@ export function ModeratorGamePage() {
       setPlayers(data.players || []);
     });
 
+    socket.on('geo:round:error', () => {
+      setRecoveryError(true);
+      setEndsAt(0);
+      setActionError(recoveryMessage);
+    });
+
     socket.on('geo:question', (data) => {
+      setRecoveryError(false);
       setQuestion(data.question);
       setEndsAt(data.timerEndMs);
       setRevealed(false);
@@ -173,10 +184,11 @@ export function ModeratorGamePage() {
 
   if (!question) {
     return (
-      <GameShell role="moderator" roomCode={roomCode} phase="WAITING" connected={connected} error={actionError}>
+      <GameShell role="moderator" roomCode={roomCode} phase={recoveryError ? 'ERROR_RECOVERY' : 'WAITING'} connected={connected} error={actionError}>
       <div className={styles.page}>
         <div className={styles.waiting}>
-          <h1>Warte auf Spielstart...</h1>
+          <h1>{recoveryError ? 'Spiel angehalten' : 'Warte auf Spielstart...'}</h1>
+          {recoveryError && <Button variant="danger" onClick={handleEndGame}>Spiel beenden</Button>}
         </div>
       </div>
       </GameShell>
@@ -184,7 +196,7 @@ export function ModeratorGamePage() {
   }
 
   return (
-    <GameShell role="moderator" roomCode={roomCode} phase={timerPaused ? 'PAUSED' : revealed ? 'REVEAL' : 'INPUT_OPEN'} connected={connected} error={actionError}>
+    <GameShell role="moderator" roomCode={roomCode} phase={recoveryError ? 'ERROR_RECOVERY' : timerPaused ? 'PAUSED' : revealed ? 'REVEAL' : 'INPUT_OPEN'} connected={connected} error={actionError}>
     <div className={styles.page}>
       <div className={styles.header}>
         <div className={styles.progress}>
@@ -196,7 +208,7 @@ export function ModeratorGamePage() {
         <p className={styles.category}>{question.category}</p>
         <h2 className={styles.prompt}>{question.prompt}</h2>
         
-        {!revealed && !timerPaused && <Timer endsAt={endsAt} size="lg" />}
+        {!recoveryError && !revealed && !timerPaused && <Timer endsAt={endsAt} size="lg" />}
         
         <div className={styles.answerStats}>
           {question.options.map((opt: any, i: number) => (
@@ -229,7 +241,7 @@ export function ModeratorGamePage() {
       </Card>
 
       <div className={styles.actions}>
-        {!revealed ? (
+        {!recoveryError && (!revealed ? (
           <>
             <Button variant="secondary" onClick={timerPaused ? handleResumeTimer : handlePauseTimer}>
               {timerPaused ? '▶ Weiter' : '⏸ Pause'}
@@ -238,7 +250,7 @@ export function ModeratorGamePage() {
           </>
         ) : (
           <Button onClick={handleNextQuestion}>Nächste Frage →</Button>
-        )}
+        ))}
         <Button variant="danger" onClick={handleEndGame}>Spiel beenden</Button>
       </div>
     </div>

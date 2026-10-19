@@ -20,7 +20,7 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { createServer, type Server as HttpServer } from 'node:http';
 import { randomUUID } from 'node:crypto';
-import { Server } from 'socket.io';
+import { Server, type Socket } from 'socket.io';
 import type { Socket as ClientSocket } from 'socket.io-client';
 import type { PrismaClient, Prisma } from '@prisma/client';
 import { setupSocketHandlers } from './sockets/index.js';
@@ -30,6 +30,7 @@ import { connectGameClient, gameAck } from './test-socket-harness.js';
 import { runReceipted } from './games/core/commands.js';
 import { resolveCommandContextForSocket } from './games/core/commandContext.js';
 import { updateRoomConfig } from './games/core/config.js';
+import { requireGamePermission } from './games/core/permissions.js';
 
 const ack = gameAck;
 const HOST_USER_ID = 'mod-1';
@@ -301,7 +302,7 @@ describe('14-04: kanonischer wissensduell-Raum (11 s → 11000 ms)', () => {
     expect(loaded?.values.timerDurationMs.value).toBe(11000);
   }, 20000);
 
-  it('defekter/inkompatibler Snapshot → startRound startet die Runde NICHT (keine Mutation, kein Timer, kein stummer 20000-Fallback)', async () => {
+  it('defekter Snapshot → persistenter ERROR_RECOVERY, Resync und kontrolliertes Beenden statt Default-Runde', async () => {
     const q = await testPrisma.geoQuestion.create({ data: { packId: (await testPrisma.questionPack.create({ data: { gameSlug: 'wissensduell', title: 'A14b', status: 'PUBLISHED' } })).id, prompt: 'Q?', category: 'G', options: JSON.stringify([{ id: 'a', text: 'x' }]), correctOptionId: 'a' } });
     const { id, code, host } = await makeHostRoom({
       slug: 'wissensduell',
@@ -326,13 +327,30 @@ describe('14-04: kanonischer wissensduell-Raum (11 s → 11000 ms)', () => {
     });
     const { handleGeoGame, __activeTimerRoomIdsForTest, cancelGeoTimer } = await import('./games/geo/index.js');
     try {
+      const roundError = new Promise(resolve => host.once('geo:round:error', resolve));
       await handleGeoGame.startRound(io, code);
-      // Keine unerlaubte Mutation: Phase bleibt INTRO, Revision unverändert.
+      expect(await roundError).toEqual({ error: 'CONFIG_SNAPSHOT_INVALID' });
+      // Persist only the recovery marker, retaining questions/scores/rounds.
       const gsAfter = await testPrisma.roomGameState.findUniqueOrThrow({ where: { roomId: id } });
-      expect(JSON.parse(gsAfter.stateJson).phase).toBe(JSON.parse(gsBefore.stateJson).phase);
-      expect(gsAfter.revision).toBe(revBefore);
+      const after = JSON.parse(gsAfter.stateJson);
+      expect(after).toEqual({ ...JSON.parse(gsBefore.stateJson), phase: 'ERROR_RECOVERY', recoveryError: 'CONFIG_SNAPSHOT_INVALID' });
+      expect(gsAfter.revision).toBe(revBefore + 1);
+      expect((await testPrisma.room.findUniqueOrThrow({ where: { id } })).runPhase).toBe('ERROR_RECOVERY');
+      expect(await ack(host, 'geo:resync', {})).toMatchObject({
+        success: true, phase: 'ERROR_RECOVERY', recoveryError: 'CONFIG_SNAPSHOT_INVALID', timerEndMs: null,
+      });
+      const viewer = await connect();
+      expect((await ack(viewer, 'room:subscribe', { roomCode: code })).success).toBe(true);
+      const publicView = await ack(viewer, 'geo:resync', {});
+      expect(publicView).toMatchObject({ success: true, phase: 'ERROR_RECOVERY', recoveryError: 'CONFIG_SNAPSHOT_INVALID', question: null });
+      expect(publicView).not.toHaveProperty('questions');
       // Keine Timer-Erzeugung (und damit KEINE stille 20000-Default-Runde).
       expect(__activeTimerRoomIdsForTest()).not.toContain(id);
+      const endCommand = { roomCode: code, commandId: randomUUID() };
+      expect(await ack(host, 'game:end', endCommand)).toMatchObject({ success: true });
+      expect(await ack(host, 'game:end', endCommand)).toMatchObject({ success: true, replayed: true });
+      expect(await testPrisma.commandReceipt.findUniqueOrThrow({ where: { roomId_commandId: { roomId: id, commandId: endCommand.commandId } } })).toMatchObject({ status: 'COMPLETED' });
+      expect((await testPrisma.room.findUniqueOrThrow({ where: { id } })).status).toBe('ENDED');
     } finally {
       cancelGeoTimer(id);
     }
@@ -503,4 +521,12 @@ describe('14-03: resolveCommandContextForSocket an der echten Grenze', () => {
     expect(good.ok).toBe(true);
     if (good.ok) { expect(good.ctx.commandMode).toBe(true); expect(good.ctx.envelope?.commandId).toBe('A'); }
   });
+});
+
+
+it('14-10: the live permission boundary rejects unknown/prototype roles without throwing', async () => {
+  for (const role of ['constructor', '__proto__', 'toString', 'hasOwnProperty', 'SUPERUSER']) {
+    const socket = { id: randomUUID(), data: { roomId: 'unknown-role-room', role } } as Socket;
+    expect(await requireGamePermission(socket, 'GAME_START')).toEqual({ ok: false, error: 'ROLE_REQUIRED', code: 'ROLE_REQUIRED' });
+  }
 });

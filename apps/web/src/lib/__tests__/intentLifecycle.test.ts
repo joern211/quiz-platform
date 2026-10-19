@@ -8,7 +8,7 @@
 //     verbraucht; die NÄCHSTE zulässige Absicht erhält ein frisches Token
 //     (z. B. zweites Buzzer-Öffnen derselben Runde nach WRONG-Bewertung,
 //     zweite Pause).
-//   - Fehler/Rejection → Token bleibt.
+//   - Bestätigte Ablehnung beendet die Absicht; unklarer Ausgang behält das Token.
 // Der Verbrauch läuft zentral über emitCommand — kein Aufrufer kann ihn
 // vergessen.
 // ============================================================
@@ -177,4 +177,18 @@ describe('emitCommand — Token-Verwaltung an der Sendegrenze (14-01)', () => {
     const b = intentToken(key);
     expect(b).not.toBe(a);
   });
+});
+
+
+describe('non-final acknowledgements', () => {
+  it.each([undefined, null, {}, { success: false, error: 'COMMAND_IN_PROGRESS' }])(
+    'retains the original token when the outcome is unknown: %j', (response) => {
+      const socket = mockSocket();
+      const key = `unknown:${JSON.stringify(response)}`;
+      socket.emit.mockImplementation((_event: string, _payload: unknown, ack: (raw: unknown) => void) => ack(response));
+      emitCommand(socket, 'game:start', {}, key);
+      const sent = lastEmit(socket).payload.commandId;
+      expect(intentToken(key)).toBe(sent);
+    },
+  );
 });

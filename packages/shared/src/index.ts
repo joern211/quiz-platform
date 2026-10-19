@@ -1459,3 +1459,49 @@ export const GameConfigSnapshotSchema = z.object({
   createdAt: z.string().datetime(),
 });
 export type GameConfigSnapshotParsed = z.infer<typeof GameConfigSnapshotSchema>;
+
+// Transport-neutral intent lifecycle. Both the browser adapter and real socket
+// integration tests use this contract without importing another app's sources.
+export type CommandResponse = { success: boolean; error?: string; [key: string]: unknown };
+export interface CommandEmitter {
+  emit(event: string, payload: unknown, ack: (response: unknown) => void): unknown;
+}
+
+export function createCommandIntentClient() {
+  const tokens = new Map<string, string>();
+  const intentToken = (key: string): string => {
+    let token = tokens.get(key);
+    if (!token) {
+      token = typeof globalThis.crypto?.randomUUID === 'function'
+        ? globalThis.crypto.randomUUID()
+        : `cmd-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+      tokens.set(key, token);
+    }
+    return token;
+  };
+  const discardIntentToken = (key: string): void => { tokens.delete(key); };
+  const discardIntentTokenIfCurrent = (key: string, sentToken: string): void => {
+    if (tokens.get(key) === sentToken) tokens.delete(key);
+  };
+  const withCommandEnvelope = <T extends object>(payload: T, key: string) => ({
+    ...payload, commandId: intentToken(key), protocolVersion: PROTOCOL_VERSION,
+  });
+  const emitCommand = <T extends object>(
+    socket: CommandEmitter, event: string, payload: T, key: string,
+    onResponse?: (response: CommandResponse) => void,
+  ): void => {
+    const envelope = withCommandEnvelope(payload, key);
+    socket.emit(event, envelope, (raw) => {
+      // Only a definitive response consumes the intent. An in-progress or
+      // malformed acknowledgement leaves the outcome unknown: retry its ID.
+      const response = raw as CommandResponse | null;
+      if (response && typeof response.success === 'boolean') {
+        if (response.error !== 'COMMAND_IN_PROGRESS') {
+          discardIntentTokenIfCurrent(key, envelope.commandId);
+        }
+        onResponse?.(response);
+      }
+    });
+  };
+  return { intentToken, discardIntentToken, discardIntentTokenIfCurrent, withCommandEnvelope, emitCommand };
+}

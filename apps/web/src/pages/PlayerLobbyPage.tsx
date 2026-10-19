@@ -18,6 +18,8 @@ export function PlayerLobbyPage() {
   const [connected, setConnected] = useState(false);
   const [players, setPlayers] = useState<any[]>([]);
   const [ready, setReady] = useState(false);
+  const [readyPending, setReadyPending] = useState(false);
+  const readyPendingRef = useRef(false);
   const [chatMessages, setChatMessages] = useState<any[]>([]);
   const [chatInput, setChatInput] = useState('');
   const [kicked, setKicked] = useState(false);
@@ -36,23 +38,16 @@ export function PlayerLobbyPage() {
     socketRef.current = getSocket();
     const socket = socketRef.current;
 
-    connectSocket();
-
-    // If socket is already connected (singleton reused from previous page),
-    // 'connect' event won't fire — send room:subscribe immediately.
-    socket.on('connect', () => {
-      setConnected(true);
+    // A connected transport is not yet an authenticated room membership.
+    // Ready must wait for the subscription ACK (snapshot arrives before it).
+    const subscribe = () => {
+      setConnected(false);
       socket.emit('room:subscribe', { roomCode, rejoinToken: rejoinToken || undefined }, (response) => {
+        setConnected(response.success);
         if (!response.success) setActionError(`Raumbeitritt fehlgeschlagen: ${response.error ?? 'Unbekannter Fehler'}`);
       });
-    });
-
-    if (socket.connected) {
-      setConnected(true);
-      socket.emit('room:subscribe', { roomCode, rejoinToken: rejoinToken || undefined }, (response) => {
-        if (!response.success) setActionError(`Raumbeitritt fehlgeschlagen: ${response.error ?? 'Unbekannter Fehler'}`);
-      });
-    }
+    };
+    socket.on('connect', subscribe);
 
     socket.on('room:snapshot', (data) => {
       setPlayers(data.players || []);
@@ -86,6 +81,7 @@ export function PlayerLobbyPage() {
     });
 
     socket.on('player:ready:set', (data) => {
+      if (data.playerId === session.participationId) setReady(data.ready);
       setPlayers(prev => prev.map(p =>
         p.id === data.playerId ? { ...p, ready: data.ready } : p
       ));
@@ -108,7 +104,12 @@ export function PlayerLobbyPage() {
 
     socket.on('disconnect', () => {
       setConnected(false);
+      readyPendingRef.current = false;
+      setReadyPending(false);
     });
+
+    if (socket.connected) subscribe();
+    connectSocket();
 
     return () => {
       disconnectSocket();
@@ -116,22 +117,20 @@ export function PlayerLobbyPage() {
   }, [navigate, rejoinToken, roomCode, session.participationId]);
 
   const handleToggleReady = () => {
-    if (!socketRef.current) {
-      setActionError('Socket-Verbindung ist nicht verfügbar.');
-      return;
-    }
+    if (!socketRef.current || !connected || readyPendingRef.current) return;
     const newReady = !ready;
     setActionError('');
-    setReady(newReady); // Optimistic update
+    readyPendingRef.current = true;
+    setReadyPending(true);
     socketRef.current.emit('player:ready:set', {
       roomCode,
       ready: newReady,
       rejoinToken: rejoinToken || undefined,
     }, (response) => {
-      if (!response.success) {
-        setReady(!newReady); // Revert on failure
-        setActionError('Bereitschaft konnte nicht gespeichert werden.');
-      }
+      readyPendingRef.current = false;
+      setReadyPending(false);
+      if (response.success) setReady(newReady);
+      else setActionError('Bereitschaft konnte nicht gespeichert werden.');
     });
   };
 
@@ -238,7 +237,7 @@ export function PlayerLobbyPage() {
       </div>
 
       <div className={styles.actions}>
-        <Button onClick={handleToggleReady} size="lg" variant={ready ? 'secondary' : 'primary'}>
+        <Button onClick={handleToggleReady} disabled={!connected || readyPending} size="lg" variant={ready ? 'secondary' : 'primary'}>
           {ready ? 'Nicht mehr bereit' : 'Ich bin bereit!'}
         </Button>
       </div>

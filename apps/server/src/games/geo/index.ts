@@ -45,6 +45,7 @@ interface GeoGameState {
   questions: any[];
   roundStates: Record<number, GeoRoundState>;
   scores: Record<string, number>;
+  recoveryError?: 'CONFIG_SNAPSHOT_INVALID';
 }
 
 // Store active timer handles per roomCode (for cancellation)
@@ -286,13 +287,9 @@ export const handleGeoGame = {
     // Der KANONISCHE Slug wird übergeben — der Reader normalisiert Legacy
     // intern; der Geo-Reader darf keine eigene Slug-Anlage mehr pflegen.
     //
-    // EINE gültige, aber inkonsistente/inkompatible/fehlgewidmete
-    // Config-Snapshot wird NICHT stillschweigend durch heutige Defaults
-    // (20000 ms) verschluckt: die Runde startet NICHT (keine State-Mutation,
-    // keine Timer-Erzeugung), der Raum erhält ein kontrolliertes Fehler-
-    // Event (CONFIG_SNAPSHOT_INVALID) und der Fehler wird protokolliert.
-    // Der ausdrücklich unterstützte Legacy-Pfad (Bestandsräume OHNE neuen
-    // Snapshot, configSchemaVersion < 1) läuft über loadGameConfig weiter.
+    // Never replace an incompatible snapshot with today's defaults. Persist
+    // a safe recovery state so reconnects/restarts retain the failure and the
+    // host can end the game without exposing configuration or solutions.
     let timerDuration: number;
     try {
       const loaded = await loadGameConfig(roomRecord, 'wissensduell');
@@ -301,15 +298,26 @@ export const handleGeoGame = {
         throw new Error(`CONFIG_SNAPSHOT_INVALID: nicht gültiger timerDurationMs-Wert (${String(timerDuration)})`);
       }
     } catch (error) {
-      // Kontrollierter Fehler: keine Runde, keine Mutation, kein Timer.
+      // No new round or scoring; enter a durable, read-only recovery phase.
       logger.error('Geo startRound: ungültige Spielkonfiguration — Runde wird nicht gestartet (14-04)', {
         roomId: roomRecord.id,
         error: error instanceof Error ? error.message : String(error),
       });
-      io.to(roomChannelName).emit('geo:round:error', {
-        error: 'CONFIG_SNAPSHOT_INVALID',
-        message: 'Spielkonfiguration ist ungültig oder inkompatibel — Runde nicht gestartet.',
+      state.phase = 'ERROR_RECOVERY';
+      state.recoveryError = 'CONFIG_SNAPSHOT_INVALID';
+      await prisma.$transaction(async (tx) => {
+        await saveGameStateIfRevision(tx, {
+          roomId: roomRecord.id, expectedRevision: gameStateData.revision,
+          state, phase: 'ERROR_RECOVERY',
+        });
+        const updated = await tx.room.updateMany({
+          where: { id: roomRecord.id, status: 'RUNNING', revision: roomRecord.revision },
+          data: { runPhase: 'ERROR_RECOVERY', revision: { increment: 1 } },
+        });
+        if (updated.count !== 1) throw new Error('STATE_CONFLICT');
       });
+      cancelGeoTimer(roomRecord.id);
+      io.to(roomChannelName).emit('geo:round:error', { error: state.recoveryError });
       return;
     }
     const timerStartMs = Date.now();
@@ -349,6 +357,7 @@ export const handleGeoGame = {
     };
 
     state.phase = 'INPUT_OPEN';
+    delete state.recoveryError;
 
     // A concurrent game:end must prevent both the state transition and event.
     await prisma.$transaction(async (tx) => {

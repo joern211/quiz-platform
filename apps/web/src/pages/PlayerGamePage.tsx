@@ -57,13 +57,14 @@ export function PlayerGamePage() {
             navigate(`/raum/${roomCode}/ergebnis`, { replace: true });
             return;
           }
+          if (res.recoveryError) setActionError('Das Spiel ist angehalten. Bitte warte auf den Host.');
           if (res.question) setQuestion(res.question);
           setEndsAt(res.timerEndMs ?? 0);
           setRevealed(res.revealed ?? false);
           setPhase(res.phase ?? 'WAITING');
           setResult(res.revealed ? { correctOptionId: res.question?.correctOptionId } : null);
           setSelectedOption(res.ownAnswer ?? null);
-          setLocked(res.ownAnswered ?? false);
+          setLocked(Boolean(res.recoveryError) || (res.ownAnswered ?? false));
           setAnswerSubmitted(res.ownAnswered ?? false);
           if (res.ownJokers) setJokers(res.ownJokers);
           setEliminatedOptions(res.ownEliminatedOptions ?? []);
@@ -80,6 +81,13 @@ export function PlayerGamePage() {
       if (data.status === 'ENDED') {
         navigate(`/raum/${roomCode}/ergebnis`);
       }
+    });
+
+    socket.on('geo:round:error', () => {
+      setPhase('ERROR_RECOVERY');
+      setLocked(true);
+      setEndsAt(0);
+      setActionError('Das Spiel ist angehalten. Bitte warte auf den Host.');
     });
 
     socket.on('geo:question', (data) => {
@@ -135,7 +143,7 @@ export function PlayerGamePage() {
   }, [navigate, participationId, rejoinToken, roomCode]);
 
   const handleSelectOption = (optionId: string) => {
-    if (locked) return;
+    if (locked || phase !== 'INPUT_OPEN') return;
     if (!socketRef.current) {
       setActionError('Socket-Verbindung ist nicht verfügbar.');
       return;
@@ -160,7 +168,7 @@ export function PlayerGamePage() {
   };
 
   const handle5050 = () => {
-    if (jokers.used5050 || locked) return;
+    if (jokers.used5050 || locked || phase !== 'INPUT_OPEN') return;
     if (!socketRef.current) return setActionError('Socket-Verbindung ist nicht verfügbar.');
 
     emitCommand(socketRef.current, 'geo:joker:5050', {
@@ -171,7 +179,7 @@ export function PlayerGamePage() {
   };
 
   const handleSpy = () => {
-    if (jokers.usedSpy) return;
+    if (jokers.usedSpy || phase !== 'INPUT_OPEN') return;
     if (!socketRef.current) return setActionError('Socket-Verbindung ist nicht verfügbar.');
 
     emitCommand(socketRef.current, 'geo:joker:spy', {
@@ -182,7 +190,7 @@ export function PlayerGamePage() {
   };
 
   const handleRisk = () => {
-    if (jokers.usedRisk || locked) return;
+    if (jokers.usedRisk || locked || phase !== 'INPUT_OPEN') return;
     if (!socketRef.current) return setActionError('Socket-Verbindung ist nicht verfügbar.');
 
     emitCommand(socketRef.current, 'geo:joker:risk', {
@@ -218,7 +226,7 @@ export function PlayerGamePage() {
         <h2 className={styles.prompt}>{question.prompt}</h2>
         
         <div className={styles.timer}>
-          {!revealed && phase !== 'PAUSED' && <Timer endsAt={endsAt} size="lg" />}
+          {!revealed && phase === 'INPUT_OPEN' && <Timer endsAt={endsAt} size="lg" />}
         </div>
 
         <div className={styles.options}>
@@ -233,7 +241,7 @@ export function PlayerGamePage() {
                   key={option.id}
                   className={`${styles.option} ${isSelected ? styles.selected : ''} ${isCorrect ? styles.correct : ''} ${isWrong ? styles.wrong : ''} ${eliminated ? styles.eliminated : ''}`}
                   onClick={() => handleSelectOption(option.id)}
-                  disabled={locked || revealed || eliminated}
+                  disabled={phase !== 'INPUT_OPEN' || locked || revealed || eliminated}
                   aria-label={eliminated ? `${label}: ausgeschieden` : undefined}
                 >
                   <span className={styles.optionLetter}>
@@ -255,21 +263,21 @@ export function PlayerGamePage() {
         <div className={styles.jokers}>
           <Button 
             variant={jokers.used5050 ? 'ghost' : 'secondary'}
-            disabled={jokers.used5050 || locked}
+            disabled={phase !== 'INPUT_OPEN' || jokers.used5050 || locked}
             onClick={handle5050}
           >
             50:50 {jokers.used5050 && '✓'}
           </Button>
           <Button 
             variant={jokers.usedSpy ? 'ghost' : 'secondary'}
-            disabled={jokers.usedSpy}
+            disabled={phase !== 'INPUT_OPEN' || jokers.usedSpy}
             onClick={handleSpy}
           >
             Spy {jokers.usedSpy && '✓'}
           </Button>
           <Button 
             variant={jokers.usedRisk ? 'ghost' : 'secondary'}
-            disabled={jokers.usedRisk || locked}
+            disabled={phase !== 'INPUT_OPEN' || jokers.usedRisk || locked}
             onClick={handleRisk}
           >
             Risk ×2 {jokers.usedRisk && '✓'}

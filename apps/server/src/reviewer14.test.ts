@@ -17,19 +17,18 @@
 //          Socket), auch bei bereits verbundenem Host.
 //   14-10: normalizeRole wirft Prototype-Namen sauber weg.
 // ============================================================
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, expect, it } from 'vitest';
 import { createServer, type Server as HttpServer } from 'node:http';
 import { randomUUID } from 'node:crypto';
 import { Server } from 'socket.io';
 import type { Socket as ClientSocket } from 'socket.io-client';
-import type { PrismaClient, Prisma } from '@prisma/client';
+import type { PrismaClient } from '@prisma/client';
 import { setupSocketHandlers } from './sockets/index.js';
 import { createSessionCookie } from './auth/session.js';
 import { config } from './config/index.js';
 import { connectGameClient, gameAck } from './test-socket-harness.js';
 import { runReceipted } from './games/core/commands.js';
-import { resolveCommandContextForSocket } from './games/core/commandContext.js';
-import { updateRoomConfig } from './games/core/config.js';
+import { createCommandIntentClient } from '@quiz/shared';
 
 const ack = gameAck;
 const HOST_USER_ID = 'mod-1';
@@ -157,7 +156,7 @@ it('REVIEW 14-01: phase rejection must not permanently poison the next valid ope
   const r=await reviewWid();
   expect((await ack(r.host,'weristdas:buzzer:open',{})).success).toBe(true);
   expect((await ack(r.clients[0],'weristdas:buzz',{})).success).toBe(true);
-  const {emitCommand}=await import('../../web/src/lib/socket.ts');
+  const {emitCommand}=createCommandIntentClient();
   const key=`${r.code}:wid:weristdas:buzzer:open:r0`;
   const openFromFrontend=()=>new Promise<any>(resolve=>emitCommand(r.host as any,'weristdas:buzzer:open',{},key,resolve));
   const rejected=await openFromFrontend();

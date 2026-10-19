@@ -20,6 +20,7 @@ import { getSocketDataIdentity } from '../../sockets/auth.js';
 import { getSocketIdentity } from '../../http/middleware/auth.js';
 import {
   effectivePermissions,
+  normalizeRole,
   hasPermission,
   type GamePermission,
   type PlatformRole,
@@ -33,19 +34,6 @@ export type PermissionCheckResult =
       error: 'NOT_IN_ROOM' | 'ROLE_REQUIRED' | 'NOT_AUTHORIZED';
       code: 'NOT_AUTHENTICATED' | 'ROLE_REQUIRED' | 'NOT_AUTHORIZED';
     };
-
-function normalizePlatformRole(raw: string | undefined): PlatformRole | null {
-  if (!raw) return null;
-  const map: Record<string, PlatformRole> = {
-    ADMIN: 'ADMIN',
-    HOST: 'HOST',
-    MODERATOR: 'HOST', // Legacy-Normalisierung AN DIESER Grenze (einzige)
-    PLAYER: 'PLAYER',
-    VIEWER: 'VIEWER',
-    DISPLAY: 'DISPLAY',
-  };
-  return map[raw] ?? null; // unbekannt → null (kein String-Cast)
-}
 
 export interface EffectivePermissionContext {
   roomId: string;
@@ -98,7 +86,7 @@ export async function requireGamePermission(
     return { ok: false, error: 'NOT_IN_ROOM', code: 'NOT_AUTHENTICATED' };
   }
   const rawRole = identity?.role ?? data.role;
-  const role = normalizePlatformRole(rawRole);
+  const role = normalizeRole(rawRole);
   if (!role) {
     // Unbekannte Rolle: keine Rechte, kein Cast.
     return { ok: false, error: 'ROLE_REQUIRED', code: 'ROLE_REQUIRED' };

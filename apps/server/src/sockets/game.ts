@@ -579,7 +579,7 @@ export const handleGameEvents = {
 
       if (cmdCtx.ok && cmdCtx.ctx.commandMode) {
         try {
-          const receipted = await runReceipted<any>(prisma, {
+          const receipted = await runReceipted<{ ended: boolean }>(prisma, {
             roomId: room.id,
             commandId: cmdCtx.ctx.commandId!,
             actor: { actorId: identity.participationId ?? room.id, actorRole: perm.role },
@@ -587,7 +587,7 @@ export const handleGameEvents = {
             payload: data,
             stateVersion: cmdCtx.ctx.envelope?.stateVersion,
             mutate: perform,
-            toResponse: (d) => d,
+            toResponse: (d) => ({ success: true, ...d }),
           });
           if (receipted.success) callback?.({ success: true, ...(receipted.replayed ? { replayed: true } : {}) });
           else callback?.({ success: false, error: receipted.error, ...(receipted.replayed ? { replayed: true } : {}), ...('resyncRequired' in receipted && receipted.resyncRequired ? { resyncRequired: true } : {}) });

@@ -66,10 +66,11 @@ const BASE_MIGRATIONS = [
   '20261007214818_media_sha256_owner_scoped',
   '20261008183000_audit_p1_logical_asset_identity_and_room_idempotency',
 ];
-// Die beiden PR14-Migrationen (werden in Phase 2 deployed).
+// All PR14 migrations, including the audit receipt recovery fields.
 const PR14_MIGRATIONS = [
   '20261010120000_basis_standards_roles_config_receipts',
   '20261013120000_receipt_before_revision_and_lease',
+  '20261016130000_receipt_before_state_revision',
 ];
 
 const SESSION_SECRET = 'ci-test-secret-at-least-32-chars-long';
@@ -138,8 +139,8 @@ function midGameState(aliceId: string, bobId: string) {
 }
 
 const ROOMS = {
-  v1: { roomId: 'room-mig-v1', code: '4211001', aliceId: 'part-mig-a-1', bobId: 'part-mig-b-1', hostPartId: 'part-mig-h-1' },
-  v2: { roomId: 'room-mig-v2', code: '4211002', aliceId: 'part-mig-a-2', bobId: 'part-mig-b-2', hostPartId: 'part-mig-h-2' },
+  v1: { roomId: 'room-mig-v1', code: '421-001', aliceId: 'part-mig-a-1', bobId: 'part-mig-b-1', hostPartId: 'part-mig-h-1' },
+  v2: { roomId: 'room-mig-v2', code: '421-002', aliceId: 'part-mig-a-2', bobId: 'part-mig-b-2', hostPartId: 'part-mig-h-2' },
 };
 // Die WID-Setup-Schema validiert Asset-IDs als UUID (Zod) → echte UUIDs.
 const MEDIA: { imgV1: string; origA: string; origB: string; compV2: string } = {
@@ -181,6 +182,9 @@ beforeAll(async () => {
   const deploy1 = await runMigrateDeploy();
   expect(deploy1.stdout + deploy1.stderr).toMatch(/20261010120000_basis_standards_roles_config_receipts/);
   expect(deploy1.stdout + deploy1.stderr).toMatch(/20261013120000_receipt_before_revision_and_lease/);
+  expect(deploy1.stdout + deploy1.stderr).toMatch(/20261016130000_receipt_before_state_revision/);
+  const receiptColumns = await qy<{ name: string }>('PRAGMA table_info(command_receipts)');
+  expect(receiptColumns.map(column => column.name)).toContain('beforeStateRevision');
 
   // ── Phase 3: deploy WIEDER → No-op (Idempotenz) ──────────────────────
   const deploy2 = await runMigrateDeploy();
@@ -263,9 +267,9 @@ async function seedBaseState() {
 
 // IDs/Referenzen/Versionen/Punkte überleben den deploy unverändert.
 async function assertDataPreserved() {
-  // Alle 7 Migrations angewendet.
+  // All staged migrations applied, including audit follow-ups.
   const applied = (await qy<{ n: string }>('SELECT migration_name AS n FROM _prisma_migrations')).map(r => r.n);
-  expect(applied.length).toBe(7);
+  expect(applied.length).toBe(BASE_MIGRATIONS.length + PR14_MIGRATIONS.length);
   for (const m of [...BASE_MIGRATIONS, ...PR14_MIGRATIONS]) expect(applied).toContain(m);
 
   // Neue Objekte existieren NACH dem deploy.
@@ -341,9 +345,12 @@ describe('14-08: WID-v1/v2-Rejoin überlebt den echten migrate-deploy', () => {
     // Host sieht die Lösung, Viewer nicht.
     expect(JSON.stringify(await ack(mod, 'weristdas:resync'))).toContain(SECRET_NAME);
     expect(JSON.stringify(await ack(viewer, 'weristdas:resync'))).not.toContain(SECRET_NAME);
-    const endV1 = await ack(mod, 'game:end', { roomCode: r.code });
+    const endCommand = { roomCode: r.code, commandId: crypto.randomUUID() };
+    const endV1 = await ack(mod, 'game:end', endCommand);
     if (!endV1.success) { console.log('GAME-END-V1-ERROR', JSON.stringify(endV1)); console.log('SERVER-TAIL:\n' + procStderr.slice(-2500)); }
     expect(endV1.success).toBe(true);
+    expect(await ack(mod, 'game:end', endCommand)).toMatchObject({ success: true, replayed: true });
+    expect(await prisma.commandReceipt.findUniqueOrThrow({ where: { roomId_commandId: { roomId: r.roomId, commandId: endCommand.commandId } } })).toMatchObject({ status: 'COMPLETED', beforeStateRevision: expect.any(Number) });
     const room = await prisma.room.findUniqueOrThrow({ where: { id: r.roomId } });
     expect(room.status).toBe('ENDED');
     // Reader hat die Engine-Version NICHT umgeschrieben.

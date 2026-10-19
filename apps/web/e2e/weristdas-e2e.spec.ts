@@ -20,7 +20,8 @@ async function join(page: Page, code: string, name: string) {
 // Buzzer/Hinweis/Reveal/Reload). Die kalte Erstausführung (Vite-Cold-Compile +
 // sharp-Nativ-Warmup) braucht deutlich länger als die globale 30 s-Grenze,
 // daher ein eigenes, großzügiges Timeout pro Test.
-test('W1-W10: setup, image, private solution, buzzer, scores, reconnect, viewer and results', { timeout: 90_000 }, async ({ browser }) => {
+test('W1-W10: setup, image, private solution, buzzer, scores, reconnect, viewer and results', async ({ browser }) => {
+  test.setTimeout(90_000);
   const contexts = await Promise.all(Array.from({ length: 4 }, () => browser.newContext()));
   const [moderator, alice, bob, viewer] = await Promise.all(contexts.map(context => context.newPage()));
   const secret = 'E2E_PERSON_ONLY_MODERATOR';
