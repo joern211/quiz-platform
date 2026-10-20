@@ -1,3 +1,4 @@
+import { createCommandIntentClient } from '@quiz/shared';
 import { afterAll, beforeAll, expect, it } from 'vitest';
 import { createServer, type Server as HttpServer } from 'node:http';
 import { randomUUID } from 'node:crypto';
@@ -465,4 +466,43 @@ it('PR14 review: takeover rechecks both revisions in the mutation transaction', 
         release();
         werIstDasGame.act = original;
     }
+});
+it('PR14 review: frontend retains the same intent after a lost completion, preventing a second score effect', async () => {
+    const r = await reviewWid();
+    await ack(r.host, 'weristdas:buzzer:open', {});
+    await ack(r.clients[0], 'weristdas:buzz', {});
+    const { emitCommand } = createCommandIntentClient();
+    const sentIds: unknown[] = [];
+    const emitter = {
+        emit(event: string, payload: unknown, callback: (response: unknown) => void) {
+            sentIds.push((payload as {
+                commandId: string;
+            }).commandId);
+            r.host.emit(event, payload, callback);
+        },
+    };
+    const judgeFromFrontend = () => new Promise<Record<string, unknown>>(resolve => emitCommand(emitter, 'weristdas:judge', { result: 'WRONG' }, `${r.code}:judge:round0:wrong`, resolve));
+    const original = testPrisma.commandReceipt.update.bind(testPrisma.commandReceipt);
+    let injected = false;
+    testPrisma.commandReceipt.update = (async (args: Prisma.CommandReceiptUpdateArgs) => {
+        if (args.data.status === 'COMPLETED' && !injected) {
+            injected = true;
+            throw new Error('LOST_FRONTEND_COMPLETION');
+        }
+        return original(args);
+    }) as unknown as typeof testPrisma.commandReceipt.update;
+    try {
+        expect(await judgeFromFrontend()).toMatchObject({ success: false, outcomeUnknown: true });
+    }
+    finally {
+        testPrisma.commandReceipt.update = original;
+    }
+    expect(injected).toBe(true);
+    await ack(r.host, 'weristdas:buzzer:open', {});
+    await ack(r.clients[1], 'weristdas:buzz', {});
+    expect(await judgeFromFrontend()).toMatchObject({ success: false, error: 'COMMAND_STATE_ADVANCED', resyncRequired: true });
+    expect(sentIds[1]).toBe(sentIds[0]);
+    const state = JSON.parse((await testPrisma.roomGameState.findUniqueOrThrow({ where: { roomId: r.id } })).stateJson);
+    expect(state.scores[r.players[0].id]).toBe(-1);
+    expect(state.scores[r.players[1].id]).toBe(0);
 });

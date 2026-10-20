@@ -146,7 +146,7 @@ bestehenden Wire-Codes bleiben lesbar.)
   GameState-Beobachtung. Sie ist zusätzlich zu den beiden älteren PR14-
   Migrationen im echten migrate-deploy-Bestandsnachweis enthalten.
 - Intent-Verwaltung liegt in shared, Frontend-Schnittstelle bleibt gleich.
-  Finales success/Fehler-ACK beendet eine Benutzerabsicht; verlorene, ungültige
+  Definitives success/Fachfehler-ACK beendet eine Benutzerabsicht; verlorene, ungültige
   und COMMAND_IN_PROGRESS-ACKs behalten deren ID. Späte ACKs konsumieren nur
   die tatsächlich gesendete ID. Neue Absicht nach Ablehnung wird neu geprüft.
 - Ein defekter Geo-Snapshot wird niemals als aktuelle Defaults interpretiert.
@@ -170,3 +170,9 @@ ignoriert. Legacy ohne IDs und ohne Versionserwartung bleibt unterstützt.
 Timer 0 bedeutet in der bestehenden Geo-Engine keine unbegrenzte Zeit; der Writer
 lehnt ihn ab. Der generische Resolver bewahrt 0/false dennoch unverändert.
 Counts beeinflussen nun die echten Initializer aller drei Spiele.
+
+Receipted Exceptions können nach einem Commit entstehen. outcomeUnknown:true
+kennzeichnet diesen unklaren Abschluss; der gemeinsame Client behält die ID
+bis zu einem Replay oder einer definitiven Recovery-Antwort. Fachliche
+Ablehnungen verbrauchen weiterhin die ID, damit eine neue gültige Absicht
+nicht durch eine alte Ablehnung blockiert wird.

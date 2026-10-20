@@ -13,8 +13,8 @@ Prisma Client 5.22.0 generiert. GitHub verwendet die Projekt-.nvmrc (Node 22).
 | `corepack pnpm -r typecheck` | grün, alle Pakete |
 | `corepack pnpm lint` | grün, 0 Fehler / 117 Warnungen |
 | Server `build`, danach Web `build` | grün |
-| Server Vitest auf frischer, migrierter/geseedeter SQLite-DB | 357/357, 39/39 Dateien, 0 skipped |
-| Web Vitest | 76/76, 9/9 Dateien, 0 skipped |
+| Server Vitest auf frischer, migrierter/geseedeter SQLite-DB | 358/358, 39/39 Dateien, 0 skipped |
+| Web Vitest | 77/77, 9/9 Dateien, 0 skipped |
 | `prisma migrate deploy` auf frischer DB | alle 9 Migrationen angewendet |
 | zweiter Deploy auf derselben DB | No pending migrations to apply |
 | `migration.deploy.test.ts` | Basis → alle 4 PR14-Migrationen → Deploy erneut; Daten/IDs/Session/Score/Engine-Version erhalten; echter WID-v1/v2-Rejoin; executionToken/mutationStartedAt und receipted game:end/Replay geprüft; defekter Snapshot liefert ACK, separater Server bleibt erreichbar |

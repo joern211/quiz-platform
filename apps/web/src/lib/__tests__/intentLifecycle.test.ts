@@ -192,3 +192,23 @@ describe('non-final acknowledgements', () => {
     },
   );
 });
+
+it('uncertain engine/receipt error retains ID; definitive recovery then consumes it', () => {
+  const socket = mockSocket();
+  const key = '888-888:wid:judge:round0:wrong';
+  socket.emit.mockImplementation((_event: string, _payload: unknown, callback?: (response: unknown) => void) => {
+    callback?.({ success: false, error: 'INTERNAL_ERROR', outcomeUnknown: true });
+  });
+  emitCommand(socket, 'weristdas:judge', { result: 'WRONG' }, key);
+  const originalId = lastEmit(socket).payload.commandId;
+  emitCommand(socket, 'weristdas:judge', { result: 'WRONG' }, key);
+  expect(lastEmit(socket).payload.commandId).toBe(originalId);
+  socket.emit.mockImplementation((_event: string, _payload: unknown, callback?: (response: unknown) => void) => {
+    callback?.({ success: false, error: 'COMMAND_STATE_ADVANCED', resyncRequired: true });
+  });
+  emitCommand(socket, 'weristdas:judge', { result: 'WRONG' }, key);
+  expect(lastEmit(socket).payload.commandId).toBe(originalId);
+  socket.emit.mockImplementation(() => undefined);
+  emitCommand(socket, 'weristdas:judge', { result: 'WRONG' }, key);
+  expect(lastEmit(socket).payload.commandId).not.toBe(originalId);
+});

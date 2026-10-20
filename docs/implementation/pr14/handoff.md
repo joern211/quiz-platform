@@ -21,7 +21,7 @@ Nächstes fachliches Paket: **TEAM-ROOM (Planplatz PR14)**, weiterhin offen.
 ## Abgeschlossene lokale Abnahme
 
 Typecheck, Lint (0 Fehler / 117 bestehende Warnungen), Server- und Web-Build
-sind erfolgreich. **357/357 Server-Tests (39 Dateien)** und **76/76 Web-Tests
+sind erfolgreich. **358/358 Server-Tests (39 Dateien)** und **77/77 Web-Tests
 (9 Dateien)** sind ausgeführt und grün, keine übersprungenen Tests.
 Der PR12-Dokumentationschecker ist grün (1.292 IDs / 19 Spielverträge).
 Frische DB: alle neun Migrationen; erneuter Deploy: keine offenen Migrationen.
@@ -37,8 +37,8 @@ https://github.com/joern211/quiz-platform/pull/14/checks
 
 - Tatsächlich gemeinsame Intent-Verwaltung in shared, vom Frontend genutzt
   und über echte Sockets geprüft; kein Cross-App-Import im Server-Build.
-- Finales ACK verbraucht die Benutzerabsicht; verlorenes, ungültiges oder noch
-  laufendes ACK erhält sie. Verspätete ACKs verwerfen keine neue Absicht.
+- Definitives ACK verbraucht die Benutzerabsicht; verlorenes, ungültiges, noch
+  laufendes oder explizit outcomeUnknown-ACK erhält sie. Verspätete ACKs verwerfen keine neue Absicht.
 - Receipt-Recovery berücksichtigt Raum- **und** Spielzustandsrevision;
   abgeschlossene Wiederholung kommt vor Prüfung ihrer alten Versionserwartung.
 - Ungültiger Geo-Snapshot führt ohne Default-Runde/Timer zu persistenter

@@ -1495,10 +1495,10 @@ export function createCommandIntentClient() {
     const envelope = withCommandEnvelope(payload, key);
     socket.emit(event, envelope, (raw) => {
       // Only a definitive response consumes the intent. An in-progress or
-      // malformed acknowledgement leaves the outcome unknown: retry its ID.
+      // malformed acknowledgement or explicitly uncertain execution keeps its ID.
       const response = raw as CommandResponse | null;
       if (response && typeof response.success === 'boolean') {
-        if (response.error !== 'COMMAND_IN_PROGRESS') {
+        if (response.error !== 'COMMAND_IN_PROGRESS' && response.outcomeUnknown !== true) {
           discardIntentTokenIfCurrent(key, envelope.commandId);
         }
         onResponse?.(response);

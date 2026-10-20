@@ -234,7 +234,7 @@ export const handleGameEvents = {
         } catch (error) {
           const appError = wireErrorToAppError(gameErrorCode(error), { internalDetail: error, context: { socketId: socket.id } });
           logger.error('Game start (receipted) error', { error });
-          callback?.({ success: false, error: gameErrorCode(error), code: appError.code, messageKey: appError.messageKey, traceId: appError.traceId });
+          callback?.({ success: false, outcomeUnknown: true, error: gameErrorCode(error), code: appError.code, messageKey: appError.messageKey, traceId: appError.traceId });
           return;
         }
       }
@@ -347,7 +347,7 @@ export const handleGameEvents = {
         } catch (error) {
           const e2 = wireErrorToAppError(gameErrorCode(error), { internalDetail: error, context: { socketId: socket.id } });
           logger.error('Game pause (receipted) error', { error });
-          callback?.({ success: false, error: gameErrorCode(error), code: e2.code, messageKey: e2.messageKey, traceId: e2.traceId });
+          callback?.({ success: false, outcomeUnknown: true, error: gameErrorCode(error), code: e2.code, messageKey: e2.messageKey, traceId: e2.traceId });
         }
         return;
       }
@@ -456,7 +456,7 @@ export const handleGameEvents = {
         } catch (error) {
           const e2 = wireErrorToAppError(gameErrorCode(error), { internalDetail: error, context: { socketId: socket.id } });
           logger.error('Game resume (receipted) error', { error });
-          callback?.({ success: false, error: gameErrorCode(error), code: e2.code, messageKey: e2.messageKey, traceId: e2.traceId });
+          callback?.({ success: false, outcomeUnknown: true, error: gameErrorCode(error), code: e2.code, messageKey: e2.messageKey, traceId: e2.traceId });
         }
         return;
       }
@@ -560,7 +560,7 @@ export const handleGameEvents = {
         } catch (error) {
           const e2 = wireErrorToAppError(gameErrorCode(error), { internalDetail: error, context: { socketId: socket.id } });
           logger.error('Game end (receipted) error', { error });
-          callback?.({ success: false, error: gameErrorCode(error), code: e2.code, messageKey: e2.messageKey, traceId: e2.traceId });
+          callback?.({ success: false, outcomeUnknown: true, error: gameErrorCode(error), code: e2.code, messageKey: e2.messageKey, traceId: e2.traceId });
         }
         return;
       }

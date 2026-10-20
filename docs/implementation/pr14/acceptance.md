@@ -18,7 +18,7 @@ Aktueller Umfang: [Korrekturen vom 20.10.2026](review-fixes-2026-10-20.md); maß
 | F Manifest/Contract | gemeinsame Katalognormalisierung, Capabilities/Engineversion/Setup-Metadaten; generische Guards/Replay/Config-Contracts mit Geo und Jeopardy; WID-Regression | catalog-consistency.test.ts; games/contract; WID-Integration/Migration/E2E |
 | Nacharbeit | fehlerhaftes game:end-ACK korrigiert; Ready wartet auf Membership; Server-Build ohne Frontend-Import; alle 4 PR14-Migrationen geprüft | audit14; migration.deploy; reviewer14; PlayerLobbyReady; Build/Typecheck |
 
-Lokale Abnahme: **357 Servertests und 76 Webtests, 0 skipped**, Typecheck,
+Lokale Abnahme: **358 Servertests und 77 Webtests, 0 skipped**, Typecheck,
 Lint ohne Fehler, beide Builds, frische/wiederholte und Bestandsmigration,
 PR12-Dokumentationschecker. Details: [verification.md](verification.md).
 

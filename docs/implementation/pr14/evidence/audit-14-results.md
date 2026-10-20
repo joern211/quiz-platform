@@ -49,8 +49,8 @@ CI/E2E am exakten aktuellen PR-Head; deren Live-Nachweis steht in den PR-Checks.
 
 Die frühere Freigabe am Head 55f01a0 wurde durch acht neue reproduzierte Befunde
 widerlegt. Befunde, Korrekturen und ausführbare Nachweise stehen in
-[review-fixes-2026-10-20.md](../review-fixes-2026-10-20.md). Die 22 neuen Socket-/DB-
+[review-fixes-2026-10-20.md](../review-fixes-2026-10-20.md). Die 23 neuen Socket-/DB-
 Regressionen und der neue separate Serverprozess-Test ergänzen die alten
-Audit-Belege. Lokaler Abschluss: 357 Server- und 76 Webtests, kein skipped;
+Audit-Belege. Lokaler Abschluss: 358 Server- und 77 Webtests, kein skipped;
 Typecheck, Lint ohne Fehler und beide Builds. Aktuelle GitHub-Checks sind
 maßgeblich; ältere grüne Heads ersetzen sie nicht.

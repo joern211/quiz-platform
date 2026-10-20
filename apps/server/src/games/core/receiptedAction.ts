@@ -158,7 +158,7 @@ export async function runGuardedCriticalAction(
       logger.error(`receipted action ${args.action} threw`, { error });
       const wireError = gameErrorCode(error);
       const appError = wireErrorToAppError(wireError, { internalDetail: error, context: { action: args.action } });
-      callback?.({ success: false, error: wireError, code: appError.code, messageKey: appError.messageKey, traceId: appError.traceId });
+      callback?.({ success: false, outcomeUnknown: true, error: wireError, code: appError.code, messageKey: appError.messageKey, traceId: appError.traceId });
     }
     return;
   }

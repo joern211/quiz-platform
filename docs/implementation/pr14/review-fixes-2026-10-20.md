@@ -46,10 +46,20 @@ können nur bei unveränderten Revisionsbeobachtungen übernommen werden. Die fr
 mehrdeutigen Aktionsklassen werden nicht geraten: Passt ein altes Receipt nicht
 zur jetzt eindeutigen Aktion, wird es kontrolliert als Konflikt abgewiesen.
 
+## Unklarer Receipt-Abschluss im Client
+
+Ein fehlgeschlagener Receipt-Abschluss nach einem bereits committeten Effekt
+ist keine definitive fachliche Ablehnung. Receipted Engine-/Lifecycle-Fehler
+tragen deshalb outcomeUnknown:true. Der gemeinsame Client behält die ID bis zu
+einem Replay oder einer definitiven Recovery-Antwort. Eine echte Socket-Gegenprobe
+verbindet den Frontend-Controller mit einem verlorenen WID-COMPLETED-Write und
+einem nachfolgenden zweiten Spieler: beide Versuche senden dieselbe ID, der
+zweite Spieler behält seine Punkte. Eine Web-Regression prüft den ID-Lebenszyklus.
+
 ## Verifikation und Testkorrekturen
 
-- 357/357 Servertests, 39/39 Dateien; 76/76 Webtests, 9/9 Dateien; keine skipped.
-- 22 neue Socket-/DB-Regressionen plus ein neuer Test im separaten Serverprozess.
+- 358/358 Servertests, 39/39 Dateien; 77/77 Webtests, 9/9 Dateien; keine skipped.
+- 23 neue Socket-/DB-Regressionen plus ein neuer Test im separaten Serverprozess.
 - Typecheck aller Pakete; Lint 0 Fehler / 117 bestehende Warnungen; beide Builds.
 - Neun Migrationen frisch und erneut deploybar; alle vier PR14-Migrationen auf
   Bestandsdaten, echte alte WID-v1/v2-Sessions, Rejoin und Receipt-Replay.
