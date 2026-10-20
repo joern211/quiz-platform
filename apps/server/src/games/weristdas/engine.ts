@@ -8,6 +8,7 @@ import { WerIstDasPhase, WerIstDasSetupSchema, WER_IST_DAS_ENGINE_VERSION, isV2R
   isSupportedEngineVersion,
   type WerIstDasSetup, type WerIstDasRound } from './contracts.js';
 import { projectWerIstDas } from './resync.js';
+import { loadInitialGameCount, ConfigSnapshotError } from '../core/config.js';
 import { resolveCanonicalSlug } from '@quiz/shared';
 import { activateHint, buzz, createWerIstDasState, judge, nextRound, openRoundBuzzer, revealRound,
   InvalidGameAction, type WerIstDasState } from './state.js';
@@ -100,7 +101,9 @@ export const werIstDasGame = {
     const players = await prisma.participation.findMany({ where: { roomId: room.id, role: 'PLAYER' } });
     const names = Object.fromEntries(players.map(p => [p.id, p.displayName]));
     const scores = Object.fromEntries(players.map(p => [p.id, p.score]));
-    const state = createWerIstDasState(setup.rounds.length, names, scores);
+    const roundCount = await loadInitialGameCount(room.id, 'wer-ist-das', 'roundCount');
+    if (roundCount > setup.rounds.length) throw new ConfigSnapshotError(room.id, 'roundCount exceeds setup');
+    const state = createWerIstDasState(roundCount, names, scores);
     // engineVersion beim Start pinnen (Regelwerk §5.22): Recovery nutzt die
     // exakt gleiche Version.
     await upsertGameState({ roomId: room.id, state, phase: state.phase, engineVersion: WER_IST_DAS_ENGINE_VERSION });

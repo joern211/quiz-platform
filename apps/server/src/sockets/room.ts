@@ -6,6 +6,7 @@ import { Server, Socket } from 'socket.io';
 import { prisma } from '../persistence/prisma.js';
 import { logger } from '../observability/logger.js';
 import { z } from 'zod';
+import { wireErrorToAppError } from '../games/core/appError.js';
 import { updateRoomConfig, GAME_CONFIG_FIELDS } from '../games/core/config.js';
 import { resolveCanonicalSlug } from '@quiz/shared';
 import { socketIdentityMap, type Role } from '../http/middleware/auth.js';
@@ -31,6 +32,9 @@ type RoomAcknowledgement = (result: {
   details?: unknown;
   changed?: boolean;
   revision?: number;
+  code?: string;
+  messageKey?: string;
+  traceId?: string;
 }) => void;
 
 function isRole(role: string): role is Role {
@@ -568,7 +572,7 @@ export const handleRoomEvents = {
       callback?.({ success: false, error: 'ROLE_REQUIRED' });
       return;
     }
-    const unknownFields = Object.keys(parsed.data.changes).filter((k) => !(k in (GAME_CONFIG_FIELDS[resolveCanonicalSlug(room.gameDefinition.slug) ?? ''] ?? {})));
+    const unknownFields = Object.keys(parsed.data.changes).filter((k) => !Object.hasOwn(GAME_CONFIG_FIELDS[resolveCanonicalSlug(room.gameDefinition.slug) ?? ''] ?? {}, k));
     if (unknownFields.length > 0) {
       callback?.({ success: false, error: 'INVALID_CONFIG', details: { fields: unknownFields } });
       return;
@@ -580,7 +584,7 @@ export const handleRoomEvents = {
       changes: parsed.data.changes,
     });
     if (!result.ok) {
-      callback?.({ success: false, error: result.error });
+      callback?.({ success: false, error: result.error, ...wireErrorToAppError(result.error) });
       return;
     }
     if (result.changed) {

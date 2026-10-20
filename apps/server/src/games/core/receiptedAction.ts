@@ -4,7 +4,7 @@
 // Verwendet die Command-Receipts in den UMGESTELLTEN kritischen
 // Mutationen der Engines. Semantik:
 //   - Protokollversion: explizit inkompatibel → CLIENT_VERSION_UNSUPPORTED
-//     VOR der Mutation (Handshake + pro Command).
+//     VOR der Mutation (pro Command).
 //   - Receipt-Modus NUR, wenn der Client ein Absichtstoken (commandId /
 //     requestId) mitschickt. Gleiche Absicht → gespeicherte Antwort
 //     (replayed:true), eine fachliche Wirkung. Neuer Token bei gleicher
@@ -152,7 +152,7 @@ export async function runGuardedCriticalAction(
         const appError = wireErrorToAppError(receipted.error, { context: { action: args.action } });
         callback?.({ success: false, error: receipted.error, resyncRequired: true, code: appError.code, messageKey: appError.messageKey, traceId: appError.traceId });
       } else {
-        callback?.({ success: false, error: receipted.error, ...(receipted.replayed ? { replayed: true } : {}) });
+        finish(('response' in receipted && receipted.response) || { success: false, error: receipted.error }, receipted.replayed);
       }
     } catch (error) {
       logger.error(`receipted action ${args.action} threw`, { error });
@@ -180,17 +180,23 @@ function toReceiptAction(action: string): import('./commands.js').CriticalComman
   switch (action) {
     case 'buzz': return 'BUZZ';
     case 'stealBuzz': case 'steal_buzz': return 'STEAL_BUZZ';
-    case 'judge': case 'stealJudge': case 'steal_judge': return 'JUDGE';
+    case 'judge': return 'JUDGE';
+    case 'stealJudge': case 'steal_judge': return 'STEAL_JUDGE';
+    case 'open': return 'BUZZER_OPEN';
+    case 'hint': return 'HINT';
     case 'reveal': return 'REVEAL';
     case 'next': case 'advance': return 'ROUND_ADVANCE';
     case 'fieldOpen': case 'field_open': return 'FIELD_OPEN';
     case 'boardSwitch': case 'board_switch': return 'BOARD_SWITCH';
     case 'answer': case 'submit': return 'ANSWER_SUBMIT';
-    case 'joker': case 'joker5050': case 'joker5050_use': case 'jokerSpy': case 'jokerRisk': return 'JOKER_USE';
+    case 'joker': return 'JOKER_USE';
+    case 'joker5050': case 'joker5050_use': return 'JOKER_5050';
+    case 'jokerSpy': return 'JOKER_SPY';
+    case 'jokerRisk': return 'JOKER_RISK';
     case 'start': return 'GAME_START';
     case 'pause': return 'GAME_PAUSE';
     case 'resume': return 'GAME_RESUME';
     case 'abort': case 'end': return 'GAME_ABORT';
-    default: return 'ROUND_ADVANCE';
+    default: throw new Error('UNSUPPORTED_COMMAND_ACTION');
   }
 }

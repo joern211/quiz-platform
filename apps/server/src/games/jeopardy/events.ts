@@ -346,7 +346,7 @@ export function registerJeopardyEvents(io: Server, socket: Socket) {
         // Get played fields (for board rendering)
         const playedFields: string[] = [];
         for (const boardNumber of [1, 2] as const) {
-          const board = boardNumber === 1 ? setup.board1 : setup.board2;
+          const board = boardNumber === 1 ? setup.board1 : state.boardCount === 1 ? undefined : setup.board2;
           board?.categories.forEach((category, categoryIndex) => {
             category.clues.forEach((clue) => {
               const key = `${boardNumber}-${categoryIndex}-${clue.value}`;
@@ -360,7 +360,7 @@ export function registerJeopardyEvents(io: Server, socket: Socket) {
           (board?.categories ?? []).map((c) => ({ name: c.name, clueCount: c.clues.length }));
 
         const board1Cats = getBoardCategories(setup.board1);
-        const board2Cats = getBoardCategories(setup.board2);
+        const board2Cats = state.boardCount === 1 ? [] : getBoardCategories(setup.board2);
 
         callback?.({
           success: true,
@@ -373,7 +373,7 @@ export function registerJeopardyEvents(io: Server, socket: Socket) {
           board1Categories: board1Cats,
           board2Categories: board2Cats,
           board1Values: (setup.board1?.categories[0]?.clues.map((c) => c.value) ?? []).sort((a, b) => a - b),
-          board2Values: (setup.board2?.categories[0]?.clues.map((c) => c.value) ?? []).sort((a, b) => a - b),
+          board2Values: state.boardCount === 1 ? [] : (setup.board2?.categories[0]?.clues.map((c) => c.value) ?? []).sort((a, b) => a - b),
           gameEnded: state.phase === 'GAME_END',
           buzzWinnerId: state.buzzWinner,
           stealWinnerId: state.stealWinner,

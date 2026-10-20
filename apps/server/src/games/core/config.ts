@@ -43,6 +43,7 @@ import { prisma } from '../../persistence/prisma.js';
 import { logger } from '../../observability/logger.js';
 import { WER_IST_DAS_ENGINE_VERSION, SUPPORTED_ENGINE_VERSIONS as WER_IST_DAS_SUPPORTED_VERSIONS } from '../weristdas/contracts.js';
 import type { Room } from '@prisma/client';
+import { assertCommandMutation } from './commandExecution.js';
 
 /** Konfigurations-Schema-Version dieses Writers. */
 export const GAME_CONFIG_SCHEMA_VERSION = 1;
@@ -68,14 +69,14 @@ export const ENGINE_VERSIONS: Record<string, { current: number; supported: reado
 // (dokumentierte Kompatibilität, kein stilles Umdenken).
 export const GAME_CONFIG_FIELDS: Record<string, Record<string, ConfigFieldSpec>> = {
   'wissensduell': {
-    questionCount: { key: 'questionCount', unit: 'count', changeClass: 'LOCKED_AFTER_START', systemDefault: 10 },
-    timerDurationMs: { key: 'timerDurationMs', unit: 'durationMs', changeClass: 'EDITABLE', systemDefault: 20000 },
+    questionCount: { key: 'questionCount', unit: 'count', minimum: 1, changeClass: 'LOCKED_AFTER_START', systemDefault: 10 },
+    timerDurationMs: { key: 'timerDurationMs', unit: 'durationMs', minimum: 1, maximum: 2147483647, changeClass: 'EDITABLE', systemDefault: 20000 },
   },
   'wer-ist-das': {
-    roundCount: { key: 'roundCount', unit: 'count', changeClass: 'LOCKED_AFTER_START', systemDefault: 5 },
+    roundCount: { key: 'roundCount', unit: 'count', minimum: 1, changeClass: 'LOCKED_AFTER_START', systemDefault: 5 },
   },
   jeopardy: {
-    boardCount: { key: 'boardCount', unit: 'count', changeClass: 'LOCKED_AFTER_START', systemDefault: 1 },
+    boardCount: { key: 'boardCount', unit: 'count', minimum: 1, maximum: 2, changeClass: 'LOCKED_AFTER_START', systemDefault: 1 },
   },
 };
 
@@ -92,6 +93,7 @@ export function setupConfigOverrides(gameSlug: string, setup: Record<string, unk
       const out: Record<string, unknown> = {};
       const ids = setup.selectedQuestionIds;
       if (Array.isArray(ids) && ids.length > 0) out.questionCount = ids.length;
+      else if (typeof setup.questionCount === 'number') out.questionCount = setup.questionCount;
       return out;
     }
     case 'jeopardy':
@@ -225,6 +227,17 @@ export class ConfigSnapshotError extends Error {
   }
 }
 
+/** Initializers use the same effective count that the snapshot will pin. */
+export async function loadInitialGameCount(roomId: string, gameSlug: string, key: string): Promise<number> {
+  const room = await prisma.room.findUniqueOrThrow({ where: { id: roomId } });
+  const loaded = await loadGameConfig(room, gameSlug);
+  const value = loaded?.values[key]?.value;
+  if (typeof value !== 'number' || !Number.isInteger(value) || value < 1) {
+    throw new ConfigSnapshotError(roomId, `invalid ${key}`);
+  }
+  return value;
+}
+
 function parseLiveConfigJson(raw: string | null | undefined): Record<string, unknown> {
   if (!raw) return {};
   try {
@@ -346,23 +359,29 @@ export async function persistConfigSnapshot(
   // Hinweis: Kein Revision-Bump — der Snapshot ist Metadaten, keine
   // fachliche Zustandsänderung; die Start-Mutation (LOBBY→RUNNING) im
   // Handler erhöht die Revision bereits.
-  const loaded = await loadGameConfig(room, canonical);
-  const values = loaded?.values ?? resolveGameConfig(canonical, {});
-  const snapshot = buildConfigSnapshot(canonical, engineVersion, values);
-  await prisma.room.update({
-    where: { id: room.id },
-    data: {
-      gameConfigSnapshotJson: JSON.stringify(snapshot),
-      configSchemaVersion: GAME_CONFIG_SCHEMA_VERSION,
-      liveConfigJson: null,
-    },
+  return prisma.$transaction(async (tx) => {
+    await assertCommandMutation(tx, room.id);
+    const fresh = await tx.room.findUniqueOrThrow({ where: { id: room.id } });
+    const loaded = await loadGameConfig(fresh, canonical);
+    const values = loaded?.values ?? resolveGameConfig(canonical, {});
+    const row = await tx.roomGameState.findUnique({ where: { roomId: room.id } });
+    if (row) {
+      const state = JSON.parse(row.stateJson) as { questions?: unknown[]; roundCount?: number; boardCount?: number };
+      const key = canonical === 'wissensduell' ? 'questionCount' : canonical === 'wer-ist-das' ? 'roundCount' : 'boardCount';
+      const actual = canonical === 'wissensduell' ? state.questions?.length : state[key as 'roundCount' | 'boardCount'];
+      if (typeof actual === 'number') values[key] = { ...values[key], value: actual };
+    }
+    const snapshot = buildConfigSnapshot(canonical, engineVersion, values);
+    await tx.room.update({ where: { id: room.id }, data: {
+      gameConfigSnapshotJson: JSON.stringify(snapshot), configSchemaVersion: GAME_CONFIG_SCHEMA_VERSION, liveConfigJson: null,
+    } });
+    return snapshot;
   });
-  return snapshot;
 }
 
 export type ConfigUpdateResult =
   | { ok: true; changed: boolean; revision: number; values: Record<string, ResolvedConfigValue<unknown>> }
-  | { ok: false; error: 'REVISION_CONFLICT' | 'INVALID_CONFIG' | 'LOCKED_AFTER_START' | 'ROOM_NOT_FOUND' | 'NOT_HOST' | 'WRONG_ROOM' };
+  | { ok: false; error: 'REVISION_CONFLICT' | 'INVALID_CONFIG' | 'LOCKED_AFTER_START' | 'ROOM_NOT_FOUND' | 'NOT_HOST' | 'WRONG_ROOM' | 'CONFIG_SNAPSHOT_INVALID' | 'INTERNAL_ERROR' };
 
 /**
  * Serverseitig validierte Konfigurationsänderung (LIVE_OVERRIDE) mit
@@ -391,70 +410,81 @@ export async function updateRoomConfig(
     changes: Record<string, unknown>;
   },
 ): Promise<ConfigUpdateResult> {
-  const room = await prisma.room.findUnique({
-    where: { id: args.roomId },
-    include: { gameDefinition: true },
-  });
-  if (!room) return { ok: false, error: 'ROOM_NOT_FOUND' };
-  if (room.hostUserId !== args.actorUserId) return { ok: false, error: 'NOT_HOST' };
-
-  const gameSlug = room.gameDefinition.slug;
-  const fields = GAME_CONFIG_FIELDS[canonicalSlugOf(gameSlug) ?? ''] ?? {};
-
-  // Validierung: unbekannte Felder + Einheiten (durationMs/points Integer).
-  const changes: Record<string, unknown> = {};
-  for (const [key, value] of Object.entries(args.changes)) {
-    const spec = fields[key];
-    if (!spec) return { ok: false, error: 'INVALID_CONFIG' };
-    if (value === undefined) continue; // "nicht gesetzt" ≠ 0/false
-    if (value !== null) {
-      if (
-        (spec.unit === 'durationMs' || spec.unit === 'points' || spec.unit === 'count' || spec.unit === 'bytes')
-        && (!Number.isInteger(value) || (value as number) < 0)
-      ) {
-        return { ok: false, error: 'INVALID_CONFIG' };
-      }
-      if (spec.unit === 'percent' && (typeof value !== 'number' || value < 0 || value > 100)) {
-        return { ok: false, error: 'INVALID_CONFIG' };
-      }
-      if (spec.unit === 'bool' && typeof value !== 'boolean') {
-        return { ok: false, error: 'INVALID_CONFIG' };
-      }
-    } else if (!spec.nullable) {
-      return { ok: false, error: 'INVALID_CONFIG' };
-    }
-    // LOCKED_AFTER_START: nach Start nicht änderbar (E3). Der endgültige
-    // Check läuft IN der Transaktion auf frischem Status (14-05).
-    if (room.status === 'RUNNING' && spec.changeClass === 'LOCKED_AFTER_START') {
-      return { ok: false, error: 'LOCKED_AFTER_START' };
-    }
-    changes[key] = value;
-  }
-  if (Object.keys(changes).length === 0) return { ok: false, error: 'INVALID_CONFIG' };
-
-  // No-Op (E5): Änderung, die gegen die aktuelle AUFLÖSUNG (inkl. vorhandener
-  // Live-Overrides) nichts ändert → keine Revisionserhöhung.
-  const baseValues = await loadGameConfigValues(room, gameSlug);
-  const isNoOp = Object.entries(changes).every(([key, value]) => {
-    const resolved = baseValues[key];
-    return resolved !== undefined && JSON.stringify(resolved.value) === JSON.stringify(value);
-  });
-
-  if (isNoOp) {
-    // No-Op: nur prüfen, dass die erwartete Revision aktuell ist (CAS-Lock
-    // ohne Schreib-Auswirkung).
-    const exists = await prisma.room.findUnique({ where: { id: room.id }, select: { revision: true } });
-    if (!exists || exists.revision !== args.expectedRevision) {
-      return { ok: false, error: 'REVISION_CONFLICT' };
-    }
-    const values = await loadGameConfigValues(room, gameSlug);
-    return { ok: true, changed: false, revision: exists.revision, values };
-  }
-
-  // Audit PR14, 14-05: EINE Transaktion — Status-Check (frisch), CAS,
-  // Merge und Persistenz. Abbruch an beliebiger Stelle = vollständiger
-  // Rollback (Revision bleibt unverbraucht, Werte unverändert).
   try {
+    const room = await prisma.room.findUnique({
+      where: { id: args.roomId },
+      include: { gameDefinition: true },
+    });
+    if (!room) return { ok: false, error: 'ROOM_NOT_FOUND' };
+    if (room.hostUserId !== args.actorUserId) return { ok: false, error: 'NOT_HOST' };
+
+    const gameSlug = room.gameDefinition.slug;
+    const fields = GAME_CONFIG_FIELDS[canonicalSlugOf(gameSlug) ?? ''] ?? {};
+
+    // Validierung: unbekannte Felder + Einheiten (durationMs/points Integer).
+    const changes: Record<string, unknown> = {};
+    for (const [key, value] of Object.entries(args.changes)) {
+      const spec = Object.hasOwn(fields, key) ? fields[key] : undefined;
+      if (!spec) return { ok: false, error: 'INVALID_CONFIG' };
+      if (value === undefined) continue; // "nicht gesetzt" ≠ 0/false
+      if (value !== null) {
+        if (
+          (spec.unit === 'durationMs' || spec.unit === 'points' || spec.unit === 'count' || spec.unit === 'bytes')
+          && (!Number.isInteger(value) || (value as number) < 0)
+        ) {
+          return { ok: false, error: 'INVALID_CONFIG' };
+        }
+        if (spec.unit === 'percent' && (typeof value !== 'number' || value < 0 || value > 100)) {
+          return { ok: false, error: 'INVALID_CONFIG' };
+        }
+        if (spec.unit === 'bool' && typeof value !== 'boolean') {
+          return { ok: false, error: 'INVALID_CONFIG' };
+        }
+        if (typeof value === 'number'
+          && ((spec.minimum !== undefined && value < spec.minimum) || (spec.maximum !== undefined && value > spec.maximum))) {
+          return { ok: false, error: 'INVALID_CONFIG' };
+        }
+      } else if (!spec.nullable) {
+        return { ok: false, error: 'INVALID_CONFIG' };
+      }
+      // LOCKED_AFTER_START: nach Start nicht änderbar (E3). Der endgültige
+      // Check läuft IN der Transaktion auf frischem Status (14-05).
+      if (room.status === 'RUNNING' && spec.changeClass === 'LOCKED_AFTER_START') {
+        return { ok: false, error: 'LOCKED_AFTER_START' };
+      }
+      const setup = parseSetupSnapshot(room);
+      if (key === 'roundCount' && Array.isArray(setup?.rounds) && (value as number) > setup.rounds.length) {
+        return { ok: false, error: 'INVALID_CONFIG' };
+      }
+      if (key === 'boardCount' && (value as number) > (setup?.board1 && setup?.board2 ? 2 : 1)) {
+        return { ok: false, error: 'INVALID_CONFIG' };
+      }
+      changes[key] = value;
+    }
+    if (Object.keys(changes).length === 0) return { ok: false, error: 'INVALID_CONFIG' };
+
+    // No-Op (E5): Änderung, die gegen die aktuelle AUFLÖSUNG (inkl. vorhandener
+    // Live-Overrides) nichts ändert → keine Revisionserhöhung.
+    const baseValues = await loadGameConfigValues(room, gameSlug);
+    const isNoOp = Object.entries(changes).every(([key, value]) => {
+      const resolved = baseValues[key];
+      return resolved !== undefined && JSON.stringify(resolved.value) === JSON.stringify(value);
+    });
+
+    if (isNoOp) {
+      // No-Op: nur prüfen, dass die erwartete Revision aktuell ist (CAS-Lock
+      // ohne Schreib-Auswirkung).
+      const exists = await prisma.room.findUnique({ where: { id: room.id }, select: { revision: true } });
+      if (!exists || exists.revision !== args.expectedRevision) {
+        return { ok: false, error: 'REVISION_CONFLICT' };
+      }
+      const values = await loadGameConfigValues(room, gameSlug);
+      return { ok: true, changed: false, revision: exists.revision, values };
+    }
+
+    // Audit PR14, 14-05: EINE Transaktion — Status-Check (frisch), CAS,
+    // Merge und Persistenz. Abbruch an beliebiger Stelle = vollständiger
+    // Rollback (Revision bleibt unverbraucht, Werte unverändert).
     return await prisma.$transaction(async (tx) => {
       const fresh = await tx.room.findUnique({ where: { id: room.id } });
       if (!fresh) return { ok: false as const, error: 'ROOM_NOT_FOUND' as const };
@@ -481,8 +511,8 @@ export async function updateRoomConfig(
       return { ok: true as const, changed: true as const, revision: after.revision, values };
     });
   } catch (error) {
-    logger.error('updateRoomConfig transaction failed', { roomId: args.roomId, error });
-    return { ok: false, error: 'REVISION_CONFLICT' };
+    logger.error('updateRoomConfig failed', { roomId: args.roomId, error });
+    return { ok: false, error: error instanceof ConfigSnapshotError ? 'CONFIG_SNAPSHOT_INVALID' : 'INTERNAL_ERROR' };
   }
 }
 

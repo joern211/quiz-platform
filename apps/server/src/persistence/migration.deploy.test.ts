@@ -71,6 +71,7 @@ const PR14_MIGRATIONS = [
   '20261010120000_basis_standards_roles_config_receipts',
   '20261013120000_receipt_before_revision_and_lease',
   '20261016130000_receipt_before_state_revision',
+  '20261020110000_command_execution_fence',
 ];
 
 const SESSION_SECRET = 'ci-test-secret-at-least-32-chars-long';
@@ -350,7 +351,7 @@ describe('14-08: WID-v1/v2-Rejoin überlebt den echten migrate-deploy', () => {
     if (!endV1.success) { console.log('GAME-END-V1-ERROR', JSON.stringify(endV1)); console.log('SERVER-TAIL:\n' + procStderr.slice(-2500)); }
     expect(endV1.success).toBe(true);
     expect(await ack(mod, 'game:end', endCommand)).toMatchObject({ success: true, replayed: true });
-    expect(await prisma.commandReceipt.findUniqueOrThrow({ where: { roomId_commandId: { roomId: r.roomId, commandId: endCommand.commandId } } })).toMatchObject({ status: 'COMPLETED', beforeStateRevision: expect.any(Number) });
+    expect(await prisma.commandReceipt.findUniqueOrThrow({ where: { roomId_commandId: { roomId: r.roomId, commandId: endCommand.commandId } } })).toMatchObject({ status: 'COMPLETED', beforeStateRevision: expect.any(Number), executionToken: expect.any(String), mutationStartedAt: expect.any(Date) });
     const room = await prisma.room.findUniqueOrThrow({ where: { id: r.roomId } });
     expect(room.status).toBe('ENDED');
     // Reader hat die Engine-Version NICHT umgeschrieben.
@@ -378,4 +379,24 @@ describe('14-08: WID-v1/v2-Rejoin überlebt den echten migrate-deploy', () => {
     expect((await ack(mod, 'game:end', { roomCode: r.code })).success).toBe(true);
     expect((await prisma.roomGameState.findUniqueOrThrow({ where: { roomId: r.roomId } })).engineVersion).toBe(2);
   }, 60000);
+  it('defekter Config-Snapshot liefert Fehler-ACK; echter Serverprozess bleibt erreichbar', async () => {
+    const r = ROOMS.v1;
+    const roomBefore = await prisma.room.findUniqueOrThrow({ where: { id: r.roomId } });
+    const host = await connectGameClient(origin(), createSessionCookie('sess-mig-host', SESSION_SECRET));
+    sockets.push(host);
+    expect((await ack(host, 'room:subscribe', { roomCode: r.code })).success).toBe(true);
+    await prisma.room.update({ where: { id: r.roomId }, data: { configSchemaVersion: 1, gameConfigSnapshotJson: 'broken' } });
+    try {
+      const response = await ack(host, 'room:config:update', {
+        roomCode: r.code, expectedRevision: roomBefore.revision, changes: { roundCount: 1 },
+      });
+      expect(response).toMatchObject({ success: false, error: 'CONFIG_SNAPSHOT_INVALID', code: 'RECOVERY_REQUIRED', traceId: expect.any(String) });
+      expect(JSON.stringify(response)).not.toContain('broken');
+      expect(await healthOk()).toBe(true);
+      expect(proc?.exitCode).toBeNull();
+    } finally {
+      await prisma.room.update({ where: { id: r.roomId }, data: { configSchemaVersion: roomBefore.configSchemaVersion, gameConfigSnapshotJson: roomBefore.gameConfigSnapshotJson } });
+    }
+  }, 60000);
+
 });

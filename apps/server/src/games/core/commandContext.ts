@@ -2,8 +2,7 @@
 // Protocol + Command Envelope Gate (BASIS-STANDARDS, Master §5.17, §12.4)
 // ============================================================
 // Serverseitiges Gegenstück zum Client-Contract:
-//   - protocolVersion wird im Handshake (connection) geprüft und bei
-//     jeder Mutation erneut ausgewertet.
+//   - protocolVersion wird an der Mutationsgrenze ausgewertet.
 //   - Eine EXPLIZIT inkompatible Version → CLIENT_VERSION_UNSUPPORTED
 //     VOR jeder Mutation.
 //   - Fehlende Version (Legacy-Client) → dokumentierter
@@ -29,6 +28,15 @@ import {
 } from '@quiz/shared';
 import { getSocketDataIdentity } from '../../sockets/auth.js';
 import { getSocketIdentity } from '../../http/middleware/auth.js';
+import { z } from 'zod';
+
+const commandFields = z.object({
+  commandId: z.string().min(1).max(128).optional(),
+  requestId: z.string().min(1).max(128).optional(),
+  stateVersion: z.number().int().nonnegative().optional(),
+  expectedRevision: z.number().int().nonnegative().optional(),
+  roomCode: z.string().optional(),
+});
 
 export interface CommandContext {
   roomId: string;
@@ -79,6 +87,13 @@ export function resolveCommandContextForSocket(
 ): CommandContextResult {
   const versionError = checkCommandProtocolVersion(data?.protocolVersion);
   if (versionError) return { ok: false, error: versionError };
+  // Presence is not absence: never strip malformed fields into Legacy mode.
+  const checked = commandFields.safeParse(data ?? {});
+  if (!checked.success) return { ok: false, error: 'INVALID_PAYLOAD' };
+  if (!checked.data.commandId && !checked.data.requestId
+    && (checked.data.stateVersion !== undefined || checked.data.expectedRevision !== undefined)) {
+    return { ok: false, error: 'INVALID_PAYLOAD' };
+  }
 
   // Serverseitige Identität (nie client-behauptet):
   const d = socket?.data ?? {};

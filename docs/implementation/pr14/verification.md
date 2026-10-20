@@ -1,6 +1,10 @@
-# BASIS-STANDARDS — Prüfstand 19.10.2026
+# BASIS-STANDARDS — Prüfstand 20.10.2026
 
-Produktcode/Teststand: `c4bcc00b79de3e5a72368e9a23707010fb2ebdcb`.
+Maßgeblicher Abschlussumfang: [Review-Korrekturen vom 20.10.2026](review-fixes-2026-10-20.md).
+Die acht Befunde am alten Head widerlegten dessen frühere Merge-Freigabe.
+Die neue Freigabe verlangt CI und E2E am aktuellen Head.
+
+Aktueller Produktcode/Teststand: PR14 nach [Review-Korrekturen](review-fixes-2026-10-20.md).
 Lokale Umgebung: Node 24.19.0, pnpm 9.12.0, Lockfile unverändert installiert,
 Prisma Client 5.22.0 generiert. GitHub verwendet die Projekt-.nvmrc (Node 22).
 
@@ -9,11 +13,11 @@ Prisma Client 5.22.0 generiert. GitHub verwendet die Projekt-.nvmrc (Node 22).
 | `corepack pnpm -r typecheck` | grün, alle Pakete |
 | `corepack pnpm lint` | grün, 0 Fehler / 117 Warnungen |
 | Server `build`, danach Web `build` | grün |
-| Server Vitest auf frischer, migrierter/geseedeter SQLite-DB | 334/334, 38/38 Dateien, 0 skipped |
+| Server Vitest auf frischer, migrierter/geseedeter SQLite-DB | 357/357, 39/39 Dateien, 0 skipped |
 | Web Vitest | 76/76, 9/9 Dateien, 0 skipped |
-| `prisma migrate deploy` auf frischer DB | alle 8 Migrationen angewendet |
+| `prisma migrate deploy` auf frischer DB | alle 9 Migrationen angewendet |
 | zweiter Deploy auf derselben DB | No pending migrations to apply |
-| `migration.deploy.test.ts` | Basis → alle 3 PR14-Migrationen → Deploy erneut; Daten/IDs/Session/Score/Engine-Version erhalten; echter WID-v1/v2-Rejoin; neue Receipt-Spalte und receipted game:end/Replay geprüft |
+| `migration.deploy.test.ts` | Basis → alle 4 PR14-Migrationen → Deploy erneut; Daten/IDs/Session/Score/Engine-Version erhalten; echter WID-v1/v2-Rejoin; executionToken/mutationStartedAt und receipted game:end/Replay geprüft; defekter Snapshot liefert ACK, separater Server bleibt erreichbar |
 | `python3 docs/implementation/pr12/check-docs.py` | 1.292 IDs, 291 Herkunftsgruppen plus Split-Index, 20 Masterabschnitte, 19 Spielverträge und Links geprüft |
 | `git diff --check` | grün |
 
@@ -52,7 +56,7 @@ auch ohne erste Frage beenden; Bereitschaft vor Subscribe-ACK gesperrt,
 Update seriell, abgelehnter Versuch erneut bedienbar.
 
 
-## GitHub-Nachweis des Produktcode-Heads
+## Historischer GitHub-Nachweis vom 19.10. (kein Nachweis für die neue Nacharbeit)
 
 Am Code-/Test-Head `c4bcc00b79de3e5a72368e9a23707010fb2ebdcb` sind CI und
 vollständige E2E erfolgreich: [Run 39249235352](https://github.com/joern211/quiz-platform/actions/runs/39249235352).

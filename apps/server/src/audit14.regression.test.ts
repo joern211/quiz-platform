@@ -282,9 +282,10 @@ describe('14-03: Command-Konflikte an der Socket-Grenze', () => {
 describe('14-04: kanonischer wissensduell-Raum (11 s → 11000 ms)', () => {
   it('Setup-Timer 11 s + 2 Fragen → Snapshot trägt kanonischen Slug, tatsächliche Werte und Version', async () => {
     const q = await testPrisma.geoQuestion.create({ data: { packId: (await testPrisma.questionPack.create({ data: { gameSlug: 'wissensduell', title: 'A14', status: 'PUBLISHED' } })).id, prompt: 'Q?', category: 'G', options: JSON.stringify([{ id: 'a', text: 'x' }]), correctOptionId: 'a' } });
+    const q2 = await testPrisma.geoQuestion.create({ data: { packId: q.packId, prompt: 'Q2?', category: 'G', options: q.options, correctOptionId: 'a' } });
     const { id, code, host } = await makeHostRoom({
       slug: 'wissensduell',
-      setup: { selectedQuestionIds: [q.id, q.id], timerDuration: 11 },
+      setup: { selectedQuestionIds: [q.id, q2.id], timerDuration: 11 },
     });
     expect((await ack(host, 'game:start', { roomCode: code })).success).toBe(true);
     const room = await testPrisma.room.findUniqueOrThrow({ where: { id } });
@@ -292,8 +293,9 @@ describe('14-04: kanonischer wissensduell-Raum (11 s → 11000 ms)', () => {
     // Kanonischer Slug (nicht 'geo'), nicht-default Timer aus dem Setup.
     expect(snap.gameSlug).toBe('wissensduell');
     expect(snap.values.timerDurationMs.value).toBe(11000);
-    // Tatsächliche Frageanzahl aus dem Setup (2), nicht pauschaler Default.
+    // Zwei unterschiedliche geladene Fragen, nicht nur zwei IDs desselben Datensatzes.
     expect(snap.values.questionCount.value).toBe(2);
+    expect(JSON.parse((await testPrisma.roomGameState.findUniqueOrThrow({ where: { roomId: id } })).stateJson).questions).toHaveLength(2);
     // Engine-Version ist die tatsächliche (1 für wissensduell) — kein Fallback.
     expect(snap.engineVersion).toBe(1);
     // Der Geo-Reader liest jetzt unter dem kanonischen Slug und bekommt 11000.

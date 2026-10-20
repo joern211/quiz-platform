@@ -6,6 +6,7 @@ import { Server, Socket } from 'socket.io';
 import { verifySession } from '../auth/session.js';
 import { config } from '../config/index.js';
 import { prisma } from '../persistence/prisma.js';
+import { wireErrorToAppError } from '../games/core/appError.js';
 import { logger } from '../observability/logger.js';
 import { handleRoomSubscription, handleRoomEvents, handleKickPlayer } from './room.js';
 import { handlePlayerEvents } from './player.js';
@@ -79,7 +80,10 @@ export function setupSocketHandlers(io: Server) {
 
     // BASIS-STANDARDS (E): serverseitig validierte Live-Config-Änderung.
     socket.on('room:config:update', (data, callback) => {
-      handleRoomEvents.configUpdate(io, socket, data, callback);
+      void handleRoomEvents.configUpdate(io, socket, data, callback).catch(error => {
+        const appError = wireErrorToAppError('INTERNAL_ERROR', { internalDetail: error, context: { action: 'room:config:update' } });
+        callback?.({ success: false, error: 'INTERNAL_ERROR', ...appError });
+      });
     });
 
     // Kick player (moderator only)

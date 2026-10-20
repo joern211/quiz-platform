@@ -6,6 +6,7 @@
 import { Server, Socket } from 'socket.io';
 import { prisma } from '../../persistence/prisma.js';
 import { finishRunningGame, saveGameStateIfRevision, upsertGameState } from '../core/state.js';
+import { loadInitialGameCount, ConfigSnapshotError } from '../core/config.js';
 import { logger } from '../../observability/logger.js';
 import { roomChannel } from '../../sockets/index.js';
 import { authorizeGameContext } from '../core/access.js';
@@ -60,6 +61,9 @@ export const handleJeopardyGame = {
       throw new Error('JeopardySetupMissing: No board1 in setupSnapshotJson');
     }
 
+    const boardCount = await loadInitialGameCount(room.id, 'jeopardy', 'boardCount');
+    if (boardCount > (setup.board2 ? 2 : 1)) throw new ConfigSnapshotError(room.id, 'boardCount exceeds setup');
+
     // Get all PLAYER participations
     const participations = await prisma.participation.findMany({
       where: { roomId: room.id, role: 'PLAYER' },
@@ -73,6 +77,7 @@ export const handleJeopardyGame = {
 
     // Build initial state
     let state = createJeopardyGameState(1, playerIds, playerNames);
+    state.boardCount = boardCount;
 
     // Register all fields from board 1
     for (let ci = 0; ci < setup.board1.categories.length; ci++) {
@@ -88,7 +93,7 @@ export const handleJeopardyGame = {
     }
 
     // Register all fields from board 2
-    if (setup.board2) {
+    if (setup.board2 && boardCount === 2) {
       for (let ci = 0; ci < setup.board2.categories.length; ci++) {
         for (const clue of setup.board2.categories[ci].clues) {
           const fieldDef: JeopardyFieldDef = {
@@ -637,7 +642,7 @@ export const handleJeopardyGame = {
         board2?: { categories: Array<{ name: string; clues: Array<{ value: number; question: string; answer: string }> }> };
       };
 
-      if (!setup.board2) {
+      if (!setup.board2 || state.boardCount === 1) {
         // No board 2 → game ends
         return this.handleGameEnd(io, room, state);
       }

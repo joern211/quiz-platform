@@ -6,7 +6,8 @@ import { Server, Socket } from 'socket.io';
 import { prisma } from '../../persistence/prisma.js';
 import { resolveCanonicalSlug, slugWithLegacy } from '@quiz/shared';
 import { finishRunningGame, saveGameStateIfRevision, upsertGameState } from '../core/state.js';
-import { loadGameConfig } from '../core/config.js';
+import { withoutCommandExecution } from '../core/commandExecution.js';
+import { loadGameConfig, loadInitialGameCount } from '../core/config.js';
 import { authorizeGameContext } from '../core/access.js';
 import { gameErrorCode } from '../core/errors.js';
 import { applyScoreDelta, recordScoreMutation } from '../core/score.js';
@@ -98,12 +99,12 @@ export async function restoreActiveTimers(io: Server): Promise<void> {
         }
 
         cancelGeoTimer(room.id);
-        const timer = setTimeout(() => {
+        const timer = withoutCommandExecution(() => setTimeout(() => {
           activeTimers.delete(room.id);
           void handleGeoGame.handleTimerExpired(io, room).catch((error) => {
             logger.error('P0-16: Fehler beim Ablauf des restaurierten Timers', { roomId: room.id, error });
           });
-        }, remaining);
+        }, remaining));
         activeTimers.set(room.id, timer);
         logger.info('P0-16: Timer restauriert', { roomId: room.id, remainingMs: remaining });
       } catch (error) {
@@ -123,6 +124,7 @@ export const handleGeoGame = {
   async initialize(io: Server, room: any, initialPhase: string = 'INTRO') {
     // Get setup from room
     const setup = JSON.parse(room.setupSnapshotJson || '{}');
+    const questionCount = await loadInitialGameCount(room.id, 'wissensduell', 'questionCount');
     
     // Get questions based on setup
     let questions: any[] = [];
@@ -149,7 +151,7 @@ export const handleGeoGame = {
       
       // Shuffle and take configured amount
       const shuffled = geoQuestions.sort(() => Math.random() - 0.5);
-      const count = setup.questionCount || 10;
+      const count = questionCount;
       questions = shuffled.slice(0, Math.min(count, shuffled.length));
     } else {
       // P0-08: No questions selected AND no pool - use default pool (first pack)
@@ -168,10 +170,12 @@ export const handleGeoGame = {
         });
         
         const shuffled = geoQuestions.sort(() => Math.random() - 0.5);
-        const count = setup.questionCount || 10;
+        const count = questionCount;
         questions = shuffled.slice(0, Math.min(count, shuffled.length));
       }
     }
+
+    questions = questions.slice(0, questionCount);
 
     // P0-08: Validate minimum 1 question before allowing game:start
     if (questions.length === 0) {
@@ -399,10 +403,10 @@ export const handleGeoGame = {
       clearTimeout(existingTimer);
     }
 
-    const timer = setTimeout(async () => {
+    const timer = withoutCommandExecution(() => setTimeout(async () => {
       activeTimers.delete(roomRecord.id);
-      await this.handleTimerExpired(io, roomRecord);
-    }, timerDuration);
+      await this.handleTimerExpired(io, roomRecord).catch(error => logger.error('Geo timer failed', { roomId: roomRecord.id, error }));
+    }, timerDuration));
 
     activeTimers.set(roomRecord.id, timer);
 
@@ -1214,10 +1218,10 @@ export const handleGeoGame = {
         clearTimeout(existingTimer);
       }
 
-      const timer = setTimeout(async () => {
+      const timer = withoutCommandExecution(() => setTimeout(async () => {
         activeTimers.delete(room.id);
-        await this.handleTimerExpired(io, room);
-      }, remainingTime);
+        await this.handleTimerExpired(io, room).catch(error => logger.error('Geo resumed timer failed', { roomId: room.id, error }));
+      }, remainingTime));
 
       activeTimers.set(room.id, timer);
 

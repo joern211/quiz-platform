@@ -155,3 +155,18 @@ bestehenden Wire-Codes bleiben lesbar.)
   kann das Spiel beenden. Bereits gespeicherte Punkte bleiben erhalten.
 - game:end mit commandId speichert success:true und replayt dasselbe Resultat.
 - Permission-Rollennormalisierung verwendet ausschließlich shared normalizeRole.
+
+
+## Ergänzung vom 20.10.2026
+
+Die [acht Review-Korrekturen](review-fixes-2026-10-20.md) präzisieren die Runtime:
+executionToken und mutationStartedAt sichern jeden Engine-CAS gegen übernommene
+Besitzer. Die vierte PR14-Migration ist additiv; alte abgeschlossene Receipts
+bleiben erhalten. Neu getrennte Aktionsklassen liefern bei mehrdeutigen alten
+Receipts einen Konflikt, niemals eine geratene Aktion oder zweite Wirkung.
+Vorhandene fehlerhafte Envelope-Felder werden auch ohne gültige ID abgelehnt.
+Die Alias-Auflösung bleibt erhalten; Versionsfelder ohne ID werden nicht still
+ignoriert. Legacy ohne IDs und ohne Versionserwartung bleibt unterstützt.
+Timer 0 bedeutet in der bestehenden Geo-Engine keine unbegrenzte Zeit; der Writer
+lehnt ihn ab. Der generische Resolver bewahrt 0/false dennoch unverändert.
+Counts beeinflussen nun die echten Initializer aller drei Spiele.

@@ -23,6 +23,7 @@ import { requireRoomRole, getSocketDataIdentity } from './auth.js';
 import { requireGamePermission } from '../games/core/permissions.js';
 import { runReceipted } from '../games/core/commands.js';
 import { resolveCommandContextForSocket } from '../games/core/commandContext.js';
+import { assertCommandMutation } from '../games/core/commandExecution.js';
 import { persistConfigSnapshot, ENGINE_VERSIONS } from '../games/core/config.js';
 import { resolveCanonicalSlug } from '@quiz/shared';
 import { wireErrorToAppError } from '../games/core/appError.js';
@@ -110,41 +111,6 @@ export const handleGameEvents = {
         return;
       }
 
-      // P0-18: Check minPlayers from GameDefinition
-      const minPlayers = room.gameDefinition.minPlayers || 2;
-      const playerCount = await prisma.participation.count({
-        where: {
-          roomId: room.id,
-          role: 'PLAYER',
-          connected: true,
-        },
-      });
-
-      if (playerCount < minPlayers) {
-        callback?.({
-          success: false,
-          error: 'NOT_ENOUGH_PLAYERS',
-          required: minPlayers,
-          current: playerCount,
-        });
-        return;
-      }
-
-      // Check all players ready
-      const unreadyPlayers = await prisma.participation.count({
-        where: {
-          roomId: room.id,
-          role: 'PLAYER',
-          connected: true,
-          ready: false,
-        },
-      });
-
-      if (unreadyPlayers > 0) {
-        callback?.({ success: false, error: 'NOT_ALL_READY' });
-        return;
-      }
-
       // Resolve the lifecycle before mutating room state. Unsupported games
       // must never transiently enter RUNNING.
       const gameHandler = getGameHandler(room.gameDefinition.slug);
@@ -158,20 +124,23 @@ export const handleGameEvents = {
       // Command-Modus (Client schickt commandId) wird sie mit einem
       // atomaren Command-Receipt geschützt: ein Retry derselben Absicht
       // erzeugt keine zweite Wirkung (CAS + Receipt).
-      const performStart = async () => {
-        // Update room status atomically from the lobby revision.
-        const started = await prisma.room.updateMany({
-          where: { id: room.id, status: 'LOBBY', revision: room.revision },
-          data: {
-            status: 'RUNNING',
-            runPhase: 'INTRO',
-            startedAt: new Date(),
-            revision: { increment: 1 },
-          },
+      type StartResult = { success: boolean; error?: string; gameSlug?: string; required?: number; current?: number };
+      const performStart = async (): Promise<StartResult> => {
+        // Business preconditions belong to NEW execution, never to replay.
+        if (room.status !== 'LOBBY') return { success: false, error: 'GAME_ALREADY_STARTED' };
+        const minPlayers = room.gameDefinition.minPlayers || 2;
+        const playerCount = await prisma.participation.count({ where: { roomId: room.id, role: 'PLAYER', connected: true } });
+        if (playerCount < minPlayers) return { success: false, error: 'NOT_ENOUGH_PLAYERS', required: minPlayers, current: playerCount };
+        const unready = await prisma.participation.count({ where: { roomId: room.id, role: 'PLAYER', connected: true, ready: false } });
+        if (unready) return { success: false, error: 'NOT_ALL_READY' };
+        const started = await prisma.$transaction(async (tx) => {
+          await assertCommandMutation(tx, room.id);
+          return tx.room.updateMany({
+            where: { id: room.id, status: 'LOBBY', revision: room.revision },
+            data: { status: 'RUNNING', runPhase: 'INTRO', startedAt: new Date(), revision: { increment: 1 } },
+          });
         });
-        if (started.count !== 1) {
-          throw new Error('GAME_ALREADY_STARTED');
-        }
+        if (started.count !== 1) return { success: false, error: 'GAME_ALREADY_STARTED' };
 
         try {
           await gameHandler.initialize({ io, room, initialPhase: 'INTRO' });
@@ -185,7 +154,6 @@ export const handleGameEvents = {
             });
             if (reverted.count === 1) {
               await tx.roomGameState.deleteMany({ where: { roomId: room.id } });
-              await tx.commandReceipt.deleteMany({ where: { roomId: room.id, status: 'PENDING', action: 'GAME_START' } });
             }
           });
           throw error;
@@ -211,15 +179,13 @@ export const handleGameEvents = {
         } catch (snapshotError) {
           // Rollback der (bereits committierten) Start-Übergabe — gleiche
           // Semantik wie bei einem initialize-Fehler.
-          const failedRoom = await prisma.room.findUnique({ where: { id: room.id } });
           await prisma.$transaction(async (tx) => {
             const reverted = await tx.room.updateMany({
-              where: { id: room.id, status: 'RUNNING', revision: (failedRoom?.revision ?? room.revision + 1) },
+              where: { id: room.id, status: 'RUNNING', revision: room.revision + 1 },
               data: { status: 'LOBBY', runPhase: 'LOBBY', startedAt: null, revision: { increment: 1 } },
             });
             if (reverted.count === 1) {
               await tx.roomGameState.deleteMany({ where: { roomId: room.id } });
-              await tx.commandReceipt.deleteMany({ where: { roomId: room.id, status: 'PENDING', action: 'GAME_START' } });
               await tx.room.update({ where: { id: room.id }, data: { gameConfigSnapshotJson: null, configSchemaVersion: 0 } });
             }
           });
@@ -242,12 +208,12 @@ export const handleGameEvents = {
           initialPhase: 'INTRO',
         });
 
-        return { gameSlug: room.gameDefinition.slug };
+        return { success: true, gameSlug: room.gameDefinition.slug };
       };
 
       if (cmdCtx.ok && cmdCtx.ctx.commandMode) {
         try {
-          const receipted = await runReceipted<{ gameSlug: string }>(prisma, {
+          const receipted = await runReceipted<StartResult>(prisma, {
             roomId: room.id,
             commandId: cmdCtx.ctx.commandId!,
             actor: { actorId: identity.participationId ?? room.id, actorRole: perm.role },
@@ -257,12 +223,12 @@ export const handleGameEvents = {
             // serverseitig gegen die aktuelle Room-Revision geprüft.
             stateVersion: cmdCtx.ctx.envelope?.stateVersion,
             mutate: performStart,
-            toResponse: (d) => ({ success: true, ...d }),
+            toResponse: (d) => d,
           });
           if (receipted.success) {
             callback?.({ success: true, gameSlug: receipted.data.gameSlug, ...(receipted.replayed ? { replayed: true } : {}) });
           } else {
-            callback?.({ success: false, error: receipted.error, ...(receipted.replayed ? { replayed: true } : {}), ...('resyncRequired' in receipted && receipted.resyncRequired ? { resyncRequired: true } : {}) });
+            callback?.({ ...('response' in receipted ? receipted.response : {}), success: false, error: receipted.error, ...(receipted.replayed ? { replayed: true } : {}), ...('resyncRequired' in receipted && receipted.resyncRequired ? { resyncRequired: true } : {}) });
           }
           return;
         } catch (error) {
@@ -276,7 +242,7 @@ export const handleGameEvents = {
       // Legacy-Pfad (kein Absichtstoken im Client): Verhalten wie vor
       // BASIS-STANDARDS, ohne Receipt-Schutz (ehrlich dokumentiert).
       const r = await performStart();
-      callback?.({ success: true, gameSlug: r.gameSlug });
+      callback?.(r);
     } catch (error) {
       logger.error('Game start error', { error });
       // BASIS-STANDARDS (D): AppError-Vertrag (code/messageKey/traceId),
@@ -377,7 +343,7 @@ export const handleGameEvents = {
             toResponse: (d) => d,
           });
           if (receipted.success) callback?.({ success: true, ...(receipted.replayed ? { replayed: true } : {}) });
-          else callback?.({ success: false, error: receipted.error, ...(receipted.replayed ? { replayed: true } : {}), ...('resyncRequired' in receipted && receipted.resyncRequired ? { resyncRequired: true } : {}) });
+          else callback?.({ ...('response' in receipted ? receipted.response : {}), success: false, error: receipted.error, ...(receipted.replayed ? { replayed: true } : {}), ...('resyncRequired' in receipted && receipted.resyncRequired ? { resyncRequired: true } : {}) });
         } catch (error) {
           const e2 = wireErrorToAppError(gameErrorCode(error), { internalDetail: error, context: { socketId: socket.id } });
           logger.error('Game pause (receipted) error', { error });
@@ -486,7 +452,7 @@ export const handleGameEvents = {
             toResponse: (d) => d,
           });
           if (receipted.success) callback?.({ success: true, ...(receipted.replayed ? { replayed: true } : {}) });
-          else callback?.({ success: false, error: receipted.error, ...(receipted.replayed ? { replayed: true } : {}), ...('resyncRequired' in receipted && receipted.resyncRequired ? { resyncRequired: true } : {}) });
+          else callback?.({ ...('response' in receipted ? receipted.response : {}), success: false, error: receipted.error, ...(receipted.replayed ? { replayed: true } : {}), ...('resyncRequired' in receipted && receipted.resyncRequired ? { resyncRequired: true } : {}) });
         } catch (error) {
           const e2 = wireErrorToAppError(gameErrorCode(error), { internalDetail: error, context: { socketId: socket.id } });
           logger.error('Game resume (receipted) error', { error });
@@ -590,7 +556,7 @@ export const handleGameEvents = {
             toResponse: (d) => ({ success: true, ...d }),
           });
           if (receipted.success) callback?.({ success: true, ...(receipted.replayed ? { replayed: true } : {}) });
-          else callback?.({ success: false, error: receipted.error, ...(receipted.replayed ? { replayed: true } : {}), ...('resyncRequired' in receipted && receipted.resyncRequired ? { resyncRequired: true } : {}) });
+          else callback?.({ ...('response' in receipted ? receipted.response : {}), success: false, error: receipted.error, ...(receipted.replayed ? { replayed: true } : {}), ...('resyncRequired' in receipted && receipted.resyncRequired ? { resyncRequired: true } : {}) });
         } catch (error) {
           const e2 = wireErrorToAppError(gameErrorCode(error), { internalDetail: error, context: { socketId: socket.id } });
           logger.error('Game end (receipted) error', { error });

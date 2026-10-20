@@ -478,7 +478,7 @@ model RoomPermissionGrant {
 // Ein Receipt pro (Room, commandId). Atomarer Claim über die Unique-Key:
 // parallel ankommende Duplikate erhalten createUnique→UNIQUE und lesen
 // das bestehende Receipt statt eine zweite Wirkung auszulösen.
-// status: PENDING (claimed, Mutation läuft in derselben Transaktion) →
+// status: PENDING (claimed; Engine-Schreibtransaktionen prüfen Besitzer) →
 // COMPLETED (Response gespeichert) / REJECTED (kontrollierte Ablehnung,
 // z.B. COMMAND_CONFLICT bei anderer Payload/Akteur) / FAILED (Mutation
 // fehlgeschlagen/Rollback → kein Erfolgseintrag; Retry erlaubt).
@@ -496,29 +496,17 @@ model CommandReceipt {
   action      String   // z.B. ANSWER_SUBMIT, BUZZ, JUDGE, REVEAL, START, PAUSE, ABORT
   payloadHash String   // SHA-256 über (action + normalized payload)
   stateVersion Int?    // Versionserwartung (expectedRevision) zum Zeitpunkt des Claims
-  // Audit PR14, 14-02: Room-Revision, die atomar MIT dem Claim gelesen wurde.
-  // Ermöglicht einem Retry zu unterscheiden, ob der ursprüngliche Command
-  // bereits eine Wirkung committet hat (Revision fortgeschritten → NEUERE
-  // Ausführung verboten, kontrollierter Resync) oder nicht (Revision
-  // unverändert → sichere Neu-Ausführung). Ohne diese Spalte ist ein
-  // Retry nach einem verlorenen Erfolgs-Receipt nicht sicher.
+  // Beobachtungen vor dem Claim, keine gemeinsame Read-/Engine-Transaktion.
+  // Recovery prüft beide erneut und sichert sie beim ersten Engine-Write ab.
   beforeRevision Int?
-  // Audit PR14, 14-02 (Nacharbeit): RoomGameState-Revision, atomar MIT dem
-  // Claim gelesen. Die Engines (WID/Geo/Jeopardy) erhöhen bei fachlichen
-  // Aktionen die GameState-Revision — NICHT zwingend die Room-Revision. Ein
-  // Retry nach verlorenem COMPLETED-Write darf die Mutation NICHT erneut
-  // ausführen, wenn IRGENDWELCHER beobachteter Zustand fortgeschritten ist
-  // (Wirkung committet). Nur beforeRevision (Room) verfehlte genau diesen
-  // Fall: WID-Judge bumpte nur RoomGameState.revision → Guard sah
-  // "unverändert" → Doppel-Judge auf dem nächsten Spieler. Beide Revisions
-  // müssen zum Retry-Zeitpunkt unverändert sein, damit eine Neu-Ausführung
-  // sicher ist (keine Wirkung committet). NULL = Legacy-Zeile → Resync.
   beforeStateRevision Int?
-  // Audit PR14, 14-02: Lease für PENDING-Zeilen. Ein Prozessabbruch zwischen
-  // Claim und Abschluss hinterlässt PENDING; ohne Lease ist ein Retry
-  // dauerhaft COMMAND_IN_PROGRESS. Ist die Lease abgelaufen, gilt der
-  // ursprüngliche Besitzer als abgestürzt (Recovery).
+  // Abgelaufene Lease erlaubt nur einen exklusiven Takeover ohne bereits
+  // committierten Effekt. Sie allein erklärt einen lebenden Handler nicht tot.
   leaseExpiresAt DateTime?
+  // Each claim/takeover has a new owner. Engine writes check it in their TX.
+  executionToken String?
+  // Committed with the first engine write. Applied intents never re-execute.
+  mutationStartedAt DateTime?
   status      String   // PENDING | COMPLETED | REJECTED | FAILED
   responseJson String? // persistierte Erfolgs-/Ablehnungsantwort (Duplicate liefert gespeicherte Antwort)
   createdAt   DateTime @default(now())

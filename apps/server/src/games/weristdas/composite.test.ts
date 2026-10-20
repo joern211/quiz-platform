@@ -175,7 +175,7 @@ describe('Wer ist das? — Composite/Fusion (Regelwerk §15.3)', () => {
     // schreibt dorthin, nicht nach ctx.tmpDir).
     const { config } = await import('../../config/index.js');
     const uploadsDir = path.resolve(config.storagePaths.uploads);
-    const leftovers = (await readdir(uploadsDir).catch(() => [] as string[])).filter(f => f.endsWith('.tmp'));
+    const leftovers = (await readdir(uploadsDir).catch(() => [] as string[])).filter(f => f.startsWith(`.${asset.filename}.`) && f.endsWith('.tmp'));
     expect(leftovers).toEqual([]);
   });
 
@@ -224,7 +224,7 @@ describe('Wer ist das? — Composite/Fusion (Regelwerk §15.3)', () => {
     expect(onDisk.equals(expectedBytes)).toBe(true);
     const { config } = await import('../../config/index.js');
     const uploadsDir = path.resolve(config.storagePaths.uploads);
-    const leftovers = (await readdir(uploadsDir).catch(() => [] as string[])).filter(f => f.endsWith('.tmp'));
+    const leftovers = (await readdir(uploadsDir).catch(() => [] as string[])).filter(f => f.startsWith(`.${asset.filename}.`) && f.endsWith('.tmp'));
     expect(leftovers).toEqual([]);
     expect(await ctx.prisma.mediaAsset.count({ where: { derivedFromAssetIds: { contains: a.id } } })).toBe(1);
   });

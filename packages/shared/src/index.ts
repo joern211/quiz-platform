@@ -1397,6 +1397,8 @@ export type ConfigChangeClass = (typeof CONFIG_CHANGE_CLASSES)[number];
 
 export interface ConfigFieldSpec<V = unknown> {
   key: string;
+  minimum?: number;
+  maximum?: number;
   unit?: 'durationMs' | 'bytes' | 'percent' | 'points' | 'count' | 'bool' | 'string';
   changeClass: ConfigChangeClass;
   nullable?: boolean;

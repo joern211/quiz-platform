@@ -43,3 +43,14 @@ vollständige E2E erfolgreich: [Run 39249235352](https://github.com/joern211/qui
 keine übersprungenen Tests; WID W1–W10 in 9,7 s, Gesamtlauf 55,1 s.
 Nachfolgende Dokumentationsänderungen erhalten vor der Freigabe ebenfalls
 CI/E2E am exakten aktuellen PR-Head; deren Live-Nachweis steht in den PR-Checks.
+
+
+## Vollständiges Nachreview und Korrekturen vom 20.10.2026
+
+Die frühere Freigabe am Head 55f01a0 wurde durch acht neue reproduzierte Befunde
+widerlegt. Befunde, Korrekturen und ausführbare Nachweise stehen in
+[review-fixes-2026-10-20.md](../review-fixes-2026-10-20.md). Die 22 neuen Socket-/DB-
+Regressionen und der neue separate Serverprozess-Test ergänzen die alten
+Audit-Belege. Lokaler Abschluss: 357 Server- und 76 Webtests, kein skipped;
+Typecheck, Lint ohne Fehler und beide Builds. Aktuelle GitHub-Checks sind
+maßgeblich; ältere grüne Heads ersetzen sie nicht.

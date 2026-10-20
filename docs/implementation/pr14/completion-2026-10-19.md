@@ -1,5 +1,9 @@
 # PR14 completion checkpoint — 19.10.2026
 
+Historischer Zwischenstand. Das vollständige anschließende Review am Head
+55f01a0 widerlegte die damalige Merge-Freigabe durch acht Gegenproben.
+Maßgeblich ist die [Nacharbeit vom 20.10.](review-fixes-2026-10-20.md).
+
 User requested completion, tests, push and merge readiness on 19.10.2026.
 This supersedes older instructions to retain Draft after successful acceptance.
 No merge is authorized or performed.
