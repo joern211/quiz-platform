@@ -51,6 +51,6 @@ Die frühere Freigabe am Head 55f01a0 wurde durch acht neue reproduzierte Befund
 widerlegt. Befunde, Korrekturen und ausführbare Nachweise stehen in
 [review-fixes-2026-10-20.md](../review-fixes-2026-10-20.md). Die 23 neuen Socket-/DB-
 Regressionen und der neue separate Serverprozess-Test ergänzen die alten
-Audit-Belege. Lokaler Abschluss: 358 Server- und 77 Webtests, kein skipped;
+Audit-Belege. Lokaler Abschluss: 359 Server- und 77 Webtests, kein skipped;
 Typecheck, Lint ohne Fehler und beide Builds. Aktuelle GitHub-Checks sind
 maßgeblich; ältere grüne Heads ersetzen sie nicht.

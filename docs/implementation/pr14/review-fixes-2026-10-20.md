@@ -56,12 +56,32 @@ verbindet den Frontend-Controller mit einem verlorenen WID-COMPLETED-Write und
 einem nachfolgenden zweiten Spieler: beide Versuche senden dieselbe ID, der
 zweite Spieler behält seine Punkte. Eine Web-Regression prüft den ID-Lebenszyklus.
 
+## Zusätzliche Reconnect-Korrektur aus der Browserprüfung
+
+Der erste GitHub-Lauf am Kernfix-Head 3b3f625 war nur mit WID-Retry grün
+(17 passed / 1 flaky). Im Serverlog stand nach Reload NO_PARTICIPATION.
+Der Reconnect-Code enthielt ein dazu passendes, deterministisch reproduziertes
+Rennen: handleDisconnect prüfte den Ersatzsocket vor einem await; sein bereits
+laufender Offline-Write konnte anschließend eine neue Anmeldung überschreiben.
+Die fünfte additive PR14-Migration ergänzt Participation.connectionId. Anmeldung
+setzt den Besitzer; Disconnect und Raumwechsel geben nur ihren eigenen Besitzer
+per bedingtem DB-Write frei. Ein alter Disconnect sendet auch kein falsches
+player:leave. Die Regression pausiert den alten Offline-Write, meldet den neuen
+Socket an und prüft danach connected:true und den neuen Besitzer.
+
+Das finally des WID-E2E schließt Kontexte mit allSettled, damit ein sekundärer
+Fehler beim Schließen eines bereits entsorgten Kontexts nicht mehr den eigentlichen
+Assertion-/Timeout-Ort verdeckt. Alle fachlichen Assertions und das 90-s-Limit
+bleiben erhalten. Der nachfolgende Head aa9b055 bestand bereits 18/18 im ersten
+Versuch (Run 39416289847); trotzdem wird das reproduzierte Rennen behoben und
+der endgültige Head erneut vollständig geprüft.
+
 ## Verifikation und Testkorrekturen
 
-- 358/358 Servertests, 39/39 Dateien; 77/77 Webtests, 9/9 Dateien; keine skipped.
-- 23 neue Socket-/DB-Regressionen plus ein neuer Test im separaten Serverprozess.
+- 359/359 Servertests, 39/39 Dateien; 77/77 Webtests, 9/9 Dateien; keine skipped.
+- 23 neue Command-/Config-Regressionen, ein Reconnect-Test und ein Test im separaten Serverprozess.
 - Typecheck aller Pakete; Lint 0 Fehler / 117 bestehende Warnungen; beide Builds.
-- Neun Migrationen frisch und erneut deploybar; alle vier PR14-Migrationen auf
+- Zehn Migrationen frisch und erneut deploybar; alle fünf PR14-Migrationen auf
   Bestandsdaten, echte alte WID-v1/v2-Sessions, Rejoin und Receipt-Replay.
 - Der alte Test für zwei Fragen benutzte zweimal dieselbe ID. Er verwendet nun
   zwei echte Fragen und prüft auch den initialisierten State.

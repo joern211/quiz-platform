@@ -241,6 +241,8 @@ model Participation {
   avatarGenerated      String?  // JSON {initials, color, icon}
   
   connected            Boolean  @default(false)
+  // Socket owning presence; delayed disconnects may only release this owner.
+  connectionId         String?
   ready                Boolean  @default(false)
   kickedAt             DateTime?
   lastSeenAt           DateTime @default(now())

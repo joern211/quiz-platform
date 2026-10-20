@@ -102,8 +102,8 @@ export async function handleRoomSubscription(
       candidate.roomId === previousRoomId && candidate.participationId === previousParticipationId
     )) {
       await prisma.participation.updateMany({
-        where: { id: previousParticipationId, roomId: previousRoomId },
-        data: { connected: false, lastSeenAt: new Date() },
+        where: { id: previousParticipationId, roomId: previousRoomId, connectionId: socket.id },
+        data: { connected: false, connectionId: null, lastSeenAt: new Date() },
       });
     }
   }
@@ -194,7 +194,7 @@ export async function handleRoomSubscription(
     // Update to connected
     await prisma.participation.update({
       where: { id: participation.id },
-      data: { connected: true, lastSeenAt: new Date() },
+      data: { connected: true, connectionId: socket.id, lastSeenAt: new Date() },
     });
 
     identity = {
@@ -281,7 +281,7 @@ export async function handleRoomSubscription(
     if (existingModPart) {
       const refreshedModerator = await prisma.participation.update({
         where: { id: existingModPart.id },
-        data: { connected: true, ready: true, lastSeenAt: new Date() },
+        data: { connected: true, connectionId: socket.id, ready: true, lastSeenAt: new Date() },
       });
       identity = {
         participationId: refreshedModerator.id,
@@ -302,6 +302,7 @@ export async function handleRoomSubscription(
           normalizedName: displayName.toLowerCase().trim(),
           role: 'HOST',
           connected: true,
+          connectionId: socket.id,
           ready: true,
           rejoinToken: crypto.randomUUID(),
           rejoinTokenVersion: 1,

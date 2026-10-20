@@ -13,7 +13,7 @@ Nächstes fachliches Paket: **TEAM-ROOM (Planplatz PR14)**, weiterhin offen.
 - Review-Basis `55f01a0`; aktuelle Nacharbeit: [acht Korrekturen und Nachweise](review-fixes-2026-10-20.md).
 - Beide zuvor nur auf dem Audit-Branch gesicherten Commits `8a4398f` und
   `4a0e3ae` sind Vorfahren des PR-Heads; keine Arbeit wurde verworfen.
-- Die Nacharbeit vom 20.10. ändert Laufzeitregeln und ergänzt die vierte PR14-Migration.
+- Die Nacharbeit vom 20.10. ändert Laufzeitregeln und ergänzt die vierte und fünfte PR14-Migration.
 - Nutzerauftrag vom 19.10.: PR fertigstellen, testen und mergebereit machen.
   Das ersetzt die alte Vorgabe, ihn auch nach erfolgreicher Abnahme dauerhaft
   Draft zu lassen. **Kein Merge durch den Agenten.**
@@ -21,10 +21,10 @@ Nächstes fachliches Paket: **TEAM-ROOM (Planplatz PR14)**, weiterhin offen.
 ## Abgeschlossene lokale Abnahme
 
 Typecheck, Lint (0 Fehler / 117 bestehende Warnungen), Server- und Web-Build
-sind erfolgreich. **358/358 Server-Tests (39 Dateien)** und **77/77 Web-Tests
+sind erfolgreich. **359/359 Server-Tests (39 Dateien)** und **77/77 Web-Tests
 (9 Dateien)** sind ausgeführt und grün, keine übersprungenen Tests.
 Der PR12-Dokumentationschecker ist grün (1.292 IDs / 19 Spielverträge).
-Frische DB: alle neun Migrationen; erneuter Deploy: keine offenen Migrationen.
+Frische DB: alle zehn Migrationen; erneuter Deploy: keine offenen Migrationen.
 Bestandsmigration und echter WID-v1/v2-Rejoin sind in der Server-Suite enthalten.
 
 Die vollständige Browserabnahme erfolgt in GitHub Actions. Lokal startet
@@ -46,7 +46,7 @@ https://github.com/joern211/quiz-platform/pull/14/checks
 - Game-Ende mit commandId speichert eine Erfolgsquittung; Retry bleibt ein
   erfolgreicher Replay statt einer Ablehnung nach bereits beendetem Spiel.
 - Ready erst nach bestätigtem Raumbeitritt, keine parallelen Toggle-Requests.
-- Alle vier PR14-Migrationen in echter Bestandsmigration getestet;
+- Alle fünf PR14-Migrationen in echter Bestandsmigration getestet;
   gemeinsame Rollen-Normalisierung auch im Permission-Guard.
 - WID-Browsertest verwendet das tatsächlich wirksame test.setTimeout(90_000).
 

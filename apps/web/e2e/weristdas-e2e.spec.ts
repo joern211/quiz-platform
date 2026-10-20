@@ -142,5 +142,9 @@ test('W1-W10: setup, image, private solution, buzzer, scores, reconnect, viewer 
     await viewer.reload();
     await expect(viewer.getByText('Spiel beendet · Ergebnis')).toBeVisible();
     await expect(viewer.getByText('Alice W: 2')).toBeVisible();
-  } finally { await Promise.all(contexts.map(context => context.close())); }
+  } finally {
+    // Teardown must not replace a failed assertion with a second error from
+    // an already disposed context (which hides the actual failure location).
+    await Promise.allSettled(contexts.map(context => context.close()));
+  }
 });

@@ -176,3 +176,8 @@ kennzeichnet diesen unklaren Abschluss; der gemeinsame Client behält die ID
 bis zu einem Replay oder einer definitiven Recovery-Antwort. Fachliche
 Ablehnungen verbrauchen weiterhin die ID, damit eine neue gültige Absicht
 nicht durch eine alte Ablehnung blockiert wird.
+
+Die fünfte PR14-Migration ergänzt den nullable Presence-Besitzer connectionId.
+Bestehende Identitäten/Ready/Punkte bleiben erhalten. Jede echte Anmeldung setzt
+den Besitzer; ein später alter Disconnect kann einen neuen Socket nicht offline
+setzen. Der Wert ist Verbindungsmetadatum, kein Rejoin- oder Zugriffstoken.
