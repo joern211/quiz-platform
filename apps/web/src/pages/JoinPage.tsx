@@ -85,7 +85,7 @@ export function JoinPage() {
 
       // Navigate based on role - use route format from App.tsx
       const target =
-        role === 'MODERATOR'
+        role === 'HOST'
           ? `/moderator/raum/${codeToSend}/lobby`
           : `/raum/${codeToSend}/lobby`;
 

@@ -125,7 +125,7 @@ describe('Wer ist das? v2 — Fusion + Geheimhaltung (Regelwerk §15.3, §10.7, 
       create: { slug: GAME_SLUGS.werIstDas, name: 'Wer ist das?', category: 'buzzer-reaktion', status: 'BETA', minPlayers: 2, maxPlayers: 10 },
     });
     const user = await fresh.user.create({
-      data: { id: 'v2-host', displayName: 'V2 Host', email: 'v2host@test.local', passwordHash: 'x', role: 'MODERATOR' },
+      data: { id: 'v2-host', displayName: 'V2 Host', email: 'v2host@test.local', passwordHash: 'x', role: 'HOST' },
     });
     CTX.hostSessionId = (await fresh.session.create({ data: { userId: user.id, expiresAt: new Date(Date.now() + 600000) } })).id;
 

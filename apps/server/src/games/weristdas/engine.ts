@@ -8,6 +8,7 @@ import { WerIstDasPhase, WerIstDasSetupSchema, WER_IST_DAS_ENGINE_VERSION, isV2R
   isSupportedEngineVersion,
   type WerIstDasSetup, type WerIstDasRound } from './contracts.js';
 import { projectWerIstDas } from './resync.js';
+import { loadInitialGameCount, ConfigSnapshotError } from '../core/config.js';
 import { resolveCanonicalSlug } from '@quiz/shared';
 import { activateHint, buzz, createWerIstDasState, judge, nextRound, openRoundBuzzer, revealRound,
   InvalidGameAction, type WerIstDasState } from './state.js';
@@ -18,7 +19,7 @@ type Action = 'open' | 'buzz' | 'hint' | 'judge' | 'reveal' | 'next';
 async function sendProjections(io: Server, roomId: string, state: WerIstDasState, setup: WerIstDasSetup) {
   for (const socket of await io.in(roomChannel(roomId)).fetchSockets()) {
     const identity = socket.data as { roomId?: string; role?: string; participationId?: string };
-    if (identity.roomId !== roomId || !['MODERATOR', 'PLAYER', 'VIEWER'].includes(identity.role ?? '')) continue;
+    if (identity.roomId !== roomId || !['HOST', 'PLAYER', 'VIEWER'].includes(identity.role ?? '')) continue;
     socket.emit('weristdas:update', projectWerIstDas(state, setup, identity.role as GameRole, identity.participationId));
   }
 }
@@ -100,7 +101,9 @@ export const werIstDasGame = {
     const players = await prisma.participation.findMany({ where: { roomId: room.id, role: 'PLAYER' } });
     const names = Object.fromEntries(players.map(p => [p.id, p.displayName]));
     const scores = Object.fromEntries(players.map(p => [p.id, p.score]));
-    const state = createWerIstDasState(setup.rounds.length, names, scores);
+    const roundCount = await loadInitialGameCount(room.id, 'wer-ist-das', 'roundCount');
+    if (roundCount > setup.rounds.length) throw new ConfigSnapshotError(room.id, 'roundCount exceeds setup');
+    const state = createWerIstDasState(roundCount, names, scores);
     // engineVersion beim Start pinnen (Regelwerk §5.22): Recovery nutzt die
     // exakt gleiche Version.
     await upsertGameState({ roomId: room.id, state, phase: state.phase, engineVersion: WER_IST_DAS_ENGINE_VERSION });
@@ -109,7 +112,7 @@ export const werIstDasGame = {
 
   async act(io: Server, socket: Socket, action: Action, payload?: { result?: 'BOTH_CORRECT' | 'ONE_CORRECT' | 'WRONG' }): Promise<Ack> {
     const auth = await authorizeGameContext(socket, {
-      gameSlug: resolveCanonicalSlug('wer-ist-das')!, roles: action === 'buzz' ? ['PLAYER'] : ['MODERATOR'],
+      gameSlug: resolveCanonicalSlug('wer-ist-das')!, roles: action === 'buzz' ? ['PLAYER'] : ['HOST'],
       requireParticipation: true, requireRunning: true,
     });
     if (!auth.ok) return { success: false, error: auth.error };
@@ -158,7 +161,7 @@ export const werIstDasGame = {
 
   async resync(socket: Socket): Promise<Ack> {
     const auth = await authorizeGameContext(socket, {
-      gameSlug: resolveCanonicalSlug('wer-ist-das')!, roles: ['MODERATOR', 'PLAYER', 'VIEWER'],
+      gameSlug: resolveCanonicalSlug('wer-ist-das')!, roles: ['HOST', 'PLAYER', 'VIEWER'],
       requireParticipation: true,
     });
     if (!auth.ok) return { success: false, error: auth.error };

@@ -1,4 +1,15 @@
 // Jeopardy owns its event registration and its role-specific resync projection.
+// ============================================================
+// BASIS-STANDARDS-Integration:
+//   - Kritische Mutationen (Feld öffnen, Buzzer, Stehlen, Judge, Weiter,
+//     Board-Wechsel) laufen über den gemeinsamen Guard
+//     (runGuardedCriticalAction): wirksames Recht (BUZZER_CONTROL/
+//     JUDGE_ANSWER/ROUND_ADVANCE) aus der DB + Command-Receipts im
+//     Absichtstoken-Modus + Protokollversions-Check + AppError-Metadaten.
+//   - Die Engine behält ihre eigenen Rolle-/Phase-/CAS-Gates (Defense in
+//     Depth); der Guard prüft zusätzlich das §2.3-Recht und Replay.
+//   - VIEWER/DISPLAY haben keine Basis-Spielrechte.
+// ============================================================
 import { Server, Socket } from 'socket.io';
 import { z } from 'zod';
 import { prisma } from '../../persistence/prisma.js';
@@ -8,6 +19,7 @@ import { JeopardyGameState } from './state.js';
 import { getSocketDataIdentity } from '../../sockets/auth.js';
 import { authorizeGameAction } from '../core/access.js';
 import { gameErrorCode } from '../core/errors.js';
+import { runGuardedCriticalAction, type EngineActionResult } from '../core/receiptedAction.js';
 
 // ── Jeopardy Runtime Payload Validation ──────────────────────
 const JeopardyFieldOpenSchema = z.object({
@@ -15,22 +27,48 @@ const JeopardyFieldOpenSchema = z.object({
   categoryIndex: z.number().int().min(0).max(5),
   value: z.number().int().positive(),
   rejoinToken: z.string().optional(),
+  commandId: z.string().min(1).max(128).optional(),
+  requestId: z.string().min(1).max(128).optional(),
+  protocolVersion: z.number().int().optional(),
+  stateVersion: z.number().int().optional(),
+  expectedRevision: z.number().int().optional(),
 });
 
-const JeopardyBuzzSchema = z.object({});
+const JeopardyBuzzSchema = z.object({
+  commandId: z.string().min(1).max(128).optional(),
+  requestId: z.string().min(1).max(128).optional(),
+  protocolVersion: z.number().int().optional(),
+  stateVersion: z.number().int().optional(),
+  expectedRevision: z.number().int().optional(),
+});
 
 const JeopardyJudgeSchema = z.object({
   correct: z.boolean(),
   rejoinToken: z.string().optional(),
+  commandId: z.string().min(1).max(128).optional(),
+  requestId: z.string().min(1).max(128).optional(),
+  protocolVersion: z.number().int().optional(),
+  stateVersion: z.number().int().optional(),
+  expectedRevision: z.number().int().optional(),
 });
 
 const JeopardyNextSchema = z.object({
   rejoinToken: z.string().optional(),
+  commandId: z.string().min(1).max(128).optional(),
+  requestId: z.string().min(1).max(128).optional(),
+  protocolVersion: z.number().int().optional(),
+  stateVersion: z.number().int().optional(),
+  expectedRevision: z.number().int().optional(),
 });
 
 const JeopardyBoardSwitchSchema = z.object({
   toBoard: z.union([z.literal(1), z.literal(2)]),
   rejoinToken: z.string().optional(),
+  commandId: z.string().min(1).max(128).optional(),
+  requestId: z.string().min(1).max(128).optional(),
+  protocolVersion: z.number().int().optional(),
+  stateVersion: z.number().int().optional(),
+  expectedRevision: z.number().int().optional(),
 });
 
 // ── Helper: validate with Zod, return error code ─────────────
@@ -48,16 +86,49 @@ function validateOrReject<T>(
   return result.data;
 }
 
+// ── BASIS-STANDARDS: kritische Jeopardy-Mutation über Guard+Receipt ──────
+// Die Jeopardy-Handler sind Promise-basiert (kein Callback) — ihr Ergebnis
+// wird dem Guard direkt zurückgegeben (directHandler-Adapter).
+function runJeopardyCriticalAction(
+  io: Server,
+  socket: Socket,
+  args: {
+    action: string;
+    permission?: 'BUZZER_CONTROL' | 'JUDGE_ANSWER' | 'ROUND_ADVANCE';
+    payload: unknown;
+    handler: (onResult: (r: EngineActionResult) => void) => Promise<EngineActionResult | void>;
+  },
+  callback?: (result: { success: boolean; error?: string; [k: string]: unknown }) => void,
+): Promise<void> {
+  return runGuardedCriticalAction({
+    io,
+    socket,
+    action: args.action,
+    permission: args.permission,
+    payload: args.payload,
+    handler: args.handler,
+  }, callback);
+}
+
+// Direct-return-Adapter: Promise-Handler → Guard-Handler (onResult-Variante).
+function directHandler(run: () => Promise<{ success: boolean; error?: string }>) {
+  return (onResult: (r: EngineActionResult) => void) => run().then((r) => {
+    onResult(r as EngineActionResult);
+  });
+}
+
 export function registerJeopardyEvents(io: Server, socket: Socket) {
-    // Jeopardy game events (P0-07: MODERATOR-only, P0-08: Zod validation, P0-09: error handling)
+    // Jeopardy game events (P0-07: HOST-only, P0-08: Zod validation, P0-09: error handling)
     socket.on('jeopardy:field:open', (data, callback) => {
       try {
         const valid = validateOrReject(JeopardyFieldOpenSchema, data, callback);
         if (!valid) return;
-        handleJeopardyGame.handleFieldOpen(io, socket, valid).then(
-          (result) => callback?.(result),
-          (err) => { logger.error('jeopardy:field:open failed', { err }); callback?.({ success: false, error: gameErrorCode(err) }); }
-        );
+        void runJeopardyCriticalAction(io, socket, {
+          action: 'fieldOpen',
+          permission: 'BUZZER_CONTROL',
+          payload: valid,
+          handler: directHandler(() => handleJeopardyGame.handleFieldOpen(io, socket, valid)),
+        }, callback);
       } catch (err) {
         logger.error('jeopardy:field:open threw', { err });
         callback?.({ success: false, error: gameErrorCode(err) });
@@ -68,10 +139,12 @@ export function registerJeopardyEvents(io: Server, socket: Socket) {
       try {
         const valid = validateOrReject(JeopardyFieldOpenSchema, data, callback);
         if (!valid) return;
-        handleJeopardyGame.handleFieldOpen(io, socket, valid as unknown as { boardIndex: 1 | 2; categoryIndex: number; value: number }).then(
-          (result) => callback?.(result),
-          (err: unknown) => { logger.error('jeopardy:field:lock failed', { err }); callback?.({ success: false, error: gameErrorCode(err) }); }
-        );
+        void runJeopardyCriticalAction(io, socket, {
+          action: 'fieldOpen',
+          permission: 'BUZZER_CONTROL',
+          payload: valid,
+          handler: directHandler(() => handleJeopardyGame.handleFieldOpen(io, socket, valid as unknown as { boardIndex: 1 | 2; categoryIndex: number; value: number })),
+        }, callback);
       } catch (err) {
         logger.error('jeopardy:field:lock threw', { err });
         callback?.({ success: false, error: gameErrorCode(err) });
@@ -82,10 +155,12 @@ export function registerJeopardyEvents(io: Server, socket: Socket) {
       try {
         const valid = validateOrReject(JeopardyBuzzSchema, data, callback);
         if (!valid) return;
-        handleJeopardyGame.handleBuzz(io, socket, valid as unknown as Record<string, never>).then(
-          (result) => callback?.(result),
-          (err: unknown) => { logger.error('jeopardy:buzz failed', { err }); callback?.({ success: false, error: gameErrorCode(err) }); }
-        );
+        void runJeopardyCriticalAction(io, socket, {
+          action: 'buzz',
+          permission: 'BUZZER_CONTROL',
+          payload: valid,
+          handler: directHandler(() => handleJeopardyGame.handleBuzz(io, socket, valid as unknown as Record<string, never>)),
+        }, callback);
       } catch (err) {
         logger.error('jeopardy:buzz threw', { err });
         callback?.({ success: false, error: gameErrorCode(err) });
@@ -96,10 +171,12 @@ export function registerJeopardyEvents(io: Server, socket: Socket) {
       try {
         const valid = validateOrReject(JeopardyJudgeSchema, data, callback);
         if (!valid) return;
-        handleJeopardyGame.handleJudge(io, socket, valid as unknown as { correct: boolean }).then(
-          (result) => callback?.(result),
-          (err: unknown) => { logger.error('jeopardy:judge failed', { err }); callback?.({ success: false, error: gameErrorCode(err) }); }
-        );
+        void runJeopardyCriticalAction(io, socket, {
+          action: 'judge',
+          permission: 'JUDGE_ANSWER',
+          payload: valid,
+          handler: directHandler(() => handleJeopardyGame.handleJudge(io, socket, valid as unknown as { correct: boolean })),
+        }, callback);
       } catch (err) {
         logger.error('jeopardy:judge threw', { err });
         callback?.({ success: false, error: gameErrorCode(err) });
@@ -110,10 +187,12 @@ export function registerJeopardyEvents(io: Server, socket: Socket) {
       try {
         const valid = validateOrReject(JeopardyBuzzSchema, data, callback);
         if (!valid) return;
-        handleJeopardyGame.handleStealBuzz(io, socket, valid as unknown as Record<string, never>).then(
-          (result) => callback?.(result),
-          (err: unknown) => { logger.error('jeopardy:steal:buzz failed', { err }); callback?.({ success: false, error: gameErrorCode(err) }); }
-        );
+        void runJeopardyCriticalAction(io, socket, {
+          action: 'stealBuzz',
+          permission: 'BUZZER_CONTROL',
+          payload: valid,
+          handler: directHandler(() => handleJeopardyGame.handleStealBuzz(io, socket, valid as unknown as Record<string, never>)),
+        }, callback);
       } catch (err) {
         logger.error('jeopardy:steal:buzz threw', { err });
         callback?.({ success: false, error: gameErrorCode(err) });
@@ -124,10 +203,12 @@ export function registerJeopardyEvents(io: Server, socket: Socket) {
       try {
         const valid = validateOrReject(JeopardyJudgeSchema, data, callback);
         if (!valid) return;
-        handleJeopardyGame.handleStealJudge(io, socket, valid as unknown as { correct: boolean }).then(
-          (result) => callback?.(result),
-          (err: unknown) => { logger.error('jeopardy:steal:judge failed', { err }); callback?.({ success: false, error: gameErrorCode(err) }); }
-        );
+        void runJeopardyCriticalAction(io, socket, {
+          action: 'stealJudge',
+          permission: 'JUDGE_ANSWER',
+          payload: valid,
+          handler: directHandler(() => handleJeopardyGame.handleStealJudge(io, socket, valid as unknown as { correct: boolean })),
+        }, callback);
       } catch (err) {
         logger.error('jeopardy:steal:judge threw', { err });
         callback?.({ success: false, error: gameErrorCode(err) });
@@ -138,22 +219,26 @@ export function registerJeopardyEvents(io: Server, socket: Socket) {
       try {
         const valid = validateOrReject(JeopardyNextSchema, data, callback);
         if (!valid) return;
-        handleJeopardyGame.handleNext(io, socket, valid as unknown as Record<string, never>).then(
-          (result) => callback?.(result),
-          (err: unknown) => { logger.error('jeopardy:next failed', { err }); callback?.({ success: false, error: gameErrorCode(err) }); }
-        );
+        void runJeopardyCriticalAction(io, socket, {
+          action: 'next',
+          permission: 'ROUND_ADVANCE',
+          payload: valid,
+          handler: directHandler(() => handleJeopardyGame.handleNext(io, socket, valid as unknown as Record<string, never>)),
+        }, callback);
       } catch (err) {
         logger.error('jeopardy:next threw', { err });
         callback?.({ success: false, error: gameErrorCode(err) });
       }
     });
 
-    // Jeopardy board switch (P0-07: MODERATOR-only, P0-08: Zod validation, P0-09: error handling)
-    socket.on('jeopardy:board:switch', async (data, callback) => {
+    // Jeopardy board switch (P0-07: HOST-only, P0-08: Zod validation, P0-09: error handling)
+    // BASIS-STANDARDS: BOARD_SWITCH über Guard (ROUND_ADVANCE-Recht) + Receipt.
+    socket.on('jeopardy:board:switch', (data, callback) => {
+      void (async () => {
       try {
         const valid = validateOrReject(JeopardyBoardSwitchSchema, data, callback);
         if (!valid) return;
-        const auth = authorizeGameAction(socket, { roles: ['MODERATOR'], requireParticipation: true });
+        const auth = await authorizeGameAction(socket, { roles: ['HOST'], requireParticipation: true });
         if (!auth.ok) { callback?.({ success: false, error: auth.error }); return; }
         const room = await prisma.room.findUnique({
           where: { id: auth.actor.roomId }, include: { gameDefinition: true },
@@ -162,24 +247,33 @@ export function registerJeopardyEvents(io: Server, socket: Socket) {
         if (room.gameDefinition.slug !== 'jeopardy') {
           callback?.({ success: false, error: 'WRONG_GAME' }); return;
         }
-        const gameStateRow = await prisma.roomGameState.findUnique({ where: { roomId: room.id } });
-        if (!gameStateRow) { callback?.({ success: false, error: 'GAME_NOT_FOUND' }); return; }
-        const currentBoard = (JSON.parse(gameStateRow.stateJson) as JeopardyGameState).currentBoard;
-        if (valid.toBoard !== (currentBoard === 1 ? 2 : 1)) {
-          callback?.({ success: false, error: 'WRONG_BOARD' }); return;
-        }
-        const result = await handleJeopardyGame.handleBoardSwitch(io, room);
-        callback?.(result);
+        await runGuardedCriticalAction({
+          io,
+          socket,
+          action: 'boardSwitch',
+          permission: 'ROUND_ADVANCE',
+          payload: valid,
+          handler: async (onResult) => {
+            const gameStateRow = await prisma.roomGameState.findUnique({ where: { roomId: room.id } });
+            if (!gameStateRow) { onResult({ success: false, error: 'GAME_NOT_FOUND' }); return; }
+            const currentBoard = (JSON.parse(gameStateRow.stateJson) as JeopardyGameState).currentBoard;
+            if (valid.toBoard !== (currentBoard === 1 ? 2 : 1)) {
+              onResult({ success: false, error: 'WRONG_BOARD' }); return;
+            }
+            onResult(await handleJeopardyGame.handleBoardSwitch(io, room));
+          },
+        }, callback);
       } catch (err) {
         logger.error('jeopardy:board:switch threw', { err });
         callback?.({ success: false, error: gameErrorCode(err) });
       }
+      })();
     });
 
     // Jeopardy game state resync (P0-11: full rejoin)
     socket.on('jeopardy:resync', async (_data, callback) => {
       try {
-        const auth = authorizeGameAction(socket, { roles: ['MODERATOR', 'PLAYER', 'VIEWER'] });
+        const auth = authorizeGameAction(socket, { roles: ['HOST', 'PLAYER', 'VIEWER'] });
         if (!auth.ok) { callback?.({ success: false, error: auth.error }); return; }
         const identity = getSocketDataIdentity(socket);
 
@@ -244,7 +338,7 @@ export function registerJeopardyEvents(io: Server, socket: Socket) {
           };
 
           // P0-07: Only include answer for moderator
-          if (identity.role === 'MODERATOR' && clue?.answer) {
+          if (identity.role === 'HOST' && clue?.answer) {
             currentField.answer = clue.answer;
           }
         }
@@ -252,7 +346,7 @@ export function registerJeopardyEvents(io: Server, socket: Socket) {
         // Get played fields (for board rendering)
         const playedFields: string[] = [];
         for (const boardNumber of [1, 2] as const) {
-          const board = boardNumber === 1 ? setup.board1 : setup.board2;
+          const board = boardNumber === 1 ? setup.board1 : state.boardCount === 1 ? undefined : setup.board2;
           board?.categories.forEach((category, categoryIndex) => {
             category.clues.forEach((clue) => {
               const key = `${boardNumber}-${categoryIndex}-${clue.value}`;
@@ -266,7 +360,7 @@ export function registerJeopardyEvents(io: Server, socket: Socket) {
           (board?.categories ?? []).map((c) => ({ name: c.name, clueCount: c.clues.length }));
 
         const board1Cats = getBoardCategories(setup.board1);
-        const board2Cats = getBoardCategories(setup.board2);
+        const board2Cats = state.boardCount === 1 ? [] : getBoardCategories(setup.board2);
 
         callback?.({
           success: true,
@@ -279,7 +373,7 @@ export function registerJeopardyEvents(io: Server, socket: Socket) {
           board1Categories: board1Cats,
           board2Categories: board2Cats,
           board1Values: (setup.board1?.categories[0]?.clues.map((c) => c.value) ?? []).sort((a, b) => a - b),
-          board2Values: (setup.board2?.categories[0]?.clues.map((c) => c.value) ?? []).sort((a, b) => a - b),
+          board2Values: state.boardCount === 1 ? [] : (setup.board2?.categories[0]?.clues.map((c) => c.value) ?? []).sort((a, b) => a - b),
           gameEnded: state.phase === 'GAME_END',
           buzzWinnerId: state.buzzWinner,
           stealWinnerId: state.stealWinner,

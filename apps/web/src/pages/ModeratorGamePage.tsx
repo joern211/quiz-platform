@@ -4,7 +4,7 @@
 
 import { useParams, useNavigate } from 'react-router-dom';
 import { useEffect, useState, useRef } from 'react';
-import { getSocket, connectSocket, disconnectSocket } from '../lib/socket';
+import { getSocket, connectSocket, disconnectSocket, emitCommand } from '../lib/socket';
 import { Card, Button } from '@quiz/ui';
 import { Timer } from '@quiz/ui';
 import { GameShell } from '../components/GameShell';
@@ -28,13 +28,15 @@ export function ModeratorGamePage() {
   const [timerPaused, setTimerPaused] = useState(false);
   const [correctOptionId, setCorrectOptionId] = useState<string | null>(null);
   const [actionError, setActionError] = useState('');
+  const [recoveryError, setRecoveryError] = useState(false);
+  const recoveryMessage = 'Die Spielkonfiguration konnte nicht geladen werden. Das Spiel ist angehalten. Bitte beende es und erstelle einen neuen Raum.';
 
   useEffect(() => {
     socketRef.current = getSocket();
     const socket = socketRef.current;
 
     const subscribe = () => {
-      socket.emit('room:subscribe', { roomCode, role: 'MODERATOR' }, (response) => {
+      socket.emit('room:subscribe', { roomCode, role: 'HOST' }, (response) => {
         if (!response.success) {
           setActionError(`Raumverbindung fehlgeschlagen: ${response.error ?? 'Unbekannter Fehler'}`);
           return;
@@ -45,6 +47,8 @@ export function ModeratorGamePage() {
             navigate(`/moderator/raum/${roomCode}/ergebnis`, { replace: true });
             return;
           }
+          setRecoveryError(Boolean(res.recoveryError));
+          if (res.recoveryError) setActionError(recoveryMessage);
           if (res.question) setQuestion(res.question);
           setEndsAt(res.timerEndMs ?? 0);
           setRevealed(res.revealed ?? false);
@@ -73,7 +77,14 @@ export function ModeratorGamePage() {
       setPlayers(data.players || []);
     });
 
+    socket.on('geo:round:error', () => {
+      setRecoveryError(true);
+      setEndsAt(0);
+      setActionError(recoveryMessage);
+    });
+
     socket.on('geo:question', (data) => {
+      setRecoveryError(false);
       setQuestion(data.question);
       setEndsAt(data.timerEndMs);
       setRevealed(false);
@@ -116,7 +127,10 @@ export function ModeratorGamePage() {
 
   const handlePauseTimer = () => {
     if (!socketRef.current) return setActionError('Socket-Verbindung ist nicht verfügbar.');
-    socketRef.current.emit('game:pause', { roomCode }, (response) => {
+    // Audit PR14, 14-01: emitCommand — der Pause-Token wird nach
+    // bestätigtem Erfolg verbraucht; die nächste Pause erhält ein frisches
+    // Token (Replay der ersten Pause würde sonst stattlaufen).
+    emitCommand(socketRef.current, 'game:pause', { roomCode }, `${roomCode}:game:pause`, (response) => {
       if (response.success) setTimerPaused(true);
       else setActionError(`Pause fehlgeschlagen: ${response.error ?? 'Unbekannter Fehler'}`);
     });
@@ -124,7 +138,7 @@ export function ModeratorGamePage() {
 
   const handleResumeTimer = () => {
     if (!socketRef.current) return setActionError('Socket-Verbindung ist nicht verfügbar.');
-    socketRef.current.emit('game:resume', { roomCode }, (response) => {
+    emitCommand(socketRef.current, 'game:resume', { roomCode }, `${roomCode}:game:resume`, (response) => {
       if (response.success) setTimerPaused(false);
       else setActionError(`Fortsetzen fehlgeschlagen: ${response.error ?? 'Unbekannter Fehler'}`);
     });
@@ -135,7 +149,7 @@ export function ModeratorGamePage() {
       setActionError('Socket-Verbindung ist nicht verfügbar.');
       return;
     }
-    socketRef.current.emit('geo:reveal', { roomCode }, (response) => {
+    emitCommand(socketRef.current, 'geo:reveal', { roomCode }, `${roomCode}:geo:reveal:${question?.id ?? 'q'}`, (response) => {
       if (!response.success) setActionError(`Auflösung fehlgeschlagen: ${response.error ?? 'Unbekannter Fehler'}`);
     });
   };
@@ -145,7 +159,7 @@ export function ModeratorGamePage() {
       setActionError('Socket-Verbindung ist nicht verfügbar.');
       return;
     }
-    socketRef.current.emit('geo:next', { roomCode }, (response) => {
+    emitCommand(socketRef.current!, 'geo:next', { roomCode }, `${roomCode}:geo:next:${question?.id ?? 'q'}`, (response) => {
       if (!response.success) setActionError(`Nächste Frage konnte nicht geladen werden: ${response.error ?? 'Unbekannter Fehler'}`);
       if (response.ended) navigate(`/moderator/raum/${roomCode}/ergebnis`);
     });
@@ -156,7 +170,7 @@ export function ModeratorGamePage() {
       setActionError('Socket-Verbindung ist nicht verfügbar.');
       return;
     }
-    socketRef.current.emit('game:end', { roomCode }, (response) => {
+    emitCommand(socketRef.current, 'game:end', { roomCode }, `${roomCode}:game:end`, (response) => {
       if (response.success) navigate(`/moderator/raum/${roomCode}/ergebnis`);
       else setActionError('Spiel konnte nicht beendet werden.');
     });
@@ -170,10 +184,11 @@ export function ModeratorGamePage() {
 
   if (!question) {
     return (
-      <GameShell role="moderator" roomCode={roomCode} phase="WAITING" connected={connected} error={actionError}>
+      <GameShell role="moderator" roomCode={roomCode} phase={recoveryError ? 'ERROR_RECOVERY' : 'WAITING'} connected={connected} error={actionError}>
       <div className={styles.page}>
         <div className={styles.waiting}>
-          <h1>Warte auf Spielstart...</h1>
+          <h1>{recoveryError ? 'Spiel angehalten' : 'Warte auf Spielstart...'}</h1>
+          {recoveryError && <Button variant="danger" onClick={handleEndGame}>Spiel beenden</Button>}
         </div>
       </div>
       </GameShell>
@@ -181,7 +196,7 @@ export function ModeratorGamePage() {
   }
 
   return (
-    <GameShell role="moderator" roomCode={roomCode} phase={timerPaused ? 'PAUSED' : revealed ? 'REVEAL' : 'INPUT_OPEN'} connected={connected} error={actionError}>
+    <GameShell role="moderator" roomCode={roomCode} phase={recoveryError ? 'ERROR_RECOVERY' : timerPaused ? 'PAUSED' : revealed ? 'REVEAL' : 'INPUT_OPEN'} connected={connected} error={actionError}>
     <div className={styles.page}>
       <div className={styles.header}>
         <div className={styles.progress}>
@@ -193,7 +208,7 @@ export function ModeratorGamePage() {
         <p className={styles.category}>{question.category}</p>
         <h2 className={styles.prompt}>{question.prompt}</h2>
         
-        {!revealed && !timerPaused && <Timer endsAt={endsAt} size="lg" />}
+        {!recoveryError && !revealed && !timerPaused && <Timer endsAt={endsAt} size="lg" />}
         
         <div className={styles.answerStats}>
           {question.options.map((opt: any, i: number) => (
@@ -226,7 +241,7 @@ export function ModeratorGamePage() {
       </Card>
 
       <div className={styles.actions}>
-        {!revealed ? (
+        {!recoveryError && (!revealed ? (
           <>
             <Button variant="secondary" onClick={timerPaused ? handleResumeTimer : handlePauseTimer}>
               {timerPaused ? '▶ Weiter' : '⏸ Pause'}
@@ -235,7 +250,7 @@ export function ModeratorGamePage() {
           </>
         ) : (
           <Button onClick={handleNextQuestion}>Nächste Frage →</Button>
-        )}
+        ))}
         <Button variant="danger" onClick={handleEndGame}>Spiel beenden</Button>
       </div>
     </div>

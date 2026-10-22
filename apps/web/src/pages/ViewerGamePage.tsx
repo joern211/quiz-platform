@@ -5,6 +5,7 @@
 import { useParams, useNavigate } from 'react-router-dom';
 import { useEffect, useState } from 'react';
 import { io } from 'socket.io-client';
+import type { GeoResyncResponse } from '../lib/socket';
 import { Card } from '@quiz/ui';
 import { Timer } from '@quiz/ui';
 import { GameShell } from '../components/GameShell';
@@ -20,6 +21,7 @@ export function ViewerGamePage() {
   const [players, setPlayers] = useState<any[]>([]);
   const [scores, setScores] = useState<Record<string, number>>({});
   const [revealed, setRevealed] = useState(false);
+  const [actionError, setActionError] = useState('');
 
   useEffect(() => {
     const socket = io(window.location.origin, { withCredentials: true });
@@ -27,15 +29,13 @@ export function ViewerGamePage() {
     const subscribe = () => {
       socket.emit('room:subscribe', { roomCode: code, role: 'VIEWER' }, (response: { success: boolean }) => {
         if (!response.success) return;
-        socket.emit('geo:resync', {}, (res: {
-          success: boolean; question?: typeof question; timerEndMs?: number | null;
-          revealed?: boolean; phase?: string; scores?: Record<string, number>;
-        }) => {
+        socket.emit('geo:resync', {}, (res: GeoResyncResponse) => {
           if (!res.success) return;
           if (res.phase === 'GAME_END') {
             navigate(`/zuschauen/${code}/ergebnis`, { replace: true });
             return;
           }
+          if (res.recoveryError) setActionError('Das Spiel ist angehalten. Bitte warte auf den Host.');
           setQuestion(res.question ?? null);
           setTimerEndMs(res.timerEndMs ?? 0);
           setRevealed(res.revealed ?? false);
@@ -54,7 +54,14 @@ export function ViewerGamePage() {
     });
 
     // P0-11: Listen for geo:question (not geo:show)
+    socket.on('geo:round:error', () => {
+      setPhase('ERROR_RECOVERY');
+      setTimerEndMs(0);
+      setActionError('Das Spiel ist angehalten. Bitte warte auf den Host.');
+    });
+
     socket.on('geo:question', (data) => {
+      setActionError('');
       setQuestion(data.question);
       setTimerEndMs(data.timerEndMs ?? 0);
       setRevealed(false);
@@ -85,7 +92,7 @@ export function ViewerGamePage() {
   }, [code, navigate]);
 
   return (
-    <GameShell role="viewer" roomCode={code ?? ''} phase={phase} connected={connected}>
+    <GameShell role="viewer" roomCode={code ?? ''} phase={phase} connected={connected} error={actionError}>
     <div className={styles.page}>
 
       {question ? (
@@ -94,7 +101,7 @@ export function ViewerGamePage() {
             <p className={styles.category}>{question.category}</p>
             <h2 className={styles.prompt}>{question.prompt}</h2>
             
-            {!revealed && phase !== 'PAUSED' && <Timer endsAt={timerEndMs} size="lg" />}
+            {!revealed && phase === 'INPUT_OPEN' && <Timer endsAt={timerEndMs} size="lg" />}
             
             <div className={styles.options}>
               {question.options.map((opt: any, i: number) => {

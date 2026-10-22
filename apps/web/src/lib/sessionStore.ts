@@ -3,7 +3,7 @@
 // Keys: qp_rejoinToken, qp_participationId, qp_roomCode, qp_role
 // ============================================================
 
-export type PlayerRole = 'MODERATOR' | 'PLAYER' | 'VIEWER';
+export type PlayerRole = 'HOST' | 'PLAYER' | 'VIEWER';
 
 export interface SessionStore {
   rejoinToken: string | null;

@@ -12,11 +12,11 @@ function socketFor(data: Record<string, unknown>, joinedRooms: string[]): Socket
 describe('authorizeGameAction', () => {
   it('allows a moderator in the matching room channel', () => {
     const socket = socketFor(
-      { roomId: 'room-1', role: 'MODERATOR', participationId: 'p-mod', displayName: 'Mod' },
+      { roomId: 'room-1', role: 'HOST', participationId: 'p-mod', displayName: 'Mod' },
       ['socket-1', 'room_room-1']
     );
 
-    const result = authorizeGameAction(socket, { roles: ['MODERATOR'], requireParticipation: true });
+    const result = authorizeGameAction(socket, { roles: ['HOST'], requireParticipation: true });
 
     expect(result.ok).toBe(true);
     if (result.ok) {
@@ -31,7 +31,7 @@ describe('authorizeGameAction', () => {
       ['socket-1', 'room_room-1']
     );
 
-    expect(authorizeGameAction(socket, { roles: ['MODERATOR'] })).toEqual({
+    expect(authorizeGameAction(socket, { roles: ['HOST'] })).toEqual({
       ok: false,
       error: 'FORBIDDEN',
     });
@@ -51,11 +51,11 @@ describe('authorizeGameAction', () => {
 
   it('requires a participation when requested', () => {
     const socket = socketFor(
-      { roomId: 'room-1', role: 'MODERATOR' },
+      { roomId: 'room-1', role: 'HOST' },
       ['socket-1', 'room_room-1']
     );
 
-    expect(authorizeGameAction(socket, { roles: ['MODERATOR'], requireParticipation: true })).toEqual({
+    expect(authorizeGameAction(socket, { roles: ['HOST'], requireParticipation: true })).toEqual({
       ok: false,
       error: 'NO_PARTICIPATION',
     });

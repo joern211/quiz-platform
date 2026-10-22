@@ -5,7 +5,7 @@
 
 import { io, Socket } from 'socket.io-client';
 
-export type PlayerRole = 'MODERATOR' | 'PLAYER' | 'VIEWER';
+export type PlayerRole = 'HOST' | 'PLAYER' | 'VIEWER';
 
 export interface WerIstDasView {
   phase: 'ROUND_READY' | 'BUZZ_OPEN' | 'ANSWERING' | 'REVEAL' | 'GAME_END';
@@ -74,6 +74,7 @@ export interface GeoResyncResponse {
   error?: string;
   phase?: string;
   gameEnded?: boolean;
+  recoveryError?: string;
   roundIndex?: number;
   totalQuestions?: number;
   question?: {
@@ -123,6 +124,7 @@ export type ServerToClientEvents = {
     buzzOpen: boolean;
   }) => void;
   'geo:reveal': (data: { correctOptionId?: string; correctOptionText?: string; explanation?: string; scores: Array<{ participationId: string; displayName: string; score: number; correct: boolean; bonus: number }> }) => void;
+  'geo:round:error': (data: { error: string }) => void;
   'geo:timer-expired': (data: { roundIndex: number }) => void;
   'geo:paused': (data: { roundIndex: number; remainingMs: number }) => void;
   'geo:resumed': (data: { timerEndMs: number }) => void;
@@ -156,37 +158,43 @@ export type ServerToClientEvents = {
   'error': (data: { code: string; message: string }) => void;
 };
 
+/** BASIS-STANDARDS (C): Command-Envelope-Felder (v1). */
+export interface CommandEnvelopeFields {
+  commandId?: string;
+  protocolVersion?: number;
+}
+
 export type ClientToServerEvents = {
-  'weristdas:buzzer:open': (data: Record<string, never>, ack: (res: { success: boolean; error?: string }) => void) => void;
-  'weristdas:buzz': (data: Record<string, never>, ack: (res: { success: boolean; error?: string }) => void) => void;
-  'weristdas:hint': (data: Record<string, never>, ack: (res: { success: boolean; error?: string }) => void) => void;
-  'weristdas:judge': (data: { result: 'BOTH_CORRECT' | 'ONE_CORRECT' | 'WRONG' }, ack: (res: { success: boolean; error?: string }) => void) => void;
-  'weristdas:reveal': (data: Record<string, never>, ack: (res: { success: boolean; error?: string }) => void) => void;
-  'weristdas:next': (data: Record<string, never>, ack: (res: { success: boolean; error?: string }) => void) => void;
+  'weristdas:buzzer:open': (data: Record<string, never> & CommandEnvelopeFields, ack: (res: { success: boolean; error?: string }) => void) => void;
+  'weristdas:buzz': (data: Record<string, never> & CommandEnvelopeFields, ack: (res: { success: boolean; error?: string }) => void) => void;
+  'weristdas:hint': (data: Record<string, never> & CommandEnvelopeFields, ack: (res: { success: boolean; error?: string }) => void) => void;
+  'weristdas:judge': (data: { result: 'BOTH_CORRECT' | 'ONE_CORRECT' | 'WRONG' } & CommandEnvelopeFields, ack: (res: { success: boolean; error?: string }) => void) => void;
+  'weristdas:reveal': (data: Record<string, never> & CommandEnvelopeFields, ack: (res: { success: boolean; error?: string }) => void) => void;
+  'weristdas:next': (data: Record<string, never> & CommandEnvelopeFields, ack: (res: { success: boolean; error?: string }) => void) => void;
   'weristdas:resync': (data: Record<string, never>, ack: (res: { success: boolean; error?: string; state?: WerIstDasView }) => void) => void;
   'room:subscribe': (data: { roomCode: string; rejoinToken?: string; pin?: string; role?: PlayerRole }, ack: (res: { success: boolean; error?: string; snapshot?: RoomState }) => void) => void;
   'room:resync': (data: { roomCode: string; rejoinToken?: string }, ack: (res: { success: boolean; state?: RoomState }) => void) => void;
   'room:kick': (data: { roomCode: string; playerId: string }, ack: (res: { success: boolean; error?: string }) => void) => void;
   'player:ready:set': (data: { roomCode: string; ready: boolean; rejoinToken?: string }, ack: (res: { success: boolean }) => void) => void;
-  'game:start': (data: { roomCode: string }, ack: (res: { success: boolean; error?: string; gameSlug?: string }) => void) => void;
-  'game:pause': (data: { roomCode: string }, ack: (res: { success: boolean; error?: string }) => void) => void;
-  'game:resume': (data: { roomCode: string }, ack: (res: { success: boolean; error?: string }) => void) => void;
-  'game:end': (data: { roomCode: string }, ack: (res: { success: boolean; error?: string }) => void) => void;
-  'geo:answer': (data: GeoAnswerPayload & { rejoinToken?: string }, ack: (res: { success: boolean; error?: string }) => void) => void;
-  'geo:joker:5050': (data: GeoJokerPayload & { rejoinToken?: string }, ack: (res: { success: boolean; error?: string; eliminatedOptions?: string[] }) => void) => void;
-  'geo:joker:spy': (data: GeoJokerPayload & { rejoinToken?: string }, ack: (res: { success: boolean; error?: string; distribution?: Record<string, number> }) => void) => void;
-  'geo:joker:risk': (data: GeoJokerPayload & { rejoinToken?: string }, ack: (res: { success: boolean; error?: string }) => void) => void;
+  'game:start': (data: { roomCode: string } & CommandEnvelopeFields, ack: (res: { success: boolean; error?: string; gameSlug?: string }) => void) => void;
+  'game:pause': (data: { roomCode: string } & CommandEnvelopeFields, ack: (res: { success: boolean; error?: string }) => void) => void;
+  'game:resume': (data: { roomCode: string } & CommandEnvelopeFields, ack: (res: { success: boolean; error?: string }) => void) => void;
+  'game:end': (data: { roomCode: string } & CommandEnvelopeFields, ack: (res: { success: boolean; error?: string }) => void) => void;
+  'geo:answer': (data: GeoAnswerPayload & { rejoinToken?: string } & CommandEnvelopeFields, ack: (res: { success: boolean; error?: string }) => void) => void;
+  'geo:joker:5050': (data: GeoJokerPayload & { rejoinToken?: string } & CommandEnvelopeFields, ack: (res: { success: boolean; error?: string; eliminatedOptions?: string[] }) => void) => void;
+  'geo:joker:spy': (data: GeoJokerPayload & { rejoinToken?: string } & CommandEnvelopeFields, ack: (res: { success: boolean; error?: string; distribution?: Record<string, number> }) => void) => void;
+  'geo:joker:risk': (data: GeoJokerPayload & { rejoinToken?: string } & CommandEnvelopeFields, ack: (res: { success: boolean; error?: string }) => void) => void;
   'geo:resync': (data: Record<string, never>, ack: (res: GeoResyncResponse) => void) => void;
-  'geo:reveal': (data: GeoJokerPayload, ack: (res: { success: boolean; error?: string }) => void) => void;
-  'geo:next': (data: GeoJokerPayload, ack: (res: { success: boolean; error?: string; ended?: boolean }) => void) => void;
+  'geo:reveal': (data: GeoJokerPayload & CommandEnvelopeFields, ack: (res: { success: boolean; error?: string }) => void) => void;
+  'geo:next': (data: GeoJokerPayload & CommandEnvelopeFields, ack: (res: { success: boolean; error?: string; ended?: boolean }) => void) => void;
   // ── Jeopardy ────────────────────────────────────────────────
-  'jeopardy:field:open': (data: { boardIndex: 1 | 2; categoryIndex: number; value: number; rejoinToken?: string }, ack: (res: { success: boolean; error?: string }) => void) => void;
-  'jeopardy:buzz': (data: { rejoinToken?: string }, ack: (res: { success: boolean; error?: string }) => void) => void;
-  'jeopardy:judge': (data: { correct: boolean; rejoinToken?: string }, ack: (res: { success: boolean; error?: string }) => void) => void;
-  'jeopardy:steal:buzz': (data: { rejoinToken?: string }, ack: (res: { success: boolean; error?: string }) => void) => void;
-  'jeopardy:steal:judge': (data: { correct: boolean; rejoinToken?: string }, ack: (res: { success: boolean; error?: string }) => void) => void;
-  'jeopardy:next': (data: { rejoinToken?: string }, ack: (res: { success: boolean; error?: string }) => void) => void;
-  'jeopardy:board:switch': (data: { toBoard: 2 | 1; rejoinToken?: string }, ack: (res: { success: boolean; error?: string }) => void) => void;
+  'jeopardy:field:open': (data: { boardIndex: 1 | 2; categoryIndex: number; value: number; rejoinToken?: string } & CommandEnvelopeFields, ack: (res: { success: boolean; error?: string }) => void) => void;
+  'jeopardy:buzz': (data: { rejoinToken?: string } & CommandEnvelopeFields, ack: (res: { success: boolean; error?: string }) => void) => void;
+  'jeopardy:judge': (data: { correct: boolean; rejoinToken?: string } & CommandEnvelopeFields, ack: (res: { success: boolean; error?: string }) => void) => void;
+  'jeopardy:steal:buzz': (data: { rejoinToken?: string } & CommandEnvelopeFields, ack: (res: { success: boolean; error?: string }) => void) => void;
+  'jeopardy:steal:judge': (data: { correct: boolean; rejoinToken?: string } & CommandEnvelopeFields, ack: (res: { success: boolean; error?: string }) => void) => void;
+  'jeopardy:next': (data: { rejoinToken?: string } & CommandEnvelopeFields, ack: (res: { success: boolean; error?: string }) => void) => void;
+  'jeopardy:board:switch': (data: { toBoard: 2 | 1; rejoinToken?: string } & CommandEnvelopeFields, ack: (res: { success: boolean; error?: string }) => void) => void;
   'jeopardy:resync': (data: Record<string, never>, ack: (res: JeopardyResyncResponse) => void) => void;
   'lobby:chat:send': (data: { roomCode: string; content: string }, ack: (res: { success: boolean }) => void) => void;
   'lobby:chat:lock': (data: { roomCode: string; locked: boolean }, ack: (res: { success: boolean }) => void) => void;
@@ -302,4 +310,35 @@ export function disconnectSocket() {
 
 export function kickPlayer(roomCode: string, playerId: string, callback?: (res: { success: boolean; error?: string }) => void) {
   getSocket().emit('room:kick', { roomCode, playerId }, callback ?? (() => {}));
+}
+
+// ============================================================
+// BASIS-STANDARDS (C): Absichtstoken-Verwaltung (Command-Envelope)
+// ============================================================
+// Regel (Auftrag §5.C): Der Frontend erzeugt EIN Token pro
+// Benutzerabsicht. Dieselbe Absicht (gleiche Aktion in gleicher
+// Runde/Frage) → GLEICHES Token bei Wiederholung (z.B. Doppelklick,
+// Retry nach Timeout). Eine NEUE Absicht (nächste Frage/Runde) →
+// neues Token. Gleiche Payload ist NICHT dieselbe Absicht — deshalb
+// ist der Intent-Key explizit (Aktion + Kontext), kein
+// Payload-Fingerprint.
+// ============================================================
+
+import { createCommandIntentClient, type CommandEmitter, type CommandResponse } from '@quiz/shared';
+export type { CommandResponse } from '@quiz/shared';
+
+const commandIntents = createCommandIntentClient();
+export const {
+  intentToken, discardIntentToken, discardIntentTokenIfCurrent, withCommandEnvelope,
+} = commandIntents;
+
+/** Keep one ID while a response is unknown; consume it after a final ACK. */
+export function emitCommand<TPayload extends object>(
+  socket: Socket,
+  event: string,
+  payload: TPayload,
+  intentKey: string,
+  onResponse?: (response: CommandResponse) => void,
+): void {
+  commandIntents.emitCommand(socket as unknown as CommandEmitter, event, payload, intentKey, onResponse);
 }

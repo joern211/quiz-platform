@@ -4,7 +4,7 @@
 // ============================================================
 
 import { useEffect, useRef, useState, useCallback } from 'react';
-import { getSocket, connectSocket, disconnectSocket, getSessionData, type PlayerRole, type JeopardyResyncResponse } from '../lib/socket';
+import { getSocket, connectSocket, disconnectSocket, getSessionData, emitCommand, type PlayerRole, type JeopardyResyncResponse } from '../lib/socket';
 
 // ── Event payload types ────────────────────────────────────────
 
@@ -30,7 +30,7 @@ export interface JeopardyBuzzWonPayload {
 }
 
 export interface JeopardyRevealPayload {
-  answer: string; // Only for MODERATOR; masked for PLAYER/VIEWER
+  answer: string; // Only for HOST; masked for PLAYER/VIEWER
   correct: boolean;
   playerId: string;
   playerName: string;
@@ -128,6 +128,16 @@ export function useJeopardy(roomCode: string, role: PlayerRole) {
     playedFields: [],
     gameEnd: null,
   });
+
+  // BASIS-STANDARDS: Intent-Kontext (aktuelles Feld) per Ref, damit die
+  // Action-Callbacks ohne Re-Render auf den aktuellen Stand zugreifen.
+  const gameStateRef = useRef<JeopardyGameState>(gameState);
+  useEffect(() => { gameStateRef.current = gameState; }, [gameState]);
+  const fieldKey = () => {
+    const ref = gameStateRef.current;
+    const cf = ref.currentField;
+    return cf ? `b${ref.boardNumber}-f${cf.categoryIndex}-${cf.value}` : 'none';
+  };
   const [secretAnswer, setSecretAnswer] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -154,7 +164,7 @@ export function useJeopardy(roomCode: string, role: PlayerRole) {
             }
             const scores = Object.fromEntries((res.scores ?? []).map((entry) => [entry.playerId, entry.score]));
             const playerNames = res.playerNames ?? Object.fromEntries((res.scores ?? []).map((entry) => [entry.playerId, entry.playerName]));
-            setSecretAnswer(role === 'MODERATOR' ? res.currentField?.answer ?? null : null);
+            setSecretAnswer(role === 'HOST' ? res.currentField?.answer ?? null : null);
             setGameState((prev) => ({
               ...prev,
               boardNumber: res.currentBoard!,
@@ -232,7 +242,7 @@ export function useJeopardy(roomCode: string, role: PlayerRole) {
       }));
     });
 
-    // Secret answer — MODERATOR only
+    // Secret answer — HOST only
     socket.on('jeopardy:answer:secret', (data: { answer: string }) => {
       setSecretAnswer(data.answer);
     });
@@ -347,86 +357,100 @@ export function useJeopardy(roomCode: string, role: PlayerRole) {
   const openField = useCallback(
     (boardIndex: 1 | 2, categoryIndex: number, value: number) => {
       if (!socketRef.current) return;
-      socketRef.current.emit(
+      emitCommand(
+        socketRef.current,
         'jeopardy:field:open',
         { boardIndex, categoryIndex, value },
+        `${roomCode}:jp:open:${boardIndex}-${categoryIndex}-${value}`,
         (res: { success: boolean; error?: string }) => {
           if (!res.success) setError(`Feld öffnen fehlgeschlagen: ${res.error}`);
         }
       );
     },
-    []
+    [roomCode]
   );
 
   const buzz = useCallback(() => {
     if (!socketRef.current) return;
-    socketRef.current.emit('jeopardy:buzz', {}, (res: { success: boolean; error?: string }) => {
+    // Audit PR14, 14-01: Token-Lebenszyklus über emitCommand — ein Buzzer-
+    // Retry (Doppelklick/ACK-Verlust) sendet denselben Token; die nächste
+    // zulässige Absicht erhält ein frisches Token.
+    emitCommand(socketRef.current, 'jeopardy:buzz', {}, `${roomCode}:jp:buzz:${fieldKey()}`, (res: { success: boolean; error?: string }) => {
       if (!res.success && res.error !== 'BUZZER_ALREADY_WON') {
         setError(`Buzzer fehlgeschlagen: ${res.error}`);
       }
     });
-  }, []);
+  }, [roomCode]);
 
   const judge = useCallback(
     (correct: boolean) => {
       if (!socketRef.current) return;
-      socketRef.current.emit(
+      // Andere Bewertung (correct/!correct) = andere Absicht → eigener Key.
+      emitCommand(
+        socketRef.current,
         'jeopardy:judge',
         { correct },
+        `${roomCode}:jp:judge:${fieldKey()}:${correct}`,
         (res: { success: boolean; error?: string }) => {
           if (!res.success) setError(`Urteil fehlgeschlagen: ${res.error}`);
         }
       );
     },
-    []
+    [roomCode]
   );
 
   const stealBuzz = useCallback(() => {
     if (!socketRef.current) return;
-    socketRef.current.emit(
+    emitCommand(
+      socketRef.current,
       'jeopardy:steal:buzz',
       {},
+      `${roomCode}:jp:stealBuzz:${fieldKey()}`,
       (res: { success: boolean; error?: string }) => {
         if (!res.success && res.error !== 'STEAL_ALREADY_WON') {
           setError(`Abstauber-Buzzer fehlgeschlagen: ${res.error}`);
         }
       }
     );
-  }, []);
+  }, [roomCode]);
 
   const stealJudge = useCallback(
     (correct: boolean) => {
       if (!socketRef.current) return;
-      socketRef.current.emit(
+      emitCommand(
+        socketRef.current,
         'jeopardy:steal:judge',
         { correct },
+        `${roomCode}:jp:stealJudge:${fieldKey()}:${correct}`,
         (res: { success: boolean; error?: string }) => {
           if (!res.success) setError(`Abstauber-Urteil fehlgeschlagen: ${res.error}`);
         }
       );
     },
-    []
+    [roomCode]
   );
 
   const next = useCallback(() => {
     if (!socketRef.current) return;
-    socketRef.current.emit('jeopardy:next', {}, (res: { success: boolean; error?: string }) => {
+    emitCommand(socketRef.current, 'jeopardy:next', {}, `${roomCode}:jp:next:${fieldKey()}`, (res: { success: boolean; error?: string }) => {
       if (!res.success) setError(`Weiter fehlgeschlagen: ${res.error}`);
     });
-  }, []);
+  }, [roomCode]);
 
   const switchBoard = useCallback(
     (toBoard: 2 | 1) => {
       if (!socketRef.current) return;
-      socketRef.current.emit(
+      emitCommand(
+        socketRef.current,
         'jeopardy:board:switch',
         { toBoard },
+        `${roomCode}:jp:board:${toBoard}`,
         (res: { success: boolean; error?: string }) => {
           if (!res.success) setError(`Board-Wechsel fehlgeschlagen: ${res.error}`);
         }
       );
     },
-    []
+    [roomCode]
   );
 
   const clearError = useCallback(() => setError(null), []);

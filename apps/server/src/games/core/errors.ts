@@ -12,6 +12,7 @@ const PUBLIC_CODES = new Set([
   // dieser Reader nicht exakt versteht → kontrollierte Ablehnung (kein
   // falscher State, kein crash).
   'UNSUPPORTED_ENGINE_VERSION',
+  'COMMAND_OWNERSHIP_LOST', 'REVISION_CONFLICT', 'CONFIG_SNAPSHOT_INVALID', 'COMMAND_STATE_ADVANCED',
 ]);
 
 export function gameErrorCode(error: unknown): string {

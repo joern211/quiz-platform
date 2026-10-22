@@ -63,7 +63,7 @@ e2eRouter.post('/game-start', async (req, res) => {
     const { handleGameEvents } = await import('../sockets/game.js');
     const socket = {
       id: `e2e-${sessionId}`,
-      data: { roomId: room.id, role: 'MODERATOR', userId: session.user.id },
+      data: { roomId: room.id, role: 'HOST', userId: session.user.id },
     } as any;
 
     await new Promise<void>((resolve) => {

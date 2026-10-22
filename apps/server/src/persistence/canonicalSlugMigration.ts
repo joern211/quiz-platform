@@ -27,7 +27,7 @@
 // ============================================================
 
 import type { PrismaClient } from '@prisma/client';
-import { GAME_MANIFESTS, LEGACY_SLUG_ALIASES, type GameManifest } from '@quiz/shared';
+import { GAME_MANIFESTS, LEGACY_SLUG_ALIASES, normalizeManifest, type GameManifest } from '@quiz/shared';
 import { logger } from '../observability/logger.js';
 
 export const CANONICAL_SLUG_MIGRATION_VERSION = 1;
@@ -213,10 +213,11 @@ export async function runCanonicalSlugMigration(client: PrismaClient): Promise<S
     // und es entsteht kein Audit-Record. (Prisma-`@updatedAt` würde ansonsten bei
     // jedem Start hochgezogen, obwohl sich fachlich nichts geändert hat.)
     for (const m of GAME_MANIFESTS) {
-      const def = await tx.gameDefinition.findUnique({ where: { slug: m.slug } });
+      const manifest = normalizeManifest(m);
+      const def = await tx.gameDefinition.findUnique({ where: { slug: manifest.slug } });
       if (!def) continue;
-      if (slugMatchesManifest(def, m)) continue; // bereits ausgerichtet → No-op
-      const attrs = manifestAttributes(m.slug)!;
+      if (slugMatchesManifest(def, manifest)) continue; // bereits ausgerichtet → No-op
+      const attrs = manifestAttributes(manifest.slug)!;
       await tx.gameDefinition.update({ where: { id: def.id }, data: attrs });
       result.changes += 1;
     }

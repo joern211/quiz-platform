@@ -24,7 +24,7 @@ describe('player socket identity', () => {
     globalThis.__prisma = db;
     try {
       const host = await db.user.create({ data: {
-        displayName: 'Host', email: 'player-auth@test.local', passwordHash: 'unused', role: 'MODERATOR',
+        displayName: 'Host', email: 'player-auth@test.local', passwordHash: 'unused', role: 'HOST',
       } });
       const game = await db.gameDefinition.create({ data: {
         slug: 'player-auth', name: 'Game', category: 'GEO', status: 'AVAILABLE',

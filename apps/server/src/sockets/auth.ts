@@ -49,9 +49,9 @@ export function requireRoomRole(
     return false;
   }
 
-  // Role hierarchy: MODERATOR > PLAYER > VIEWER
+  // Role hierarchy: HOST > PLAYER > VIEWER
   const ROLE_LEVELS: Record<string, number> = {
-    MODERATOR: 3,
+    HOST: 3,
     PLAYER: 2,
     VIEWER: 1,
   };
@@ -123,7 +123,7 @@ export async function authorizeRoomAction(
 
   // Role hierarchy
   const ROLE_LEVELS: Record<string, number> = {
-    MODERATOR: 3,
+    HOST: 3,
     PLAYER: 2,
     VIEWER: 1,
   };

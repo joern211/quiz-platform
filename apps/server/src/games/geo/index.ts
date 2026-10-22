@@ -6,6 +6,8 @@ import { Server, Socket } from 'socket.io';
 import { prisma } from '../../persistence/prisma.js';
 import { resolveCanonicalSlug, slugWithLegacy } from '@quiz/shared';
 import { finishRunningGame, saveGameStateIfRevision, upsertGameState } from '../core/state.js';
+import { withoutCommandExecution } from '../core/commandExecution.js';
+import { loadGameConfig, loadInitialGameCount } from '../core/config.js';
 import { authorizeGameContext } from '../core/access.js';
 import { gameErrorCode } from '../core/errors.js';
 import { applyScoreDelta, recordScoreMutation } from '../core/score.js';
@@ -44,6 +46,7 @@ interface GeoGameState {
   questions: any[];
   roundStates: Record<number, GeoRoundState>;
   scores: Record<string, number>;
+  recoveryError?: 'CONFIG_SNAPSHOT_INVALID';
 }
 
 // Store active timer handles per roomCode (for cancellation)
@@ -96,12 +99,12 @@ export async function restoreActiveTimers(io: Server): Promise<void> {
         }
 
         cancelGeoTimer(room.id);
-        const timer = setTimeout(() => {
+        const timer = withoutCommandExecution(() => setTimeout(() => {
           activeTimers.delete(room.id);
           void handleGeoGame.handleTimerExpired(io, room).catch((error) => {
             logger.error('P0-16: Fehler beim Ablauf des restaurierten Timers', { roomId: room.id, error });
           });
-        }, remaining);
+        }, remaining));
         activeTimers.set(room.id, timer);
         logger.info('P0-16: Timer restauriert', { roomId: room.id, remainingMs: remaining });
       } catch (error) {
@@ -121,6 +124,7 @@ export const handleGeoGame = {
   async initialize(io: Server, room: any, initialPhase: string = 'INTRO') {
     // Get setup from room
     const setup = JSON.parse(room.setupSnapshotJson || '{}');
+    const questionCount = await loadInitialGameCount(room.id, 'wissensduell', 'questionCount');
     
     // Get questions based on setup
     let questions: any[] = [];
@@ -147,7 +151,7 @@ export const handleGeoGame = {
       
       // Shuffle and take configured amount
       const shuffled = geoQuestions.sort(() => Math.random() - 0.5);
-      const count = setup.questionCount || 10;
+      const count = questionCount;
       questions = shuffled.slice(0, Math.min(count, shuffled.length));
     } else {
       // P0-08: No questions selected AND no pool - use default pool (first pack)
@@ -166,10 +170,12 @@ export const handleGeoGame = {
         });
         
         const shuffled = geoQuestions.sort(() => Math.random() - 0.5);
-        const count = setup.questionCount || 10;
+        const count = questionCount;
         questions = shuffled.slice(0, Math.min(count, shuffled.length));
       }
     }
+
+    questions = questions.slice(0, questionCount);
 
     // P0-08: Validate minimum 1 question before allowing game:start
     if (questions.length === 0) {
@@ -278,9 +284,46 @@ export const handleGeoGame = {
     // Parse options
     const options = JSON.parse(question.options);
 
-    // P0-16: Use setup.timerDuration (in seconds) or default to 20
-    const setup = JSON.parse(roomRecord.setupSnapshotJson || '{}');
-    const timerDuration = (setup.timerDuration || 20) * 1000; // Convert to ms
+    // BASIS-STANDARDS (E) + Audit PR14, 14-04 (Nacharbeit): Timer kommt aus
+    // der zentralen Config-Auflösung (Start-Snapshot, falls vorhanden;
+    // sonst Legacy-Setup via loadGameConfig, die setup.timerDuration in
+    // Sekunden → ms umrechnet und den zentralen Default 20000 ms anwendet).
+    // Der KANONISCHE Slug wird übergeben — der Reader normalisiert Legacy
+    // intern; der Geo-Reader darf keine eigene Slug-Anlage mehr pflegen.
+    //
+    // Never replace an incompatible snapshot with today's defaults. Persist
+    // a safe recovery state so reconnects/restarts retain the failure and the
+    // host can end the game without exposing configuration or solutions.
+    let timerDuration: number;
+    try {
+      const loaded = await loadGameConfig(roomRecord, 'wissensduell');
+      timerDuration = loaded?.values.timerDurationMs?.value as number;
+      if (typeof timerDuration !== 'number' || !Number.isFinite(timerDuration) || timerDuration <= 0) {
+        throw new Error(`CONFIG_SNAPSHOT_INVALID: nicht gültiger timerDurationMs-Wert (${String(timerDuration)})`);
+      }
+    } catch (error) {
+      // No new round or scoring; enter a durable, read-only recovery phase.
+      logger.error('Geo startRound: ungültige Spielkonfiguration — Runde wird nicht gestartet (14-04)', {
+        roomId: roomRecord.id,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      state.phase = 'ERROR_RECOVERY';
+      state.recoveryError = 'CONFIG_SNAPSHOT_INVALID';
+      await prisma.$transaction(async (tx) => {
+        await saveGameStateIfRevision(tx, {
+          roomId: roomRecord.id, expectedRevision: gameStateData.revision,
+          state, phase: 'ERROR_RECOVERY',
+        });
+        const updated = await tx.room.updateMany({
+          where: { id: roomRecord.id, status: 'RUNNING', revision: roomRecord.revision },
+          data: { runPhase: 'ERROR_RECOVERY', revision: { increment: 1 } },
+        });
+        if (updated.count !== 1) throw new Error('STATE_CONFLICT');
+      });
+      cancelGeoTimer(roomRecord.id);
+      io.to(roomChannelName).emit('geo:round:error', { error: state.recoveryError });
+      return;
+    }
     const timerStartMs = Date.now();
     const timerEndMs = timerStartMs + timerDuration;
 
@@ -318,6 +361,7 @@ export const handleGeoGame = {
     };
 
     state.phase = 'INPUT_OPEN';
+    delete state.recoveryError;
 
     // A concurrent game:end must prevent both the state transition and event.
     await prisma.$transaction(async (tx) => {
@@ -359,10 +403,10 @@ export const handleGeoGame = {
       clearTimeout(existingTimer);
     }
 
-    const timer = setTimeout(async () => {
+    const timer = withoutCommandExecution(() => setTimeout(async () => {
       activeTimers.delete(roomRecord.id);
-      await this.handleTimerExpired(io, roomRecord);
-    }, timerDuration);
+      await this.handleTimerExpired(io, roomRecord).catch(error => logger.error('Geo timer failed', { roomId: roomRecord.id, error }));
+    }, timerDuration));
 
     activeTimers.set(roomRecord.id, timer);
 
@@ -492,7 +536,7 @@ export const handleGeoGame = {
       });
       const roomSockets = await io.in(roomChannel(room.id)).fetchSockets();
       for (const moderator of roomSockets) {
-        if (moderator.data.role === 'MODERATOR' && moderator.data.roomId === room.id) {
+        if (moderator.data.role === 'HOST' && moderator.data.roomId === room.id) {
           moderator.emit('geo:answered:moderator', {
             questionIndex: roundIndex, participantId: participationId, optionId: data.optionId,
           });
@@ -813,7 +857,7 @@ export const handleGeoGame = {
         }
 
         const auth = await authorizeGameContext(socket, {
-          roles: ['MODERATOR'], requireParticipation: true, gameSlug: resolveCanonicalSlug('geo')!, requireRunning: true,
+          roles: ['HOST'], requireParticipation: true, gameSlug: resolveCanonicalSlug('geo')!, requireRunning: true,
         });
         if (!auth.ok || auth.room.id !== roomRecord.id) {
           callback?.({ success: false, error: auth.ok ? 'WRONG_ROOM' : auth.error });
@@ -977,7 +1021,7 @@ export const handleGeoGame = {
 
       // P0-17: Authorization check
       const auth = await authorizeGameContext(socket, {
-        roles: ['MODERATOR'], requireParticipation: true, gameSlug: resolveCanonicalSlug('geo')!, requireRunning: true,
+        roles: ['HOST'], requireParticipation: true, gameSlug: resolveCanonicalSlug('geo')!, requireRunning: true,
       });
       if (!auth.ok || auth.room.id !== room.id) {
         callback?.({ success: false, error: auth.ok ? 'WRONG_ROOM' : auth.error });
@@ -1053,7 +1097,7 @@ export const handleGeoGame = {
       }
 
       const auth = await authorizeGameContext(socket, {
-        roles: ['MODERATOR'], requireParticipation: true, gameSlug: resolveCanonicalSlug('geo')!, requireRunning: true,
+        roles: ['HOST'], requireParticipation: true, gameSlug: resolveCanonicalSlug('geo')!, requireRunning: true,
       });
       if (!auth.ok || auth.room.id !== room.id) {
         callback?.({ success: false, error: auth.ok ? 'WRONG_ROOM' : auth.error });
@@ -1129,7 +1173,7 @@ export const handleGeoGame = {
       }
 
       const auth = await authorizeGameContext(socket, {
-        roles: ['MODERATOR'], requireParticipation: true, gameSlug: resolveCanonicalSlug('geo')!, requireRunning: true,
+        roles: ['HOST'], requireParticipation: true, gameSlug: resolveCanonicalSlug('geo')!, requireRunning: true,
       });
       if (!auth.ok || auth.room.id !== room.id) {
         callback?.({ success: false, error: auth.ok ? 'WRONG_ROOM' : auth.error });
@@ -1174,10 +1218,10 @@ export const handleGeoGame = {
         clearTimeout(existingTimer);
       }
 
-      const timer = setTimeout(async () => {
+      const timer = withoutCommandExecution(() => setTimeout(async () => {
         activeTimers.delete(room.id);
-        await this.handleTimerExpired(io, room);
-      }, remainingTime);
+        await this.handleTimerExpired(io, room).catch(error => logger.error('Geo resumed timer failed', { roomId: room.id, error }));
+      }, remainingTime));
 
       activeTimers.set(room.id, timer);
 

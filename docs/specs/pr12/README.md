@@ -1,6 +1,6 @@
 # PR12 — Regelwerk Mapping und V1-Spezifikation (Dokumentations-PR)
 
-**Status:** Vorbereitung/Draft — **nicht** merge-ready. Kein Anwendungscode,
+**Historischer Dokumentumfang:** Vorbereitung; GitHub-PR #12 wurde am 10.10.2026 gemergt. Kein Anwendungscode,
 keine Schema-/Migration-/CI-Änderungen. Rein dokumentarisch.
 
 ## Was diese PR liefert
@@ -19,6 +19,7 @@ Tests → Abnahme** für V1.0 mit **19 Spielen** (18 kanonische Slugs FEST
 | [technical-mapping.md](technical-mapping.md) | Technisches **Zielmodell** (kein Runtime-Code): Datenmodell, ID-/Zeit-/Revisions-Standards, Command-/Event-/Snapshot-Verträge, alle Game-Cores mit API-Skizzen, Fachbereichs-Mapping, Migration & Recovery, Monitoring, offene technische Optionen. |
 | [decision-register.md](decision-register.md) | Offene **fachliche Nutzerentscheidungen** (DEC-DDF-01…06, DEC-<Spiel>-01, DEC-JEO/KAT/WID, DEC-EVT/ACC) getrennt von **Routine-Entscheidungen** (RUT-01…18) + gebündelte Nutzer-Fragenliste. |
 | [dependencies-and-parallel-work.md](dependencies-and-parallel-work.md) | Abhängigkeitsgraph PR13–50, harte Voraussetzungen, zentrale Verträge, Dateizuständigkeiten, Worktree-/Branch-Plan, Integrationsreihenfolge, 3-Wochen-Startplan. |
+| [main-abgleich-1407.md](main-abgleich-1407.md) | **Datierter Main-Abgleich (Nachtrag 2026-10-15, Audit PR14 14-07):** tatsächlicher Merge-Iststand, Arbeitspaket↔GitHub-Nummer-Zuordnung, Datierung der historischen Basis-Referenzen (`411a5b7`/`1470894`) — ohne Umbruch der atomaren Zeilen. |
 | [games/index.md](games/index.md) | Kanonischer Katalog (19 Spiele) + gemeinsame Spiel-DoD + Konventionen. |
 | [games/*.md](games/index.md) | **19 Spielespezifikationen**: feste Regeln (mit Quellenstellen), offene Regeln (mit Decision-IDs), Setup/Content/Phasen/Commands, Wertung, Projektionen/Secrets, Rejoin/Recovery, Results/Stats, Tests. DDF als klar markierter Vorschlag. |
 
@@ -56,3 +57,13 @@ Tests → Abnahme** für V1.0 mit **19 Spielen** (18 kanonische Slugs FEST
   Detailregeln bleiben Rest; keine erfundenen Freigaben).
 - Nach dem PR11-Merge müssen SHAs/PR11-Vergleich/Links neu geprüft werden
   (siehe dependencies-and-parallel-work.md §7, Woche 2).
+
+
+## Datierter Abgleich 19.10.2026
+
+Die Zeilen-Istbasis `411a5b7` und der PR11-Vergleich `1470894` bleiben
+historische Snapshots. Tatsächlich ist main bei `3dba9ff` einschließlich
+PR11/12/13; BASIS-STANDARDS wird in GitHub-PR #14 vervollständigt. Seine
+konkrete Paketabnahme steht in [acceptance.md](../../implementation/pr14/acceptance.md).
+Die 1.292 Zeilen werden nicht pauschal als umgesetzt markiert. Offene
+Spieledetails bleiben Vorschläge, kein neuer Nutzerentscheid wird erfunden.

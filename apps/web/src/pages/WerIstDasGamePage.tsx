@@ -24,7 +24,7 @@ export function WerIstDasGamePage({ role }: { role: PlayerRole }) {
             <img className={styles.image}
               src={state.gameImageUrl ?? `/api/v1/media/${state.imageAssetId}`}
               alt="Errate die beiden Personen" />}
-          {role === 'MODERATOR' && state.hostImageUrls && state.hostImageUrls.length === 2 &&
+          {role === 'HOST' && state.hostImageUrls && state.hostImageUrls.length === 2 &&
             <div className={styles.originals}>
               <strong>Originalbilder (nur für dich, vor Reveal nicht öffentlich):</strong>
               <div>
@@ -42,15 +42,15 @@ export function WerIstDasGamePage({ role }: { role: PlayerRole }) {
             <button className={styles.buzz} disabled={!canBuzz} onClick={() => act('weristdas:buzz')}>
               {canBuzz ? 'BUZZERN' : state.excluded ? 'Ausgeschlossen' : 'Buzzer geschlossen'}
             </button>}
-          {state.person1 && state.person2 && (role === 'MODERATOR' || state.revealed) &&
+          {state.person1 && state.person2 && (role === 'HOST' || state.revealed) &&
             <div className={styles.solution}>
-              <strong>{role === 'MODERATOR' && !state.revealed ? 'Geheime Lösung' : 'Auflösung'}:</strong>
+              <strong>{role === 'HOST' && !state.revealed ? 'Geheime Lösung' : 'Auflösung'}:</strong>
               <p>{state.person1} + {state.person2}</p>
-              {role === 'MODERATOR' && ((state.aliases1?.length ?? 0) > 0 || (state.aliases2?.length ?? 0) > 0) &&
+              {role === 'HOST' && ((state.aliases1?.length ?? 0) > 0 || (state.aliases2?.length ?? 0) > 0) &&
                 <p>Alternativen: {state.aliases1?.join(', ')} · {state.aliases2?.join(', ')}</p>}
               {state.revealed && state.description && <p>{state.description}</p>}
             </div>}
-          {role === 'MODERATOR' && state.phase !== 'GAME_END' && <div className={styles.controls}>
+          {role === 'HOST' && state.phase !== 'GAME_END' && <div className={styles.controls}>
             <h2>Moderation</h2>
             {state.excludedPlayerIds?.length ? <p>Ausgeschlossen: {state.excludedPlayerIds.map(id => state.playerNames[id]).join(', ')}</p> : null}
             {state.phase === 'ROUND_READY' && <button disabled={Boolean(everyoneExcluded)} onClick={() => act('weristdas:buzzer:open')}>Buzzer öffnen</button>}

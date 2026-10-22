@@ -5,6 +5,7 @@
 
 import type { Prisma, RoomGameState } from '@prisma/client';
 import { prisma } from '../../persistence/prisma.js';
+import { assertCommandMutation } from './commandExecution.js';
 
 export class GameStateConflictError extends Error {
   readonly code = 'STATE_CONFLICT';
@@ -45,21 +46,24 @@ export async function upsertGameState<TState>(params: {
   const { roomId, state, phase, engineVersion = 1 } = params;
   const stateJson = JSON.stringify(state);
 
-  await prisma.roomGameState.upsert({
-    where: { roomId },
-    create: {
-      roomId,
-      engineVersion,
-      phase,
-      stateJson,
-      revision: 1,
-    },
-    update: {
-      engineVersion,
-      phase,
-      stateJson,
-      revision: { increment: 1 },
-    },
+  await prisma.$transaction(async (tx) => {
+    await assertCommandMutation(tx, roomId);
+    await tx.roomGameState.upsert({
+      where: { roomId },
+      create: {
+        roomId,
+        engineVersion,
+        phase,
+        stateJson,
+        revision: 1,
+      },
+      update: {
+        engineVersion,
+        phase,
+        stateJson,
+        revision: { increment: 1 },
+      },
+    });
   });
 }
 
@@ -77,6 +81,8 @@ export async function saveGameStateIfRevision<TState>(
   }
 ): Promise<void> {
   const { roomId, expectedRevision, state, phase } = params;
+
+  await assertCommandMutation(tx, roomId);
 
   const result = await tx.roomGameState.updateMany({
     where: { roomId, revision: expectedRevision },

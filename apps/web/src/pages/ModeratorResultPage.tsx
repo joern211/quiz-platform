@@ -108,7 +108,7 @@ export function ModeratorResultPage() {
                   {entry.rank === 1 ? '🥇' : entry.rank === 2 ? '🥈' : entry.rank === 3 ? '🥉' : `${entry.rank}.`}
                 </span>
                 <span className={styles.name}>{entry.displayName}</span>
-                {entry.role === 'MODERATOR' && (
+                {entry.role === 'HOST' && (
                   <Badge variant="accent" size="sm">Host</Badge>
                 )}
                 <Badge variant="accent">{entry.score} pts</Badge>

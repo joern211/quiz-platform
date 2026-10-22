@@ -102,7 +102,7 @@ export const handleLobbyEvents = {
       }
 
       // P0-05: Only moderator can lock chat
-      if (!identity.role || identity.role !== 'MODERATOR') {
+      if (!identity.role || identity.role !== 'HOST') {
         callback?.({ success: false, error: 'INSUFFICIENT_ROLE' });
         return;
       }
@@ -154,11 +154,7 @@ export async function handleDisconnect(io: Server, socket: Socket) {
 
     const roomId = identity.roomId;
     const channel = roomChannel(roomId);
-    const hasReplacementSocket = [...socketIdentityMap.entries()].some(([socketId, candidate]) =>
-      socketId !== socket.id &&
-      candidate.roomId === roomId &&
-      candidate.participationId === identity.participationId
-    );
+    let disconnectedParticipation = false;
 
     // Update participation or viewer session based on type
     if (identity.participationId.startsWith('viewer:')) {
@@ -168,12 +164,13 @@ export async function handleDisconnect(io: Server, socket: Socket) {
         where: { id: viewerSessionId },
         data: { connected: false, lastSeenAt: new Date(), disconnectedAt: new Date() },
       });
-    } else if (!hasReplacementSocket) {
-      // Regular participation - set connected=false
-      await prisma.participation.updateMany({
-        where: { id: identity.participationId, roomId },
-        data: { connected: false, lastSeenAt: new Date() },
+    } else {
+      // Check ownership AT the write, not in the identity map before an await.
+      const released = await prisma.participation.updateMany({
+        where: { id: identity.participationId, roomId, connectionId: socket.id },
+        data: { connected: false, connectionId: null, lastSeenAt: new Date() },
       });
+      disconnectedParticipation = released.count === 1;
     }
 
     // Get updated room state for broadcast
@@ -187,7 +184,7 @@ export async function handleDisconnect(io: Server, socket: Socket) {
 
     if (room) {
       // Broadcast player leave (only for actual players)
-      if (identity.role !== 'VIEWER' && !hasReplacementSocket) {
+      if (identity.role !== 'VIEWER' && disconnectedParticipation) {
         io.to(channel).emit('player:leave', {
           playerId: identity.participationId,
         });

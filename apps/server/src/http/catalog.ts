@@ -14,6 +14,7 @@ import {
   resolveCanonicalSlug,
   getGameManifest,
   deriveVisibleCategories,
+  normalizeManifest,
   type GameManifest,
 } from '@quiz/shared';
 import { isStartableSlug } from '../games/registry.js';
@@ -41,7 +42,8 @@ catalogRouter.get('/categories', (_req, res) => {
 catalogRouter.get('/games', (req, res) => {
   const { category, status, showAll } = req.query as Record<string, string | undefined>;
 
-  let games: GameManifest[] = [...GAME_MANIFESTS];
+  let games: GameManifest[] = GAME_MANIFESTS
+    .map((spec) => normalizeManifest(spec));
 
   if (!showAll) {
     games = games.filter((g) => g.status !== 'HIDDEN');

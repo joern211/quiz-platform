@@ -11,6 +11,7 @@ import { registerGeoEvents } from './geo/events.js';
 import { registerJeopardyEvents } from './jeopardy/events.js';
 import { registerWerIstDasEvents } from './weristdas/events.js';
 import { werIstDasGame } from './weristdas/engine.js';
+import { withoutCommandExecution } from './core/commandExecution.js';
 import { logger } from '../observability/logger.js';
 
 export interface GameRoom {
@@ -53,11 +54,11 @@ const geoHandle: GameHandle = {
   afterStart({ io, room }) {
     // Geo owns its intro-to-first-round transition. Keeping this lifecycle
     // hook in the adapter prevents generic socket code from knowing Geo rules.
-    setTimeout(() => {
+    withoutCommandExecution(() => setTimeout(() => {
       void handleGeoGame.startRound(io, room.code).catch((error) => {
         logger.error('Geo intro transition failed', { roomId: room.id, error });
       });
-    }, 3000);
+    }, 3000));
   },
   async pause({ io, socket, roomCode, callback }) {
     await handleGeoGame.handlePause(io, socket, { roomCode }, callback);

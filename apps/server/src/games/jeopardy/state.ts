@@ -66,6 +66,8 @@ export interface JeopardyFieldDef {
 // ============================================================
 
 export interface JeopardyGameState {
+  /** Pinned at initialization; absent on legacy states. */
+  boardCount?: number;
   /** Current board (1 or 2). */
   currentBoard: 1 | 2;
 

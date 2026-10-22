@@ -43,7 +43,7 @@ describe('ModeratorLoginPage', () => {
       json: () =>
         Promise.resolve({
           success: true,
-          data: { user: { id: userId, displayName, role: 'MODERATOR' } },
+          data: { user: { id: userId, displayName, role: 'HOST' } },
         }),
     });
   }
