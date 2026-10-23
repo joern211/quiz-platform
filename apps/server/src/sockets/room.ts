@@ -135,6 +135,10 @@ export async function handleRoomSubscription(
       return;
     }
 
+    if (participation.role === 'PLAYER' && userId && await prisma.participation.findFirst({ where: { roomId: room.id, userId, hasSeenHostSecrets: true } })) {
+      callback?.({ success: false, error: 'HOST_CANNOT_PLAY_OWN_ROUND' }); return;
+    }
+
     if (participation.userId && participation.userId !== userId) { callback?.({ success: false, error: 'SESSION_REQUIRED' }); return; }
 
     if (participation.role === 'HOST') {
@@ -220,7 +224,7 @@ export async function handleRoomSubscription(
     if (existingModPart) {
       const refreshedModerator = await prisma.participation.update({
         where: { id: existingModPart.id },
-        data: { connected: true, connectionId: socket.id, ready: true, lastSeenAt: new Date(), userId },
+        data: { connected: true, connectionId: socket.id, ready: true, lastSeenAt: new Date(), userId, hasSeenHostSecrets: true },
       });
       identity = {
         participationId: refreshedModerator.id,
@@ -240,6 +244,7 @@ export async function handleRoomSubscription(
           displayName,
           normalizedName: displayName.toLowerCase().trim(),
           role: 'HOST',
+          hasSeenHostSecrets: true,
           userId,
           connected: true,
           connectionId: socket.id,

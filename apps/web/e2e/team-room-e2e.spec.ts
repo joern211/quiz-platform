@@ -1,5 +1,7 @@
 import { expect, test, type Page } from '@playwright/test';
 
+test.use({ actionTimeout: 15000 });
+
 const BASE = process.env.E2E_BASE_URL ?? 'http://localhost:5173';
 async function join(page: Page, code: string, name: string) {
   await page.goto(`${BASE}/beitreten?code=${code}`);

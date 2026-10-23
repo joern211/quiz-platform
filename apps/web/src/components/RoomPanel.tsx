@@ -92,7 +92,7 @@ export function RoomPanel() {
           <label>Min. Spieler pro Team<input type="number" min={1} max={100} value={draft.minTeamSize} onChange={e => setDraft({ ...draft, minTeamSize: Number(e.target.value) })} /></label>
           <label>Max. Spieler pro Team<input type="number" min={1} max={100} value={draft.maxTeamSize} onChange={e => setDraft({ ...draft, maxTeamSize: Number(e.target.value) })} /></label>
           <label>Teamgrößen<select value={draft.equality} onChange={e => setDraft({ ...draft, equality: e.target.value as RoomPolicy['equality'] })}><option value="ANY">Beliebig</option><option value="WARN">Warnen bei Ungleichheit</option><option value="REQUIRED">Gleich große Teams</option></select></label>
-          <label>Wertung<select value={draft.scoring} onChange={e => setDraft({ ...draft, scoring: e.target.value as RoomPolicy['scoring'] })}><option value="INDIVIDUAL_SCORE">Einzelwertung</option><option value="TEAM_SCORE">Teamwertung</option></select></label>
+          <label>Wertung<select aria-label="Wertung" value={draft.scoring} onChange={e => setDraft({ ...draft, scoring: e.target.value as RoomPolicy['scoring'] })}><option value="INDIVIDUAL_SCORE">Einzelwertung</option><option value="TEAM_SCORE">Teamwertung</option></select></label>
           {(['waitlist', 'allowLateJoin', 'coHostEnabled', 'allowTeamReshuffleBetweenRounds'] as const).map((key, i) => <label key={key}><input type="checkbox" checked={draft[key]} onChange={e => setDraft({ ...draft, [key]: e.target.checked })} />{['Warteliste', 'Später Beitritt mit Freigabe', 'Co-Hosts erlauben', 'Notfall-Teamwechsel zwischen Runden erlauben'][i]}</label>)}
           <Button type="submit" disabled={pending}>Einstellungen speichern</Button>
         </form>}

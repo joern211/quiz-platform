@@ -4,11 +4,11 @@ Freigabebedingung: erfolgreiche CI und vollständige E2E am aktuellen PR-Head.
 Maßgeblich ist der aktuelle [GitHub-Check](https://github.com/joern211/quiz-platform/pull/15/checks);
 die PR-Beschreibung hält den zuletzt vollständig verifizierten Head und Run fest.
 
-Bisherige lokale vollständige Regression: 383 Servertests / 40 Dateien,
+Bisherige lokale vollständige Regression: 385 Servertests / 40 Dateien,
 80 Webtests / 10 Dateien; keine Skips. Build/Typecheck erfolgreich. Lint:
 0 Fehler, 116 Warnungen. Neue Änderungen erhalten passende Wiederholung.
 
-24 neue echte Room-/Team-Integrationstests und 3 UI-Tests prüfen u. a.:
+26 neue echte Room-/Team-Integrationstests und 3 UI-Tests prüfen u. a.:
 parallelen letzten Slot, eindeutige Namen, Warte-/Freigabestatus, PIN-Trennung,
 einmalige Einladungen, Teams/Rotation, Ready/Blocker, Geräteübernahme,
 Tokenrotation, Kick/Ban/Unban, Co-Host-Entzug, Host-Transfer/Failover,
@@ -37,3 +37,13 @@ Der alte Medien-Audit zählte Dateien im gemeinsam genutzten Upload-Verzeichnis.
 Ein paralleles Cleanup einer anderen Suite änderte die Anzahl trotz korrektem
 Composite. Die Suite verwendet jetzt ihren eigenen temporären Upload-Ordner;
 alle ursprünglichen Orphan-/Datei-/Byte-Prüfungen bleiben vollständig erhalten.
+
+Informationshistorie ist von Verwaltungsrechten getrennt: Wer bereits die
+HOST-Informationsrolle innehatte, erhält nach Transfer keine neue PLAYER-
+Identität im selben Raum. Eine vorherige PLAYER-/VIEWER-Rolle wird bei der
+Übernahme nicht zur geheimnisberechtigten HOST-Rolle. Beide Richtungen sind
+über echte Sockets geprüft.
+
+Auch die ursprüngliche Raumerstellungsabsicht bleibt nach Host-Transfer stabil:
+createdByUserId ist unveränderlich; Replay liefert denselben Raum und niemals
+ein Verwaltungs-Token des neuen Hosts oder eine neue HOST-Informationsrolle.

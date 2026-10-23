@@ -97,3 +97,11 @@ ALTER TABLE "score_events" ADD COLUMN "teamId" TEXT;
 ALTER TABLE "score_events" ADD COLUMN "runIndex" INTEGER NOT NULL DEFAULT 1;
 
 ALTER TABLE "participations" ADD COLUMN "lastRoundTripMs" INTEGER;
+
+ALTER TABLE "participations" ADD COLUMN "hasSeenHostSecrets" BOOLEAN NOT NULL DEFAULT false;
+UPDATE "participations" SET "hasSeenHostSecrets" = true WHERE "role" = 'HOST';
+
+ALTER TABLE "rooms" ADD COLUMN "createdByUserId" TEXT;
+UPDATE "rooms" SET "createdByUserId" = "hostUserId";
+DROP INDEX "rooms_idempotencyKey_hostUserId_key";
+CREATE UNIQUE INDEX "rooms_idempotencyKey_createdByUserId_key" ON "rooms"("idempotencyKey", "createdByUserId");

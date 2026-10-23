@@ -18,3 +18,11 @@
 - Früherer Host und neuer Verwaltungs-Host wechseln keine Informationsrolle.
   Nach Gerätewechsel verliert das alte Socket Kanal und Aktionsidentität;
   Token-Replay erzeugt keinen zweiten Gerätewechsel.
+
+- Bereits als HOST informierte Accounts können im selben Raum keine neue
+  PLAYER-Identität übernehmen. Eine spätere echte BLIND_HOST-Integration muss
+  diese Wissenshistorie explizit beachten; sie ist hier nicht still aktiviert.
+
+- Die Erstellungsabsicht bleibt an createdByUserId gebunden. Der aktuelle
+  hostUserId kann wechseln; Create-Replay liefert danach keinen neuen Host-
+  Slot und kein Verwaltungs-Token für den früheren Besitzer.

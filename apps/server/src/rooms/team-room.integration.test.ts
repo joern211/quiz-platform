@@ -204,6 +204,30 @@ describe('TEAM-ROOM: real HTTP / sockets / DB', () => {
     expect(await ack(replacement, 'room:subscribe', { roomCode: r.code })).toMatchObject({ success: true, snapshot: { identity: { role: 'VIEWER' } } });
     expect(((await ack(replacement, 'room:core:read', {})).view as RoomCoreView).isOwner).toBe(true);
   });
+  it('prevents an informed former host from rejoining as PLAYER after transfer', async () => {
+    const r = await createRoom();
+    const target = await player(r, 'New host', secondCookie, secondId);
+    expect((await command(r.host, r.code, { type: 'TRANSFER', userId: secondId, claim: false })).success).toBe(true);
+    const attempt = await request(app.app).post(`/api/v1/rooms/${r.code}/join`).set('Cookie', cookie).send({ displayName: 'Known solutions' });
+    expect(attempt.body.error.code).toBe('HOST_CANNOT_PLAY_OWN_ROUND');
+    const historicPlayer = await db.participation.create({ data: { roomId: r.id, userId: hostId, role: 'PLAYER', displayName: 'Historic', normalizedName: 'historic', rejoinToken: randomUUID() } });
+    const oldHost = await connect(cookie);
+    expect((await ack(oldHost, 'room:subscribe', { roomCode: r.code, rejoinToken: historicPlayer.rejoinToken })).error).toBe('HOST_CANNOT_PLAY_OWN_ROUND');
+    expect((await ack(target.socket, 'room:core:read', {})).success).toBe(true);
+  });
+  it('replays room creation after host transfer without creating a room or returning the new hosts credential', async () => {
+    const body = { gameSlug: 'jeopardy', roomName: 'Immutable creation intent', idempotencyKey: randomUUID(), viewerRequiresPin: false, setupSnapshotJson: {} };
+    const first = await request(app.app).post('/api/v1/rooms').set('Cookie', cookie).send(body);
+    expect(first.status).toBe(201);
+    const id = first.body.data.roomId as string, code = first.body.data.code as string; rooms.push(id);
+    const host = await connect(cookie); expect((await ack(host, 'room:subscribe', { roomCode: code })).success).toBe(true);
+    await player({ id, code }, 'New host', secondCookie, secondId);
+    expect((await command(host, code, { type: 'TRANSFER', userId: secondId, claim: false })).success).toBe(true);
+    const replay = await request(app.app).post('/api/v1/rooms').set('Cookie', cookie).send(body);
+    expect(replay.status).toBe(201); expect(replay.body.data.roomId).toBe(id); expect(replay.body.data.moderatorToken).toBeNull();
+    expect(await db.room.count({ where: { idempotencyKey: body.idempotencyKey } })).toBe(1);
+    expect(await db.participation.count({ where: { roomId: id, role: 'HOST' } })).toBe(0);
+  });
   it('requires the disconnect grace and explicit eligible co-host for failover', async () => {
     const r = await createRoom(); const p = await player(r, 'Co', secondCookie, secondId);
     await configure(r, { coHostEnabled: true, hostGraceMs: 1000 });

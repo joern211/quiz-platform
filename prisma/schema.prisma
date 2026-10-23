@@ -197,6 +197,7 @@ model Room {
   // bewusste Raumerstellung verwendet ein neues Token → bleibt möglich.
   // NULL (kein Token) → keine Idempotenz (Legacy/andere Clients), NULL ≠ NULL.
   idempotencyKey   String?
+  createdByUserId  String?
   
   roomPolicyJson     String?
   lifecycle          String?
@@ -229,7 +230,7 @@ model Room {
   @@index([hostUserId])
   // Audit 11-06: ein Idempotency-Token gehört zu genau einem Raum des Hosts
   // (Wiederholung → gleicher Raum). NULL (kein Token) ist in SQLite distinct.
-  @@unique([idempotencyKey, hostUserId])
+  @@unique([idempotencyKey, createdByUserId])
   @@map("rooms")
 }
 
@@ -263,6 +264,7 @@ model Participation {
   
   teamId               String?
   userId               String?
+  hasSeenHostSecrets   Boolean  @default(false)
   guestKeyHash         String?
   admission            String   @default("ACTIVE")
   bannedAt             DateTime?

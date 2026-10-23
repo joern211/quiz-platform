@@ -46,7 +46,7 @@ function isUniqueConflict(error: unknown): boolean {
 // Audit 11-06 (P1): serverseitige Idempotenz für Raum-Erstellung.
 //
 // Zwei Mechanismen, beide schreiben Room.idempotencyKey
-// (@@unique([idempotencyKey, hostUserId])):
+// (@@unique([idempotencyKey, createdByUserId])):
 //   (a) Explizites Idempotency-Token des Clients (UUID, max 128): ein
 //       Retry/Doppelklick sendet dasselbe Token → derselbe Raum, exakt und
 //       zeitlich unbegrenzt. Ein bewusst neuer Raum verwendet ein neues
@@ -101,14 +101,18 @@ async function ensureModeratorParticipation(
   roomId: string,
   displayName: string,
 ): Promise<{ id: string; rejoinToken: string } | null> {
+  const room = await prisma.room.findUniqueOrThrow({ where: { id: roomId } });
   const existing = await prisma.participation.findFirst({ where: { roomId, role: 'HOST' } });
-  if (existing) return existing;
+  if (existing) return prisma.participation.update({ where: { id: existing.id }, data: { userId: room.hostUserId, hasSeenHostSecrets: true } });
+  if (await prisma.participation.findFirst({ where: { roomId, userId: room.hostUserId, role: { in: ['PLAYER', 'VIEWER'] }, kickedAt: null, leftAt: null } })) return null;
   const created = await prisma.participation.create({
     data: {
       roomId,
       displayName,
       normalizedName: displayName.toLowerCase().trim(),
       role: 'HOST',
+      userId: room.hostUserId,
+      hasSeenHostSecrets: true,
       connected: true,
       ready: true,
       rejoinToken: crypto.randomUUID(),
@@ -390,14 +394,14 @@ roomsRouter.post('/', createLimiter, async (req, res) => {
     };
     const idemKey = idempotencyKey ?? computeRoomFingerprint(fpCfg);
     const existingRoom = await prisma.room.findFirst({
-      where: { idempotencyKey: idemKey, hostUserId: session.userId },
+      where: { idempotencyKey: idemKey, createdByUserId: session.userId },
     });
     if (existingRoom) {
       // Wiederversicherung (Crash-Recovery): ein Raum ohne Moderator-Teilnahme
       // (Prozessunterbruch zwischen Room-Insert und Participation-Insert) wird
       // hier zu Ende gebracht — die Replay-Antwort liefert niemals
       // moderatorToken: null.
-      const mod = await ensureModeratorParticipation(existingRoom.id, session.user.displayName);
+      const mod = existingRoom.hostUserId === session.userId ? await ensureModeratorParticipation(existingRoom.id, session.user.displayName) : null;
       logger.info('Room creation idempotent (existing room returned)', { roomId: existingRoom.id });
       return res.status(201).json({
         success: true,
@@ -471,6 +475,7 @@ roomsRouter.post('/', createLimiter, async (req, res) => {
             setupSchemaVersion: roomSetupSchemaVersion,
             isPublic: isPublic ?? true,
             idempotencyKey: idemKey,
+            createdByUserId: session.userId,
             roomPolicyJson: policy ? JSON.stringify(policy) : null,
             status: 'LOBBY',
             runPhase: 'OPEN',
@@ -482,6 +487,7 @@ roomsRouter.post('/', createLimiter, async (req, res) => {
             displayName: session.user.displayName,
             normalizedName: session.user.displayName.toLowerCase().trim(),
             role: 'HOST',
+            hasSeenHostSecrets: true,
             userId: session.userId,
             connected: true,
             ready: true,
@@ -499,10 +505,10 @@ roomsRouter.post('/', createLimiter, async (req, res) => {
       // Gewinner-Raum auflösen (gleiche Identität zurückgeben).
       if (isUniqueConflict(error)) {
         const winner = await prisma.room.findFirst({
-          where: { idempotencyKey: idemKey, hostUserId: session.userId },
+          where: { idempotencyKey: idemKey, createdByUserId: session.userId },
         });
         if (winner) {
-          const mod = await ensureModeratorParticipation(winner.id, session.user.displayName);
+          const mod = winner.hostUserId === session.userId ? await ensureModeratorParticipation(winner.id, session.user.displayName) : null;
           return res.status(201).json({
             success: true,
             data: { code: winner.code, roomId: winner.id, moderatorToken: mod?.rejoinToken ?? null, idempotentReplay: true },

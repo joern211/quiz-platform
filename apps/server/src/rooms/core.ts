@@ -94,6 +94,7 @@ export async function joinPlayer(roomId: string, input: { displayName: string; p
     if (room.status !== 'LOBBY' && !(room.status === 'RUNNING' && policy.allowLateJoin && supportedRoomEngines.has(room.gameDefinition.slug))) throw new RoomError('ROOM_NOT_JOINABLE');
     const sameName = await tx.participation.findMany({ where: { roomId, role: 'PLAYER', leftAt: null, bannedAt: null, kickedAt: null } });
     if (sameName.some(p => normalizedParticipantName(p.displayName) === nameKey)) throw new RoomError('NAME_TAKEN');
+    if (input.userId && await tx.participation.findFirst({ where: { roomId, userId: input.userId, hasSeenHostSecrets: true } })) throw new RoomError('HOST_CANNOT_PLAY_OWN_ROUND');
     if (input.guestKeyHash && await tx.participation.findFirst({ where: { roomId, guestKeyHash: input.guestKeyHash, bannedAt: { not: null } } })) throw new RoomError('BANNED');
     if (input.userId && await tx.participation.findFirst({ where: { roomId, userId: input.userId, bannedAt: { not: null } } })) throw new RoomError('BANNED');
     const count = await tx.participation.count({ where: { roomId, role: 'PLAYER', admission: 'ACTIVE', leftAt: null, bannedAt: null, kickedAt: null } });
