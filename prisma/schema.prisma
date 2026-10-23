@@ -262,6 +262,7 @@ model Participation {
   
   teamId               String?
   userId               String?
+  guestKeyHash         String?
   admission            String   @default("ACTIVE")
   bannedAt             DateTime?
   leftAt               DateTime?
@@ -342,6 +343,8 @@ model ScoreEvent {
   room           Room     @relation(fields: [roomId], references: [id], onDelete: Cascade)
   participationId String
   participation  Participation @relation(fields: [participationId], references: [id])
+  teamId         String?
+  runIndex       Int      @default(1)
   roundIndex     Int      @default(0)
   delta          Int
   reason         String

@@ -134,6 +134,8 @@ async function createTestRoomInDb(hostUserId: string, maxPlayers = 30) {
   const { prisma } = await import('../persistence/prisma.js');
   const raw = `${String(Math.floor(Math.random() * 900) + 100)}-${String(Math.floor(Math.random() * 900) + 100)}`;
   const geoDef = await getOrCreateGeoGame();
+  // This synthetic engine must permit the 30-player limiter fixture too.
+  await prisma.gameDefinition.update({ where: { id: geoDef.id }, data: { maxPlayers } });
   await prisma.room.upsert({
     where: { code: raw },
     update: {},

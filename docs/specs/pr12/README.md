@@ -67,3 +67,10 @@ PR11/12/13; BASIS-STANDARDS wird in GitHub-PR #14 vervollständigt. Seine
 konkrete Paketabnahme steht in [acceptance.md](../../implementation/pr14/acceptance.md).
 Die 1.292 Zeilen werden nicht pauschal als umgesetzt markiert. Offene
 Spieledetails bleiben Vorschläge, kein neuer Nutzerentscheid wird erfunden.
+
+## TEAM-ROOM-Abgleich vom 23.10.2026
+
+GitHub-PR14 (BASIS-STANDARDS) ist gemerged. Das nächste Paket ist GitHub-PR15
+(ursprünglicher Planplatz PR14). [Umfang und konkrete Nachweise](../../implementation/pr15/acceptance.md)
+und [laufende Abnahme](../../implementation/pr15/verification.md) ergänzen die
+historischen Matrixwerte, ohne ungeprüfte Einzelanforderungen umzudeklarieren.

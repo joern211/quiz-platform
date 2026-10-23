@@ -2,6 +2,7 @@
 // Lobby Socket Events
 // ============================================================
 
+import { feed } from '../rooms/core.js';
 import { changed } from '../rooms/socket.js';
 import { requireGamePermission } from '../games/core/permissions.js';
 import { Server, Socket } from 'socket.io';
@@ -177,6 +178,8 @@ export async function handleDisconnect(io: Server, socket: Socket) {
       });
       disconnectedParticipation = released.count === 1;
     }
+
+    if (disconnectedParticipation) await feed(prisma, roomId, identity.participationId, 'DISCONNECT', identity.role === 'HOST' ? 'Host vorübergehend getrennt' : 'Teilnehmer vorübergehend getrennt');
 
     // Get updated room state for broadcast
     const room = await prisma.room.findUnique({

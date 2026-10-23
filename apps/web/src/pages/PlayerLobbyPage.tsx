@@ -16,12 +16,13 @@ export function PlayerLobbyPage() {
   const navigate = useNavigate();
   const socketRef = useRef<ReturnType<typeof getSocket> | null>(null);
   const [connected, setConnected] = useState(false);
+  const [admitted, setAdmitted] = useState(false);
   const [players, setPlayers] = useState<any[]>([]);
   const [ready, setReady] = useState(false);
   const [readyPending, setReadyPending] = useState(false);
   const readyPendingRef = useRef(false);
+  const admittedRef = useRef(false);
   const [chatMessages, setChatMessages] = useState<any[]>([]);
-  const [chatInput, setChatInput] = useState('');
   const [kicked, setKicked] = useState(false);
   const [actionError, setActionError] = useState('');
 
@@ -55,10 +56,12 @@ export function PlayerLobbyPage() {
       // Restore ready state from stored session
       const selfId = session.participationId;
       const selfPlayer = data.players?.find((p: any) => p.id === selfId);
+      admittedRef.current = !!selfPlayer;
+      setAdmitted(!!selfPlayer);
       if (selfPlayer) setReady(selfPlayer.ready);
 
       // If game already running, go to game
-      if (data.status === 'RUNNING') {
+      if (data.status === 'RUNNING' && admittedRef.current) {
         const path = gamePath(data.gameSlug, 'PLAYER', roomCode);
         navigate(path);
       }
@@ -66,6 +69,9 @@ export function PlayerLobbyPage() {
 
     socket.on('room:updated', (data) => {
       setPlayers(data.players || []);
+      const self = data.players?.find((p: { id: string }) => p.id === session.participationId);
+      admittedRef.current = !!self;
+      setAdmitted(!!self);
     });
 
     socket.on('room:kicked', (data: { participationId?: string }) => {
@@ -92,7 +98,7 @@ export function PlayerLobbyPage() {
     });
 
     socket.on('game:start', (data) => {
-      if (data.status === 'RUNNING') {
+      if (data.status === 'RUNNING' && admittedRef.current) {
         const path = gamePath(data.gameSlug, 'PLAYER', roomCode);
         navigate(path);
       }
@@ -132,23 +138,6 @@ export function PlayerLobbyPage() {
       if (response.success) setReady(newReady);
       else setActionError('Bereitschaft konnte nicht gespeichert werden.');
     });
-  };
-
-  const handleSendChat = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!chatInput.trim()) return;
-
-    if (!socketRef.current) {
-      setActionError('Socket-Verbindung ist nicht verfügbar.');
-      return;
-    }
-    socketRef.current.emit('lobby:chat:send', {
-      roomCode,
-      content: chatInput.trim(),
-    }, (response) => {
-      if (!response.success) setActionError('Nachricht konnte nicht gesendet werden.');
-    });
-    setChatInput('');
   };
 
   if (kicked) {
@@ -221,23 +210,13 @@ export function PlayerLobbyPage() {
               )}
             </div>
 
-            <form onSubmit={handleSendChat} className={styles.chatForm}>
-              <input
-                type="text"
-                value={chatInput}
-                onChange={(e) => setChatInput(e.target.value)}
-                placeholder="Nachricht..."
-                maxLength={300}
-                className={styles.chatInput}
-              />
-              <Button type="submit" size="sm">Senden</Button>
-            </form>
+            <p>Nachrichten des Hosts erscheinen im Raumverlauf.</p>
           </div>
         </Card>
       </div>
 
       <div className={styles.actions}>
-        <Button onClick={handleToggleReady} disabled={!connected || readyPending} size="lg" variant={ready ? 'secondary' : 'primary'}>
+        <Button onClick={handleToggleReady} disabled={!connected || !admitted || readyPending} size="lg" variant={ready ? 'secondary' : 'primary'}>
           {ready ? 'Nicht mehr bereit' : 'Ich bin bereit!'}
         </Button>
       </div>

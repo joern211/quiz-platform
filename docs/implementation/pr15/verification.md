@@ -1,0 +1,26 @@
+# PR15 — Verifikation
+
+Noch in Abnahme. Keine Merge-Freigabe ohne finale CI und E2E am aktuellen Head.
+
+Bisherige lokale vollständige Regression: 380 Servertests / 40 Dateien,
+80 Webtests / 10 Dateien; keine Skips. Build/Typecheck erfolgreich. Lint:
+0 Fehler, 116 Warnungen. Neue Änderungen erhalten passende Wiederholung.
+
+21 neue echte Room-/Team-Integrationstests und 3 UI-Tests prüfen u. a.:
+parallelen letzten Slot, eindeutige Namen, Warte-/Freigabestatus, PIN-Trennung,
+einmalige Einladungen, Teams/Rotation, Ready/Blocker, Geräteübernahme,
+Tokenrotation, Kick/Ban/Unban, Co-Host-Entzug, Host-Transfer/Failover,
+Late Join, Teamwertung und Rematch in zwei Engines, exakte Pause/Resume,
+Viewer-Freigabe, Gast-Ban, Spielwechsel und endgültigen Close.
+
+Frische DB: elf additive Migrationen. Bestandsmigration mit echten alten
+WID-v1/v2-Rejoins bleibt in der vollständigen Suite enthalten. PR12-Checker:
+1292 atomare IDs, 291 Quellgruppen, 20 Masterabschnitte, 19 Spielverträge.
+
+Lokaler Chromium-Start ist derzeit nicht möglich: passende Browserdatei
+fehlt, Browserdownload scheitert an den Netzbeschränkungen. Der lokale
+Browserversuch ist fehlgeschlagen und zählt nicht als E2E-Nachweis.
+GitHub führt die 18 bestehenden Fälle plus den neuen TEAM-ROOM-Browserfall
+(T1: Freigabe, Teamwahl, Start, Pause, Reconnect, Rematch, Close) aus.
+
+Der endgültige Head und Run-Link werden nach Abschluss ergänzt.

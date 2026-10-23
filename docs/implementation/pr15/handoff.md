@@ -17,4 +17,18 @@ Master §2.4, §3, §4 und §12.9 über gemeinsame Room-/Team-Verträge vervolls
 Voice-/Kameratests folgen wie geplant in deren Arbeitspaketen. Vollständige FINALIZED-/Statistik-Verträge und Retention-Jobs bleiben Folgescope; RoomRun sichert hier die bisherigen Spiele vor Rematch.
 
 ## Aktueller Stand
-In Arbeit: Verträge/Persistenz, noch keine Freigabe.
+
+[Draft-PR15](https://github.com/joern211/quiz-platform/pull/15) angelegt.
+Gemeinsame Implementierung und neue echte Integrationstests vorhanden.
+Details und Grenzen: [acceptance.md](acceptance.md), [compatibility.md](compatibility.md),
+[verification.md](verification.md). Noch kein finaler CI-/Browsernachweis,
+keine Merge-Freigabe.
+
+## Wiederaufnahme
+
+GitHub-Head/Checks prüfen; der finale Code muss im Branch feature/pr15-team-room
+liegen. Lokale Prüfungen mit pnpm 9.12 (Corepack, PATH-Shim bei rekursiven
+pnpm-Aufrufen); vor jedem Commit Server/Web bauen. Finale CI/E2E am aktuellen
+Head abwarten, Fehler konkret beheben, keine Pflicht-Tests überspringen.
+GitHub-Push ist autorisiert; mangels CLI-Credentials über GitHub-App Git-Blobs/
+Tree/Commit und Fast-Forward-Ref sichern. Kein Force-Push. Kein Merge.

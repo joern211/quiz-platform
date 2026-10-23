@@ -2,6 +2,7 @@ import { createHash, randomInt, randomUUID } from 'node:crypto';
 import argon2 from 'argon2';
 import type { Prisma, Room } from '@prisma/client';
 import { RoomPolicySchema, normalizedParticipantName, ParticipantNameSchema, effectivePermissions, type RoomPolicy, type RoomOperation, type RoomCoreView, type GamePermission } from '@quiz/shared';
+import { roomEngineRules } from './engineRules.js';
 import { prisma } from '../persistence/prisma.js';
 import { assertCommandMutation } from '../games/core/commandExecution.js';
 
@@ -48,8 +49,35 @@ export async function checkAccess(room: Room, role: 'PLAYER' | 'VIEWER', pin?: s
   return mode;
 }
 
+/** Viewer capacity and invite consumption use the same serialized write as admission. */
+export async function joinViewer(roomId: string, connectionId: string, input: { pin?: string; inviteToken?: string; userId?: string; displayName?: string }) {
+  const initial = await prisma.room.findUniqueOrThrow({ where: { id: roomId } });
+  const mode = await checkAccess(initial, 'VIEWER', input.pin, input.inviteToken);
+  return prisma.$transaction(async tx => {
+    await writeLock(tx, roomId);
+    const room = await tx.room.findUniqueOrThrow({ where: { id: roomId } });
+    assertRoomLive(room);
+    if (!room.allowViewers || ['LOBBY_LOCKED', 'SCHEDULED', 'DRAFT_ROOM'].includes(lifecycle(room))) throw new RoomError('ROOM_NOT_JOINABLE');
+    if (room.roomPolicyJson !== initial.roomPolicyJson || room.pinHash !== initial.pinHash) throw new RoomError('ROOM_CHANGED');
+    if (input.userId && await tx.participation.findFirst({ where: { roomId, userId: input.userId, bannedAt: { not: null } } })) throw new RoomError('BANNED');
+    const existing = input.userId ? await tx.participation.findFirst({ where: { roomId, userId: input.userId, role: 'VIEWER', leftAt: null, kickedAt: null, bannedAt: null } }) : null;
+    const count = await tx.viewerSession.count({ where: { roomId, connected: true } }) + await tx.participation.count({ where: { roomId, role: 'VIEWER', connected: true, admission: 'ACTIVE', bannedAt: null, leftAt: null } });
+    if ((!existing || !existing.connected) && count >= room.viewerLimit) throw new RoomError('VIEWER_LIMIT_REACHED');
+    if (mode === 'INVITE_ONLY') {
+      const consumed = await tx.roomInvite.updateMany({ where: { roomId, tokenHash: tokenHash(input.inviteToken!), role: 'VIEWER', usedAt: null, expiresAt: { gt: new Date() } }, data: { usedAt: new Date() } });
+      if (consumed.count !== 1) throw new RoomError('INVITE_REQUIRED');
+    }
+    if (input.userId || mode === 'APPROVAL_REQUIRED' || mode === 'INVITE_ONLY') {
+      const p = existing ? await tx.participation.update({ where: { id: existing.id }, data: { connected: true, connectionId, lastSeenAt: new Date() } }) : await tx.participation.create({ data: { roomId, role: 'VIEWER', userId: input.userId, displayName: input.displayName ?? 'Zuschauer', normalizedName: `viewer:${randomUUID()}`, rejoinToken: randomUUID(), admission: mode === 'APPROVAL_REQUIRED' ? 'PENDING_JOIN' : 'ACTIVE', connected: true, connectionId } });
+      return { participationId: p.id, roomId, role: 'VIEWER' as const, displayName: p.displayName, rejoinToken: p.rejoinToken };
+    }
+    const viewer = await tx.viewerSession.create({ data: { roomId, connected: true } });
+    return { participationId: `viewer:${viewer.id}`, roomId, role: 'VIEWER' as const, displayName: 'Zuschauer' };
+  });
+}
+
 /** Admission, capacity, name reservation and invite use commit together. */
-export async function joinPlayer(roomId: string, input: { displayName: string; pin?: string; inviteToken?: string; userId?: string }) {
+export async function joinPlayer(roomId: string, input: { displayName: string; pin?: string; inviteToken?: string; userId?: string; guestKeyHash?: string }) {
   const initial = await prisma.room.findUniqueOrThrow({ where: { id: roomId } });
   await checkAccess(initial, 'PLAYER', input.pin, input.inviteToken);
   const name = ParticipantNameSchema.parse(input.displayName);
@@ -63,8 +91,9 @@ export async function joinPlayer(roomId: string, input: { displayName: string; p
     const state = lifecycle(room), policy = roomPolicy(room);
     if (['LOBBY_LOCKED', 'DRAFT_ROOM', 'SCHEDULED'].includes(state)) throw new RoomError('ROOM_NOT_JOINABLE');
     if (room.status !== 'LOBBY' && !(room.status === 'RUNNING' && policy.allowLateJoin && supportedRoomEngines.has(room.gameDefinition.slug))) throw new RoomError('ROOM_NOT_JOINABLE');
-    const sameName = await tx.participation.findMany({ where: { roomId, role: 'PLAYER', leftAt: null, bannedAt: null } });
+    const sameName = await tx.participation.findMany({ where: { roomId, role: 'PLAYER', leftAt: null, bannedAt: null, kickedAt: null } });
     if (sameName.some(p => normalizedParticipantName(p.displayName) === nameKey)) throw new RoomError('NAME_TAKEN');
+    if (input.guestKeyHash && await tx.participation.findFirst({ where: { roomId, guestKeyHash: input.guestKeyHash, bannedAt: { not: null } } })) throw new RoomError('BANNED');
     if (input.userId && await tx.participation.findFirst({ where: { roomId, userId: input.userId, bannedAt: { not: null } } })) throw new RoomError('BANNED');
     const count = await tx.participation.count({ where: { roomId, role: 'PLAYER', admission: 'ACTIVE', leftAt: null, bannedAt: null, kickedAt: null } });
     const full = count >= Math.min(room.maxPlayers, room.gameDefinition.maxPlayers);
@@ -76,7 +105,7 @@ export async function joinPlayer(roomId: string, input: { displayName: string; p
     }
     const participant = await tx.participation.create({ data: {
       roomId, displayName: name, normalizedName: nameKey, activeNameKey: nameKey, role: 'PLAYER', admission,
-      userId: input.userId, connected: true, ready: false, rejoinToken: randomUUID(),
+      userId: input.userId, guestKeyHash: input.guestKeyHash, connected: true, ready: false, rejoinToken: randomUUID(),
     } });
     await feed(tx, roomId, participant.id, 'JOIN', `${name}: ${admission === 'ACTIVE' ? 'beigetreten' : admission === 'WAITLIST' ? 'auf der Warteliste' : 'wartet auf Freigabe'}`);
     return participant;
@@ -96,8 +125,10 @@ export async function roomPreflight(roomId: string, overrideReady = false, db: P
     else blockers.push('NOT_ALL_READY');
   }
   if (policy.teamMode !== 'OFF') {
+    const limits = roomEngineRules(room.gameDefinition.slug);
+    if (!limits || policy.teamCount < limits.minTeams || policy.teamCount > limits.maxTeams) blockers.push('TEAM_CONFIGURATION_INVALID');
     const sizes = room.teams.map(t => players.filter(p => p.teamId === t.id).length);
-    if (room.teams.length !== policy.teamCount || players.some(p => !p.teamId || !room.teams.some(t => t.id === p.teamId)) || sizes.some(n => n < policy.minTeamSize || n > policy.maxTeamSize)) blockers.push('TEAM_CONFIGURATION_INVALID');
+    if (room.teams.length !== policy.teamCount || players.some(p => !p.teamId || !room.teams.some(t => t.id === p.teamId)) || sizes.some(n => n < policy.minTeamSize || n > Math.min(policy.maxTeamSize, limits?.maxTeamSize ?? 0))) blockers.push('TEAM_CONFIGURATION_INVALID');
     if (new Set(sizes).size > 1) {
       if (policy.equality === 'REQUIRED') blockers.push('TEAMS_NOT_EQUAL');
       if (policy.equality === 'WARN') warnings.push('TEAMS_NOT_EQUAL');
@@ -109,8 +140,9 @@ export async function roomPreflight(roomId: string, overrideReady = false, db: P
   try { setup = JSON.parse(room.setupSnapshotJson); if (typeof setup === 'string') setup = JSON.parse(setup); } catch { blockers.push('INVALID_SETUP'); }
   const slug = room.gameDefinition.slug;
   if (slug === 'wissensduell' || slug === 'geo') {
-    const questions = await db.geoQuestion.count({ where: { enabled: true } });
-    if (!Array.isArray(setup.questionIds) ? !questions : setup.questionIds.length === 0) blockers.push('CONTENT_NOT_READY');
+    const selected = Array.isArray(setup.selectedQuestionIds) ? setup.selectedQuestionIds as string[] : null;
+    const questions = await db.geoQuestion.count({ where: { enabled: true, ...(selected?.length ? { id: { in: selected } } : setup.questionPoolId ? { packId: String(setup.questionPoolId) } : {}) } });
+    if (!questions || (selected?.length && questions !== selected.length)) blockers.push('CONTENT_NOT_READY');
   } else if (slug === 'wer-ist-das' || slug === 'weristdas') {
     if (!Array.isArray(setup.rounds) || !setup.rounds.length) blockers.push('CONTENT_NOT_READY');
     else {
@@ -152,7 +184,7 @@ export async function mutateRoom(roomId: string, actor: RoomActor, op: RoomOpera
     if (['LOCK', 'MESSAGE'].includes(op.type) && !permissions.has('PLAYER_MANAGE')) throw new RoomError('NOT_AUTHORIZED');
     const ownActions = new Set(['TEAM_SELECT', 'LEAVE', 'RENAME']);
     if (!ownActions.has(op.type) && !actor.canManage && !(op.type === 'TRANSFER' && op.claim)) throw new RoomError('NOT_AUTHORIZED');
-    if (['POLICY', 'SCHEDULE', 'OPEN', 'CLOSE', 'TRANSFER', 'COHOST', 'INVITE', 'REMATCH', 'LOBBY', 'SWITCH_GAME'].includes(op.type) && !owner && !(op.type === 'TRANSFER' && op.claim)) throw new RoomError('OWNER_REQUIRED');
+    if (['POLICY', 'SCHEDULE', 'OPEN', 'DRAFT', 'CLOSE', 'TRANSFER', 'COHOST', 'INVITE', 'REMATCH', 'LOBBY', 'SWITCH_GAME'].includes(op.type) && !owner && !(op.type === 'TRANSFER' && op.claim)) throw new RoomError('OWNER_REQUIRED');
     const teamEdit = ['TEAM_SELECT', 'TEAM_EDIT', 'TEAMS_ASSIGN'].includes(op.type);
     if (teamEdit && !actor.permissions.has('TEAM_MANAGE') && op.type !== 'TEAM_SELECT') throw new RoomError('NOT_AUTHORIZED');
     if (teamEdit && room.status === 'RUNNING' && (!actor.permissions.has('TEAM_MANAGE') || !policy.allowTeamReshuffleBetweenRounds || !boundaryPhases.has(room.gameState?.phase ?? '') || op.type !== 'TEAMS_ASSIGN' || !op.override)) throw new RoomError('TEAMS_LOCKED');
@@ -162,6 +194,8 @@ export async function mutateRoom(roomId: string, actor: RoomActor, op: RoomOpera
     switch (op.type) {
       case 'POLICY': {
         if (room.status !== 'LOBBY') throw new RoomError('LOCKED_AFTER_START');
+        const limits = roomEngineRules(room.gameDefinition.slug);
+        if (op.policy.teamMode !== 'OFF' && (!limits || op.policy.teamCount < limits.minTeams || op.policy.teamCount > limits.maxTeams || op.policy.minTeamSize < limits.minTeamSize || op.policy.minTeamSize > limits.maxTeamSize)) throw new RoomError('INVALID_TEAM_LIMITS');
         if ((op.policy.playerAccess === 'PIN_PROTECTED' || op.policy.viewerAccess === 'PIN_PROTECTED') && !room.pinHash) throw new RoomError('PIN_REQUIRED');
         await tx.room.update({ where: { id: roomId }, data: { roomPolicyJson: JSON.stringify(op.policy) } });
         if (!op.policy.coHostEnabled) await tx.roomPermissionGrant.updateMany({ where: { roomId, userId: { not: room.hostUserId }, direction: 'GRANT' }, data: { revokedAt: new Date() } });
@@ -178,6 +212,9 @@ export async function mutateRoom(roomId: string, actor: RoomActor, op: RoomOpera
       case 'SCHEDULE':
         if (room.status !== 'LOBBY' || new Date(op.scheduledAt) <= new Date() || (op.expiresAt && new Date(op.expiresAt) <= new Date(op.scheduledAt))) throw new RoomError('INVALID_SCHEDULE');
         await tx.room.update({ where: { id: roomId }, data: { lifecycle: 'SCHEDULED', scheduledAt: new Date(op.scheduledAt), expiresAt: op.expiresAt ? new Date(op.expiresAt) : null } }); break;
+      case 'DRAFT':
+        if (room.status !== 'LOBBY') throw new RoomError('ROOM_NOT_IN_LOBBY');
+        await tx.room.update({ where: { id: roomId }, data: { lifecycle: 'DRAFT_ROOM' } }); break;
       case 'OPEN':
         if (room.status !== 'LOBBY') throw new RoomError('ROOM_NOT_IN_LOBBY');
         await tx.room.update({ where: { id: roomId }, data: { lifecycle: 'LOBBY_OPEN', runPhase: 'OPEN' } }); break;
@@ -217,7 +254,7 @@ export async function mutateRoom(roomId: string, actor: RoomActor, op: RoomOpera
         if (op.approve) {
           if (p.role === 'PLAYER' && activePlayers.length >= Math.min(room.maxPlayers, room.gameDefinition.maxPlayers)) throw new RoomError('ROOM_FULL');
           if (room.status === 'RUNNING' && (!policy.allowLateJoin || !boundaryPhases.has(room.gameState?.phase ?? ''))) throw new RoomError('ROUND_BOUNDARY_REQUIRED');
-          if (p.role === 'PLAYER' && policy.teamMode !== 'OFF' && (!op.teamId || !room.teams.some(t => t.id === op.teamId) || activePlayers.filter(x => x.teamId === op.teamId).length >= policy.maxTeamSize)) throw new RoomError('TEAM_CONFIGURATION_INVALID');
+          if (p.role === 'PLAYER' && policy.teamMode !== 'OFF' && !(!op.teamId && policy.teamMode === 'SELF_SELECT') && (!op.teamId || !room.teams.some(t => t.id === op.teamId) || activePlayers.filter(x => x.teamId === op.teamId).length >= policy.maxTeamSize)) throw new RoomError('TEAM_CONFIGURATION_INVALID');
           await tx.participation.update({ where: { id: p.id }, data: { admission: 'ACTIVE', ready: false } });
           if (p.role === 'VIEWER' && room.participations.filter(x => x.role === 'VIEWER' && x.connected && x.admission === 'ACTIVE').length >= room.viewerLimit) throw new RoomError('VIEWER_LIMIT_REACHED');
           if (op.teamId && p.role === 'PLAYER') await setTeam(tx, room, p.id, op.teamId);
@@ -297,7 +334,11 @@ export async function mutateRoom(roomId: string, actor: RoomActor, op: RoomOpera
         if (op.type === 'SWITCH_GAME') {
           const game = await tx.gameDefinition.findUnique({ where: { slug: op.gameSlug } });
           if (!game || !supportedRoomEngines.has(game.slug) || !['AVAILABLE', 'BETA'].includes(game.status)) throw new RoomError('GAME_NOT_STARTABLE');
-          gameDefinitionId = game.id; setupSnapshotJson = JSON.stringify(op.setup);
+          gameDefinitionId = game.id;
+          const source = op.sourceRoomId ? await tx.room.findFirst({ where: { id: op.sourceRoomId, hostUserId: actor.userId!, gameDefinitionId: game.id } }) : null;
+          if (op.sourceRoomId && !source) throw new RoomError('SETUP_NOT_OWNED');
+          if (!source && game.slug !== 'wissensduell') throw new RoomError('PREPARED_SETUP_REQUIRED');
+          setupSnapshotJson = source?.setupSnapshotJson ?? '{}';
         }
         await tx.roomGameState.deleteMany({ where: { roomId } });
         await tx.participation.updateMany({ where: { roomId }, data: { score: 0, ready: false } });
@@ -307,23 +348,32 @@ export async function mutateRoom(roomId: string, actor: RoomActor, op: RoomOpera
       }
       case 'CLOSE':
         if (room.status === 'RUNNING') throw new RoomError('END_GAME_FIRST');
+        if (room.status === 'ENDED') await tx.roomRun.upsert({ where: { roomId_runIndex: { roomId, runIndex: room.runIndex } }, update: {}, create: {
+          roomId, runIndex: room.runIndex, gameDefinitionId: room.gameDefinitionId, engineVersion: room.gameState?.engineVersion,
+          configSnapshotJson: room.gameConfigSnapshotJson, stateJson: room.gameState?.stateJson, scoresJson: JSON.stringify(room.participations.map(p => ({ id: p.id, displayName: p.displayName, score: p.score, teamId: p.teamId }))), teamsJson: JSON.stringify(room.teams),
+        } });
         await tx.room.update({ where: { id: roomId }, data: { status: 'ARCHIVED', lifecycle: 'CLOSED', archivedAt: new Date() } });
         await tx.participation.updateMany({ where: { roomId }, data: { connected: false, connectionId: null, rejoinTokenVersion: { increment: 1 } } });
         await tx.viewerSession.updateMany({ where: { roomId }, data: { connected: false, disconnectedAt: new Date() } }); break;
       case 'EMERGENCY': throw new RoomError('ENGINE_ACTION_UNSUPPORTED');
     }
-    await feed(tx, roomId, actor.participantId, op.type, op.type === 'MESSAGE' ? op.message : `${op.type}${'reason' in op && op.reason ? ': ' + op.reason : ''}`);
+    const labels: Record<string, string> = { POLICY: 'Raumeinstellungen geändert', LOCK: op.type === 'LOCK' && op.locked ? 'Lobby gesperrt' : 'Lobby geöffnet', SCHEDULE: 'Raum geplant', OPEN: 'Lobby geöffnet', DRAFT: 'Raum als Entwurf gespeichert', TEAMS_ASSIGN: 'Teams neu zugewiesen', TEAM_EDIT: 'Team bearbeitet', TEAM_SELECT: 'Team gewählt', ADMIT: 'Teilnahme entschieden', RENAME: 'Anzeigename geändert', LEAVE: 'Raum verlassen', KICK: 'Teilnehmer entfernt', BAN: 'Teilnehmer gesperrt', UNBAN: 'Raumsperre aufgehoben', TOKEN_ROTATE: 'Geräteübernahme vorbereitet', COHOST: 'Co-Host-Rechte geändert', TRANSFER: 'Host-Verwaltung übertragen', INVITE: 'Einladung erstellt', LOBBY: 'Neue Lobby vorbereitet', REMATCH: 'Revanche vorbereitet', SWITCH_GAME: 'Spiel gewechselt', CLOSE: 'Raum endgültig geschlossen' };
+    await feed(tx, roomId, actor.participantId, op.type, op.type === 'MESSAGE' ? op.message : `${labels[op.type] ?? op.type}${'reason' in op && op.reason ? ': ' + op.reason : ''}`);
     return result;
   });
 }
 
 export async function roomView(roomId: string, actor: RoomActor): Promise<RoomCoreView> {
-  const room = await prisma.room.findUniqueOrThrow({ where: { id: roomId }, include: { participations: true, teams: true, feed: { orderBy: { createdAt: 'desc' }, take: 50 } } });
+  const room = await prisma.room.findUniqueOrThrow({ where: { id: roomId }, include: { gameDefinition: true, participations: true, teams: true, feed: { orderBy: { createdAt: 'desc' }, take: 50 } } });
   const self = room.participations.find(p => p.id === actor.participantId);
   const host = room.participations.find(p => p.userId === room.hostUserId || p.role === 'HOST');
   return {
+    gameSlug: room.gameDefinition.slug,
+    history: (await prisma.roomRun.findMany({ where: { roomId }, orderBy: { runIndex: 'desc' }, take: 20 })).map(run => ({ runIndex: run.runIndex, endedAt: run.endedAt.toISOString(), players: (JSON.parse(run.scoresJson) as Array<{ displayName: string; score: number }>).map(p => ({ displayName: p.displayName, score: p.score })) })),
+    switchOptions: actor.userId === room.hostUserId ? (await prisma.room.findMany({ where: { hostUserId: room.hostUserId }, include: { gameDefinition: true }, orderBy: { createdAt: 'desc' }, take: 50 })).map(r => ({ id: r.id, roomName: r.roomName, gameSlug: r.gameDefinition.slug })) : [],
     revision: room.revision, lifecycle: lifecycle(room), policy: roomPolicy(room), scheduledAt: room.scheduledAt?.toISOString() ?? null,
     hostStatus: host?.connected ? 'ONLINE' : host && Date.now() - host.lastSeenAt.getTime() < roomPolicy(room).hostGraceMs ? 'DISCONNECTED' : 'HOST_MISSING',
+    permissions: [...actor.permissions],
     canManage: actor.canManage, isOwner: actor.userId === room.hostUserId, selfId: self?.id ?? null, selfAdmission: self?.admission ?? null,
     participants: room.participations.filter(p => actor.canManage || p.admission === 'ACTIVE' || p.id === self?.id).map(p => ({ id: p.id, displayName: p.displayName, role: p.role, admission: p.admission, connected: p.connected, ready: p.ready, teamId: p.teamId, score: p.score, banned: !!p.bannedAt, ...(actor.canManage ? { userId: p.userId } : {}) })),
     teams: room.teams.map(t => ({ id: t.id, name: t.name, color: t.color, icon: t.icon, score: t.score })),

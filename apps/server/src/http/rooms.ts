@@ -2,7 +2,7 @@
 // Online Quiz Plattform - Rooms Router
 // ============================================================
 
-import { RoomError, joinPlayer, roomPolicy } from '../rooms/core.js';
+import { RoomError, joinPlayer, roomPolicy, tokenHash } from '../rooms/core.js';
 import { changed, revokeParticipantSockets } from '../rooms/socket.js';
 import type { Server } from 'socket.io';
 import { Router } from 'express';
@@ -489,6 +489,7 @@ roomsRouter.post('/', createLimiter, async (req, res) => {
             rejoinTokenVersion: 1,
           },
         });
+        if (policy && policy.teamMode !== 'OFF') for (let i = 0; i < policy.teamCount; i++) await tx.roomTeam.create({ data: { roomId: createdRoom.id, name: `Team ${i + 1}`, icon: '👥', color: ['#2563eb', '#dc2626', '#16a34a', '#9333ea'][i % 4] } });
         moderatorToken = modPart.rejoinToken;
         return createdRoom;
       });
@@ -716,7 +717,12 @@ roomsRouter.post('/:code/join', joinLimiter, async (req, res) => {
 
     const joiningSessionId = verifySession(req, config.sessionSecret);
     const joiningSession = joiningSessionId ? await prisma.session.findFirst({ where: { id: joiningSessionId, revokedAt: null, expiresAt: { gt: new Date() } } }) : null;
-    const participation = await joinPlayer(room.id, { displayName, pin, inviteToken: parsed.inviteToken, userId: joiningSession?.userId });
+    let guestKey = req.cookies?.quiz_guest as string | undefined;
+    if (!guestKey || !/^[a-f0-9]{64}$/.test(guestKey)) {
+      guestKey = crypto.randomBytes(32).toString('hex');
+      res.cookie('quiz_guest', guestKey, { httpOnly: true, sameSite: 'lax', secure: req.secure, maxAge: 365 * 86400000 });
+    }
+    const participation = await joinPlayer(room.id, { displayName, pin, inviteToken: parsed.inviteToken, userId: joiningSession?.userId, guestKeyHash: tokenHash(guestKey) });
     const newRejoinToken = participation.rejoinToken;
     const io = (globalThis as { __quiz_io?: Server }).__quiz_io;
     if (io) changed(io, room.id);
@@ -734,7 +740,7 @@ roomsRouter.post('/:code/join', joinLimiter, async (req, res) => {
       },
     });
   } catch (error) {
-    if (error instanceof RoomError) return res.status(400).json({ success: false, error: { code: error.code, message: error.code } });
+    if (error instanceof RoomError) return res.status(error.code === 'INVALID_PIN' ? 403 : 400).json({ success: false, error: { code: error.code, message: error.code } });
     logger.error('Failed to join room', { error });
     res.status(500).json({
       success: false,

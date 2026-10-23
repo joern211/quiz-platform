@@ -39,7 +39,16 @@ export function revokeParticipantSockets(io: Server, roomId: string, ids: string
     socketIdentityMap.delete(id);
   }
 }
-export function changed(io: Server, roomId: string) { io.to(roomChannel(roomId)).emit('room:core:changed'); }
+export function changed(io: Server, roomId: string) {
+  io.to(roomChannel(roomId)).emit('room:core:changed');
+  void prisma.room.findUnique({ where: { id: roomId }, include: {
+    participations: { where: { role: { not: 'VIEWER' }, admission: 'ACTIVE', kickedAt: null, bannedAt: null, leftAt: null } },
+  } }).then(room => {
+    if (!room) return;
+    io.to(roomChannel(roomId)).emit('room:updated', { roomCode: room.code, revision: room.revision,
+      players: room.participations.map(p => ({ id: p.id, displayName: p.displayName, role: p.role, connected: p.connected, ready: p.ready, score: p.score, teamId: p.teamId })) });
+  }).catch(error => logger.error('Room projection refresh failed', { roomId, error }));
+}
 
 export function registerRoomCore(io: Server, socket: Socket) {
   socket.on('room:core:read', async (_data, ack) => {
@@ -90,7 +99,7 @@ export function registerRoomCore(io: Server, socket: Socket) {
     } catch (error) {
       const code = error instanceof RoomError ? error.code : 'INTERNAL_ERROR';
       if (code === 'INTERNAL_ERROR') logger.error('Room command failed', { error });
-      ack?.({ success: false, error: code, ...wireErrorToAppError(code) });
+      ack?.({ success: false, error: code, ...(error instanceof RoomError ? {} : { outcomeUnknown: true }), ...wireErrorToAppError(code) });
     }
   });
 }

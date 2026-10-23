@@ -66,6 +66,7 @@ ALTER TABLE "rooms" ADD COLUMN "scheduledAt" DATETIME;
 ALTER TABLE "rooms" ADD COLUMN "expiresAt" DATETIME;
 ALTER TABLE "rooms" ADD COLUMN "runIndex" INTEGER NOT NULL DEFAULT 1;
 ALTER TABLE "participations" ADD COLUMN "userId" TEXT;
+ALTER TABLE "participations" ADD COLUMN "guestKeyHash" TEXT;
 ALTER TABLE "participations" ADD COLUMN "admission" TEXT NOT NULL DEFAULT 'ACTIVE';
 ALTER TABLE "participations" ADD COLUMN "bannedAt" DATETIME;
 ALTER TABLE "participations" ADD COLUMN "leftAt" DATETIME;
@@ -91,3 +92,6 @@ CREATE UNIQUE INDEX "room_invites_tokenHash_key" ON "room_invites"("tokenHash");
 -- CreateIndex
 CREATE INDEX "room_invites_roomId_idx" ON "room_invites"("roomId");
 
+
+ALTER TABLE "score_events" ADD COLUMN "teamId" TEXT;
+ALTER TABLE "score_events" ADD COLUMN "runIndex" INTEGER NOT NULL DEFAULT 1;

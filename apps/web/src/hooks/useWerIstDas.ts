@@ -13,18 +13,23 @@ export function useWerIstDas(roomCode: string, role: PlayerRole) {
 
   useEffect(() => {
     const socket = getSocket();
+    const refresh = () => {
+        socket.emit('weristdas:resync', {}, res => {
+          if (res.success && res.state) { setState(res.state); setError(''); }
+          else setError(res.error ?? 'Spielstand konnte nicht geladen werden');
+        });
+    };
     const subscribe = () => {
       setConnected(true);
       socket.emit('room:subscribe', {
         roomCode, role, rejoinToken: getSessionData().rejoinToken ?? undefined,
       }, response => {
         if (!response.success) { setError(response.error ?? 'Raumverbindung fehlgeschlagen'); return; }
-        socket.emit('weristdas:resync', {}, res => {
-          if (res.success && res.state) { setState(res.state); setError(''); }
-          else setError(res.error ?? 'Spielstand konnte nicht geladen werden');
-        });
+        refresh();
       });
     };
+    socket.on('game:pause', refresh);
+    socket.on('game:resume', refresh);
     socket.on('connect', subscribe);
     socket.on('disconnect', () => setConnected(false));
     socket.on('weristdas:update', setState);

@@ -40,11 +40,11 @@ export const handlePlayerEvents = {
         callback?.({ success: false, error: 'INVALID_PAYLOAD' }); return;
       }
 
-      const room = await prisma.room.findUnique({ where: { id: player.roomId } });
-      if (!room || room.code !== data.roomCode || room.status !== 'LOBBY') { callback?.({ success: false, error: 'READY_LOCKED' }); return; }
-      await prisma.participation.update({
-        where: { id: player.id },
-        data: { ready: data.ready },
+      await prisma.$transaction(async tx => {
+        const room = await tx.room.update({ where: { id: player.roomId }, data: { revision: { increment: 1 } } });
+        if (!['LOBBY', 'CREATED'].includes(room.status)) throw new Error('READY_LOCKED');
+        const updated = await tx.participation.updateMany({ where: { id: player.id, roomId: player.roomId, connectionId: socket.id, connected: true, admission: 'ACTIVE', bannedAt: null, kickedAt: null, leftAt: null }, data: { ready: data.ready } });
+        if (updated.count !== 1) throw new Error('NO_PARTICIPATION');
       });
 
       // Broadcast to room using roomChannel
@@ -57,7 +57,7 @@ export const handlePlayerEvents = {
       callback?.({ success: true });
     } catch (error) {
       logger.error('Set ready error', { error });
-      callback?.({ success: false, error: 'INTERNAL_ERROR' });
+      callback?.({ success: false, error: error instanceof Error && ['READY_LOCKED', 'NO_PARTICIPATION'].includes(error.message) ? error.message : 'INTERNAL_ERROR' });
     }
   },
 

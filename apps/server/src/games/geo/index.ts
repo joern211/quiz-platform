@@ -10,6 +10,8 @@ import { withoutCommandExecution } from '../core/commandExecution.js';
 import { loadGameConfig, loadInitialGameCount } from '../core/config.js';
 import { authorizeGameContext } from '../core/access.js';
 import { gameErrorCode } from '../core/errors.js';
+import { feed } from '../../rooms/core.js';
+import { changed } from '../../rooms/socket.js';
 import { applyScoreDelta, recordScoreMutation } from '../core/score.js';
 import { logger } from '../../observability/logger.js';
 import { roomChannel } from '../../sockets/index.js';
@@ -56,6 +58,15 @@ export function cancelGeoTimer(roomId: string): void {
   const timer = activeTimers.get(roomId);
   if (timer) clearTimeout(timer);
   activeTimers.delete(roomId);
+}
+
+/** Intro transitions share the same cancellable lifecycle as round timers. */
+export function scheduleGeoIntro(roomId: string, start: () => Promise<void>): void {
+  cancelGeoTimer(roomId);
+  activeTimers.set(roomId, withoutCommandExecution(() => setTimeout(() => {
+    activeTimers.delete(roomId);
+    void start();
+  }, 3000)));
 }
 
 /** Test-Hook: IDs der Räume mit aktuell gesetztem (in-Memory) Timer. */
@@ -1135,11 +1146,13 @@ export const handleGeoGame = {
           where: { id: room.id, revision: room.revision, status: 'RUNNING' },
           data: { runPhase: 'PAUSED', revision: { increment: 1 } },
         });
+        await feed(tx, room.id, null, 'PAUSE', 'Spiel pausiert');
         if (updated.count !== 1) throw new Error('STATE_CONFLICT');
       });
       cancelGeoTimer(room.id);
 
       // Emit pause event
+      changed(io, room.id);
       io.to(roomChannel(room.id)).emit('geo:paused', {
         roundIndex: state.currentRoundIndex,
         remainingMs: pauseRemainingMs,
@@ -1211,6 +1224,7 @@ export const handleGeoGame = {
           where: { id: room.id, revision: room.revision, status: 'RUNNING', runPhase: 'PAUSED' },
           data: { runPhase: 'ROUND_ACTIVE', revision: { increment: 1 } },
         });
+        await feed(tx, room.id, null, 'RESUME', 'Spiel fortgesetzt');
         if (updated.count !== 1) throw new Error('STATE_CONFLICT');
       });
       const existingTimer = activeTimers.get(room.id);
@@ -1225,6 +1239,7 @@ export const handleGeoGame = {
 
       activeTimers.set(room.id, timer);
 
+      changed(io, room.id);
       io.to(roomChannel(room.id)).emit('geo:resumed', { timerEndMs: newTimerEndMs });
       callback?.({ success: true, timerEndMs: newTimerEndMs });
     } catch (error) {

@@ -3,15 +3,16 @@
 // Single entry point for game lifecycle integration.
 // ============================================================
 
+import { roomEngineRules } from '../rooms/engineRules.js';
+import { pauseUntimedGame } from '../rooms/pause.js';
 import type { Server, Socket } from 'socket.io';
 import { resolveCanonicalSlug } from '@quiz/shared';
-import { handleGeoGame, cancelGeoTimer } from './geo/index.js';
+import { handleGeoGame, cancelGeoTimer, scheduleGeoIntro } from './geo/index.js';
 import { handleJeopardyGame } from './jeopardy/engine.js';
 import { registerGeoEvents } from './geo/events.js';
 import { registerJeopardyEvents } from './jeopardy/events.js';
 import { registerWerIstDasEvents } from './weristdas/events.js';
 import { werIstDasGame } from './weristdas/engine.js';
-import { withoutCommandExecution } from './core/commandExecution.js';
 import { logger } from '../observability/logger.js';
 
 export interface GameRoom {
@@ -28,6 +29,7 @@ export interface GameInitializeContext {
 
 export interface GameHandle {
   slug: string;
+  roomRules?: ReturnType<typeof roomEngineRules>;
   initialize(context: GameInitializeContext): Promise<void>;
   afterStart?(context: GameInitializeContext): Promise<void> | void;
   pause?(context: GameActionContext): Promise<void>;
@@ -48,17 +50,18 @@ const geoHandle: GameHandle = {
   // Kanonischer Slug (Regelwerk §14): "geo" → "wissensduell".
   // Das interne Modul bleibt games/geo (Module-/Tabellenname ≠ Spiel-Slug).
   slug: 'wissensduell',
+  roomRules: roomEngineRules('wissensduell'),
   async initialize({ io, room, initialPhase }) {
     await handleGeoGame.initialize(io, room, initialPhase);
   },
   afterStart({ io, room }) {
     // Geo owns its intro-to-first-round transition. Keeping this lifecycle
     // hook in the adapter prevents generic socket code from knowing Geo rules.
-    withoutCommandExecution(() => setTimeout(() => {
-      void handleGeoGame.startRound(io, room.code).catch((error) => {
+    scheduleGeoIntro(room.id, async () => {
+      await handleGeoGame.startRound(io, room.code).catch(error => {
         logger.error('Geo intro transition failed', { roomId: room.id, error });
       });
-    }, 3000));
+    });
   },
   async pause({ io, socket, roomCode, callback }) {
     await handleGeoGame.handlePause(io, socket, { roomCode }, callback);
@@ -72,7 +75,10 @@ const geoHandle: GameHandle = {
 };
 
 const jeopardyHandle: GameHandle = {
+  pause: context => pauseUntimedGame(context, true),
+  resume: context => pauseUntimedGame(context, false),
   slug: 'jeopardy',
+  roomRules: roomEngineRules('jeopardy'),
   registerEvents: registerJeopardyEvents,
   async initialize({ io, room }) {
     await handleJeopardyGame.initialize(io, room);
@@ -85,8 +91,11 @@ const jeopardyHandle: GameHandle = {
 };
 
 const werIstDasHandle: GameHandle = {
+  pause: context => pauseUntimedGame(context, true),
+  resume: context => pauseUntimedGame(context, false),
   // Kanonischer Slug (Regelwerk §14): "weristdas" → "wer-ist-das".
   slug: 'wer-ist-das',
+  roomRules: roomEngineRules('wer-ist-das'),
   registerEvents: registerWerIstDasEvents,
   async initialize({ io, room }) { await werIstDasGame.initialize(io, room); },
   async end({ io, room }) {
