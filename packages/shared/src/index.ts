@@ -1583,7 +1583,7 @@ export interface RoomCoreView {
   selfId: string | null;
   selfAdmission: string | null;
   teams: Array<{ id: string; name: string; color: string; icon: string; score: number }>;
-  participants: Array<{ id: string; displayName: string; role: string; admission: string; connected: boolean; ready: boolean; teamId: string | null; score: number; banned: boolean; userId?: string | null }>;
+  participants: Array<{ id: string; displayName: string; role: string; admission: string; connected: boolean; ready: boolean; teamId: string | null; score: number; banned: boolean; connectionQuality: 'GUT' | 'INSTABIL' | 'SCHLECHT' | 'UNKNOWN'; userId?: string | null }>;
   feed: Array<{ id: string; kind: string; message: string; createdAt: string }>;
   preflight: { status: 'READY_TO_START' | 'WARNINGS' | 'BLOCKED'; blockers: string[]; warnings: string[] };
   runIndex: number;

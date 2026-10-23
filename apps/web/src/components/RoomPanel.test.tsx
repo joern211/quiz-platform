@@ -12,7 +12,7 @@ vi.mock('../lib/socket', () => ({
 }));
 vi.mock('../lib/sessionStore', () => ({ getSession: () => ({ role: 'VIEWER' }), setSession: vi.fn() }));
 function view(overrides: Partial<RoomCoreView> = {}): RoomCoreView {
-  return { gameSlug: 'jeopardy', history: [], switchOptions: [], revision: 1, lifecycle: 'LOBBY_OPEN', policy: RoomPolicySchema.parse({}), scheduledAt: null, hostStatus: 'ONLINE', canManage: false, isOwner: false, permissions: [], selfId: 'p1', selfAdmission: 'ACTIVE', teams: [], participants: [{ id: 'p1', displayName: 'Alice', role: 'PLAYER', admission: 'ACTIVE', connected: true, ready: false, teamId: null, score: 0, banned: false }], feed: [], preflight: { status: 'BLOCKED', blockers: ['NOT_ENOUGH_PLAYERS'], warnings: [] }, runIndex: 1, ...overrides };
+  return { gameSlug: 'jeopardy', history: [], switchOptions: [], revision: 1, lifecycle: 'LOBBY_OPEN', policy: RoomPolicySchema.parse({}), scheduledAt: null, hostStatus: 'ONLINE', canManage: false, isOwner: false, permissions: [], selfId: 'p1', selfAdmission: 'ACTIVE', teams: [], participants: [{ id: 'p1', displayName: 'Alice', role: 'PLAYER', admission: 'ACTIVE', connected: true, ready: false, teamId: null, score: 0, banned: false, connectionQuality: 'UNKNOWN' }], feed: [], preflight: { status: 'BLOCKED', blockers: ['NOT_ENOUGH_PLAYERS'], warnings: [] }, runIndex: 1, ...overrides };
 }
 beforeEach(() => { transport.handlers.clear(); transport.command.mockReset(); transport.read = view(); });
 function mount() { return render(<MemoryRouter initialEntries={['/raum/123-456/lobby']}><RoomPanel /></MemoryRouter>); }

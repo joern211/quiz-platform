@@ -2,8 +2,8 @@
 // Online Quiz Plattform - Rooms Router
 // ============================================================
 
-import { RoomError, joinPlayer, roomPolicy, tokenHash } from '../rooms/core.js';
-import { changed, revokeParticipantSockets } from '../rooms/socket.js';
+import { RoomError, joinPlayer, roomPolicy, tokenHash, mutateRoom } from '../rooms/core.js';
+import { changed, closeRoomSockets } from '../rooms/socket.js';
 import type { Server } from 'socket.io';
 import { Router } from 'express';
 import crypto from 'crypto';
@@ -791,17 +791,15 @@ roomsRouter.delete('/:code', async (req, res) => {
       });
     }
 
-    const room = await prisma.room.update({
-      where: { code: normalizeRoomCode(req.params.code) },
-      data: { status: 'ARCHIVED', lifecycle: 'CLOSED', archivedAt: new Date() },
-    });
-
-    await prisma.participation.updateMany({ where: { roomId: room.id }, data: { connected: false, connectionId: null, rejoinTokenVersion: { increment: 1 } } });
+    if (roomData.status === 'ARCHIVED') return res.json({ success: true });
+    await mutateRoom(roomData.id, { participantId: `http:${session.id}`, userId: session.userId, sessionId: session.id, permissions: new Set(), canManage: true }, { type: 'CLOSE' });
+    const room = roomData;
     const io = (globalThis as { __quiz_io?: Server }).__quiz_io;
-    if (io) { io.to(`room_${room.id}`).emit('room:closed'); const participants = await prisma.participation.findMany({ where: { roomId: room.id } }); revokeParticipantSockets(io, room.id, participants.map(p => p.id)); }
+    if (io) closeRoomSockets(io, room.id);
     logger.info('Room closed', { roomId: room.id, code: room.code });
     res.json({ success: true });
   } catch (error) {
+    if (error instanceof RoomError) return res.status(409).json({ success: false, error: { code: error.code, message: error.code } });
     logger.error('Failed to close room', { error });
     res.status(500).json({
       success: false,

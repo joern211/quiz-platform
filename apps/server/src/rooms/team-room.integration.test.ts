@@ -15,7 +15,7 @@ const sockets: Socket[] = [], rooms: string[] = [], assets: string[] = [];
 const hostId = 'pr15-host', secondId = 'pr15-second';
 let cookie: string, secondCookie: string;
 const ack = gameAck;
-async function connect(auth?: string) { const s = await connectGameClient(origin, auth); sockets.push(s); return s; }
+async function connect(auth?: string) { const s = await connectGameClient(origin, auth); sockets.push(s); s.on('room:probe', (acknowledge: () => void) => acknowledge()); return s; }
 async function createRoom(slug = 'jeopardy', overrides: Record<string, unknown> = {}) {
   const game = await db.gameDefinition.findUniqueOrThrow({ where: { slug } });
   const code = String(Math.floor(100000 + Math.random() * 900000)).replace(/(\d{3})(\d{3})/, '$1-$2');
@@ -307,6 +307,25 @@ describe('TEAM-ROOM: real HTTP / sockets / DB', () => {
     const s = await connect(); expect((await ack(s, 'room:subscribe', { roomCode: r.code, rejoinToken: p.rejoinToken })).error).toBe('ROOM_CLOSED');
     const expired = await createRoom(); await db.room.update({ where: { id: expired.id }, data: { expiresAt: new Date(Date.now() - 1000) } });
     expect((await ack(s, 'room:subscribe', { roomCode: expired.code })).error).toBe('ROOM_CLOSED');
+  });
+  it('uses the same historical close and channel eviction through HTTP DELETE', async () => {
+    const r = await createRoom(); const p = await player(r, 'Existing');
+    const viewer = await connect(); expect((await ack(viewer, 'room:subscribe', { roomCode: r.code })).success).toBe(true);
+    await db.room.update({ where: { id: r.id }, data: { status: 'ENDED', runPhase: 'RESULTS' } });
+    const closed = await request(app.app).delete(`/api/v1/rooms/${r.code}`).set('Cookie', cookie);
+    expect(closed.status).toBe(200);
+    expect(await db.roomRun.count({ where: { roomId: r.id } })).toBe(1);
+    expect((await ack(p.socket, 'room:core:read', {})).success).toBe(false);
+    expect((await ack(viewer, 'room:core:read', {})).success).toBe(false);
+    expect((await request(app.app).delete(`/api/v1/rooms/${r.code}`).set('Cookie', cookie)).status).toBe(200);
+  });
+  it('measures round-trip quality from the owning socket without changing scores or identity', async () => {
+    const r = await createRoom(); const p = await player(r, 'Measured');
+    await expect.poll(async () => (await db.participation.findUniqueOrThrow({ where: { id: p.id } })).lastRoundTripMs, { timeout: 4000 }).not.toBeNull();
+    const measured = await db.participation.findUniqueOrThrow({ where: { id: p.id } });
+    expect(measured.lastRoundTripMs).toBeGreaterThanOrEqual(0); expect(measured.score).toBe(0); expect(measured.id).toBe(p.id);
+    const view = (await ack(r.host, 'room:core:read', {})).view as RoomCoreView;
+    expect(view.participants.find(x => x.id === p.id)?.connectionQuality).not.toBe('UNKNOWN');
   });
   it('rejects cross-room mutations, conflicting command payload and invalid envelopes before effects', async () => {
     const a = await createRoom(), b = await createRoom();

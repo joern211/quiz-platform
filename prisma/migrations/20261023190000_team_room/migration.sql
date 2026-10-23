@@ -95,3 +95,5 @@ CREATE INDEX "room_invites_roomId_idx" ON "room_invites"("roomId");
 
 ALTER TABLE "score_events" ADD COLUMN "teamId" TEXT;
 ALTER TABLE "score_events" ADD COLUMN "runIndex" INTEGER NOT NULL DEFAULT 1;
+
+ALTER TABLE "participations" ADD COLUMN "lastRoundTripMs" INTEGER;

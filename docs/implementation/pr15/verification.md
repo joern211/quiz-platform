@@ -2,11 +2,11 @@
 
 Noch in Abnahme. Keine Merge-Freigabe ohne finale CI und E2E am aktuellen Head.
 
-Bisherige lokale vollständige Regression: 380 Servertests / 40 Dateien,
+Bisherige lokale vollständige Regression: 383 Servertests / 40 Dateien,
 80 Webtests / 10 Dateien; keine Skips. Build/Typecheck erfolgreich. Lint:
 0 Fehler, 116 Warnungen. Neue Änderungen erhalten passende Wiederholung.
 
-21 neue echte Room-/Team-Integrationstests und 3 UI-Tests prüfen u. a.:
+24 neue echte Room-/Team-Integrationstests und 3 UI-Tests prüfen u. a.:
 parallelen letzten Slot, eindeutige Namen, Warte-/Freigabestatus, PIN-Trennung,
 einmalige Einladungen, Teams/Rotation, Ready/Blocker, Geräteübernahme,
 Tokenrotation, Kick/Ban/Unban, Co-Host-Entzug, Host-Transfer/Failover,
@@ -24,3 +24,8 @@ GitHub führt die 18 bestehenden Fälle plus den neuen TEAM-ROOM-Browserfall
 (T1: Freigabe, Teamwahl, Start, Pause, Reconnect, Rematch, Close) aus.
 
 Der endgültige Head und Run-Link werden nach Abschluss ergänzt.
+
+GitHub-Abnahme fand unter Last konkurrierender Joins SQLite-Transaktions-Timeouts.
+Gleiche Räume werden nun bereits vor dem Öffnen der Transaktion sequenziert;
+DB-Unique/Revision/Receipt-Fences bleiben bestehen. Der Produktions-Rate-Limiter
+und echte parallele Joins werden unverändert nachgewiesen.

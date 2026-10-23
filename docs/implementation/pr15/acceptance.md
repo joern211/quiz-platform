@@ -32,8 +32,9 @@ Ein Eintrag in dieser Tabelle ersetzt keinen grünen Lauf am finalen Head.
   Raumhistorie. Stabile Event-übergreifende Gastidentitäten und Olympia-Rotation
   werden mit dem Event-Core (Planplatz PR38) integriert.
 - Kamera-/Mikrofontest, Hardwarestatus und deren Qualitätsdiagnostik gehören
-  wie in der Roadmap zu Voice/Kamera (Planplätze PR19/20). Hier gibt es reale
-  Socket-Presence, keine erfundenen Geräte-/Netzwerkmesswerte.
+  wie in der Roadmap zu Voice/Kamera (Planplätze PR19/20). Socket-Presence und serverseitig gemessene Round-Trip-Zeiten mit
+  GUT/INSTABIL/SCHLECHT gibt es bereits hier; nicht gemessene Verbindungen
+  werden ausdrücklich als unbekannt angezeigt.
 - Vollständige FINALIZED-/Amendment-/Statistik-Ergebnisse bleiben Planplatz
   PR16. RoomRun schützt hier bereits abgeschlossene Spiele vor dem Reset.
 - Archivverdichtung/Retention-Jobs bleiben Planplatz PR42. Die hier vorhandene

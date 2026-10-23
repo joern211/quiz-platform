@@ -2,6 +2,7 @@ import { createHash, randomInt, randomUUID } from 'node:crypto';
 import argon2 from 'argon2';
 import type { Prisma, Room } from '@prisma/client';
 import { RoomPolicySchema, normalizedParticipantName, ParticipantNameSchema, effectivePermissions, type RoomPolicy, type RoomOperation, type RoomCoreView, type GamePermission } from '@quiz/shared';
+import { serializeRoom } from './queue.js';
 import { roomEngineRules } from './engineRules.js';
 import { prisma } from '../persistence/prisma.js';
 import { assertCommandMutation } from '../games/core/commandExecution.js';
@@ -53,7 +54,7 @@ export async function checkAccess(room: Room, role: 'PLAYER' | 'VIEWER', pin?: s
 export async function joinViewer(roomId: string, connectionId: string, input: { pin?: string; inviteToken?: string; userId?: string; displayName?: string }) {
   const initial = await prisma.room.findUniqueOrThrow({ where: { id: roomId } });
   const mode = await checkAccess(initial, 'VIEWER', input.pin, input.inviteToken);
-  return prisma.$transaction(async tx => {
+  return serializeRoom(roomId, () => prisma.$transaction(async tx => {
     await writeLock(tx, roomId);
     const room = await tx.room.findUniqueOrThrow({ where: { id: roomId } });
     assertRoomLive(room);
@@ -73,7 +74,7 @@ export async function joinViewer(roomId: string, connectionId: string, input: { 
     }
     const viewer = await tx.viewerSession.create({ data: { roomId, connected: true } });
     return { participationId: `viewer:${viewer.id}`, roomId, role: 'VIEWER' as const, displayName: 'Zuschauer' };
-  });
+  }));
 }
 
 /** Admission, capacity, name reservation and invite use commit together. */
@@ -82,7 +83,7 @@ export async function joinPlayer(roomId: string, input: { displayName: string; p
   await checkAccess(initial, 'PLAYER', input.pin, input.inviteToken);
   const name = ParticipantNameSchema.parse(input.displayName);
   const nameKey = normalizedParticipantName(name);
-  return prisma.$transaction(async tx => {
+  return serializeRoom(roomId, () => prisma.$transaction(async tx => {
     await writeLock(tx, roomId);
     const room = await tx.room.findUniqueOrThrow({ where: { id: roomId }, include: { gameDefinition: true } });
     assertRoomLive(room);
@@ -109,7 +110,7 @@ export async function joinPlayer(roomId: string, input: { displayName: string; p
     } });
     await feed(tx, roomId, participant.id, 'JOIN', `${name}: ${admission === 'ACTIVE' ? 'beigetreten' : admission === 'WAITLIST' ? 'auf der Warteliste' : 'wartet auf Freigabe'}`);
     return participant;
-  });
+  }));
 }
 
 export async function roomPreflight(roomId: string, overrideReady = false, db: Prisma.TransactionClient = prisma): Promise<RoomCoreView['preflight']> {
@@ -172,7 +173,7 @@ export interface RoomActor { participantId: string; userId: string | null; sessi
 
 /** All room edits serialize on the room row and fence their receipt owner. */
 export async function mutateRoom(roomId: string, actor: RoomActor, op: RoomOperation): Promise<Record<string, unknown>> {
-  return prisma.$transaction(async tx => {
+  return serializeRoom(roomId, () => prisma.$transaction(async tx => {
     await writeLock(tx, roomId);
     const room = await tx.room.findUniqueOrThrow({ where: { id: roomId }, include: { gameDefinition: true, gameState: true, participations: true, teams: { orderBy: { createdAt: 'asc' } } } });
     assertRoomLive(room);
@@ -361,7 +362,7 @@ export async function mutateRoom(roomId: string, actor: RoomActor, op: RoomOpera
     const labels: Record<string, string> = { POLICY: 'Raumeinstellungen geändert', LOCK: op.type === 'LOCK' && op.locked ? 'Lobby gesperrt' : 'Lobby geöffnet', SCHEDULE: 'Raum geplant', OPEN: 'Lobby geöffnet', DRAFT: 'Raum als Entwurf gespeichert', TEAMS_ASSIGN: 'Teams neu zugewiesen', TEAM_EDIT: 'Team bearbeitet', TEAM_SELECT: 'Team gewählt', ADMIT: 'Teilnahme entschieden', RENAME: 'Anzeigename geändert', LEAVE: 'Raum verlassen', KICK: 'Teilnehmer entfernt', BAN: 'Teilnehmer gesperrt', UNBAN: 'Raumsperre aufgehoben', TOKEN_ROTATE: 'Geräteübernahme vorbereitet', COHOST: 'Co-Host-Rechte geändert', TRANSFER: 'Host-Verwaltung übertragen', INVITE: 'Einladung erstellt', LOBBY: 'Neue Lobby vorbereitet', REMATCH: 'Revanche vorbereitet', SWITCH_GAME: 'Spiel gewechselt', CLOSE: 'Raum endgültig geschlossen' };
     await feed(tx, roomId, actor.participantId, op.type, op.type === 'MESSAGE' ? op.message : `${labels[op.type] ?? op.type}${'reason' in op && op.reason ? ': ' + op.reason : ''}`);
     return result;
-  });
+  }));
 }
 
 export async function roomView(roomId: string, actor: RoomActor): Promise<RoomCoreView> {
@@ -376,7 +377,7 @@ export async function roomView(roomId: string, actor: RoomActor): Promise<RoomCo
     hostStatus: host?.connected ? 'ONLINE' : host && Date.now() - host.lastSeenAt.getTime() < roomPolicy(room).hostGraceMs ? 'DISCONNECTED' : 'HOST_MISSING',
     permissions: [...actor.permissions],
     canManage: actor.canManage, isOwner: actor.userId === room.hostUserId, selfId: self?.id ?? null, selfAdmission: self?.admission ?? null,
-    participants: room.participations.filter(p => actor.canManage || p.admission === 'ACTIVE' || p.id === self?.id).map(p => ({ id: p.id, displayName: p.displayName, role: p.role, admission: p.admission, connected: p.connected, ready: p.ready, teamId: p.teamId, score: p.score, banned: !!p.bannedAt, ...(actor.canManage ? { userId: p.userId } : {}) })),
+    participants: room.participations.filter(p => actor.canManage || p.admission === 'ACTIVE' || p.id === self?.id).map(p => ({ id: p.id, displayName: p.displayName, role: p.role, admission: p.admission, connected: p.connected, ready: p.ready, teamId: p.teamId, score: p.score, banned: !!p.bannedAt, connectionQuality: p.lastRoundTripMs === null ? 'UNKNOWN' : p.lastRoundTripMs < 150 ? 'GUT' : p.lastRoundTripMs < 500 ? 'INSTABIL' : 'SCHLECHT', ...(actor.canManage ? { userId: p.userId } : {}) })),
     teams: room.teams.map(t => ({ id: t.id, name: t.name, color: t.color, icon: t.icon, score: t.score })),
     feed: room.feed.map(f => ({ id: f.id, kind: f.kind, message: f.message, createdAt: f.createdAt.toISOString() })),
     preflight: await roomPreflight(roomId), runIndex: room.runIndex,

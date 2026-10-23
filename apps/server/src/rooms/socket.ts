@@ -39,6 +39,12 @@ export function revokeParticipantSockets(io: Server, roomId: string, ids: string
     socketIdentityMap.delete(id);
   }
 }
+export function closeRoomSockets(io: Server, roomId: string) {
+  io.to(roomChannel(roomId)).emit('room:closed');
+  for (const socket of io.sockets.sockets.values()) if (socket.data.roomId === roomId) {
+    void socket.leave(roomChannel(roomId)); socketIdentityMap.delete(socket.id); socket.data = {};
+  }
+}
 export function changed(io: Server, roomId: string) {
   io.to(roomChannel(roomId)).emit('room:core:changed');
   void prisma.room.findUnique({ where: { id: roomId }, include: {
@@ -51,6 +57,18 @@ export function changed(io: Server, roomId: string) {
 }
 
 export function registerRoomCore(io: Server, socket: Socket) {
+  const probe = () => {
+    const { participationId, roomId } = socket.data;
+    if (!participationId || !roomId || participationId.startsWith('viewer:')) return;
+    const start = performance.now();
+    socket.timeout(3000).emit('room:probe', (error: Error | null) => {
+      const ms = error ? 3000 : Math.max(0, Math.round(performance.now() - start));
+      void prisma.participation.updateMany({ where: { id: participationId, roomId, connectionId: socket.id, connected: true }, data: { lastRoundTripMs: ms } }).catch(() => undefined);
+    });
+  };
+  const firstProbe = setTimeout(probe, 1000); firstProbe.unref();
+  const probes = setInterval(probe, 15000); probes.unref();
+  socket.once('disconnect', () => { clearTimeout(firstProbe); clearInterval(probes); });
   socket.on('room:core:read', async (_data, ack) => {
     try { const { roomId, actor } = await socketRoomActor(socket); ack?.({ success: true, view: await roomView(roomId, actor) }); }
     catch (error) { const code = error instanceof RoomError ? error.code : 'INTERNAL_ERROR'; ack?.({ success: false, error: code }); }
@@ -93,7 +111,7 @@ export function registerRoomCore(io: Server, socket: Socket) {
           revokeParticipantSockets(io, roomId, stale.map(p => p.id));
         }
         if (['REMATCH', 'LOBBY', 'SWITCH_GAME'].includes(op.type)) io.to(roomChannel(roomId)).emit('room:lobby', { roomCode: room.code });
-        if (op.type === 'CLOSE') { io.to(roomChannel(roomId)).emit('room:closed'); for (const s of io.sockets.sockets.values()) if (s.data.roomId === roomId) { void s.leave(roomChannel(roomId)); socketIdentityMap.delete(s.id); s.data = {}; } }
+        if (op.type === 'CLOSE') closeRoomSockets(io, roomId);
         changed(io, roomId);
       }
     } catch (error) {
