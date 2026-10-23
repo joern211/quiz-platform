@@ -1,6 +1,8 @@
 # PR15 — Verifikation
 
-Noch in Abnahme. Keine Merge-Freigabe ohne finale CI und E2E am aktuellen Head.
+Freigabebedingung: erfolgreiche CI und vollständige E2E am aktuellen PR-Head.
+Maßgeblich ist der aktuelle [GitHub-Check](https://github.com/joern211/quiz-platform/pull/15/checks);
+die PR-Beschreibung hält den zuletzt vollständig verifizierten Head und Run fest.
 
 Bisherige lokale vollständige Regression: 383 Servertests / 40 Dateien,
 80 Webtests / 10 Dateien; keine Skips. Build/Typecheck erfolgreich. Lint:
@@ -23,7 +25,8 @@ Browserversuch ist fehlgeschlagen und zählt nicht als E2E-Nachweis.
 GitHub führt die 18 bestehenden Fälle plus den neuen TEAM-ROOM-Browserfall
 (T1: Freigabe, Teamwahl, Start, Pause, Reconnect, Rematch, Close) aus.
 
-Der endgültige Head und Run-Link werden nach Abschluss ergänzt.
+Die Browserinstallation hat eine explizite Zehn-Minuten-Grenze. Infrastrukturfehler
+werden als Fehler gewertet; ein älterer grüner Run ersetzt keine aktuelle Abnahme.
 
 GitHub-Abnahme fand unter Last konkurrierender Joins SQLite-Transaktions-Timeouts.
 Gleiche Räume werden nun bereits vor dem Öffnen der Transaktion sequenziert;

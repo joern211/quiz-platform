@@ -293,6 +293,7 @@ export async function mutateRoom(roomId: string, actor: RoomActor, op: RoomOpera
         // A kick permits a fresh join; BAN additionally blocks the credential.
         if (op.type === 'TOKEN_ROTATE') { data.kickedAt = null; data.leftAt = null; data.admission = 'ACTIVE'; if (p.bannedAt) throw new RoomError('BANNED'); result = { rejoinToken: token, participantId: p.id }; }
         await tx.participation.update({ where: { id: p.id }, data });
+        if (['LEAVE', 'KICK', 'BAN'].includes(op.type)) await tx.teamMembership.updateMany({ where: { roomId, participationId: p.id, endedAt: null }, data: { endedAt: new Date() } });
         await audit(tx, roomId, actor.userId, op.type, { participantId: p.id });
         break;
       }

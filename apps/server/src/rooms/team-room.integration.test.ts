@@ -148,10 +148,14 @@ describe('TEAM-ROOM: real HTTP / sockets / DB', () => {
   });
   it('ban preserves scores/history; unban allows a new identity; kick permits a fresh join', async () => {
     const r = await createRoom(); const p = await player(r, 'Original');
+    await configure(r, { teamMode: 'MANUAL' });
+    const team = await db.roomTeam.findFirstOrThrow({ where: { roomId: r.id } });
+    await command(r.host, r.code, { type: 'TEAMS_ASSIGN', mode: 'MANUAL', override: false, assignments: { [p.id]: team.id } });
     await db.participation.update({ where: { id: p.id }, data: { score: 5 } });
     expect((await command(r.host, r.code, { type: 'BAN', participantId: p.id, reason: 'Test' })).success).toBe(true);
     const s = await connect(); expect((await ack(s, 'room:subscribe', { roomCode: r.code, rejoinToken: p.rejoinToken })).success).toBe(false);
     expect((await db.participation.findUniqueOrThrow({ where: { id: p.id } })).score).toBe(5);
+    expect((await db.teamMembership.findFirstOrThrow({ where: { roomId: r.id, participationId: p.id } })).endedAt).not.toBeNull();
     expect((await command(r.host, r.code, { type: 'UNBAN', participantId: p.id })).success).toBe(true);
     const replacement = await player(r, 'Original'); expect(replacement.id).not.toBe(p.id);
     expect((await command(r.host, r.code, { type: 'KICK', participantId: replacement.id })).success).toBe(true);

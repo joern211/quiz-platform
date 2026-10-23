@@ -10,7 +10,7 @@ PR-Roadmap 1–50 vom 07.10.2026. Der alte MVP-Phasenplan ist ergänzender Konte
 |---|---|
 | §2.4 Co-Host | Default aus; eingeloggte Nutzer; einzelne Rechte; sofortiger Entzug; unabhängige Informationsrolle. Socket-Test „delegates management…“. |
 | §3.1–4 Teams | MANUAL/RANDOM/SELF_SELECT/ROTATION, serverseitige Engine-Grenzen, Farben/Namen/Symbole, Größen/Gleichheit, Preflight, vor Start editierbar; Override nur bei freigegebener Runden-Grenze. Test „persists balanced teams…“. |
-| §3.5–6 Historie/Wertung | Persistente Zuordnungen, Team bleibt bei Disconnect; historische Scores bleiben nach Leave/Kick. Gemeinsame Score-Transaktion schreibt Teambeitrag und Run-Zuordnung. Echte Wertung in Jeopardy und Wer ist das?. |
+| §3.5–6 Historie/Wertung | Persistente Zuordnungen, Team bleibt bei Disconnect; historische Scores bleiben nach Leave/Kick; die aktive Zuordnung wird dabei geschlossen. Gemeinsame Score-Transaktion schreibt Teambeitrag und Run-Zuordnung. Echte Wertung in Jeopardy und Wer ist das?. |
 | §4.1–4 Zugang/Lifecycle | Öffentlicher Code getrennt von interner ID; Player/Viewer separat; PUBLIC/PIN/APPROVAL/INVITE; Sperre, Entwurf, geplanter Raum, explizites Öffnen, kein automatischer Spielstart. |
 | §4.5–6 Ready/Preflight | Drei Ready-Regeln; Warnungen explizit bestätigbar, Blocker bleiben verbindlich. Mindest-/Maximalspieler, Namen, Teams, Content/Medien, Engine. Start und Ready konkurrieren über die Room-Revision. |
 | §4.7–8 Transfer | Host-Ausfall sichtbar; freiwilliger Transfer oder berechtigter Co-Host nach Ausfallfrist; gültiger Account/Session und Raumteilnahme nötig; Audit. Alter Host verliert Kontrolle, neue Verwaltung bekommt keine höherwertige Spielrolle — auch beim nächsten Reconnect ohne Player-Token. |

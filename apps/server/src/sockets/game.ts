@@ -141,7 +141,10 @@ export const handleGameEvents = {
             data: { status: 'RUNNING', runPhase: 'INTRO', startedAt: new Date(), revision: { increment: 1 } },
           });
         });
-        if (started.count !== 1) return { success: false, error: 'GAME_ALREADY_STARTED' };
+        if (started.count !== 1) {
+          const current = await prisma.room.findUniqueOrThrow({ where: { id: room.id } });
+          return { success: false, error: current.status === 'LOBBY' ? 'REVISION_CONFLICT' : 'GAME_ALREADY_STARTED' };
+        }
 
         try {
           await gameHandler.initialize({ io, room, initialPhase: 'INTRO' });

@@ -21,8 +21,8 @@ Voice-/Kameratests folgen wie geplant in deren Arbeitspaketen. Vollständige FIN
 [Draft-PR15](https://github.com/joern211/quiz-platform/pull/15) angelegt.
 Gemeinsame Implementierung und neue echte Integrationstests vorhanden.
 Details und Grenzen: [acceptance.md](acceptance.md), [compatibility.md](compatibility.md),
-[verification.md](verification.md). Noch kein finaler CI-/Browsernachweis,
-keine Merge-Freigabe.
+[verification.md](verification.md). Die Freigabe setzt grüne CI und vollständige Browserabnahme am aktuellen
+Head voraus. Der aktuelle Nachweis steht in den PR-Checks und der PR-Beschreibung.
 
 ## Wiederaufnahme
 

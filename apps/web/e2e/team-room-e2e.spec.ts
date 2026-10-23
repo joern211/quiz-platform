@@ -40,6 +40,7 @@ test('T1: approval, self-select teams, preflight, play, pause, reconnect, rematc
     await bob.getByRole('button', { name: 'Team wählen' }).nth(1).click();
     for (const page of [alice, bob]) await page.getByRole('button', { name: 'Ich bin bereit!' }).click();
     await viewer.goto(`${BASE}/zuschauen/${code}/lobby`);
+    await expect(viewer.getByText('Verbunden', { exact: true }).first()).toBeVisible();
     await expect(host.getByRole('button', { name: 'Spiel starten', exact: true })).toBeEnabled();
     await host.getByRole('button', { name: 'Spiel starten', exact: true }).click();
     await expect(host).toHaveURL(new RegExp(`/moderator/raum/${code}/jeopardy$`));
