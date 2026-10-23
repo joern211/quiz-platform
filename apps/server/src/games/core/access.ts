@@ -85,6 +85,10 @@ export async function authorizeGameContext(
     where: { id: auth.actor.roomId }, include: { gameDefinition: true },
   });
   if (!room) return { ok: false, error: 'ROOM_NOT_FOUND' };
+  if (auth.actor.role === 'HOST' && socket.data.userId !== room.hostUserId) {
+    auth.actor.role = 'VIEWER';
+    if (!options.roles.includes('VIEWER')) return { ok: false, error: 'FORBIDDEN' };
+  }
   // Slug-Vergleich über die kanonische Identität (Regelwerk §5.23): Räume,
   // die noch einen Legacy-Slug tragen (Migration fehlgeschlagen / übersprungen),
   // werden weiterhin korrekt autorisiert — Legacy und Engine-Slug werden auf

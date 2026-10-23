@@ -191,6 +191,15 @@ describe('TEAM-ROOM: real HTTP / sockets / DB', () => {
     const back = await connect(cookie); expect((await ack(back, 'room:subscribe', { roomCode: r.code })).success).toBe(true);
     expect(((await ack(back, 'room:core:read', {})).view as RoomCoreView).isOwner).toBe(false);
   });
+  it('keeps a transferred VIEWER information role on authenticated reconnect', async () => {
+    const r = await createRoom();
+    const viewer = await connect(secondCookie);
+    expect((await ack(viewer, 'room:subscribe', { roomCode: r.code })).success).toBe(true);
+    expect((await command(r.host, r.code, { type: 'TRANSFER', userId: secondId, claim: false })).success).toBe(true);
+    const replacement = await connect(secondCookie);
+    expect(await ack(replacement, 'room:subscribe', { roomCode: r.code })).toMatchObject({ success: true, snapshot: { identity: { role: 'VIEWER' } } });
+    expect(((await ack(replacement, 'room:core:read', {})).view as RoomCoreView).isOwner).toBe(true);
+  });
   it('requires the disconnect grace and explicit eligible co-host for failover', async () => {
     const r = await createRoom(); const p = await player(r, 'Co', secondCookie, secondId);
     await configure(r, { coHostEnabled: true, hostGraceMs: 1000 });

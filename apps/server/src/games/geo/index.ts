@@ -547,7 +547,7 @@ export const handleGeoGame = {
       });
       const roomSockets = await io.in(roomChannel(room.id)).fetchSockets();
       for (const moderator of roomSockets) {
-        if (moderator.data.role === 'HOST' && moderator.data.roomId === room.id) {
+        if (moderator.data.role === 'HOST' && moderator.data.roomId === room.id && moderator.data.userId === room.hostUserId) {
           moderator.emit('geo:answered:moderator', {
             questionIndex: roundIndex, participantId: participationId, optionId: data.optionId,
           });

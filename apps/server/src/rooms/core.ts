@@ -168,7 +168,7 @@ function shuffled<T>(values: T[]): T[] {
   for (let i = copy.length - 1; i > 0; i--) { const j = randomInt(i + 1); [copy[i], copy[j]] = [copy[j], copy[i]]; }
   return copy;
 }
-export interface RoomActor { participantId: string; userId: string | null; canManage: boolean; permissions: Set<GamePermission> }
+export interface RoomActor { participantId: string; userId: string | null; sessionId?: string; canManage: boolean; permissions: Set<GamePermission> }
 
 /** All room edits serialize on the room row and fence their receipt owner. */
 export async function mutateRoom(roomId: string, actor: RoomActor, op: RoomOperation): Promise<Record<string, unknown>> {
@@ -176,6 +176,7 @@ export async function mutateRoom(roomId: string, actor: RoomActor, op: RoomOpera
     await writeLock(tx, roomId);
     const room = await tx.room.findUniqueOrThrow({ where: { id: roomId }, include: { gameDefinition: true, gameState: true, participations: true, teams: { orderBy: { createdAt: 'asc' } } } });
     assertRoomLive(room);
+    if (actor.userId && (!actor.sessionId || !await tx.session.findFirst({ where: { id: actor.sessionId, userId: actor.userId, revokedAt: null, expiresAt: { gt: new Date() }, user: { disabledAt: null } } }))) throw new RoomError('NOT_AUTHENTICATED');
     const owner = actor.userId === room.hostUserId, policy = roomPolicy(room);
     const self = room.participations.find(p => p.id === actor.participantId);
     const grants = actor.userId ? await tx.roomPermissionGrant.findMany({ where: { roomId, userId: actor.userId, revokedAt: null } }) : [];

@@ -17,10 +17,11 @@ type Ack = { success: boolean; error?: string; state?: ReturnType<typeof project
 type Action = 'open' | 'buzz' | 'hint' | 'judge' | 'reveal' | 'next';
 
 async function sendProjections(io: Server, roomId: string, state: WerIstDasState, setup: WerIstDasSetup) {
+  const room = await prisma.room.findUniqueOrThrow({ where: { id: roomId } });
   for (const socket of await io.in(roomChannel(roomId)).fetchSockets()) {
     const identity = socket.data as { roomId?: string; role?: string; participationId?: string };
     if (identity.roomId !== roomId || !['HOST', 'PLAYER', 'VIEWER'].includes(identity.role ?? '')) continue;
-    socket.emit('weristdas:update', projectWerIstDas(state, setup, identity.role as GameRole, identity.participationId));
+    socket.emit('weristdas:update', projectWerIstDas(state, setup, identity.role === 'HOST' && socket.data.userId !== room.hostUserId ? 'VIEWER' : identity.role as GameRole, identity.participationId));
   }
 }
 
