@@ -29,3 +29,8 @@ GitHub-Abnahme fand unter Last konkurrierender Joins SQLite-Transaktions-Timeout
 Gleiche Räume werden nun bereits vor dem Öffnen der Transaktion sequenziert;
 DB-Unique/Revision/Receipt-Fences bleiben bestehen. Der Produktions-Rate-Limiter
 und echte parallele Joins werden unverändert nachgewiesen.
+
+Der alte Medien-Audit zählte Dateien im gemeinsam genutzten Upload-Verzeichnis.
+Ein paralleles Cleanup einer anderen Suite änderte die Anzahl trotz korrektem
+Composite. Die Suite verwendet jetzt ihren eigenen temporären Upload-Ordner;
+alle ursprünglichen Orphan-/Datei-/Byte-Prüfungen bleiben vollständig erhalten.

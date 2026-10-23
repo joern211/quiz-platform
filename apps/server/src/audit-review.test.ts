@@ -58,6 +58,7 @@ import { config } from './config/index.js';
 
 let db: PrismaClient;
 let temp: string;
+let originalUploads: string;
 let owner: { userId: string; cookie: string };
 let other: { userId: string; cookie: string };
 let request: ReturnType<typeof supertest>;
@@ -65,6 +66,8 @@ const uploadsDir = () => path.resolve(config.storagePaths.uploads);
 
 beforeAll(async () => {
   temp = await mkdtemp(path.join(tmpdir(), 'pr11-audit-'));
+  originalUploads = config.storagePaths.uploads;
+  config.storagePaths.uploads = path.join(temp, 'uploads');
   const url = `file:${path.join(temp, 'audit.db')}`;
   await createTestDatabase(url);
   db = new PrismaClient({ datasourceUrl: url });
@@ -79,6 +82,7 @@ beforeAll(async () => {
 
 afterAll(async () => {
   await db?.$disconnect();
+  config.storagePaths.uploads = originalUploads;
   await rm(temp, { recursive: true, force: true });
 });
 
