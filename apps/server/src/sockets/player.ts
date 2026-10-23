@@ -6,6 +6,7 @@ import { Server, Socket } from 'socket.io';
 import { prisma } from '../persistence/prisma.js';
 import { logger } from '../observability/logger.js';
 import { authorizeGameAction } from '../games/core/access.js';
+import { changed } from '../rooms/socket.js';
 import { roomChannel } from './channel.js';
 
 async function currentPlayer(socket: Socket) {
@@ -17,7 +18,7 @@ async function currentPlayer(socket: Socket) {
       roomId: auth.actor.roomId,
       role: 'PLAYER',
       connected: true,
-      kickedAt: null,
+      kickedAt: null, bannedAt: null, leftAt: null, admission: 'ACTIVE', connectionId: socket.id,
     },
   });
   if (!player) return { ok: false as const, error: 'NO_PARTICIPATION' };
@@ -39,6 +40,8 @@ export const handlePlayerEvents = {
         callback?.({ success: false, error: 'INVALID_PAYLOAD' }); return;
       }
 
+      const room = await prisma.room.findUnique({ where: { id: player.roomId } });
+      if (!room || room.code !== data.roomCode || room.status !== 'LOBBY') { callback?.({ success: false, error: 'READY_LOCKED' }); return; }
       await prisma.participation.update({
         where: { id: player.id },
         data: { ready: data.ready },
@@ -50,6 +53,7 @@ export const handlePlayerEvents = {
         ready: data.ready,
       });
 
+      changed(io, player.roomId);
       callback?.({ success: true });
     } catch (error) {
       logger.error('Set ready error', { error });

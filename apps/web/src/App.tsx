@@ -7,6 +7,7 @@ import { useEffect } from 'react';
 import { useTheme } from '@quiz/ui';
 
 // Layout
+import { RoomPanel } from './components/RoomPanel';
 import { Header } from './components/layout/Header';
 import { Footer } from './components/layout/Footer';
 
@@ -107,6 +108,7 @@ export default function App() {
           {/* ── 404 ── */}
           <Route path="*" element={<NotFoundPage />} />
         </Routes>
+        <RoomPanel />
       </main>
       <Footer />
     </div>

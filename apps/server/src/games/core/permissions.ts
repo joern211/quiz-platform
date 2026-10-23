@@ -91,7 +91,13 @@ export async function requireGamePermission(
     // Unbekannte Rolle: keine Rechte, kein Cast.
     return { ok: false, error: 'ROLE_REQUIRED', code: 'ROLE_REQUIRED' };
   }
-  const perms = await loadEffectivePermissions(roomId, role, identity?.userId ?? null);
+  const room = await prisma.room.findUnique({ where: { id: roomId } });
+  if (!room || room.status === 'ARCHIVED' || (room.expiresAt && room.expiresAt <= new Date())) return { ok: false, error: 'NOT_IN_ROOM', code: 'NOT_AUTHENTICATED' };
+  const userId = identity?.userId ?? null;
+  const owner = !!userId && userId === room.hostUserId;
+  const effectiveRole = owner ? 'HOST' : role === 'HOST' ? 'VIEWER' : role;
+  const cohost = room.roomPolicyJson ? JSON.parse(room.roomPolicyJson).coHostEnabled === true : true;
+  const perms = await loadEffectivePermissions(roomId, effectiveRole, owner || cohost ? userId : null);
   if (!hasPermission(perms, permission)) {
     return { ok: false, error: 'NOT_AUTHORIZED', code: 'NOT_AUTHORIZED' };
   }

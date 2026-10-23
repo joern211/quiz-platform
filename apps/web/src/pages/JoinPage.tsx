@@ -22,7 +22,7 @@ export function JoinPage() {
   // Pre-fill from router state (e.g. RoomsPage click)
   const initialCode = (() => {
     const state = location.state as { code?: string } | null;
-    return state?.code ? normalizeCode(state.code) : '';
+    return normalizeCode(state?.code ?? new URLSearchParams(location.search).get('code') ?? '');
   })();
 
   const [code, setCode] = useState(initialCode);
@@ -61,6 +61,7 @@ export function JoinPage() {
         credentials: 'include',
         body: JSON.stringify({
           displayName: name.trim(),
+          inviteToken: new URLSearchParams(location.search).get('invite') ?? undefined,
           pin: pin || undefined,
         }),
       });

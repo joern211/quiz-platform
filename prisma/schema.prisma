@@ -198,6 +198,16 @@ model Room {
   // NULL (kein Token) → keine Idempotenz (Legacy/andere Clients), NULL ≠ NULL.
   idempotencyKey   String?
   
+  roomPolicyJson     String?
+  lifecycle          String?
+  scheduledAt        DateTime?
+  expiresAt          DateTime?
+  runIndex           Int      @default(1)
+  teams              RoomTeam[]
+  teamHistory        TeamMembership[]
+  feed               RoomFeedEntry[]
+  runs               RoomRun[]
+  invites            RoomInvite[]
   revision           Int      @default(0)
   
   createdAt          DateTime @default(now())
@@ -251,6 +261,12 @@ model Participation {
   lives                Int?
   
   teamId               String?
+  userId               String?
+  admission            String   @default("ACTIVE")
+  bannedAt             DateTime?
+  leftAt               DateTime?
+  activeNameKey        String?
+  nameHistoryJson      String   @default("[]")
   
   rejoinToken          String   @unique
   rejoinTokenVersion   Int      @default(1)
@@ -261,6 +277,7 @@ model Participation {
   chatMessages         ChatMessage[]
 
   @@index([roomId])
+  @@unique([roomId, activeNameKey])
   @@index([rejoinToken])
   @@map("participations")
 }
@@ -517,4 +534,67 @@ model CommandReceipt {
   @@id([roomId, commandId])
   @@index([roomId])
   @@map("command_receipts")
+}
+
+// TEAM-ROOM: historical rows survive leave, reshuffle and new game runs.
+model RoomTeam {
+  id String @id @default(uuid())
+  roomId String
+  room Room @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  name String
+  color String
+  icon String
+  score Int @default(0)
+  createdAt DateTime @default(now())
+  @@index([roomId])
+  @@map("room_teams")
+}
+model TeamMembership {
+  id String @id @default(uuid())
+  roomId String
+  room Room @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  participationId String
+  teamId String?
+  runIndex Int
+  startedAt DateTime @default(now())
+  endedAt DateTime?
+  @@index([roomId, participationId])
+  @@map("team_memberships")
+}
+model RoomFeedEntry {
+  id String @id @default(uuid())
+  roomId String
+  room Room @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  kind String
+  message String
+  actorId String?
+  createdAt DateTime @default(now())
+  @@index([roomId, createdAt])
+  @@map("room_feed_entries")
+}
+model RoomRun {
+  id String @id @default(uuid())
+  roomId String
+  room Room @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  runIndex Int
+  gameDefinitionId String
+  engineVersion Int?
+  configSnapshotJson String?
+  stateJson String?
+  scoresJson String
+  teamsJson String
+  endedAt DateTime @default(now())
+  @@unique([roomId, runIndex])
+  @@map("room_runs")
+}
+model RoomInvite {
+  id String @id @default(uuid())
+  roomId String
+  room Room @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  tokenHash String @unique
+  role String
+  expiresAt DateTime
+  usedAt DateTime?
+  @@index([roomId])
+  @@map("room_invites")
 }

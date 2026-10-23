@@ -1507,3 +1507,5 @@ export function createCommandIntentClient() {
   };
   return { intentToken, discardIntentToken, discardIntentTokenIfCurrent, withCommandEnvelope, emitCommand };
 }
+
+export * from './room.js';

@@ -14,12 +14,14 @@
 //     (§5.24). Live-/Legacy-Änderungen rückwirken nicht.
 // ============================================================
 
+import { roomPreflight } from '../rooms/core.js';
+import { changed } from '../rooms/socket.js';
 import { Server, Socket } from 'socket.io';
 import { prisma } from '../persistence/prisma.js';
 import { logger } from '../observability/logger.js';
 import { getGameHandler } from '../games/registry.js';
 import { gameErrorCode } from '../games/core/errors.js';
-import { requireRoomRole, getSocketDataIdentity } from './auth.js';
+import { getSocketDataIdentity } from './auth.js';
 import { requireGamePermission } from '../games/core/permissions.js';
 import { runReceipted } from '../games/core/commands.js';
 import { resolveCommandContextForSocket } from '../games/core/commandContext.js';
@@ -37,7 +39,7 @@ export const handleGameEvents = {
   async start(
     io: Server,
     socket: Socket,
-    data: { roomCode: string; commandId?: string; requestId?: string; protocolVersion?: number },
+    data: { roomCode: string; commandId?: string; requestId?: string; protocolVersion?: number; overrideReady?: boolean },
     callback?: (result: any) => void
   ) {
     logger.info('game:start received', { socketId: socket.id, roomCode: data.roomCode, socketData: socket.data });
@@ -77,7 +79,7 @@ export const handleGameEvents = {
         callback?.({ success: false, error: perm.error === 'NOT_IN_ROOM' ? 'NOT_IN_ROOM' : 'UNAUTHORIZED' });
         return;
       }
-      const authorized = requireRoomRole(socket, 'HOST');
+      const authorized = perm.ok;
       logger.info('game:start auth result', { authorized, socketId: socket.id, role: identity?.role });
       if (!authorized) {
         callback?.({ success: false, error: 'UNAUTHORIZED' });
@@ -128,13 +130,12 @@ export const handleGameEvents = {
       const performStart = async (): Promise<StartResult> => {
         // Business preconditions belong to NEW execution, never to replay.
         if (room.status !== 'LOBBY') return { success: false, error: 'GAME_ALREADY_STARTED' };
-        const minPlayers = room.gameDefinition.minPlayers || 2;
-        const playerCount = await prisma.participation.count({ where: { roomId: room.id, role: 'PLAYER', connected: true } });
-        if (playerCount < minPlayers) return { success: false, error: 'NOT_ENOUGH_PLAYERS', required: minPlayers, current: playerCount };
-        const unready = await prisma.participation.count({ where: { roomId: room.id, role: 'PLAYER', connected: true, ready: false } });
-        if (unready) return { success: false, error: 'NOT_ALL_READY' };
+        const preflight = await roomPreflight(room.id, data.overrideReady === true);
+        if (preflight.blockers.length || preflight.warnings.length) return { success: false, error: preflight.blockers[0] ?? preflight.warnings[0] };
         const started = await prisma.$transaction(async (tx) => {
           await assertCommandMutation(tx, room.id);
+          const check = await roomPreflight(room.id, data.overrideReady === true, tx);
+          if (check.blockers.length || check.warnings.length) return { count: 0 };
           return tx.room.updateMany({
             where: { id: room.id, status: 'LOBBY', revision: room.revision },
             data: { status: 'RUNNING', runPhase: 'INTRO', startedAt: new Date(), revision: { increment: 1 } },
@@ -192,6 +193,8 @@ export const handleGameEvents = {
           throw snapshotError;
         }
 
+        changed(io, room.id);
+
         // Emit game start
         io.to(channel).emit('game:start', {
           roomCode: data.roomCode,
@@ -218,7 +221,7 @@ export const handleGameEvents = {
             commandId: cmdCtx.ctx.commandId!,
             actor: { actorId: identity.participationId ?? room.id, actorRole: perm.role },
             action: 'GAME_START',
-            payload: { roomCode: data.roomCode },
+            payload: { roomCode: data.roomCode, ...(data.overrideReady ? { overrideReady: true } : {}) },
             // Audit PR14, 14-02/14-03: mitgesendete Versionserwartung wird
             // serverseitig gegen die aktuelle Room-Revision geprüft.
             stateVersion: cmdCtx.ctx.envelope?.stateVersion,
@@ -293,7 +296,7 @@ export const handleGameEvents = {
         callback?.({ success: false, error: perm.error === 'NOT_IN_ROOM' ? 'NOT_IN_ROOM' : 'UNAUTHORIZED' });
         return;
       }
-      const authorized = requireRoomRole(socket, 'HOST');
+      const authorized = perm.ok;
       if (!authorized) {
         callback?.({ success: false, error: 'UNAUTHORIZED' });
         return;
@@ -402,7 +405,7 @@ export const handleGameEvents = {
         callback?.({ success: false, error: perm.error === 'NOT_IN_ROOM' ? 'NOT_IN_ROOM' : 'UNAUTHORIZED' });
         return;
       }
-      const authorized = requireRoomRole(socket, 'HOST');
+      const authorized = perm.ok;
       if (!authorized) {
         callback?.({ success: false, error: 'UNAUTHORIZED' });
         return;
@@ -510,7 +513,7 @@ export const handleGameEvents = {
         callback?.({ success: false, error: perm.error === 'NOT_IN_ROOM' ? 'NOT_IN_ROOM' : 'UNAUTHORIZED' });
         return;
       }
-      const authorized = requireRoomRole(socket, 'HOST');
+      const authorized = perm.ok;
       if (!authorized) {
         callback?.({ success: false, error: 'UNAUTHORIZED' });
         return;

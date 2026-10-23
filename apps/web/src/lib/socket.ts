@@ -95,6 +95,9 @@ export interface GeoResyncResponse {
 }
 
 export type ServerToClientEvents = {
+  'room:core:changed': () => void;
+  'room:lobby': (data: { roomCode: string }) => void;
+  'room:closed': () => void;
   'weristdas:update': (state: WerIstDasView) => void;
   'room:snapshot': (state: RoomState & { identity?: { participationId: string; role: PlayerRole } }) => void;
   'room:update': (state: RoomState) => void;
@@ -172,6 +175,8 @@ export type ClientToServerEvents = {
   'weristdas:reveal': (data: Record<string, never> & CommandEnvelopeFields, ack: (res: { success: boolean; error?: string }) => void) => void;
   'weristdas:next': (data: Record<string, never> & CommandEnvelopeFields, ack: (res: { success: boolean; error?: string }) => void) => void;
   'weristdas:resync': (data: Record<string, never>, ack: (res: { success: boolean; error?: string; state?: WerIstDasView }) => void) => void;
+  'room:command': (data: import('@quiz/shared').RoomCommand, ack: (res: CommandResponse) => void) => void;
+  'room:core:read': (data: Record<string, never>, ack: (res: { success: boolean; view?: import('@quiz/shared').RoomCoreView }) => void) => void;
   'room:subscribe': (data: { roomCode: string; rejoinToken?: string; pin?: string; role?: PlayerRole }, ack: (res: { success: boolean; error?: string; snapshot?: RoomState }) => void) => void;
   'room:resync': (data: { roomCode: string; rejoinToken?: string }, ack: (res: { success: boolean; state?: RoomState }) => void) => void;
   'room:kick': (data: { roomCode: string; playerId: string }, ack: (res: { success: boolean; error?: string }) => void) => void;

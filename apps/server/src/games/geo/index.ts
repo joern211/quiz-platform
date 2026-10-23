@@ -189,7 +189,7 @@ export const handleGeoGame = {
 
     // Get participations
     const participations = await prisma.participation.findMany({
-      where: { roomId: room.id, role: 'PLAYER' },
+      where: { roomId: room.id, role: 'PLAYER', admission: 'ACTIVE', leftAt: null, kickedAt: null, bannedAt: null },
     });
 
     // Initialize player states
@@ -329,7 +329,7 @@ export const handleGeoGame = {
 
     // Create each player's round state before answers or jokers arrive.
     const players = await prisma.participation.findMany({
-      where: { roomId: roomRecord.id, role: 'PLAYER' }, select: { id: true },
+      where: { roomId: roomRecord.id, role: 'PLAYER', admission: 'ACTIVE', leftAt: null, kickedAt: null, bannedAt: null }, select: { id: true },
     });
     const playerStates: Record<string, GeoPlayerState> = {};
     for (const player of players) {
@@ -580,7 +580,7 @@ export const handleGeoGame = {
         return;
       }
       const participation = await prisma.participation.findFirst({
-        where: { id: auth.actor.participationId, roomId: auth.actor.roomId, role: 'PLAYER' },
+        where: { id: auth.actor.participationId, roomId: auth.actor.roomId, role: 'PLAYER', admission: 'ACTIVE', leftAt: null, kickedAt: null, bannedAt: null },
         include: { room: true },
       });
       if (!participation) {
@@ -675,7 +675,7 @@ export const handleGeoGame = {
         return;
       }
       const participation = await prisma.participation.findFirst({
-        where: { id: auth.actor.participationId, roomId: auth.actor.roomId, role: 'PLAYER' },
+        where: { id: auth.actor.participationId, roomId: auth.actor.roomId, role: 'PLAYER', admission: 'ACTIVE', leftAt: null, kickedAt: null, bannedAt: null },
         include: { room: true },
       });
       if (!participation) {
@@ -777,7 +777,7 @@ export const handleGeoGame = {
         return;
       }
       const participation = await prisma.participation.findFirst({
-        where: { id: auth.actor.participationId, roomId: auth.actor.roomId, role: 'PLAYER' },
+        where: { id: auth.actor.participationId, roomId: auth.actor.roomId, role: 'PLAYER', admission: 'ACTIVE', leftAt: null, kickedAt: null, bannedAt: null },
         include: { room: true },
       });
       if (!participation) {
@@ -857,7 +857,7 @@ export const handleGeoGame = {
         }
 
         const auth = await authorizeGameContext(socket, {
-          roles: ['HOST'], requireParticipation: true, gameSlug: resolveCanonicalSlug('geo')!, requireRunning: true,
+          roles: ['HOST'], requireParticipation: true, gameSlug: resolveCanonicalSlug('geo')!, requireRunning: true, controlPermission: 'REVEAL_CONTENT',
         });
         if (!auth.ok || auth.room.id !== roomRecord.id) {
           callback?.({ success: false, error: auth.ok ? 'WRONG_ROOM' : auth.error });
@@ -1021,7 +1021,7 @@ export const handleGeoGame = {
 
       // P0-17: Authorization check
       const auth = await authorizeGameContext(socket, {
-        roles: ['HOST'], requireParticipation: true, gameSlug: resolveCanonicalSlug('geo')!, requireRunning: true,
+        roles: ['HOST'], requireParticipation: true, gameSlug: resolveCanonicalSlug('geo')!, requireRunning: true, controlPermission: 'ROUND_ADVANCE',
       });
       if (!auth.ok || auth.room.id !== room.id) {
         callback?.({ success: false, error: auth.ok ? 'WRONG_ROOM' : auth.error });
@@ -1097,7 +1097,7 @@ export const handleGeoGame = {
       }
 
       const auth = await authorizeGameContext(socket, {
-        roles: ['HOST'], requireParticipation: true, gameSlug: resolveCanonicalSlug('geo')!, requireRunning: true,
+        roles: ['HOST'], requireParticipation: true, gameSlug: resolveCanonicalSlug('geo')!, requireRunning: true, controlPermission: 'GAME_PAUSE',
       });
       if (!auth.ok || auth.room.id !== room.id) {
         callback?.({ success: false, error: auth.ok ? 'WRONG_ROOM' : auth.error });
@@ -1173,7 +1173,7 @@ export const handleGeoGame = {
       }
 
       const auth = await authorizeGameContext(socket, {
-        roles: ['HOST'], requireParticipation: true, gameSlug: resolveCanonicalSlug('geo')!, requireRunning: true,
+        roles: ['HOST'], requireParticipation: true, gameSlug: resolveCanonicalSlug('geo')!, requireRunning: true, controlPermission: 'GAME_PAUSE',
       });
       if (!auth.ok || auth.room.id !== room.id) {
         callback?.({ success: false, error: auth.ok ? 'WRONG_ROOM' : auth.error });

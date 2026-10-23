@@ -2,6 +2,9 @@
 // Online Quiz Plattform - Rooms Router
 // ============================================================
 
+import { RoomError, joinPlayer, roomPolicy } from '../rooms/core.js';
+import { changed, revokeParticipantSockets } from '../rooms/socket.js';
+import type { Server } from 'socket.io';
 import { Router } from 'express';
 import crypto from 'crypto';
 import argon2 from 'argon2';
@@ -286,6 +289,7 @@ roomsRouter.post('/', createLimiter, async (req, res) => {
       setupSnapshotJson,
       isPublic,
       idempotencyKey,
+      roomPolicy: policy,
     } = parsed;
 
     // Resolve game definition: prefer slug (mit Legacy-Auflösung), fallback to id
@@ -382,6 +386,7 @@ roomsRouter.post('/', createLimiter, async (req, res) => {
       viewerLimit,
       lobbyChatEnabled,
       isPublic: isPublic ?? true,
+      roomPolicy: policy,
     };
     const idemKey = idempotencyKey ?? computeRoomFingerprint(fpCfg);
     const existingRoom = await prisma.room.findFirst({
@@ -466,6 +471,7 @@ roomsRouter.post('/', createLimiter, async (req, res) => {
             setupSchemaVersion: roomSetupSchemaVersion,
             isPublic: isPublic ?? true,
             idempotencyKey: idemKey,
+            roomPolicyJson: policy ? JSON.stringify(policy) : null,
             status: 'LOBBY',
             runPhase: 'OPEN',
           },
@@ -476,6 +482,7 @@ roomsRouter.post('/', createLimiter, async (req, res) => {
             displayName: session.user.displayName,
             normalizedName: session.user.displayName.toLowerCase().trim(),
             role: 'HOST',
+            userId: session.userId,
             connected: true,
             ready: true,
             rejoinToken: crypto.randomUUID(),
@@ -676,7 +683,7 @@ roomsRouter.post('/:code/join', joinLimiter, async (req, res) => {
       });
     }
 
-    if (room.status !== 'LOBBY') {
+    if (room.status !== 'LOBBY' && !(room.status === 'RUNNING' && roomPolicy(room).allowLateJoin)) {
       return res.status(400).json({
         success: false,
         error: { code: 'ROOM_NOT_JOINABLE', message: 'Raum ist nicht mehr beitretbar.' },
@@ -707,51 +714,12 @@ roomsRouter.post('/:code/join', joinLimiter, async (req, res) => {
       }
     }
 
-    // Check PIN - verify with argon2
-    if (room.pinHash) {
-      if (!pin) {
-        return res.status(403).json({
-          success: false,
-          error: { code: 'INVALID_PIN', message: 'PIN erforderlich.' },
-        });
-      }
-      const validPin = await argon2.verify(room.pinHash, pin);
-      if (!validPin) {
-        return res.status(403).json({
-          success: false,
-          error: { code: 'INVALID_PIN', message: 'Falscher PIN.' },
-        });
-      }
-    }
-
-    // Check player limit
-    const playerCount = await prisma.participation.count({
-      where: { roomId: room.id, role: 'PLAYER' },
-    });
-
-    if (playerCount >= room.maxPlayers) {
-      return res.status(400).json({
-        success: false,
-        error: { code: 'ROOM_FULL', message: 'Raum ist voll.' },
-      });
-    }
-
-    // Generate new rejoin token for this join
-    const newRejoinToken = crypto.randomUUID();
-
-    // Create participation with rejoinTokenVersion: 1 on first join
-    const participation = await prisma.participation.create({
-      data: {
-        roomId: room.id,
-        displayName,
-        normalizedName: displayName.toLowerCase().trim(),
-        role: 'PLAYER',
-        connected: true,
-        ready: false,
-        rejoinToken: newRejoinToken,
-        rejoinTokenVersion: 1,
-      },
-    });
+    const joiningSessionId = verifySession(req, config.sessionSecret);
+    const joiningSession = joiningSessionId ? await prisma.session.findFirst({ where: { id: joiningSessionId, revokedAt: null, expiresAt: { gt: new Date() } } }) : null;
+    const participation = await joinPlayer(room.id, { displayName, pin, inviteToken: parsed.inviteToken, userId: joiningSession?.userId });
+    const newRejoinToken = participation.rejoinToken;
+    const io = (globalThis as { __quiz_io?: Server }).__quiz_io;
+    if (io) changed(io, room.id);
 
     logger.info('Player joined', { roomId: room.id, participationId: participation.id });
 
@@ -759,12 +727,14 @@ roomsRouter.post('/:code/join', joinLimiter, async (req, res) => {
       success: true,
       data: {
         rejoinToken: newRejoinToken,
+        admission: participation.admission,
         participationId: participation.id,
         role: 'PLAYER',
         roomCode: room.code,
       },
     });
   } catch (error) {
+    if (error instanceof RoomError) return res.status(400).json({ success: false, error: { code: error.code, message: error.code } });
     logger.error('Failed to join room', { error });
     res.status(500).json({
       success: false,
@@ -817,9 +787,12 @@ roomsRouter.delete('/:code', async (req, res) => {
 
     const room = await prisma.room.update({
       where: { code: normalizeRoomCode(req.params.code) },
-      data: { status: 'ARCHIVED', archivedAt: new Date() },
+      data: { status: 'ARCHIVED', lifecycle: 'CLOSED', archivedAt: new Date() },
     });
 
+    await prisma.participation.updateMany({ where: { roomId: room.id }, data: { connected: false, connectionId: null, rejoinTokenVersion: { increment: 1 } } });
+    const io = (globalThis as { __quiz_io?: Server }).__quiz_io;
+    if (io) { io.to(`room_${room.id}`).emit('room:closed'); const participants = await prisma.participation.findMany({ where: { roomId: room.id } }); revokeParticipantSockets(io, room.id, participants.map(p => p.id)); }
     logger.info('Room closed', { roomId: room.id, code: room.code });
     res.json({ success: true });
   } catch (error) {

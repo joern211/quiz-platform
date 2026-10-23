@@ -23,6 +23,7 @@ import type { PrismaClient, CommandReceipt } from '@prisma/client';
 import { logger } from '../../observability/logger.js';
 
 export const CRITICAL_COMMAND_ACTIONS = [
+  'ROOM_COMMAND',
   'ANSWER_SUBMIT',
   'JOKER_USE',
   'REVEAL',

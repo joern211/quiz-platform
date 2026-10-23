@@ -1,0 +1,105 @@
+import { useEffect, useState } from 'react';
+import { useLocation, useNavigate } from 'react-router-dom';
+import type { RoomCoreView, RoomOperation, RoomPolicy } from '@quiz/shared';
+import { Button, Card } from '@quiz/ui';
+import { getSocket, connectSocket, emitCommand } from '../lib/socket';
+import { getSession, setSession } from '../lib/sessionStore';
+import styles from './RoomPanel.module.css';
+
+const accessLabels = { PUBLIC_JOIN: 'Offen', PIN_PROTECTED: 'Mit PIN', APPROVAL_REQUIRED: 'Mit Freigabe', INVITE_ONLY: 'Nur mit Einladung' };
+const messages: Record<string, string> = { NOT_ALL_READY: 'Noch nicht alle Spieler sind bereit.', NOT_ENOUGH_PLAYERS: 'Es fehlen Spieler.', TEAM_CONFIGURATION_INVALID: 'Bitte alle Spieler gültigen Teams zuordnen und die Teamgrößen prüfen.', TEAMS_NOT_EQUAL: 'Die Teams sind unterschiedlich groß.', CONTENT_NOT_READY: 'Die Spielinhalte sind noch nicht vollständig.', MEDIA_NOT_READY: 'Benötigte Medien sind nicht bereit.', NAME_TAKEN: 'Dieser Name ist bereits vergeben.', ROUND_BOUNDARY_REQUIRED: 'Diese Änderung ist erst zwischen zwei Runden möglich.', TEAMS_LOCKED: 'Teams sind während des Spiels gesperrt.', NOT_AUTHORIZED: 'Für diese Aktion fehlt die Berechtigung.', OWNER_REQUIRED: 'Diese Aktion ist dem Raum-Host vorbehalten.', ROOM_FULL: 'Alle Spielerplätze sind belegt.', HOST_MISSING: 'Kein berechtigter, eingeloggter Teilnehmer für die Übernahme verfügbar.', COHOST_DISABLED: 'Co-Hosts sind deaktiviert.', HOST_TRANSFER_NOT_ALLOWED: 'Die Frist ist noch nicht abgelaufen oder die Übernahme ist nicht erlaubt.' };
+export function RoomPanel() {
+  const location = useLocation(), navigate = useNavigate();
+  const code = location.pathname.match(/(?:raum|zuschauen|spiel|zuschauer)\/(\d{3}-\d{3})/)?.[1];
+  const [view, setView] = useState<RoomCoreView | null>(null);
+  const [draft, setDraft] = useState<RoomPolicy | null>(null);
+  const [error, setError] = useState(''), [pending, setPending] = useState(false);
+  const [message, setMessage] = useState(''), [name, setName] = useState('');
+  const [userId, setUserId] = useState(''), [schedule, setSchedule] = useState('');
+  const [privateResult, setPrivateResult] = useState('');
+  const [switchSlug, setSwitchSlug] = useState('wissensduell'), [switchSetup, setSwitchSetup] = useState('{}');
+  useEffect(() => {
+    setView(null); setDraft(null); setError(''); setPrivateResult('');
+    if (!code) return;
+    const socket = getSocket();
+    const refresh = () => socket.emit('room:core:read', {}, response => {
+      if (response.success && response.view) { setView(response.view); setDraft(old => old ?? response.view!.policy); }
+    });
+    const enter = () => {
+      const session = getSession();
+      socket.emit('room:subscribe', { roomCode: code, rejoinToken: session.role === 'PLAYER' && session.roomCode === code ? session.rejoinToken ?? undefined : undefined }, response => { if (response.success) refresh(); });
+    };
+    // Lobby/game pages own their subscription; result pages need one here.
+    const resultPage = /ergebnis/.test(location.pathname);
+    const connected = () => { if (resultPage) enter(); else refresh(); };
+    const toLobby = () => { const session = getSession(); navigate(session.role === 'HOST' ? `/moderator/raum/${code}/lobby` : session.role === 'VIEWER' ? `/zuschauen/${code}/lobby` : `/raum/${code}/lobby`); };
+    const closed = () => { setSession({ roomCode: null, participationId: null, rejoinToken: null, role: null }); navigate('/kategorien'); };
+    socket.on('room:snapshot', refresh); socket.on('room:core:changed', refresh); socket.on('room:lobby', toLobby); socket.on('room:closed', closed); socket.on('connect', connected);
+    if (resultPage) { connectSocket(); if (socket.connected) enter(); } else refresh();
+    const interval = window.setInterval(refresh, 10000);
+    return () => { window.clearInterval(interval); socket.off('room:snapshot', refresh); socket.off('room:core:changed', refresh); socket.off('room:lobby', toLobby); socket.off('room:closed', closed); socket.off('connect', connected); };
+  }, [code, location.pathname, navigate]);
+  if (!code || !view || !draft) return null;
+  const send = (operation: RoomOperation) => {
+    if (pending) return;
+    setPending(true); setError(''); setPrivateResult('');
+    emitCommand(getSocket(), 'room:command', { roomCode: code, operation }, `${code}:room:${JSON.stringify(operation)}`, response => {
+      setPending(false);
+      if (!response.success) setError(messages[response.error ?? ''] ?? `Aktion fehlgeschlagen: ${response.error ?? 'Bitte erneut versuchen.'}`);
+      if (response.rejoinToken) setPrivateResult(`Neues Geräte-Token: ${String(response.rejoinToken)}`);
+      if (response.inviteToken) setPrivateResult(`${window.location.origin}/beitreten?code=${code}&invite=${String(response.inviteToken)}`);
+      getSocket().emit('room:core:read', {}, r => { if (r.success && r.view) setView(r.view); });
+    });
+  };
+  const lobby = ['LOBBY_OPEN', 'LOBBY_LOCKED', 'SCHEDULED', 'DRAFT_ROOM'].includes(view.lifecycle);
+  const own = view.participants.find(p => p.id === view.selfId);
+  return <section className={styles.panel} aria-label="Raum und Teams">
+    <Card padding="lg">
+      <h2>Raum & Teams</h2>
+      <p>{view.lifecycle === 'IDLE' ? 'Spiel beendet' : view.lifecycle === 'SCHEDULED' ? 'Geplanter Raum' : view.lifecycle === 'LOBBY_LOCKED' ? 'Lobby gesperrt' : lobby ? 'Lobby geöffnet' : 'Spiel läuft'} · Spiel {view.runIndex}</p>
+      {view.scheduledAt && <p>Geplant: {new Date(view.scheduledAt).toLocaleString('de-DE')} — der Host startet das Spiel.</p>}
+      {view.hostStatus !== 'ONLINE' && <p role="status">{view.hostStatus === 'HOST_MISSING' ? 'Host fehlt. Ein berechtigter Co-Host kann übernehmen.' : 'Host vorübergehend getrennt.'}</p>}
+      {view.selfAdmission && view.selfAdmission !== 'ACTIVE' && <p role="status">{view.selfAdmission === 'WAITLIST' ? 'Du stehst auf der Warteliste.' : 'Du wartest auf die Freigabe durch den Host.'}</p>}
+      {error && <p role="alert">{error}</p>}
+      {privateResult && <p className={styles.privateResult}>{privateResult}</p>}
+      {lobby && view.canManage && <div aria-label="Startprüfung"><strong>Startprüfung</strong>{view.preflight.blockers.length + view.preflight.warnings.length === 0 ? <p>Startbereit</p> : <ul>{[...view.preflight.blockers, ...view.preflight.warnings].map(x => <li key={x}>{messages[x] ?? x}</li>)}</ul>}</div>}
+      <div className={styles.teams}>{view.teams.map(team => <div key={team.id} className={styles.team} style={{ borderColor: team.color }}>
+        <h3>{team.icon} {team.name} · {team.score} Punkte</h3>
+        <ul>{view.participants.filter(p => p.teamId === team.id).map(p => <li key={p.id}>{p.displayName} · {p.connected ? 'Online' : 'Getrennt'}</li>)}</ul>
+        {lobby && view.policy.teamMode === 'SELF_SELECT' && own?.role === 'PLAYER' && <Button disabled={pending || own.teamId === team.id} onClick={() => send({ type: 'TEAM_SELECT', teamId: team.id })}>Team wählen</Button>}
+        {view.canManage && lobby && <form onSubmit={e => { e.preventDefault(); const data = new FormData(e.currentTarget); send({ type: 'TEAM_EDIT', teamId: team.id, name: String(data.get('name')), color: String(data.get('color')), icon: String(data.get('icon')) }); }}><label>Teamname<input name="name" defaultValue={team.name} maxLength={50} required /></label><label>Farbe<input name="color" type="color" defaultValue={team.color} /></label><label>Symbol<input name="icon" defaultValue={team.icon} maxLength={16} required /></label><Button disabled={pending} type="submit">Team speichern</Button></form>}
+      </div>)}</div>
+      {view.canManage && <div className={styles.people}>{view.participants.filter(p => p.role !== 'HOST').map(p => <div key={p.id}><strong>{p.displayName}</strong> · {p.admission === 'WAITLIST' ? 'Warteliste' : p.admission === 'PENDING_JOIN' ? 'Freigabe ausstehend' : p.connected ? 'Online' : 'Getrennt'}
+        {lobby && p.role === 'PLAYER' && p.admission === 'ACTIVE' && view.policy.teamMode !== 'OFF' && <label>Team<select value={p.teamId ?? ''} disabled={pending} onChange={e => send({ type: 'TEAMS_ASSIGN', mode: 'MANUAL', override: false, assignments: { [p.id]: e.target.value || null } })}><option value="">Nicht zugewiesen</option>{view.teams.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}</select></label>}
+        {['WAITLIST', 'PENDING_JOIN'].includes(p.admission) && <><Button disabled={pending} onClick={() => send({ type: 'ADMIT', participantId: p.id, approve: true, teamId: view.teams[0]?.id })}>Zulassen</Button><Button disabled={pending} onClick={() => send({ type: 'ADMIT', participantId: p.id, approve: false })}>Ablehnen</Button></>}
+        {!p.banned && <><Button disabled={pending} variant="ghost" onClick={() => send({ type: 'KICK', participantId: p.id })}>Entfernen</Button><Button disabled={pending} variant="ghost" onClick={() => { if (window.confirm(`${p.displayName} für diesen Raum sperren?`)) send({ type: 'BAN', participantId: p.id }); }}>Sperren</Button><Button disabled={pending} variant="ghost" onClick={() => send({ type: 'TOKEN_ROTATE', participantId: p.id })}>Gerätewechsel</Button></>}
+        {p.banned && <Button disabled={pending} onClick={() => send({ type: 'UNBAN', participantId: p.id })}>Entsperren</Button>}
+      </div>)}</div>}
+      {own?.role === 'PLAYER' && lobby && <form onSubmit={e => { e.preventDefault(); send({ type: 'RENAME', participantId: own.id, name }); }}><label>Dein Name<input value={name} placeholder={own.displayName} onChange={e => setName(e.target.value)} required maxLength={100} /></label><Button disabled={pending} type="submit">Name ändern</Button></form>}
+      {view.isOwner && <details><summary>Raumeinstellungen</summary>
+        {lobby && <form className={styles.settings} onSubmit={e => { e.preventDefault(); send({ type: 'POLICY', policy: draft }); }}>
+          {(['playerAccess', 'viewerAccess'] as const).map(key => <label key={key}>{key === 'playerAccess' ? 'Spielerzugang' : 'Zuschauerzugang'}<select value={draft[key]} onChange={e => setDraft({ ...draft, [key]: e.target.value })}>{Object.entries(accessLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>)}
+          <label>Bereitschaft<select value={draft.readyRule} onChange={e => setDraft({ ...draft, readyRule: e.target.value as RoomPolicy['readyRule'] })}><option value="ALL_READY_REQUIRED">Alle müssen bereit sein</option><option value="HOST_CAN_OVERRIDE">Host darf fehlendes Ready übergehen</option><option value="READY_CHECK_DISABLED">Ohne Ready-Prüfung</option></select></label>
+          <label>Teamzuweisung<select value={draft.teamMode} onChange={e => setDraft({ ...draft, teamMode: e.target.value as RoomPolicy['teamMode'] })}>{[['OFF', 'Ohne Teams'], ['MANUAL', 'Manuell'], ['RANDOM', 'Zufällig'], ['SELF_SELECT', 'Spieler wählen'], ['ROTATION', 'Neue Paarungen']].map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
+          <label>Teamanzahl<input type="number" min={2} max={100} value={draft.teamCount} onChange={e => setDraft({ ...draft, teamCount: Number(e.target.value) })} /></label>
+          <label>Min. Spieler pro Team<input type="number" min={1} max={100} value={draft.minTeamSize} onChange={e => setDraft({ ...draft, minTeamSize: Number(e.target.value) })} /></label>
+          <label>Max. Spieler pro Team<input type="number" min={1} max={100} value={draft.maxTeamSize} onChange={e => setDraft({ ...draft, maxTeamSize: Number(e.target.value) })} /></label>
+          <label>Teamgrößen<select value={draft.equality} onChange={e => setDraft({ ...draft, equality: e.target.value as RoomPolicy['equality'] })}><option value="ANY">Beliebig</option><option value="WARN">Warnen bei Ungleichheit</option><option value="REQUIRED">Gleich große Teams</option></select></label>
+          <label>Wertung<select value={draft.scoring} onChange={e => setDraft({ ...draft, scoring: e.target.value as RoomPolicy['scoring'] })}><option value="INDIVIDUAL_SCORE">Einzelwertung</option><option value="TEAM_SCORE">Teamwertung</option></select></label>
+          {(['waitlist', 'allowLateJoin', 'coHostEnabled', 'allowTeamReshuffleBetweenRounds'] as const).map((key, i) => <label key={key}><input type="checkbox" checked={draft[key]} onChange={e => setDraft({ ...draft, [key]: e.target.checked })} />{['Warteliste', 'Später Beitritt mit Freigabe', 'Co-Hosts erlauben', 'Notfall-Teamwechsel zwischen Runden erlauben'][i]}</label>)}
+          <Button type="submit" disabled={pending}>Einstellungen speichern</Button>
+        </form>}
+        {lobby && <div className={styles.actions}><Button disabled={pending} onClick={() => send({ type: 'LOCK', locked: view.lifecycle !== 'LOBBY_LOCKED' })}>{view.lifecycle === 'LOBBY_LOCKED' ? 'Lobby öffnen' : 'Lobby sperren'}</Button><label>Geplanter Beginn<input type="datetime-local" value={schedule} onChange={e => setSchedule(e.target.value)} /></label><Button disabled={pending || !schedule} onClick={() => send({ type: 'SCHEDULE', scheduledAt: new Date(schedule).toISOString() })}>Planen</Button><Button disabled={pending} onClick={() => send({ type: 'OPEN' })}>Jetzt öffnen</Button></div>}
+        <div className={styles.actions}><Button disabled={pending} onClick={() => send({ type: 'INVITE', role: 'PLAYER' })}>Spielereinladung erstellen</Button><Button disabled={pending} onClick={() => send({ type: 'INVITE', role: 'VIEWER' })}>Zuschauereinladung erstellen</Button></div>
+        <label>Eingeloggter Teilnehmer<select value={userId} onChange={e => setUserId(e.target.value)}><option value="">Bitte wählen</option>{view.participants.filter(p => p.userId).map(p => <option key={p.id} value={p.userId!}>{p.displayName}</option>)}</select></label>
+        <div className={styles.actions}><Button disabled={pending || !userId} onClick={() => send({ type: 'COHOST', userId, permissions: ['GAME_PAUSE', 'PLAYER_MANAGE', 'TEAM_MANAGE'] })}>Verwaltung delegieren</Button><Button disabled={pending || !userId} onClick={() => send({ type: 'COHOST', userId, permissions: [] })}>Delegation entziehen</Button><Button disabled={pending || !userId} onClick={() => { if (window.confirm('Host-Verwaltung an diesen Teilnehmer übertragen?')) send({ type: 'TRANSFER', userId, claim: false }); }}>Host übertragen</Button></div>
+      </details>}
+      {view.canManage && view.teams.length > 0 && <div className={styles.actions}><Button disabled={pending} onClick={() => send({ type: 'TEAMS_ASSIGN', mode: 'RANDOM', override: !lobby })}>Teams zufällig verteilen</Button><Button disabled={pending} onClick={() => send({ type: 'TEAMS_ASSIGN', mode: 'ROTATION', override: !lobby })}>Neue Paarungen bilden</Button></div>}
+      {view.isOwner && view.lifecycle === 'IDLE' && <div className={styles.actions}><Button disabled={pending} onClick={() => send({ type: 'REMATCH' })}>Revanche vorbereiten</Button><Button disabled={pending} onClick={() => send({ type: 'LOBBY' })}>Zurück zur Lobby</Button><label>Anderes Spiel<select value={switchSlug} onChange={e => setSwitchSlug(e.target.value)}><option value="wissensduell">Wissensduell</option><option value="jeopardy">Jeopardy</option><option value="wer-ist-das">Wer ist das?</option></select></label><label>Vorbereitetes Setup (JSON)<textarea value={switchSetup} onChange={e => setSwitchSetup(e.target.value)} /></label><Button disabled={pending} onClick={() => { try { send({ type: 'SWITCH_GAME', gameSlug: switchSlug, setup: JSON.parse(switchSetup) }); } catch { setError('Bitte gültiges Setup-JSON eingeben.'); } }}>Spiel wechseln</Button></div>}
+      {view.canManage && !lobby && view.lifecycle !== 'IDLE' && <Button variant="danger" disabled={pending} onClick={() => { if (window.confirm('Spiel abbrechen und Punkte behalten?')) send({ type: 'EMERGENCY', action: 'ABORT_GAME', points: 'KEEP_POINTS' }); }}>Spiel abbrechen</Button>}
+      {view.isOwner && (lobby || view.lifecycle === 'IDLE') && <Button variant="danger" disabled={pending} onClick={() => { if (window.confirm('Raum endgültig schließen? Danach ist kein Rejoin mehr möglich.')) send({ type: 'CLOSE' }); }}>Raum endgültig schließen</Button>}
+      {view.canManage && <form onSubmit={e => { e.preventDefault(); send({ type: 'MESSAGE', message }); setMessage(''); }}><label>Nachricht an den Raum<input value={message} onChange={e => setMessage(e.target.value)} maxLength={300} required /></label><Button disabled={pending} type="submit">Senden</Button></form>}
+      <details><summary>Raumverlauf</summary><ol>{view.feed.map(entry => <li key={entry.id}><time>{new Date(entry.createdAt).toLocaleTimeString('de-DE')}</time> {entry.message}</li>)}</ol></details>
+    </Card>
+  </section>;
+}

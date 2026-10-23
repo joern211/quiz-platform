@@ -2,6 +2,8 @@
 // Room Socket Events
 // ============================================================
 
+import { assertRoomLive, RoomError, checkAccess, roomPolicy } from '../rooms/core.js';
+import { changed } from '../rooms/socket.js';
 import { Server, Socket } from 'socket.io';
 import { prisma } from '../persistence/prisma.js';
 import { logger } from '../observability/logger.js';
@@ -66,7 +68,7 @@ async function cleanupOldViewerSessions(roomId: string): Promise<number> {
 export async function handleRoomSubscription(
   io: Server,
   socket: Socket,
-  data: { roomCode: string; rejoinToken?: string; pin?: string; moderatorToken?: string },
+  data: { roomCode: string; rejoinToken?: string; pin?: string; moderatorToken?: string; inviteToken?: string },
   callback?: RoomAcknowledgement
 ) {
   const { roomCode, rejoinToken, pin, moderatorToken } = data;
@@ -76,7 +78,7 @@ export async function handleRoomSubscription(
     where: { code: roomCode },
     include: {
       gameDefinition: true,
-      participations: { where: { role: { not: 'VIEWER' } } },
+      participations: { where: { role: { not: 'VIEWER' }, admission: 'ACTIVE', bannedAt: null, leftAt: null, kickedAt: null } },
       viewerSessions: true,
     },
   });
@@ -85,6 +87,8 @@ export async function handleRoomSubscription(
     callback?.({ success: false, error: 'ROOM_NOT_FOUND' });
     return;
   }
+
+  try { assertRoomLive(room); } catch (error) { callback?.({ success: false, error: error instanceof RoomError ? error.code : 'ROOM_CLOSED' }); return; }
 
   // Socket.IO rooms persist across subscribe calls. A socket switching rooms
   // must leave its previous channel before acquiring another identity.
@@ -133,7 +137,7 @@ export async function handleRoomSubscription(
     });
 
     // P0-13: Check if kicked
-    if (participation?.kickedAt) {
+    if (participation?.bannedAt || participation?.leftAt || participation?.kickedAt) {
       callback?.({ success: false, error: 'KICKED' });
       return;
     }
@@ -151,6 +155,8 @@ export async function handleRoomSubscription(
       callback?.({ success: false, error: 'INVALID_PARTICIPATION_ROLE' });
       return;
     }
+
+    if (participation.userId && participation.userId !== userId) { callback?.({ success: false, error: 'SESSION_REQUIRED' }); return; }
 
     if (participation.role === 'HOST') {
       // A moderator MUST provide a valid moderatorToken that matches their participation
@@ -170,7 +176,7 @@ export async function handleRoomSubscription(
         return;
       }
 
-    } else if (isAuthenticatedHost) {
+    } else if (isAuthenticatedHost && participation.userId !== userId) {
       // A host session must never turn an unrelated player participation into
       // a moderator identity. The host reconnects through its own entry below.
       callback?.({ success: false, error: 'INVALID_REJOIN_TOKEN' });
@@ -209,8 +215,13 @@ export async function handleRoomSubscription(
     // VIEWER SUBSCRIPTION PATH
     // -----------------------------------------------------------
     
+    if (!isAuthenticatedHost && ['LOBBY_LOCKED', 'SCHEDULED', 'DRAFT_ROOM'].includes(room.lifecycle ?? (room.runPhase === 'LOCKED' ? 'LOBBY_LOCKED' : ''))) { callback?.({ success: false, error: 'ROOM_NOT_JOINABLE' }); return; }
+    if (!isAuthenticatedHost) {
+      try { await checkAccess(room, 'VIEWER', pin, data.inviteToken); }
+      catch (error) { callback?.({ success: false, error: error instanceof RoomError ? error.code : 'NOT_AUTHORIZED' }); return; }
+    }
     // 1. P0-04: Check allowViewers - viewers not allowed in this room
-    if (!room.allowViewers) {
+    if (!isAuthenticatedHost && !room.allowViewers) {
       callback?.({ success: false, error: 'VIEWERS_NOT_ALLOWED' });
       return;
     }
@@ -226,13 +237,13 @@ export async function handleRoomSubscription(
       where: { roomId: room.id, connected: true },
     });
     
-    if (activeViewerCount >= room.viewerLimit) {
+    if (!isAuthenticatedHost && activeViewerCount >= room.viewerLimit) {
       callback?.({ success: false, error: 'VIEWER_LIMIT_REACHED' });
       return;
     }
 
     // 4. P0-05: PIN-Prüfung nur wenn viewerRequiresPin=true UND room.pinHash != null
-    if (room.viewerRequiresPin && room.pinHash != null) {
+    if (!isAuthenticatedHost && roomPolicy(room).viewerAccess === 'PIN_PROTECTED' && room.pinHash != null) {
       // Check PIN for viewer access
       if (!pin) {
         callback?.({ success: false, error: 'PIN_REQUIRED' });
@@ -255,6 +266,10 @@ export async function handleRoomSubscription(
     if (isAuthenticatedHost) {
       // Set a placeholder identity — auto-upgrade will replace it below
       identity = { participationId: '', roomId: room.id, role: 'VIEWER', displayName: '' };
+    } else if (userId || roomPolicy(room).viewerAccess === 'APPROVAL_REQUIRED') {
+      const existing = userId ? await prisma.participation.findFirst({ where: { roomId: room.id, userId, role: 'VIEWER', bannedAt: null, leftAt: null, kickedAt: null } }) : null;
+      const part = existing ? await prisma.participation.update({ where: { id: existing.id }, data: { connected: true, connectionId: socket.id, lastSeenAt: new Date() } }) : await prisma.participation.create({ data: { roomId: room.id, userId, displayName: authenticatedUser?.displayName ?? 'Zuschauer', normalizedName: `viewer:${crypto.randomUUID()}`, role: 'VIEWER', admission: roomPolicy(room).viewerAccess === 'APPROVAL_REQUIRED' ? 'PENDING_JOIN' : 'ACTIVE', rejoinToken: crypto.randomUUID(), connected: true, connectionId: socket.id } });
+      identity = { participationId: part.id, roomId: room.id, role: 'VIEWER', displayName: part.displayName };
     } else {
       // Create new ViewerSession
       const viewerSession = await prisma.viewerSession.create({
@@ -272,7 +287,7 @@ export async function handleRoomSubscription(
   // An authenticated room host always reconnects through the original
   // moderator participation. A reload updates connection metadata instead of
   // creating another database row.
-  if (isAuthenticatedHost) {
+  if (isAuthenticatedHost && identity?.role !== 'PLAYER') {
     const existingModPart = await prisma.participation.findFirst({
       where: { roomId: room.id, role: 'HOST' },
       orderBy: { createdAt: 'asc' },
@@ -281,7 +296,7 @@ export async function handleRoomSubscription(
     if (existingModPart) {
       const refreshedModerator = await prisma.participation.update({
         where: { id: existingModPart.id },
-        data: { connected: true, connectionId: socket.id, ready: true, lastSeenAt: new Date() },
+        data: { connected: true, connectionId: socket.id, ready: true, lastSeenAt: new Date(), userId },
       });
       identity = {
         participationId: refreshedModerator.id,
@@ -301,6 +316,7 @@ export async function handleRoomSubscription(
           displayName,
           normalizedName: displayName.toLowerCase().trim(),
           role: 'HOST',
+          userId,
           connected: true,
           connectionId: socket.id,
           ready: true,
@@ -366,6 +382,8 @@ export async function handleRoomSubscription(
   }
   // ONLY AFTER identity validated: socket.join(roomChannel(room.id)) (P0-07 fix)
   await socket.join(roomChannel(room.id));
+
+  changed(io, room.id);
 
   // Build snapshot
   const snapshot = {
@@ -507,7 +525,7 @@ export async function handleKickPlayer(
     // Broadcast updated room state
     const updatedRoom = await prisma.room.findUnique({
       where: { id: room.id },
-      include: { participations: { where: { role: { not: 'VIEWER' } } } },
+      include: { participations: { where: { role: { not: 'VIEWER' }, admission: 'ACTIVE', bannedAt: null, leftAt: null, kickedAt: null } } },
     });
 
     if (updatedRoom) {
@@ -617,7 +635,7 @@ export const handleRoomEvents = {
       where: { id: identity.roomId },
       include: {
         gameDefinition: true,
-        participations: { where: { role: { not: 'VIEWER' } } },
+        participations: { where: { role: { not: 'VIEWER' }, admission: 'ACTIVE', bannedAt: null, leftAt: null, kickedAt: null } },
         viewerSessions: true,
       },
     });
