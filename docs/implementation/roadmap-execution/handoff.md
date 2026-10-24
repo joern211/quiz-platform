@@ -89,3 +89,12 @@ Neu in Punkt 2: transaktional persistierte, unveränderliche State-Events,
 deterministischer SDK-Replay, explizite Legacy-Checkpoints und strukturierte
 Buzzer-Zustände in Jeopardy + Wer ist das?. 408 Server-/85 Webtests und
 Builds/Typecheck lokal grün. Details und restlicher Umfang im PR16-Handoff.
+
+## Engine-Vertrag — nächster gesicherter Teil von Punkt 2
+
+cc66952: grüne CI und E2E (Run 40117073536), Event-/Buzzer-Zwischenstand.
+Folgeänderung: realer SDK-GameEngineContract in Start/Preflight/Spielbefehlen/
+Resync aller drei bestehenden Spiele, gemeinsame WID-Aktionen und korrigierte
+Buzzer-Verwaltungsgrenze. Ergebnis-Builder vorbereitet, aber noch keine
+persistente Ergebnisfinalisierung (Punkt 3). 411 Server-/85 Webtests lokal
+grün, Typecheck/Build grün; genaue Abnahme im PR16-Handoff. Punkt 2 noch offen.

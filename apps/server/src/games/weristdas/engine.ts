@@ -11,6 +11,7 @@ import { projectWerIstDas } from './resync.js';
 import { loadInitialGameCount, ConfigSnapshotError } from '../core/config.js';
 import { resolveCanonicalSlug } from '@quiz/shared';
 import { resolveBuzzer } from '../core/buzzer.js';
+import { getGameEngineContract } from '../core/engineContract.js';
 import { activateHint, buzz, createWerIstDasState, judge, nextRound, openRoundBuzzer, revealRound,
   InvalidGameAction, type WerIstDasState } from './state.js';
 
@@ -176,7 +177,8 @@ export const werIstDasGame = {
       throw new InvalidGameAction('UNSUPPORTED_ENGINE_VERSION');
     }
     const setup = WerIstDasSetupSchema.parse(JSON.parse(auth.room.setupSnapshotJson));
-    return { success: true, state: projectWerIstDas(loaded.state, setup, auth.actor.role, auth.actor.participationId) };
+    return { success: true, state: getGameEngineContract('wer-ist-das')!.createProjection({ state: loaded.state, setup, actor: auth.actor,
+      participants: [], stateVersion: loaded.revision }) as ReturnType<typeof projectWerIstDas> };
   },
 
   async end(io: Server, room: { id: string; code: string; setupSnapshotJson: string | null }) {

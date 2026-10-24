@@ -14,7 +14,6 @@
 //     (§5.24). Live-/Legacy-Änderungen rückwirken nicht.
 // ============================================================
 
-import { roomPreflight } from '../rooms/core.js';
 import { changed } from '../rooms/socket.js';
 import { Server, Socket } from 'socket.io';
 import { prisma } from '../persistence/prisma.js';
@@ -130,11 +129,11 @@ export const handleGameEvents = {
       const performStart = async (): Promise<StartResult> => {
         // Business preconditions belong to NEW execution, never to replay.
         if (room.status !== 'LOBBY') return { success: false, error: 'GAME_ALREADY_STARTED' };
-        const preflight = await roomPreflight(room.id, data.overrideReady === true);
+        const preflight = await gameHandler.contract.preflightCheck({ roomId: room.id, overrideReady: data.overrideReady === true });
         if (preflight.blockers.length || (preflight.warnings.length && data.acknowledgeWarnings !== true)) return { success: false, error: preflight.blockers[0] ?? preflight.warnings[0] };
         const started = await prisma.$transaction(async (tx) => {
           await assertCommandMutation(tx, room.id);
-          const check = await roomPreflight(room.id, data.overrideReady === true, tx);
+          const check = await gameHandler.contract.preflightCheck({ roomId: room.id, overrideReady: data.overrideReady === true, db: tx });
           if (check.blockers.length || (check.warnings.length && data.acknowledgeWarnings !== true)) return { count: 0 };
           return tx.room.updateMany({
             where: { id: room.id, status: 'LOBBY', revision: room.revision },

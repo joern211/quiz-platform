@@ -186,3 +186,41 @@ Nächster Schritt bleibt Punkt 2: vollständiger Engine-Vertrag, Host-Overrides,
 Tie-Regeln, echte Team-Anbindung, Visibility/Projektionen und Rundenübergaben.
 Punkte 3–5 bleiben danach. Neue CI/E2E gelten erst nach Prüfung des neuen
 Remote-Heads, nicht automatisch durch die grüne Vorläufer-CI.
+
+## Sechster Teil — Engine-Vertrag in den realen Ausführungspfaden
+
+cc66952 (identischer Baum zu lokal 4535d2c) ist vollständig CI/E2E-grün,
+Run 40117073536. Die Folgeänderung verbindet nun den SDK-GameEngineContract
+mit allen drei echten Engines:
+
+- Registry-Initialisierung und der zweifach/innerhalb der Schreibtransaktion
+  geprüfte Preflight gehen durch den Vertrag. Setup- und Content-Schemas
+  sind deklariert; zusätzliche Asset-/Eigentumsprüfungen der Engines bleiben.
+- Wissensduell-, Jeopardy- und Wer-ist-das-Spielaktionen benutzen den realen
+  Dispatcher. Receipts replayen weiterhin VOR späteren Phasengates;
+  ursprüngliche Wire-Codes (insbesondere WID PLAYER_EXCLUDED) bleiben.
+- Auch rollenabhängige Resync-Projektionen gehen durch den Vertrag. Die
+  Jeopardy-Projektion ist als reine explizite Feldliste extrahiert und nutzt
+  den gemeinsamen Visibility-Core; sie enthält keine Submission-/Pause-
+  Snapshots oder zukünftigen Lösungen. Die vorhandene sichere Geo-
+  ERROR_RECOVERY-Projektion für kaputtes JSON bleibt erhalten.
+- applyEvent und Result-Builder sind funktional, mit Prüfung von Engine,
+  Version und Run. Legacy-WID-Ergebnisse behalten engineVersion=1; es wird
+  nicht die aktuelle Manifest-Version rückwirkend eingetragen. Round-Ränge
+  verwenden Rundendeltas; Game-Ränge den Spielstand. Unbekannte Dauer bleibt
+  null, ein Abbruch erfindet keinen Gewinner. Persistenz/Finalisierung dieser
+  Ergebnisse sind weiterhin Arbeit von Punkt 3, nicht bereits geliefert.
+- Wer ist das? hat gemeinsame availableActions/Progress und Host-/Player-
+  Controls. Ein normaler PLAYER mit dem Basisrecht BUZZER_CONTROL darf nur
+  buzzern, nicht den Buzzer öffnen. Ein angemeldeter Host bzw. ausdrücklich
+  delegierter Co-Host darf dies weiterhin. Echter Socket-Gegenbeleg und
+  reine Contract-Prüfungen decken diesen Unterschied ab.
+
+Lokal: 411/411 Server-Tests (48 Dateien), Typecheck, beide Builds und
+85/85 Webtests grün. Lint: 0 Fehler / 115 Warnungen. Die GitHub-Abnahme für
+DIESE Folgeänderung ist noch ausstehend. Keine übersprungenen Pflicht-Tests.
+
+Punkt 2 bleibt offen: vollständige Host-Overrides und Team-Buzzer-Anbindung,
+Tie-Regeln und alle verpflichtenden Rundenübergaben/zugehörigen Controls
+müssen noch abgenommen werden. Die Existenz des Engine-Vertrags schließt
+nicht automatisch alle Master-Cores ab. Danach Punkt 3–5 fortsetzen.

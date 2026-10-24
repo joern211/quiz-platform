@@ -146,7 +146,7 @@ export async function runGuardedCriticalAction(
         // serverseitig gegen die aktuelle Room-Revision geprüft.
         stateVersion: cmdCtx.ctx.envelope?.stateVersion,
         mutate: async () => {
-          await assertCoreActionAllowed(args.socket, args.action, args.gameSlug);
+          await assertCoreActionAllowed(args.socket, args.action, args.gameSlug, args.payload);
           return awaitEngineResult((onResult) => args.handler(onResult));
         },
         toResponse: (d) => d,
@@ -164,7 +164,7 @@ export async function runGuardedCriticalAction(
       }
     } catch (error) {
       logger.error(`receipted action ${args.action} threw`, { error });
-      const wireError = gameErrorCode(error);
+      const wireError = gameErrorCode(error, args.gameSlug);
       if (wireError === 'STATE_INVARIANT_FAILED') args.io.to(roomChannel(perm.roomId)).emit('game:core:changed');
       const appError = wireErrorToAppError(wireError, { internalDetail: error, context: { action: args.action } });
       callback?.({ success: false, outcomeUnknown: true, error: wireError, code: appError.code, messageKey: appError.messageKey, traceId: appError.traceId });
@@ -174,12 +174,12 @@ export async function runGuardedCriticalAction(
 
   // Legacy-Pfad (kein Absichtstoken): bestehendes Verhalten.
   try {
-    await assertCoreActionAllowed(args.socket, args.action, args.gameSlug);
+    await assertCoreActionAllowed(args.socket, args.action, args.gameSlug, args.payload);
     const result = await awaitEngineResult((onResult) => args.handler(onResult));
     finish(result);
   } catch (error) {
     logger.error(`action ${args.action} threw`, { error });
-    const wireError = gameErrorCode(error);
+    const wireError = gameErrorCode(error, args.gameSlug);
     if (wireError === 'STATE_INVARIANT_FAILED') args.io.to(roomChannel(perm.roomId)).emit('game:core:changed');
     const appError = wireErrorToAppError(wireError, { internalDetail: error, context: { action: args.action } });
     callback?.({ success: false, error: wireError, code: appError.code, messageKey: appError.messageKey, traceId: appError.traceId });

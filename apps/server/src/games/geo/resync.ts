@@ -6,6 +6,7 @@ import { loadGameState } from '../core/state.js';
 import { resolveCanonicalSlug } from '@quiz/shared';
 import { canView, visibleValue } from '../core/visibility.js';
 import { ensureGameStateSafe } from '../core/recovery.js';
+import { getGameEngineContract } from '../core/engineContract.js';
 
 type GeoRound = {
   question: { id: string; prompt: string; category: string; mediaType?: string; mediaAssetId?: string; imageUrl?: string;
@@ -21,7 +22,7 @@ type GeoRound = {
   }>;
 };
 
-type GeoState = {
+export type GeoState = {
   phase: string;
   currentRoundIndex: number;
   questions: Array<{ correctOptionId: string; explanation?: string }>;
@@ -100,7 +101,7 @@ export function registerGeoResync(_io: Server, socket: Socket): void {
       await ensureGameStateSafe(room.id);
       const loaded = await loadGameState<GeoState>(room.id);
       if (!loaded) { callback?.({ success: false, error: 'GAME_NOT_FOUND' }); return; }
-      callback?.(projectGeoStateForClient(loaded.state, auth.actor));
+      callback?.(getGameEngineContract('wissensduell')!.createProjection({ state: loaded.state, setup: {}, actor: auth.actor, participants: [], stateVersion: loaded.revision }));
     } catch (error) {
       logger.error('geo:resync failed', { error });
       callback?.({ success: false, error: error instanceof Error && error.message === 'STATE_INVARIANT_FAILED' ? 'STATE_INVARIANT_FAILED' : 'INTERNAL_ERROR' });

@@ -3,6 +3,41 @@
 // ============================================================
 
 import { z } from 'zod';
+import type { GameManifest } from '@quiz/shared';
+
+export const GameEndReasonSchema = z.enum(['COMPLETED', 'HOST_ABORTED', 'TECHNICAL_ABORT', 'INSUFFICIENT_PLAYERS', 'RULE_TRIGGERED_END', 'TIME_LIMIT_REACHED', 'ERROR_RECOVERY_FAILED']);
+export const RoundEndReasonSchema = z.enum(['COMPLETED', 'TIME_EXPIRED', 'ANSWER_CORRECT', 'ANSWER_WRONG', 'TARGET_REACHED', 'PLAYER_GAVE_UP', 'HOST_SKIPPED', 'HOST_ABORTED', 'TECHNICAL_ABORT', 'RULE_TRIGGERED_END']);
+export const EngineResultEntrySchema = z.object({ participantId: z.string(), displayName: z.string(), teamId: z.string().nullable(),
+  score: z.number().int(), delta: z.number().int(), rank: z.number().int().positive() }).strict();
+const resultBase = z.object({ schemaVersion: z.literal(1), roomId: z.string(), runIndex: z.number().int().positive(), gameSlug: z.string(), engineVersion: z.number().int().positive(),
+  participants: z.array(EngineResultEntrySchema), winnerIds: z.array(z.string()), contentRefs: z.array(z.string()),
+  durationMs: z.number().int().nonnegative().nullable(), aborted: z.boolean(), skipped: z.boolean() });
+export const EngineRoundResultSchema = resultBase.extend({ roundIndex: z.number().int().nonnegative(), endReason: RoundEndReasonSchema }).strict();
+export const EngineGameResultSchema = resultBase.extend({ roundCount: z.number().int().nonnegative(), endReason: GameEndReasonSchema }).strict();
+export type EngineRoundResult = z.infer<typeof EngineRoundResultSchema>;
+export type EngineGameResult = z.infer<typeof EngineGameResultSchema>;
+export type EngineValidation = { success: true } | { success: false; error: string };
+export interface EngineCommand { action: string; payload: unknown }
+export interface EngineContractTypes {
+  State: unknown; Setup: unknown; InitializeContext: unknown; PreflightContext: unknown; CommandContext: unknown;
+  ProjectionContext: unknown; ResultContext: unknown; CommandValidationContext: unknown;
+}
+/** Runtime ports are server-owned; no client-supplied state is accepted here. */
+export interface GameEngineContract<T extends EngineContractTypes> {
+  manifest: GameManifest;
+  setupSchema: z.ZodType<T['Setup'], z.ZodTypeDef, unknown>;
+  contentSchema: z.ZodType<unknown>;
+  createInitialState(context: T['InitializeContext']): Promise<T['State']>;
+  validateSetup(input: unknown): EngineValidation;
+  preflightCheck(context: T['PreflightContext']): Promise<{ status: 'READY_TO_START' | 'WARNINGS' | 'BLOCKED'; blockers: string[]; warnings: string[] }>;
+  validateCommand(context: T['CommandValidationContext'], command: EngineCommand): EngineValidation;
+  handleCommand(context: T['CommandContext'], command: EngineCommand): Promise<{ success: boolean; error?: string; [key: string]: unknown }>;
+  applyEvent(snapshot: EngineStateSnapshot, event: unknown): EngineStateSnapshot;
+  createProjection(context: T['ProjectionContext']): unknown;
+  buildRoundResult(context: T['ResultContext']): EngineRoundResult;
+  buildGameResult(context: T['ResultContext']): EngineGameResult;
+  recovery: { supportedEngineVersions: readonly number[]; resync: 'PERSISTED_STATE'; unsafeState: 'PAUSE_AND_NOTIFY_HOST'; fallbacks: readonly string[] };
+}
 
 // Game phase states
 export const GamePhaseSchema = z.enum([

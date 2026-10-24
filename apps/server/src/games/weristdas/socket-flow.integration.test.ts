@@ -88,6 +88,8 @@ describe('Wer ist das? real multiplayer sockets', () => {
     expect((await ack(alice, 'weristdas:judge', { result: 'BOTH_CORRECT' })).error).toBe('FORBIDDEN');
     expect((await ack(alice, 'weristdas:hint')).error).toBe('FORBIDDEN');
     expect((await ack(alice, 'weristdas:next')).error).toBe('FORBIDDEN');
+    expect((await ack(alice, 'weristdas:buzzer:open')).error).toBe('FORBIDDEN');
+    expect(await ack(alice, 'game:core:read')).toMatchObject({ success: true, projection: { gameSlug: 'wer-ist-das', availableActions: [] } });
     expect((await ack(moderator, 'weristdas:buzzer:open')).success).toBe(true);
     const races = await Promise.all([ack(alice, 'weristdas:buzz'), ack(bob, 'weristdas:buzz')]);
     expect(races.filter(r => r.success)).toHaveLength(1);

@@ -14,6 +14,7 @@ const PUBLIC_CODES = new Set([
   'PHASE_NOT_SELECTING', 'PHASE_NOT_BOARD_COMPLETE', 'FORBIDDEN', 'WRONG_GAME',
   'TURN_OWNER_CONFLICT', 'INVALID_ROUND_INDEX', 'INVALID_SCORE', 'ANSWER_TOO_LONG',
   'STATE_INVARIANT_FAILED',
+  'NO_ELIGIBLE_PLAYERS', 'HINT_ALREADY_ACTIVE', 'HINT_REQUIRED', 'LAST_ROUND',
   'INVALID_SETUP',
   // PR11-Nacharbeit D: persistierter State von einer Engine-Version, die
   // dieser Reader nicht exakt versteht → kontrollierte Ablehnung (kein
@@ -22,10 +23,10 @@ const PUBLIC_CODES = new Set([
   'COMMAND_OWNERSHIP_LOST', 'REVISION_CONFLICT', 'CONFIG_SNAPSHOT_INVALID', 'COMMAND_STATE_ADVANCED',
 ]);
 
-export function gameErrorCode(error: unknown): string {
+export function gameErrorCode(error: unknown, gameSlug?: string): string {
   if (error instanceof GameStateConflictError) return 'STATE_CONFLICT';
   if (!(error instanceof Error)) return 'INTERNAL_ERROR';
   if (error.message === 'ALREADY_CLAIMED') return 'BUZZER_ALREADY_WON';
-  if (error.message === 'PLAYER_EXCLUDED') return 'ALREADY_ANSWERED';
+  if (error.message === 'PLAYER_EXCLUDED') return gameSlug === 'wer-ist-das' ? 'PLAYER_EXCLUDED' : 'ALREADY_ANSWERED';
   return PUBLIC_CODES.has(error.message) ? error.message : 'INTERNAL_ERROR';
 }
