@@ -4,7 +4,8 @@
 
 import { Server, Socket } from 'socket.io';
 import { prisma } from '../../persistence/prisma.js';
-import { resolveCanonicalSlug, slugWithLegacy } from '@quiz/shared';
+import { resolveCanonicalSlug, slugWithLegacy, type CoreTimer, type SubmissionRecord } from '@quiz/shared';
+import { createTimer, legacyRoundTimer, timerAcceptsInput, pauseTimer, resumeTimer, endTimer, submitOnce, lockSubmission, judgeSubmission, scoreJudgement } from '../core/runtimePrimitives.js';
 import { finishRunningGame, saveGameStateIfRevision, upsertGameState } from '../core/state.js';
 import { withoutCommandExecution } from '../core/commandExecution.js';
 import { loadGameConfig, loadInitialGameCount } from '../core/config.js';
@@ -17,6 +18,7 @@ import { logger } from '../../observability/logger.js';
 import { roomChannel } from '../../sockets/index.js';
 
 interface GeoPlayerState {
+  submission?: SubmissionRecord;
   answered: boolean;
   selectedOptionId: string | null;
   locked: boolean;
@@ -31,6 +33,7 @@ interface GeoPlayerState {
 }
 
 interface GeoRoundState {
+  timer?: CoreTimer;
   questionIndex: number;
   question: any;
   revealed: boolean;
@@ -335,8 +338,9 @@ export const handleGeoGame = {
       io.to(roomChannelName).emit('geo:round:error', { error: state.recoveryError });
       return;
     }
-    const timerStartMs = Date.now();
-    const timerEndMs = timerStartMs + timerDuration;
+    const timer = createTimer('COUNTDOWN', Date.now(), timerDuration);
+    const timerStartMs = timer.startedAtMs!;
+    const timerEndMs = timer.endsAtMs!;
 
     // Create each player's round state before answers or jokers arrive.
     const players = await prisma.participation.findMany({
@@ -366,6 +370,7 @@ export const handleGeoGame = {
       revealed: false,
       timerStartMs,
       timerEndMs,
+      timer,
       pauseRemainingMs: null,
       playerStates,
       answers: {},
@@ -414,12 +419,12 @@ export const handleGeoGame = {
       clearTimeout(existingTimer);
     }
 
-    const timer = withoutCommandExecution(() => setTimeout(async () => {
+    const timerHandle = withoutCommandExecution(() => setTimeout(async () => {
       activeTimers.delete(roomRecord.id);
       await this.handleTimerExpired(io, roomRecord).catch(error => logger.error('Geo timer failed', { roomId: roomRecord.id, error }));
     }, timerDuration));
 
-    activeTimers.set(roomRecord.id, timer);
+    activeTimers.set(roomRecord.id, timerHandle);
 
     logger.info('Geo round started', { roomId: roomRecord.id, round: state.currentRoundIndex, timerEndMs });
   },
@@ -444,6 +449,10 @@ export const handleGeoGame = {
 
       // Close input phase
       state.phase = 'INPUT_LOCKED';
+      roundState.timer = endTimer(legacyRoundTimer(roundState, state.phase), Date.now());
+      for (const player of Object.values(roundState.playerStates)) {
+        if (player.submission) player.submission = lockSubmission(player.submission);
+      }
 
       await prisma.$transaction(async (tx) => saveGameStateIfRevision(tx, {
         roomId: room.id, expectedRevision: gameStateData.revision, state, phase: 'INPUT_LOCKED',
@@ -489,10 +498,13 @@ export const handleGeoGame = {
 
         const parsed: GeoGameState = JSON.parse(existing.stateJson);
         const roundState = parsed.roundStates[parsed.currentRoundIndex];
+        if (parsed.phase !== 'INPUT_OPEN' || !roundState || roundState.revealed) throw new Error('INVALID_PHASE');
         const ps = roundState.playerStates[participationId];
 
         // P0-16: Check timer hasn't expired
-        if (roundState.timerEndMs && Date.now() > roundState.timerEndMs) {
+        const timer = legacyRoundTimer(roundState, parsed.phase);
+        const now = Date.now();
+        if (!timerAcceptsInput(timer, now)) {
           throw new Error('TIME_EXPIRED');
         }
 
@@ -519,6 +531,7 @@ export const handleGeoGame = {
         }
 
         // State mutation
+        playerState.submission = submitOnce({ previous: playerState.submission, participantId: participationId, roundId: String(parsed.currentRoundIndex), value: data.optionId, timer, now });
         playerState.answered = true;
         playerState.selectedOptionId = data.optionId;
         roundState.playerStates[participationId] = playerState;
@@ -920,6 +933,7 @@ export const handleGeoGame = {
           if (!ps.answered) continue;
 
           const isCorrect = ps.selectedOptionId === question.correctOptionId;
+          if (ps.submission) ps.submission = judgeSubmission(ps.submission, isCorrect ? 'CORRECT' : 'WRONG', Date.now());
           let points = 0;
           let bonus = 0;
 
@@ -930,7 +944,7 @@ export const handleGeoGame = {
               questionPoints *= 2;
               bonus = questionPoints / 2;
             }
-            points = questionPoints;
+            points = scoreJudgement('CORRECT', { correct: questionPoints, wrong: 0 });
             state.scores = applyScoreDelta(state.scores, pid, points);
           } else {
             // Wrong answer
@@ -939,7 +953,7 @@ export const handleGeoGame = {
               wrongPoints *= 2;
               bonus = -Math.abs(wrongPoints);
             }
-            points = wrongPoints;
+            points = scoreJudgement('WRONG', { correct: 0, wrong: wrongPoints });
             state.scores = applyScoreDelta(state.scores, pid, points);
           }
 
@@ -1133,7 +1147,11 @@ export const handleGeoGame = {
       }
 
       // P0-20: Calculate remaining time and store it
-      const pauseRemainingMs = Math.max(0, roundState.timerEndMs - Date.now());
+      const now = Date.now();
+      const runningTimer = legacyRoundTimer(roundState, state.phase);
+      if (!timerAcceptsInput(runningTimer, now)) { callback?.({ success: false, error: 'TIME_EXPIRED' }); return; }
+      roundState.timer = pauseTimer(runningTimer, now);
+      const pauseRemainingMs = roundState.timer.remainingMs!;
       roundState.pauseRemainingMs = pauseRemainingMs;
       roundState.timerEndMs = null;
       state.phase = 'PAUSED';
@@ -1211,9 +1229,10 @@ export const handleGeoGame = {
       }
 
       // P0-20: Capture remaining time BEFORE clearing pause state
-      const remainingTime = Math.max(1, roundState.pauseRemainingMs);
+      roundState.timer = resumeTimer(legacyRoundTimer(roundState, state.phase), Date.now());
+      const remainingTime = roundState.timer.remainingMs!;
       roundState.pauseRemainingMs = null;
-      const newTimerEndMs = Date.now() + remainingTime;
+      const newTimerEndMs = roundState.timer.endsAtMs!;
       roundState.timerEndMs = newTimerEndMs;
       state.phase = 'INPUT_OPEN';
       await prisma.$transaction(async (tx) => {

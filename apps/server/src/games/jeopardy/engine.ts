@@ -12,6 +12,7 @@ import { roomChannel } from '../../sockets/index.js';
 import { authorizeGameContext } from '../core/access.js';
 import { claimBuzzer } from '../core/buzzer.js';
 import { recordScoreMutation } from '../core/score.js';
+import { createTimer, submitOnce, judgeSubmission, scoreJudgement } from '../core/runtimePrimitives.js';
 import {
   JEOPARDY_PHASES,
   pointsForCorrect,
@@ -42,6 +43,22 @@ import {
 // ============================================================
 // Entry point: initialize a Jeopardy game in a room
 // ============================================================
+
+function verbalSubmissionKey(state: JeopardyGameState, participantId: string, steal: boolean): string {
+  if (!state.currentField) throw new Error('NO_CURRENT_FIELD');
+  return `${fieldKey(state.currentBoard, state.currentField.categoryIndex, state.currentField.value)}:${steal ? 'steal' : 'first'}:${participantId}`;
+}
+function submitVerbal(state: JeopardyGameState, participantId: string, steal: boolean): void {
+  const now = Date.now(), key = verbalSubmissionKey(state, participantId, steal);
+  state.timer ??= createTimer('UNLIMITED', now);
+  state.submissions ??= {};
+  state.submissions[key] = submitOnce({ previous: state.submissions[key], participantId, roundId: key, value: null, timer: state.timer, now });
+}
+function judgeVerbal(state: JeopardyGameState, participantId: string, steal: boolean, correct: boolean): void {
+  const key = verbalSubmissionKey(state, participantId, steal), submission = state.submissions?.[key];
+  // Legacy rounds have no trustworthy submission timestamp; do not invent one.
+  if (submission) state.submissions![key] = judgeSubmission(submission, correct ? 'CORRECT' : 'WRONG', Date.now());
+}
 
 export const handleJeopardyGame = {
   /**
@@ -219,6 +236,8 @@ export const handleJeopardyGame = {
     // Update state
     state = {
       ...state,
+      timer: createTimer('UNLIMITED', Date.now()),
+      submissions: {},
       currentField: {
         categoryIndex: data.categoryIndex,
         value: data.value,
@@ -309,6 +328,7 @@ export const handleJeopardyGame = {
         participationId
       );
       if (!claim.accepted) throw new Error(claim.error);
+      submitVerbal(state, participationId, false);
       state.buzzOpen = claim.state.open;
       state.buzzWinner = claim.state.winnerId;
       state.phase = JEOPARDY_PHASES.BUZZ_LOCKED;
@@ -362,7 +382,8 @@ export const handleJeopardyGame = {
       }
       const playerId = state.buzzWinner;
       const { categoryIndex, value, fieldDef } = state.currentField;
-      const delta = data.correct ? pointsForCorrect(value) : pointsForWrongFirst(value);
+      judgeVerbal(state, playerId, false, data.correct);
+      const delta = scoreJudgement(data.correct ? 'CORRECT' : 'WRONG', { correct: pointsForCorrect(value), wrong: pointsForWrongFirst(value) });
       state.scores = applyScoreDelta(state.scores, playerId, delta);
       if (data.correct) {
         state = resetBuzzer(markFieldAnswered(state, categoryIndex, value, playerId, true, delta));
@@ -445,6 +466,7 @@ export const handleJeopardyGame = {
         participationId
       );
       if (!claim.accepted) throw new Error(claim.error);
+      submitVerbal(state, participationId, true);
       state.stealOpen = claim.state.open;
       state.stealWinner = claim.state.winnerId;
       state.phase = JEOPARDY_PHASES.STEAL_LOCKED;
@@ -504,7 +526,8 @@ export const handleJeopardyGame = {
       const value = state.currentField?.value ?? 0;
       const categoryIndex = state.currentField?.categoryIndex ?? 0;
 
-      const delta = data.correct ? pointsForCorrectSteal(value) : pointsForWrongSteal(value);
+      judgeVerbal(state, stealWinnerId, true, data.correct);
+      const delta = scoreJudgement(data.correct ? 'CORRECT' : 'WRONG', { correct: pointsForCorrectSteal(value), wrong: pointsForWrongSteal(value) });
       state.scores = applyScoreDelta(state.scores, stealWinnerId, delta);
 
       // Mark field as answered
@@ -601,6 +624,8 @@ export const handleJeopardyGame = {
       state = {
         ...state,
         currentField: null,
+        timer: undefined,
+        submissions: {},
         phase: JEOPARDY_PHASES.SELECTING,
       };
       state = resetBuzzer(state);

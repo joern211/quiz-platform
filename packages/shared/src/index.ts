@@ -1539,6 +1539,28 @@ export const PublicRoomSummarySchema = z.object({
   createdAt: z.string().datetime(),
 });
 export type PublicRoomSummary = z.infer<typeof PublicRoomSummarySchema>;
+// Shared game primitives. Absolute server timestamps; no browser-owned clocks.
+export const CoreTimerSchema = z.object({
+  mode: z.enum(['COUNTDOWN', 'COUNTUP', 'UNLIMITED']),
+  status: z.enum(['IDLE', 'RUNNING', 'PAUSED', 'EXPIRED']),
+  startedAtMs: z.number().int().nonnegative().nullable(),
+  endsAtMs: z.number().int().nonnegative().nullable(),
+  pausedAtMs: z.number().int().nonnegative().nullable(),
+  elapsedBeforeMs: z.number().int().nonnegative(),
+  remainingMs: z.number().int().nonnegative().nullable(),
+}).strict();
+export type CoreTimer = z.infer<typeof CoreTimerSchema>;
+export const JudgeDecisionSchema = z.enum(['CORRECT', 'WRONG', 'PARTIAL', 'CANCELLED']);
+export type JudgeDecision = z.infer<typeof JudgeDecisionSchema>;
+export const SubmissionRecordSchema = z.object({
+  participantId: z.string().min(1), roundId: z.string().min(1),
+  value: z.string().max(10000).nullable(),
+  status: z.enum(['DRAFT', 'SUBMITTED', 'LOCKED', 'JUDGED']),
+  submittedAtMs: z.number().int().nonnegative(),
+  judgedAtMs: z.number().int().nonnegative().nullable(),
+  decision: JudgeDecisionSchema.nullable(),
+}).strict();
+export type SubmissionRecord = z.infer<typeof SubmissionRecordSchema>;
 export const ParticipantNameSchema = z.string().transform(s => s.normalize('NFKC').trim().replace(/\s+/g, ' '))
   .pipe(z.string().min(1).max(100).refine(s => !/[\p{Cc}\p{Cf}]/u.test(s), 'NAME_INVALID'));
 export function normalizedParticipantName(name: string): string {

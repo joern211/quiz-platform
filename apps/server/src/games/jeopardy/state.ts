@@ -4,6 +4,7 @@
 // ============================================================
 
 import { applyScoreDelta as applyCoreScoreDelta, ensureScoreEntries } from '../core/score.js';
+import type { CoreTimer, SubmissionRecord } from '@quiz/shared';
 import { createBuzzerState, openBuzzer as openCoreBuzzer, resetBuzzerState } from '../core/buzzer.js';
 
 import {
@@ -66,6 +67,9 @@ export interface JeopardyFieldDef {
 // ============================================================
 
 export interface JeopardyGameState {
+  /** Optional on legacy v1 states; new rounds persist the shared runtime records. */
+  timer?: CoreTimer;
+  submissions?: Record<string, SubmissionRecord>;
   /** Pinned at initialization; absent on legacy states. */
   boardCount?: number;
   /** Current board (1 or 2). */

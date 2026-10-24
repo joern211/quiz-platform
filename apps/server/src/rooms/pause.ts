@@ -5,6 +5,7 @@ import { requireGamePermission } from '../games/core/permissions.js';
 import { feed } from './core.js';
 import { changed } from './socket.js';
 import { roomChannel } from '../sockets/channel.js';
+import { pauseTimer, resumeTimer } from '../games/core/runtimePrimitives.js';
 
 /** Engines without wall-clock timers freeze their complete state atomically. */
 export async function pauseUntimedGame(context: GameActionContext, pause: boolean) {
@@ -22,6 +23,7 @@ export async function pauseUntimedGame(context: GameActionContext, pause: boolea
       const state = JSON.parse(row.stateJson);
       const next = pause ? { ...state, phase: 'PAUSED', _roomPause: state } : state._roomPause;
       if (!next || typeof next.phase !== 'string') throw Error('INVALID_PAUSE_STATE');
+      if (state.timer) next.timer = pause ? pauseTimer(state.timer, Date.now()) : resumeTimer(state.timer, Date.now());
       const owned = await tx.roomGameState.updateMany({ where: { roomId: room.id, revision: row.revision }, data: { phase: next.phase, stateJson: JSON.stringify(next), revision: { increment: 1 } } });
       if (!owned.count) throw Error('STATE_CONFLICT');
       await tx.room.update({ where: { id: room.id }, data: { runPhase: pause ? 'PAUSED' : next.phase, revision: { increment: 1 } } });
