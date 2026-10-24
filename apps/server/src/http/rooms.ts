@@ -1,3 +1,5 @@
+import { readGameResult, publicResultView } from '../games/core/results.js';
+import { rankScores } from '../games/core/roundFlow.js';
 // ============================================================
 // Online Quiz Plattform - Rooms Router
 // ============================================================
@@ -838,64 +840,33 @@ roomsRouter.delete('/:code', async (req, res) => {
   }
 });
 
-// GET /api/v1/rooms/:code/results - Get game results
+// GET /api/v1/rooms/:code/results?runIndex=N&revision=N — immutable public result projection.
 roomsRouter.get('/:code/results', async (req, res) => {
   try {
-    const room = await prisma.room.findUnique({
-      where: { code: normalizeRoomCode(req.params.code) },
-      include: {
-        gameDefinition: { select: { slug: true, name: true } },
-        participations: {
-          where: { role: { not: 'VIEWER' } },
-          orderBy: { score: 'desc' },
-          select: { id: true, displayName: true, role: true, score: true },
-        },
-        gameState: {
-          select: { phase: true, stateJson: true },
-        },
-      },
-    });
-
-    if (!room) {
-      return res.status(404).json({
-        success: false,
-        error: { code: 'NOT_FOUND', message: 'Raum nicht gefunden.' },
-      });
-    }
-
-    // Return results for ENDED rooms or RUNNING rooms with RESULTS phase
-    if (room.status !== 'ENDED' && room.status !== 'RUNNING' && room.status !== 'LOBBY') {
-      return res.status(404).json({
-        success: false,
-        error: { code: 'RESULTS_NOT_AVAILABLE', message: 'Ergebnisse noch nicht verfügbar.' },
-      });
-    }
-
-    const rankedPlayers = room.participations.map((p, i) => ({
-      rank: i + 1,
-      participationId: p.id,
-      displayName: p.displayName,
-      role: p.role,
-      score: p.score,
-    }));
-
-    res.json({
-      success: true,
-      data: {
-        roomCode: room.code,
-        roomName: room.roomName,
-        status: room.status,
-        runPhase: room.runPhase,
-        game: room.gameDefinition,
-        scores: rankedPlayers,
-        endedAt: room.endedAt,
-      },
-    });
+    const room = await prisma.room.findUnique({ where: { code: normalizeRoomCode(req.params.code) }, include: { gameDefinition: true } });
+    if (!room) return res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: 'Raum nicht gefunden.' } });
+    const sessionId = verifySession(req, config.sessionSecret);
+    const session = sessionId ? await prisma.session.findFirst({ where: { id: sessionId, revokedAt: null, expiresAt: { gt: new Date() }, user: { disabledAt: null } } }) : null;
+    const rejoinToken = req.get('X-Rejoin-Token');
+    const member = rejoinToken ? await prisma.participation.findFirst({ where: { roomId: room.id, rejoinToken, kickedAt: null, bannedAt: null, leftAt: null, admission: 'ACTIVE' } }) : null;
+    const publicRead = room.isPublic && roomPolicy(room).viewerAccess === 'PUBLIC_JOIN';
+    if (!publicRead && session?.userId !== room.hostUserId && !member) return res.status(403).json({ success: false, error: { code: 'NOT_AUTHORIZED', message: 'Kein Zugriff auf dieses Ergebnis.' } });
+    const parseIndex = (value: unknown) => typeof value === 'string' && /^[1-9]\d*$/.test(value) && Number.isSafeInteger(Number(value)) ? Number(value) : null;
+    const runIndex = req.query.runIndex === undefined ? room.runIndex : parseIndex(req.query.runIndex);
+    const revision = req.query.revision === undefined ? undefined : parseIndex(req.query.revision);
+    if (!runIndex || revision === null) return res.status(400).json({ success: false, error: { code: 'INVALID_PAYLOAD', message: 'Ungültige Ergebnisversion.' } });
+    const read = await readGameResult(room.id, runIndex, revision);
+    if (read) return res.json({ success: true, data: publicResultView(room.code, read) });
+    // Pre-migration results are explicitly legacy snapshots; never auto-finalize or silently invent a ledger.
+    const archived = await prisma.roomRun.findUnique({ where: { roomId_runIndex: { roomId: room.id, runIndex } } });
+    if (!archived && (runIndex !== room.runIndex || room.status !== 'ENDED')) return res.status(404).json({ success: false, error: { code: 'RESULTS_NOT_AVAILABLE', message: 'Ergebnisse noch nicht verfügbar.' } });
+    const players: Array<{ id: string; displayName: string; score: number }> = archived ? JSON.parse(archived.scoresJson) : await prisma.participation.findMany({ where: { roomId: room.id, role: 'PLAYER' } });
+    const legacyGame = archived ? await prisma.gameDefinition.findUniqueOrThrow({ where: { id: archived.gameDefinitionId } }) : room.gameDefinition;
+    return res.json({ success: true, data: { roomCode: room.code, roomName: room.roomName, status: 'ENDED', runPhase: 'RESULTS', runIndex, resultStatus: null, resultRevision: null, legacy: true,
+      game: { slug: legacyGame.slug, name: legacyGame.name }, scores: rankScores(players).map(p => ({ rank: p.rank, participationId: p.id, displayName: p.displayName, role: 'PLAYER', score: p.score })), endedAt: archived?.endedAt ?? room.endedAt } });
   } catch (error) {
     logger.error('Failed to get results', { error });
-    res.status(500).json({
-      success: false,
-      error: { code: 'INTERNAL_ERROR', message: 'Ergebnisse konnten nicht geladen werden.' },
-    });
+    const missing = error instanceof Error && error.message === 'RESULT_REVISION_NOT_FOUND';
+    res.status(missing ? 404 : 500).json({ success: false, error: { code: missing ? 'RESULT_REVISION_NOT_FOUND' : 'INTERNAL_ERROR', message: 'Ergebnisse konnten nicht geladen werden.' } });
   }
 });

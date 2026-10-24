@@ -414,12 +414,13 @@ export const handleJeopardyGame = {
           eligiblePlayerIds: state.buzzer.eligiblePlayerIds ?? Object.keys(state.scores),
           teamByPlayer: state.buzzer.teamByPlayer, excludePlayerIds: state.buzzer.excludedPlayerIds });
       }
-      await saveGameStateIfRevision(tx, { gameSlug: 'jeopardy', roomId, expectedRevision: row.revision, state, phase: state.phase });
       await recordScoreMutation(tx, {
         roomId, participationId: playerId, score: state.scores[playerId], delta,
         reason: data.correct ? 'JEOPARDY_CORRECT' : 'JEOPARDY_WRONG_FIRST',
-        roundIndex: state.currentBoard - 1,
+        roundIndex: state.currentBoard - 1, roundKey: `field:${fieldKey(state.currentBoard, categoryIndex, value)}`,
       });
+      await saveGameStateIfRevision(tx, { gameSlug: 'jeopardy', roomId, expectedRevision: row.revision, state, phase: state.phase });
+
       return { state, playerId, delta, categoryIndex, value, answer: fieldDef.answer };
     });
 
@@ -561,13 +562,13 @@ export const handleJeopardyGame = {
         state.phase = JEOPARDY_PHASES.FIELD_DONE;
       }
 
-      await saveGameStateIfRevision(tx, { gameSlug: 'jeopardy', roomId, expectedRevision: gameStateData.revision, state, phase: state.phase });
-
       await recordScoreMutation(tx, {
         roomId, participationId: stealWinnerId, score: state.scores[stealWinnerId], delta,
         reason: data.correct ? 'JEOPARDY_CORRECT_STEAL' : 'JEOPARDY_WRONG_STEAL',
-        roundIndex: state.currentBoard - 1,
+        roundIndex: state.currentBoard - 1, roundKey: `field:${fieldKey(state.currentBoard, categoryIndex, value)}`,
       });
+      await saveGameStateIfRevision(tx, { gameSlug: 'jeopardy', roomId, expectedRevision: gameStateData.revision, state, phase: state.phase });
+
 
       return { state, stealWinnerId, delta, value, categoryIndex, correct: data.correct, answer };
     });
@@ -642,7 +643,7 @@ export const handleJeopardyGame = {
       }
 
       state = transitionRoundState({ gameSlug: 'jeopardy', current: state,
-        completedRoundId: state.currentField ? fieldKey(state.currentBoard, state.currentField.categoryIndex, state.currentField.value) : `board:${state.currentBoard}`,
+        completedRoundId: state.currentField ? fieldKey(state.currentBoard, state.currentField.categoryIndex, state.currentField.value) : state.lastResolvedFieldKey ?? `legacy-board:${state.currentBoard}`,
         prepared: resetBuzzer({ ...state, ...prepareRoundRuntime(), currentField: null, phase: JEOPARDY_PHASES.SELECTING }) });
 
       await saveGameStateIfRevision(tx, { gameSlug: 'jeopardy', roomId, expectedRevision: gameStateData.revision, state, phase: state.phase });
@@ -689,7 +690,7 @@ export const handleJeopardyGame = {
 
       // Board 2 fields were registered at initialization; never reinsert played fields.
       const newState = transitionRoundState({ gameSlug: 'jeopardy', current: state,
-        completedRoundId: state.currentField ? fieldKey(state.currentBoard, state.currentField.categoryIndex, state.currentField.value) : `board:${state.currentBoard}`,
+        completedRoundId: state.currentField ? fieldKey(state.currentBoard, state.currentField.categoryIndex, state.currentField.value) : state.lastResolvedFieldKey ?? `legacy-board:${state.currentBoard}`,
         prepared: resetBuzzer({ ...state, ...prepareRoundRuntime(), currentBoard: 2 as const, currentField: null, phase: JEOPARDY_PHASES.SELECTING }) });
       await prisma.$transaction(async (tx) => saveGameStateIfRevision(tx, { gameSlug: 'jeopardy', roomId: room.id, expectedRevision: gameStateData.revision, state: newState, phase: newState.phase }));
 
@@ -729,9 +730,9 @@ export const handleJeopardyGame = {
     manual = false
   ): Promise<{ success: boolean; error?: string; ended?: boolean }> {
     const result = await finishRunningGame<JeopardyGameState>({ gameSlug: 'jeopardy',
-      roomId: room.id,
+      roomId: room.id, endReason: manual ? 'HOST_ABORTED' : 'COMPLETED',
       ...(!manual ? { requiredPhase: JEOPARDY_PHASES.BOARD_COMPLETE, nextState: (state: JeopardyGameState) => transitionRoundState({ gameSlug: 'jeopardy', current: state,
-        completedRoundId: state.currentField ? fieldKey(state.currentBoard, state.currentField.categoryIndex, state.currentField.value) : `board:${state.currentBoard}`,
+        completedRoundId: state.currentField ? fieldKey(state.currentBoard, state.currentField.categoryIndex, state.currentField.value) : state.lastResolvedFieldKey ?? `legacy-board:${state.currentBoard}`,
         prepared: resetBuzzer({ ...state, ...prepareRoundRuntime(), phase: JEOPARDY_PHASES.GAME_END }) }) } : {}),
     });
     if (!result.ended) return { success: true, ended: false };

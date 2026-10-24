@@ -11,8 +11,8 @@ Spielregeln bleiben offen; bereits festgelegte Regeln nicht erneut abfragen.
 | Punkt | Paket | Stand |
 |---|---|---|
 | 1 | TEAM-ROOM / GitHub #15 abschließen; öffentliche Raumliste reparieren | abgeschlossen, f26e8fb; CI + 20/20 E2E grün |
-| 2 | Gemeinsame Spielaktionen / Rundensteuerung, Planplatz PR15 | in Arbeit, feature/pr16-game-core |
-| 3 | Results / Finalisierung / Recovery, Planplatz PR16 | offen |
+| 2 | Gemeinsame Spielaktionen / Rundensteuerung, Planplatz PR15 | abgeschlossen, a1b55eb; CI/E2E grün |
+| 3 | Results / Finalisierung / Recovery, Planplatz PR16 | in Arbeit, feature/pr17-results-recovery |
 | 4 | Content-Pools / Editor, anschließend Review / Import / Qualität | offen |
 | 5 | Audio / Voice, Kamera / Display; danach weitere Engines | offen |
 
@@ -140,3 +140,11 @@ Runde, zulässige Folgephase und unveränderte Scores; Runtime-Reset und
 85 Webtests, Typecheck/Build/Lint lokal grün. Noch CI/E2E am Folge-Head abnehmen,
 dann Punkt 2 abschließen und Punkt 3 starten. Vollständige Runtime-Abgrenzung
 und Nachweise: ../pr16/acceptance.md. Keine Ergebnisfinalisierung vorgetäuscht.
+
+## Punkt 2 abgeschlossen / Punkt 3 begonnen — 25.10.2026
+
+a1b55eb: 423 Server-/85 Webtests, Typecheck/Build/Lint und komplette CI/E2E
+in Run 40143108619 grün. PR16 Ready for Review, nicht gemergt. Punkt 3 auf
+eigener Folgebranch: persistente Round-/GameResults, Review/Finalisierung,
+kompensierende Ledger-Korrekturen/Amendments, Historie und Replay-Recovery.
+Stand und exakte Fortsetzung: ../pr17/handoff.md. Punkte 4–5 weiterhin offen.

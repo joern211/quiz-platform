@@ -1,3 +1,5 @@
+import { registerRecoveryCommands } from '../games/core/recoveryCommands.js';
+import { registerResultCommands } from '../games/core/resultCommands.js';
 // ============================================================
 // Socket.IO Handler Setup
 // ============================================================
@@ -69,6 +71,8 @@ export function setupSocketHandlers(io: Server) {
     socket.data = {};
 
     registerRoomCore(io, socket);
+    registerResultCommands(io, socket);
+    registerRecoveryCommands(io, socket);
     registerBuzzerOverride(io, socket);
     socket.on('game:core:read', async (_data, callback) => {
       try { callback?.({ success: true, projection: await projectCoreRuntime(socket) }); }

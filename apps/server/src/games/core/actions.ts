@@ -71,7 +71,7 @@ export async function projectCoreRuntime(socket: Socket): Promise<CoreRuntimePro
     currentRound = Math.min(totalRounds, state.roundIndex + 1);
   } else throw new CoreRuleError('COMMAND_UNSUPPORTED');
   return CoreRuntimeProjectionSchema.parse({ roomCode: room.code, runIndex: room.runIndex, gameSlug: slug, engineVersion: room.gameState.engineVersion, stateVersion: room.gameState.revision,
-    enginePhase: z.object({ phase: z.string() }).parse(context.state).phase, corePhase: getGameEngineContract(slug)!.getLifecyclePhase(context.state), informationRole: context.informationRole, timer,
+    enginePhase: z.object({ phase: z.string() }).parse(context.state).phase, corePhase: room.status === 'ENDED' && ['RESULT_REVIEW', 'FINALIZED'].includes(room.runPhase) ? room.runPhase : getGameEngineContract(slug)!.getLifecyclePhase(context.state), informationRole: context.informationRole, timer,
     progress: { currentRound, totalRounds, remainingRounds: totalRounds === null ? null : totalRounds - completed, progressPercent: totalRounds ? 100 * completed / totalRounds : null },
     availableActions: availableCoreActions(context) });
 }

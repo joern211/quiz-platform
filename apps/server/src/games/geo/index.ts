@@ -981,7 +981,7 @@ export const handleGeoGame = {
 
           await recordScoreMutation(tx, {
             roomId: room.id, participationId: pid, score: state.scores[pid],
-            roundIndex: state.currentRoundIndex, delta: points,
+            roundIndex: state.currentRoundIndex, roundKey: `question:${state.currentRoundIndex}`, delta: points,
             reason: isCorrect ? 'Richtige Antwort' : 'Falsche Antwort',
           });
         }
@@ -1289,7 +1289,7 @@ export const handleGeoGame = {
   // ============================================================
 
   async end(io: Server, room: { id: string; code: string }): Promise<{ ended: boolean }> {
-    const result = await finishRunningGame<GeoGameState>({ gameSlug: 'wissensduell', roomId: room.id });
+    const result = await finishRunningGame<GeoGameState>({ gameSlug: 'wissensduell', roomId: room.id, endReason: 'HOST_ABORTED' });
     if (result.ended) await this.handleGameEnd(io, room, result.state);
     return { ended: result.ended };
   },

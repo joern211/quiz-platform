@@ -8,6 +8,8 @@ import { prisma } from '../../persistence/prisma.js';
 import { assertCommandMutation } from './commandExecution.js';
 import { assertGameInvariants } from './invariants.js';
 import { materializeGameEvent } from './events.js';
+import { persistRoundResult, persistGameResult } from './results.js';
+import type { EngineGameResult } from '@quiz/game-sdk';
 
 export class GameStateConflictError extends Error {
   readonly code = 'STATE_CONFLICT';
@@ -110,6 +112,11 @@ export async function saveGameStateIfRevision<TState>(
   if (result.count !== 1) {
     throw new GameStateConflictError(roomId);
   }
+  if (params.gameSlug) {
+    const row = await tx.roomGameState.findUniqueOrThrow({ where: { roomId } });
+    await persistRoundResult(tx, { roomId, gameSlug: params.gameSlug, engineVersion: row.engineVersion,
+      stateVersion: expectedRevision + 1, state });
+  }
 }
 
 /** End a running room and its engine state in one optimistic transaction. */
@@ -119,6 +126,7 @@ export async function finishRunningGame<TState extends { phase: string }>(params
   requiredPhase?: string;
   nextState?: (state: TState) => TState;
   gameSlug?: string;
+  endReason?: EngineGameResult['endReason'];
 }): Promise<{ ended: boolean; state: TState }> {
   return prisma.$transaction(async (tx) => {
     const room = await tx.room.findUniqueOrThrow({ where: { id: params.roomId } });
@@ -145,6 +153,8 @@ export async function finishRunningGame<TState extends { phase: string }>(params
       data: { status: 'ENDED', runPhase: 'RESULTS', endedAt: new Date(), revision: { increment: 1 } },
     });
     if (updated.count !== 1) throw new GameStateConflictError(params.roomId);
+    if (params.gameSlug) await persistGameResult(tx, { roomId: params.roomId, state: endedState,
+      engineVersion: row.engineVersion, endReason: params.endReason ?? 'COMPLETED' });
     return { ended: true, state: endedState };
   });
 }

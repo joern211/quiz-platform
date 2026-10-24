@@ -95,6 +95,7 @@ export interface GeoResyncResponse {
 }
 
 export type ServerToClientEvents = {
+  'game:result:changed': () => void;
   'game:core:changed': () => void;
   'room:probe': (ack: () => void) => void;
   'room:core:changed': () => void;

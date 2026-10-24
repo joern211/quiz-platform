@@ -24,6 +24,8 @@ import { logger } from '../../observability/logger.js';
 
 export const CRITICAL_COMMAND_ACTIONS = [
   'ROOM_COMMAND',
+  'RESULT_COMMAND',
+  'RECOVERY_COMMAND',
   'ANSWER_SUBMIT',
   'JOKER_USE',
   'REVEAL',

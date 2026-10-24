@@ -1,3 +1,5 @@
+import { RecoveryControl } from '../components/RecoveryControl';
+import { Link } from 'react-router-dom';
 import { useParams } from 'react-router-dom';
 import { BuzzerOverride } from '../components/BuzzerOverride';
 import { GameShell } from '../components/GameShell';
@@ -20,11 +22,11 @@ export function WerIstDasGamePage({ role }: { role: PlayerRole }) {
     <div className={styles.layout}>
       <section className={styles.main}>
         <h1>Wer ist das?</h1>
-        {core.projection?.recoveryRequired && <p role="alert">Der Spielzustand muss geprüft werden. Das Spiel wurde angehalten.</p>}
+        {core.projection?.recoveryRequired && <RecoveryControl projection={core.projection} />}
         {!state && <p>Spielstand wird geladen …</p>}
         {state && <>
           <p>Runde {state.roundIndex + 1} von {state.roundCount}</p>
-          {state.phase === 'GAME_END' ? <h2>Spiel beendet · Ergebnis</h2> :
+          {state.phase === 'GAME_END' ? <div><h2>Spiel beendet · Ergebnis</h2><Link to={`/${role === 'HOST' ? 'moderator' : role === 'PLAYER' ? 'player' : 'viewer'}/raum/${code}/ergebnis`}>Zum Ergebnis</Link></div> :
             <img className={styles.image}
               src={state.gameImageUrl ?? `/api/v1/media/${state.imageAssetId}`}
               alt="Errate die beiden Personen" />}
