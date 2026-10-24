@@ -1,4 +1,4 @@
-import { claimBuzzer, createBuzzerState, openBuzzer, resetBuzzerState, type BuzzerState } from '../core/buzzer.js';
+import { claimBuzzer, createBuzzerState, openBuzzer, resolveBuzzer, resetBuzzerState, type BuzzerState } from '../core/buzzer.js';
 import { applyScoreDelta, ensureScoreEntries } from '../core/score.js';
 import { WerIstDasPhase } from './contracts.js';
 import type { CoreTurn } from '@quiz/shared';
@@ -55,7 +55,7 @@ export function openRoundBuzzer(state: WerIstDasState): WerIstDasState {
     throw new InvalidGameAction('NO_ELIGIBLE_PLAYERS');
   }
   return { ...state, phase: WerIstDasPhase.BUZZ_OPEN,
-    buzzer: openBuzzer(state.buzzer, { excludePlayerIds: state.buzzer.excludedPlayerIds }) };
+    buzzer: openBuzzer(state.buzzer, { excludePlayerIds: state.buzzer.excludedPlayerIds, eligiblePlayerIds: Object.keys(state.playerNames), mode: state.buzzer.mode === 'TEAM' ? 'TEAM' : 'SELECTED' }) };
 }
 
 export function buzz(state: WerIstDasState, playerId: string): WerIstDasState {
@@ -83,17 +83,16 @@ export function judge(state: WerIstDasState, result: 'BOTH_CORRECT' | 'ONE_CORRE
   const next = { ...state, answerTurn: null, scores: applyScoreDelta(state.scores, playerId, delta), lastDelta: delta };
   if (result !== 'WRONG') return {
     state: { ...next, phase: WerIstDasPhase.REVEAL, revealed: true, solvedBy: playerId,
-      buzzer: { ...next.buzzer, open: false } }, delta, playerId,
+      buzzer: resolveBuzzer(next.buzzer) }, delta, playerId,
   };
   return { state: { ...next, phase: WerIstDasPhase.ROUND_READY,
-    buzzer: { open: false, winnerId: null,
-      excludedPlayerIds: [...new Set([...state.buzzer.excludedPlayerIds, playerId])] } }, delta, playerId };
+    buzzer: { ...resolveBuzzer(next.buzzer, true), winnerId: null, winnerTeamId: null } }, delta, playerId };
 }
 
 export function revealRound(state: WerIstDasState): WerIstDasState {
   requirePhase(state, WerIstDasPhase.ROUND_READY, WerIstDasPhase.BUZZ_OPEN);
   return { ...state, answerTurn: null, phase: WerIstDasPhase.REVEAL, revealed: true,
-    buzzer: { ...state.buzzer, open: false, winnerId: null } };
+    buzzer: { ...resolveBuzzer(state.buzzer), winnerId: null, winnerTeamId: null } };
 }
 
 export function nextRound(state: WerIstDasState, currentRoundId: string): WerIstDasState {

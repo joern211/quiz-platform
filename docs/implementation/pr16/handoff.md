@@ -142,3 +142,47 @@ Beschreibung dem tatsächlichen Umfang anpassen, CI/E2E am neuen Head prüfen.
 Danach vollständigen Engine-Vertrag, restliche Buzzer-/Turn-/Tie-Funktionen,
 Reveal-Integration und Rundenübergaben vervollständigen. Punkt 2 bleibt offen;
 Punkte 3–5 nicht als begonnen oder abgeschlossen darstellen.
+
+## Fünfter Teil — gespeicherte Events und Buzzer-Zustände
+
+Die Nutzerfreigabe vom 24.10.2026 hat den früheren Push-Blocker aufgehoben.
+Die Git-Shell hat keine Anmeldung; Übertragung erfolgt über den verbundenen
+GitHub-Zugang per normalem Fast-Forward mit erwartetem Remote-Head. Die Bäume
+von d98e2bc/710697e sind exakt identisch zu 3b0f302/298e97f. 298e97f hat
+vollständig grüne CI/E2E (Run 40115586491). Lokale Originalcommits bleiben
+auf Checkpoint-Branches erhalten. Kein Merge und kein Force-Push.
+
+- Additive Migration game_domain_events: Server-only-Events je Raum/Run/
+  State-Version. DB-Trigger verbietet Updates, die Versionsfolge ist geprüft.
+- Die drei tatsächlichen Engine-Writer sowie Untimed-Pause speichern Event
+  und daraus materialisierten Zustand in derselben Transaktion. CAS-Konflikt
+  oder Score-Fehler rollen beides zurück. Command-/Actor-IDs kommen aus dem
+  serverseitigen Ausführungskontext; technische Timer erfinden keine Person.
+- Der SDK-Reducer spielt gespeicherte Änderungen ohne Uhr, Zufall, Punkte-
+  Mutation oder Socket-Ausgabe ab. Unveränderte Inhaltslisten werden nicht
+  bei jeder Aktion dupliziert. Explizite vollständige Checkpoints unterstützen
+  bestehende Spiele ohne erfundene historische Events. Fremde Räume/Runs,
+  Versionssprünge und Prototype-Keys werden abgelehnt.
+- Nicht erfolgreich gestartete, noch nicht akzeptierte Initialisierungen
+  werden mit dem eigenen Startversuch zurückgerollt; erfolgreiche Spiel-
+  Historie wird nicht umgeschrieben. Der echte migrate-deploy-Test umfasst
+  die neue additive Migration und danach spielbare v1/v2-Bestandsräume.
+- Jeopardy und Wer ist das? persistieren Core-Buzzer-Zustände mit Status,
+  Server-Arrival-Fairness, Teilnehmerauswahl und Gewinner-Zeitpunkt. Legacy-
+  Zustände ohne Zusatzfelder bleiben ausdrücklich lesbar. Das reine API
+  unterstützt TEAM, Teamsperre bei falscher Antwort, Reopen/Reset und
+  protokollierbare Gewinnerkorrektur. Host-Commands/Oberfläche und die
+  vollständige Team-Anbindung sind noch NICHT als abgenommen zu melden.
+
+Abnahme dieses Teils: 408/408 Server-Tests (47 Dateien), 85/85 Webtests,
+Typecheck und beide Builds grün; Lint 0 Fehler / 115 Warnungen; Dokuchecker
+und diff --check grün. Nach der letzten Anpassung der reinen Jeopardy-
+State-Adapter wurden deren State-/Buzzer-Tests zusätzlich gezielt geprüft.
+Die Produktions-Prozessprüfung ist relevant: der als TypeScript exportierte
+SDK bleibt in Node-Strip-Mode lauffähig (keine Parameter-Properties und kein
+nicht vorhandener relativer .js-Export).
+
+Nächster Schritt bleibt Punkt 2: vollständiger Engine-Vertrag, Host-Overrides,
+Tie-Regeln, echte Team-Anbindung, Visibility/Projektionen und Rundenübergaben.
+Punkte 3–5 bleiben danach. Neue CI/E2E gelten erst nach Prüfung des neuen
+Remote-Heads, nicht automatisch durch die grüne Vorläufer-CI.

@@ -10,6 +10,7 @@ import { WerIstDasPhase, WerIstDasSetupSchema, WER_IST_DAS_ENGINE_VERSION, isV2R
 import { projectWerIstDas } from './resync.js';
 import { loadInitialGameCount, ConfigSnapshotError } from '../core/config.js';
 import { resolveCanonicalSlug } from '@quiz/shared';
+import { resolveBuzzer } from '../core/buzzer.js';
 import { activateHint, buzz, createWerIstDasState, judge, nextRound, openRoundBuzzer, revealRound,
   InvalidGameAction, type WerIstDasState } from './state.js';
 
@@ -181,7 +182,7 @@ export const werIstDasGame = {
   async end(io: Server, room: { id: string; code: string; setupSnapshotJson: string | null }) {
     const setup = WerIstDasSetupSchema.parse(JSON.parse(room.setupSnapshotJson ?? '{}'));
     const result = await finishRunningGame<WerIstDasState>({ gameSlug: 'wer-ist-das',
-      roomId: room.id, nextState: state => ({ ...state, buzzer: { ...state.buzzer, open: false },
+      roomId: room.id, nextState: state => ({ ...state, buzzer: resolveBuzzer(state.buzzer),
         playedRoundIds: state.revealed
           ? [...state.playedRoundIds, setup.rounds[state.roundIndex].id]
           : state.playedRoundIds }),

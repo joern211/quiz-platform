@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { CoreTimerSchema, CoreTurnSchema, SubmissionRecordSchema, resolveCanonicalSlug } from '@quiz/shared';
+import { CoreTimerSchema, CoreTurnSchema, CoreBuzzerSchema, SubmissionRecordSchema, resolveCanonicalSlug } from '@quiz/shared';
 import { CoreRuleError } from './runtimePrimitives.js';
 import { JEOPARDY_PHASES } from '../jeopardy/contracts.js';
 import { WerIstDasPhase } from '../weristdas/contracts.js';
@@ -10,7 +10,7 @@ export function assertGameInvariants(slug: string, state: unknown, phase: string
 
 const scores = z.record(z.number().finite().int());
 const base = z.object({ phase: z.string(), scores });
-const buzzer = z.object({ open: z.boolean(), winnerId: z.string().nullable(), excludedPlayerIds: z.array(z.string()) });
+const buzzer = CoreBuzzerSchema;
 const geo = base.extend({ currentRoundIndex: z.number().int().nonnegative(), questions: z.array(z.unknown()).min(1), roundStates: z.record(z.object({
   revealed: z.boolean(), timer: CoreTimerSchema.optional(), playerStates: z.record(z.object({ submission: SubmissionRecordSchema.optional() })),
 })) });
@@ -18,6 +18,7 @@ const jeopardy = base.extend({ currentBoard: z.union([z.literal(1), z.literal(2)
   currentField: z.object({ fieldDef: z.object({ answer: z.string(), question: z.string() }) }).nullable(),
   buzzOpen: z.boolean(), buzzWinner: z.string().nullable(), stealOpen: z.boolean(), stealWinner: z.string().nullable(),
   answerTurn: CoreTurnSchema.nullable().optional(), timer: CoreTimerSchema.optional(), submissions: z.record(SubmissionRecordSchema).optional(),
+  buzzer: CoreBuzzerSchema.optional(), stealBuzzer: CoreBuzzerSchema.optional(),
 });
 const wid = base.extend({ roundIndex: z.number().int().nonnegative(), roundCount: z.number().int().positive(),
   buzzer, answerTurn: CoreTurnSchema.nullable().optional(), revealed: z.boolean(),

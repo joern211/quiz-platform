@@ -157,6 +157,9 @@ export const handleGameEvents = {
               data: { status: 'LOBBY', runPhase: 'LOBBY', startedAt: null, revision: { increment: 1 } },
             });
             if (reverted.count === 1) {
+              // These initialization records belong to an unsuccessful start,
+              // before gameplay was accepted. Remove only the owned attempt.
+              await tx.gameDomainEvent.deleteMany({ where: { roomId: room.id, runIndex: room.runIndex } });
               await tx.roomGameState.deleteMany({ where: { roomId: room.id } });
             }
           });
@@ -189,6 +192,7 @@ export const handleGameEvents = {
               data: { status: 'LOBBY', runPhase: 'LOBBY', startedAt: null, revision: { increment: 1 } },
             });
             if (reverted.count === 1) {
+              await tx.gameDomainEvent.deleteMany({ where: { roomId: room.id, runIndex: room.runIndex } });
               await tx.roomGameState.deleteMany({ where: { roomId: room.id } });
               await tx.room.update({ where: { id: room.id }, data: { gameConfigSnapshotJson: null, configSchemaVersion: 0 } });
             }

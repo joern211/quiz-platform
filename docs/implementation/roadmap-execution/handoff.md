@@ -76,3 +76,16 @@ Keine Ausweichpublikation. Vor dem nächsten normalen Push konkrete Freigabe
 für feature/pr16-game-core → https://github.com/joern211/quiz-platform.git
 anfordern. Danach GitHub-CI/E2E am eigenen neuen Head abnehmen und PR16-Body
 aktualisieren; der Remote-Nachweis auf 4d637b7 deckt lokale Folgecommits nicht.
+
+## Aktuell — Push-Freigabe erteilt, Event-Core in echten Engines
+
+Der Nutzer hat den Push ausdrücklich bestätigt und Fortsetzung beauftragt.
+Die alten Push-Blocker sind damit historisch. 298e97f ist auf GitHub und
+vollständig CI/E2E-grün; seine Bäume entsprechen den freigegebenen lokalen
+Commits. Neue Folgeänderungen werden über die GitHub-Verbindung per
+Fast-Forward gesichert (lokale Git-Anmeldung fehlt).
+
+Neu in Punkt 2: transaktional persistierte, unveränderliche State-Events,
+deterministischer SDK-Replay, explizite Legacy-Checkpoints und strukturierte
+Buzzer-Zustände in Jeopardy + Wer ist das?. 408 Server-/85 Webtests und
+Builds/Typecheck lokal grün. Details und restlicher Umfang im PR16-Handoff.

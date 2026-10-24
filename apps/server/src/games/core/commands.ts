@@ -353,7 +353,7 @@ export async function runReceipted<T>(
     }
   }
 
-  const execution: CommandExecution = { roomId, commandId, executionToken, expectedRevision: args.stateVersion, recoverySnapshot, closed: false };
+  const execution: CommandExecution = { roomId, commandId, executionToken, expectedRevision: args.stateVersion, recoverySnapshot, closed: false, actorId: args.actor.actorId, action: args.action };
   try {
     // Fast rejection after claim. The authoritative check is ALSO in the
     // engine transaction; a read here alone cannot protect a delayed handler.

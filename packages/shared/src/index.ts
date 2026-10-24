@@ -1568,6 +1568,21 @@ export const CoreTurnSchema = z.object({
   cycle: z.number().int().nonnegative(),
 }).strict().refine(t => new Set(t.order).size === t.order.length && t.index < t.order.length, { message: 'INVALID_TURN' });
 export type CoreTurn = z.infer<typeof CoreTurnSchema>;
+export const CoreBuzzerSchema = z.object({
+  open: z.boolean(), winnerId: z.string().nullable(), excludedPlayerIds: z.array(z.string()),
+  // Optional only for explicitly supported pre-core states.
+  status: z.enum(['CLOSED', 'OPEN', 'LOCKED', 'RESOLVED']).optional(),
+  mode: z.enum(['INDIVIDUAL', 'TEAM', 'SELECTED']).optional(), fairness: z.literal('SERVER_ARRIVAL').optional(),
+  eligiblePlayerIds: z.array(z.string()).optional(), teamByPlayer: z.record(z.string()).optional(),
+  winnerTeamId: z.string().nullable().optional(), claimedAtMs: z.number().int().nonnegative().nullable().optional(),
+  overrides: z.array(z.object({ actorId: z.string().min(1), fromPlayerId: z.string().nullable(), toPlayerId: z.string().min(1),
+    reason: z.string().max(300).nullable(), atMs: z.number().int().nonnegative() }).strict()).optional(),
+}).strict().superRefine((state, ctx) => {
+  if (state.status === 'OPEN' && (!state.open || !!state.winnerId) || state.status && state.status !== 'OPEN' && state.open
+    || state.status === 'LOCKED' && !state.winnerId) ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'BUZZER_STATUS_CONFLICT' });
+  if (state.mode === 'TEAM' && (!state.teamByPlayer || state.winnerId && state.winnerTeamId !== state.teamByPlayer[state.winnerId])) ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'BUZZER_TEAM_CONFLICT' });
+});
+export type CoreBuzzer = z.infer<typeof CoreBuzzerSchema>;
 export const CoreActionKeySchema = z.enum(['answer', 'joker5050', 'jokerSpy', 'jokerRisk', 'reveal', 'next', 'fieldOpen', 'buzz', 'judge', 'stealBuzz', 'stealJudge', 'boardSwitch', 'pause', 'resume', 'end']);
 export type CoreActionKey = z.infer<typeof CoreActionKeySchema>;
 export const CoreRuntimeProjectionSchema = z.object({

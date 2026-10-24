@@ -10,7 +10,7 @@ import { loadInitialGameCount, ConfigSnapshotError } from '../core/config.js';
 import { logger } from '../../observability/logger.js';
 import { roomChannel } from '../../sockets/index.js';
 import { authorizeGameContext } from '../core/access.js';
-import { claimBuzzer } from '../core/buzzer.js';
+import { claimBuzzer, openBuzzer, createBuzzerState, resolveBuzzer } from '../core/buzzer.js';
 import { recordScoreMutation } from '../core/score.js';
 import { createTimer, submitOnce, judgeSubmission, scoreJudgement } from '../core/runtimePrimitives.js';
 import { createTurn, requireWinningTurn, matchAnswer, rankScores } from '../core/roundFlow.js';
@@ -242,6 +242,8 @@ export const handleJeopardyGame = {
       ...state,
       timer: createTimer('UNLIMITED', Date.now()),
       submissions: {},
+      buzzer: openBuzzer(state.buzzer ?? createBuzzerState(), { mode: 'SELECTED', eligiblePlayerIds: Object.keys(state.scores) }),
+      stealBuzzer: createBuzzerState(),
       currentField: {
         categoryIndex: data.categoryIndex,
         value: data.value,
@@ -328,10 +330,11 @@ export const handleJeopardyGame = {
 
       if (!Object.hasOwn(state.scores, participationId)) throw new Error('PLAYER_NOT_IN_GAME');
       const claim = claimBuzzer(
-        { open: state.buzzOpen, winnerId: state.buzzWinner, excludedPlayerIds: [] },
+        state.buzzer ?? { open: state.buzzOpen, winnerId: state.buzzWinner, excludedPlayerIds: [] },
         participationId
       );
       if (!claim.accepted) throw new Error(claim.error);
+      state.buzzer = claim.state;
       submitVerbal(state, participationId, false);
       state.buzzOpen = claim.state.open;
       state.buzzWinner = claim.state.winnerId;
@@ -399,6 +402,8 @@ export const handleJeopardyGame = {
         state.buzzWinner = null;
         state.buzzOpen = false;
         state.stealOpen = true;
+        state.buzzer = resolveBuzzer(state.buzzer ?? { open: false, winnerId: playerId, excludedPlayerIds: [] });
+        state.stealBuzzer = openBuzzer(state.stealBuzzer ?? createBuzzerState(), { mode: 'SELECTED', eligiblePlayerIds: Object.keys(state.scores), excludePlayerIds: [playerId] });
       }
       await saveGameStateIfRevision(tx, { gameSlug: 'jeopardy', roomId, expectedRevision: row.revision, state, phase: state.phase });
       await recordScoreMutation(tx, {
@@ -463,7 +468,7 @@ export const handleJeopardyGame = {
 
       if (!Object.hasOwn(state.scores, participationId)) throw new Error('PLAYER_NOT_IN_GAME');
       const claim = claimBuzzer(
-        {
+        state.stealBuzzer ?? {
           open: state.stealOpen,
           winnerId: state.stealWinner,
           excludedPlayerIds: state.currentField?.firstResponderId ? [state.currentField.firstResponderId] : [],
@@ -471,6 +476,7 @@ export const handleJeopardyGame = {
         participationId
       );
       if (!claim.accepted) throw new Error(claim.error);
+      state.stealBuzzer = claim.state;
       submitVerbal(state, participationId, true);
       state.stealOpen = claim.state.open;
       state.stealWinner = claim.state.winnerId;

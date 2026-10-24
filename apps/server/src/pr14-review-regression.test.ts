@@ -182,6 +182,7 @@ it('PR14 review: configured question count must match actual initialized game', 
     const rev = (await testPrisma.room.findUniqueOrThrow({ where: { id: r.id } })).revision;
     const saved = await ack(r.host, 'room:config:update', { roomCode: r.code, expectedRevision: rev, changes: { questionCount: 1 } });
     const start = await ack(r.host, 'game:start', { roomCode: r.code });
+    expect(start).toMatchObject({ success: true });
     const room = await testPrisma.room.findUniqueOrThrow({ where: { id: r.id } });
     const state = JSON.parse((await testPrisma.roomGameState.findUniqueOrThrow({ where: { roomId: r.id } })).stateJson);
     const configured = JSON.parse(room.gameConfigSnapshotJson!).values.questionCount.value;

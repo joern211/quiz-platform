@@ -5,7 +5,7 @@
 
 import { applyScoreDelta as applyCoreScoreDelta, ensureScoreEntries } from '../core/score.js';
 import type { CoreTimer, SubmissionRecord, CoreTurn } from '@quiz/shared';
-import { createBuzzerState, openBuzzer as openCoreBuzzer, resetBuzzerState } from '../core/buzzer.js';
+import { createBuzzerState, openBuzzer as openCoreBuzzer, resetBuzzerState, type BuzzerState } from '../core/buzzer.js';
 
 import {
   JeopardyPhase,
@@ -67,6 +67,8 @@ export interface JeopardyFieldDef {
 // ============================================================
 
 export interface JeopardyGameState {
+  buzzer?: BuzzerState;
+  stealBuzzer?: BuzzerState;
   /** Optional on legacy v1 states; new rounds persist the shared runtime records. */
   timer?: CoreTimer;
   submissions?: Record<string, SubmissionRecord>;
@@ -137,6 +139,8 @@ export function createJeopardyGameState(
     openFields: {},
     currentField: null,
     phase: JEOPARDY_PHASES.INTRO,
+    buzzer: createBuzzerState(),
+    stealBuzzer: createBuzzerState(),
     buzzOpen: false,
     buzzWinner: null,
     stealOpen: false,
@@ -312,6 +316,7 @@ export function openBuzzer(state: JeopardyGameState): JeopardyGameState {
   const buzzer = openCoreBuzzer(createBuzzerState());
   return {
     ...state,
+    buzzer,
     buzzOpen: buzzer.open,
     buzzWinner: buzzer.winnerId,
   };
@@ -323,6 +328,8 @@ export function openBuzzer(state: JeopardyGameState): JeopardyGameState {
 export function lockBuzzer(state: JeopardyGameState, winnerId: string): JeopardyGameState {
   return {
     ...state,
+    buzzer: { ...(state.buzzer ?? createBuzzerState()), open: false, status: 'LOCKED', winnerId,
+      winnerTeamId: state.buzzer?.mode === 'TEAM' ? state.buzzer.teamByPlayer?.[winnerId] ?? null : null },
     buzzOpen: false,
     buzzWinner: winnerId,
   };
@@ -335,6 +342,8 @@ export function resetBuzzer(state: JeopardyGameState): JeopardyGameState {
   const buzzer = resetBuzzerState();
   return {
     ...state,
+    buzzer,
+    stealBuzzer: resetBuzzerState(),
     buzzOpen: buzzer.open,
     buzzWinner: buzzer.winnerId,
     stealOpen: false,
@@ -348,6 +357,8 @@ export function resetBuzzer(state: JeopardyGameState): JeopardyGameState {
 export function openStealBuzzer(state: JeopardyGameState): JeopardyGameState {
   return {
     ...state,
+    stealBuzzer: openCoreBuzzer(state.stealBuzzer ?? createBuzzerState(), { eligiblePlayerIds: Object.keys(state.scores),
+      excludePlayerIds: state.currentField?.firstResponderId ? [state.currentField.firstResponderId] : [] }),
     stealOpen: true,
     stealWinner: null,
     buzzOpen: false,
@@ -360,6 +371,8 @@ export function openStealBuzzer(state: JeopardyGameState): JeopardyGameState {
 export function lockStealBuzzer(state: JeopardyGameState, winnerId: string): JeopardyGameState {
   return {
     ...state,
+    stealBuzzer: { ...(state.stealBuzzer ?? createBuzzerState()), open: false, status: 'LOCKED', winnerId,
+      winnerTeamId: state.stealBuzzer?.mode === 'TEAM' ? state.stealBuzzer.teamByPlayer?.[winnerId] ?? null : null },
     stealOpen: false,
     stealWinner: winnerId,
   };

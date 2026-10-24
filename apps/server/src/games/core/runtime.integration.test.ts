@@ -11,6 +11,7 @@ import { socketIdentityMap } from '../../http/middleware/auth.js';
 import { CoreRuntimeProjectionSchema } from '@quiz/shared';
 import { saveGameStateIfRevision } from './state.js';
 import { createTurn } from './roundFlow.js';
+import { applyStateEvent, type EngineStateSnapshot } from '@quiz/game-sdk';
 
 let db: PrismaClient, app: ReturnType<typeof createApp>, origin: string, cookie: string, questionId: string, packId: string;
 const hostId = `runtime-${randomUUID()}`, rooms: string[] = [], sockets: Socket[] = [];
@@ -19,6 +20,15 @@ async function runtime(socket: Socket) {
   const response = await gameAck(socket, 'game:core:read', {});
   expect(response.success).toBe(true);
   return CoreRuntimeProjectionSchema.parse(response.projection);
+}
+async function assertEventReplay(roomId: string) {
+  const row = await db.roomGameState.findUniqueOrThrow({ where: { roomId } });
+  const events = await db.gameDomainEvent.findMany({ where: { roomId, runIndex: 1 }, orderBy: { stateVersion: 'asc' } });
+  expect(events[0]).toMatchObject({ type: 'GAME_INITIALIZED', baseStateVersion: 0, stateVersion: 1 });
+  let snapshot: EngineStateSnapshot = { roomId, runIndex: 1, gameSlug: events[0].gameSlug, engineVersion: events[0].engineVersion, stateVersion: 0, state: {} };
+  for (const event of events) snapshot = applyStateEvent(snapshot, JSON.parse(event.payloadJson));
+  expect(snapshot.stateVersion).toBe(row.revision);
+  expect(snapshot.state).toEqual(JSON.parse(row.stateJson));
 }
 beforeAll(async () => {
   const { PrismaClient } = await import('@prisma/client');
@@ -91,6 +101,8 @@ it('Wissensduell uses shared timer/submission/judge through real commands, pause
     expect.objectContaining({ participationId: player.id, score: 100, rank: 1 }),
   ]));
   expect((await db.roomGameState.findUniqueOrThrow({ where: { roomId: room.id } })).phase).toBe('GAME_END');
+  await assertEventReplay(room.id);
+  expect(await db.gameDomainEvent.count({ where: { roomId: room.id, commandId } })).toBe(1);
 });
 it('Jeopardy uses the same durable submission/judge with unlimited time and no fabricated oral text', async () => {
   const { room, code, host, players } = await start('jeopardy'); const [player] = players;
@@ -120,6 +132,11 @@ it('Jeopardy uses the same durable submission/judge with unlimited time and no f
   expect(Object.values(state.submissions)).toEqual([expect.objectContaining({ participantId: player.id, value: null, status: 'JUDGED', decision: 'CORRECT' })]);
   expect(await db.scoreEvent.count({ where: { roomId: room.id, participationId: player.id } })).toBe(1);
   expect(state.scores[player.id]).toBe(100);
+  await assertEventReplay(room.id);
+  const judgedEvents = await db.gameDomainEvent.findMany({ where: { roomId: room.id, commandId } });
+  expect(judgedEvents).toHaveLength(1);
+  expect(judgedEvents[0]).toMatchObject({ type: 'JUDGE' });
+  await expect(db.gameDomainEvent.update({ where: { id: judgedEvents[0].id }, data: { type: 'FORGED' } })).rejects.toThrow();
 });
 
 it.each(['wissensduell', 'jeopardy'] as const)('%s rejects unsafe writes and freezes corrupted persisted state before scoring', async slug => {
