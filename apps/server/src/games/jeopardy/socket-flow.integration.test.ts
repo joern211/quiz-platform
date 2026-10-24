@@ -16,6 +16,7 @@ describe('Jeopardy multiplayer socket integration', () => {
   let httpServer: HttpServer;
   let io: Server;
   let origin: string;
+  let hostSessionId: string;
   let code: string;
   let roomId: string;
   let moderator: ClientSocket;
@@ -39,8 +40,9 @@ describe('Jeopardy multiplayer socket integration', () => {
   beforeAll(async () => {
     const game = await prisma.gameDefinition.findUniqueOrThrow({ where: { slug: 'jeopardy' } });
     const session = await prisma.session.create({
-      data: { userId: 'mod-1', expiresAt: new Date(Date.now() + 60000) },
+      data: { userId: 'mod-1', expiresAt: new Date(Date.now() + 86400000) },
     });
+    hostSessionId = session.id;
     code = String(Math.floor(100000 + Math.random() * 900000)).replace(/(\d{3})(\d{3})/, '$1-$2');
     const room = await prisma.room.create({
       data: {
@@ -195,7 +197,7 @@ describe('Jeopardy multiplayer socket integration', () => {
           normalizedName: name.toLowerCase(), rejoinToken: randomUUID(), connected: true, ready: true },
       })));
       const otherModerator = await connect(createSessionCookie(
-        (await prisma.session.findFirstOrThrow({ where: { userId: 'mod-1' } })).id,
+        hostSessionId,
         config.sessionSecret
       ));
       expect((await ack(otherModerator, 'room:subscribe', { roomCode: failedRoom.code })).success).toBe(true);
@@ -222,7 +224,7 @@ describe('Jeopardy multiplayer socket integration', () => {
       normalizedName: name.toLowerCase(), rejoinToken: randomUUID(), connected: true, ready: true,
     } })));
     const host = await connect(createSessionCookie(
-      (await prisma.session.findFirstOrThrow({ where: { userId: 'mod-1' } })).id, config.sessionSecret
+      hostSessionId, config.sessionSecret
     ));
     const spectator = await connect();
     expect((await ack(host, 'room:subscribe', { roomCode: gameRoom.code })).success).toBe(true);
@@ -259,21 +261,22 @@ describe('Jeopardy multiplayer socket integration', () => {
       } });
       return room;
     };
-    const expired = JSON.stringify({ phase: 'INPUT_OPEN', currentRoundIndex: 0,
-      roundStates: { 0: { timerEndMs: Date.now() - 1000 } } });
-    await createRoom('geo', '{invalid-json');
+    const expired = JSON.stringify({ phase: 'INPUT_OPEN', currentRoundIndex: 0, questions: [{}], scores: {},
+      roundStates: { 0: { timerEndMs: Date.now() - 1000, revealed: false, playerStates: {} } } });
+    const malformed = await createRoom('geo', '{invalid-json');
     await createRoom('jeopardy', expired);
     await createRoom('geo', expired, 'RUNNING', 'PAUSED');
     await createRoom('geo', expired, 'ENDED');
     await createRoom('geo', JSON.stringify({ phase: 'REVEAL', currentRoundIndex: 0,
       roundStates: { 0: { timerEndMs: Date.now() - 1000 } } }));
     const valid = await createRoom('geo', expired);
-    const future = await createRoom('geo', JSON.stringify({ phase: 'INPUT_OPEN', currentRoundIndex: 0,
-      roundStates: { 0: { timerEndMs: Date.now() + 60000 } } }));
+    const future = await createRoom('geo', JSON.stringify({ phase: 'INPUT_OPEN', currentRoundIndex: 0, questions: [{}], scores: {},
+      roundStates: { 0: { timerEndMs: Date.now() + 60000, revealed: false, playerStates: {} } } }));
     const expire = vi.spyOn(handleGeoGame, 'handleTimerExpired').mockResolvedValue(undefined);
     const schedule = vi.spyOn(globalThis, 'setTimeout');
     try {
       await restoreActiveTimers(io);
+      expect((await prisma.roomGameState.findUniqueOrThrow({ where: { roomId: malformed.id } })).phase).toBe('ERROR_RECOVERY');
       expect(expire).toHaveBeenCalledTimes(1);
       expect(expire.mock.calls[0][1].id).toBe(valid.id);
       expect(schedule.mock.calls.some(([, milliseconds]) => typeof milliseconds === 'number' && milliseconds > 59000)).toBe(true);
@@ -300,7 +303,7 @@ describe('Jeopardy multiplayer socket integration', () => {
           normalizedName: displayName.toLowerCase(), rejoinToken: randomUUID(), connected: true, ready: true },
       })));
       const host = await connect(createSessionCookie(
-        (await prisma.session.findFirstOrThrow({ where: { userId: 'mod-1' } })).id,
+        hostSessionId,
         config.sessionSecret
       ));
       const first = await connect();
@@ -438,14 +441,13 @@ describe('Jeopardy multiplayer socket integration', () => {
         rejoinToken: randomUUID(), connected: true, ready: true,
       } });
       const host = await connect(createSessionCookie(
-        (await prisma.session.findFirstOrThrow({ where: { userId: 'mod-1' } })).id, config.sessionSecret
+        hostSessionId, config.sessionSecret
       ));
       const client = await connect();
       expect((await ack(host, 'room:subscribe', { roomCode: room.code })).success).toBe(true);
       expect((await ack(client, 'room:subscribe', { roomCode: room.code, rejoinToken: player.rejoinToken })).success).toBe(true);
       expect((await ack(host, 'game:start', { roomCode: room.code })).success).toBe(true);
-      await new Promise(resolve => setTimeout(resolve, 3200));
-      expect((await ack(client, 'geo:resync')).phase).toBe('INPUT_OPEN');
+      await vi.waitFor(async () => expect((await ack(client, 'geo:resync')).phase).toBe('INPUT_OPEN'), { timeout: 6000, interval: 100 });
       if (pauseBeforeEnd) {
         expect((await ack(host, 'game:pause', { roomCode: room.code })).success).toBe(true);
         expect((await ack(client, 'geo:resync')).phase).toBe('PAUSED');
@@ -471,7 +473,7 @@ describe('Jeopardy multiplayer socket integration', () => {
 
   it('keeps two simultaneous Jeopardy rooms and their buzzer winners isolated', async () => {
     const game = await prisma.gameDefinition.findUniqueOrThrow({ where: { slug: 'jeopardy' } });
-    const session = await prisma.session.findFirstOrThrow({ where: { userId: 'mod-1' } });
+    const session = { id: hostSessionId };
     const rooms = [];
     const clients = [];
     for (const label of ['Parallel A', 'Parallel B']) {

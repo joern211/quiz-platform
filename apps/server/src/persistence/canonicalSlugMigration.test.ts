@@ -342,7 +342,7 @@ describe('Migrationsfehler → laufender geo-Raum bleibt funktionsfähig (§5.21
         stateJson: JSON.stringify({
           phase: 'INPUT_OPEN', currentRoundIndex: 0,
           questions: [{ correctOptionId: 'b' }],
-          roundStates: { 0: { timerEndMs: Date.now() + 60000, timerStartMs: Date.now() - 5000, revealed: false } },
+          roundStates: { 0: { timerEndMs: Date.now() + 60000, timerStartMs: Date.now() - 5000, revealed: false, playerStates: {} } },
           scores: { [part.id]: 0 },
         }),
       },

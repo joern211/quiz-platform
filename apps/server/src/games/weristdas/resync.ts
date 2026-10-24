@@ -2,6 +2,7 @@ import type { GameRole } from '../core/access.js';
 import { buildSignedMediaUrl } from '../../media/signedUrl.js';
 import { normalizeRound, type WerIstDasSetup } from './contracts.js';
 import type { WerIstDasState } from './state.js';
+import { canView, visibleValue } from '../core/visibility.js';
 
 /**
  * Rollenbasierte Projektion (Regelwerk §5.15/§5.20, §10.7, §15.3).
@@ -25,7 +26,9 @@ export function projectWerIstDas(
 ) {
   const round = setup.rounds[state.roundIndex];
   const norm = normalizeRound(round);
-  const solution = role === 'HOST' || state.revealed;
+  const audience = { role, participantId: participationId };
+  const hostOnly = { scope: 'HOST_PRIVATE' } as const;
+  const solution = canView(audience, { ...hostOnly, publiclyRevealed: state.revealed });
   return {
     phase: state.phase,
     roundIndex: state.roundIndex,
@@ -48,13 +51,12 @@ export function projectWerIstDas(
     // Namen/Alternativen/Beschreibung: erst bei Reveal (alle) bzw. immer Host.
     person1: solution ? norm.personA : undefined,
     person2: solution ? norm.personB : undefined,
-    aliases1: role === 'HOST' ? norm.aliasesA : undefined,
-    aliases2: role === 'HOST' ? norm.aliasesB : undefined,
+    aliases1: visibleValue(audience, hostOnly, () => norm.aliasesA),
+    aliases2: visibleValue(audience, hostOnly, () => norm.aliasesB),
     description: solution ? norm.description : undefined,
     // v2: Original-Assets NUR in der Host-Projektion (Signed host-URLs).
     // Niemals als rohe IDs oder game-URLs an Player/Viewer/Display.
-    hostImageUrls: role === 'HOST' && norm.version === 2
-      ? norm.secretAssetIds.map(assetId => buildSignedMediaUrl({ assetId, audience: 'host' }))
-      : undefined,
+    hostImageUrls: norm.version === 2 ? visibleValue(audience, hostOnly,
+      () => norm.secretAssetIds.map(assetId => buildSignedMediaUrl({ assetId, audience: 'host' }))) : undefined,
   };
 }

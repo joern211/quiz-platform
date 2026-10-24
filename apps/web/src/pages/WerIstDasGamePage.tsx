@@ -1,15 +1,18 @@
 import { useParams } from 'react-router-dom';
+import { BuzzerOverride } from '../components/BuzzerOverride';
 import { GameShell } from '../components/GameShell';
 import { getSessionData, type PlayerRole } from '../lib/socket';
 import { useWerIstDas } from '../hooks/useWerIstDas';
+import { useGameCore } from '../hooks/useGameCore';
 import styles from './WerIstDasGamePage.module.css';
 
 export function WerIstDasGamePage({ role }: { role: PlayerRole }) {
   const { code = '' } = useParams<{ code: string }>();
   const { state, connected, error, act, judge, end } = useWerIstDas(code, role);
+  const core = useGameCore(code);
   const self = getSessionData().participationId;
   const scores = Object.entries(state?.scores ?? {}).sort((a, b) => b[1] - a[1]);
-  const canBuzz = role === 'PLAYER' && state?.buzzerOpen && !state.excluded;
+  const canBuzz = role === 'PLAYER' && state?.buzzerOpen && !state.excluded && core.can('buzz');
   const everyoneExcluded = state && Object.keys(state.playerNames).every(id => state.excludedPlayerIds?.includes(id));
 
   return <GameShell role={role.toLowerCase() as 'moderator' | 'player' | 'viewer'}
@@ -17,6 +20,7 @@ export function WerIstDasGamePage({ role }: { role: PlayerRole }) {
     <div className={styles.layout}>
       <section className={styles.main}>
         <h1>Wer ist das?</h1>
+        {core.projection?.recoveryRequired && <p role="alert">Der Spielzustand muss geprüft werden. Das Spiel wurde angehalten.</p>}
         {!state && <p>Spielstand wird geladen …</p>}
         {state && <>
           <p>Runde {state.roundIndex + 1} von {state.roundCount}</p>
@@ -52,23 +56,24 @@ export function WerIstDasGamePage({ role }: { role: PlayerRole }) {
             </div>}
           {role === 'HOST' && state.phase !== 'GAME_END' && <div className={styles.controls}>
             <h2>Moderation</h2>
+            {core.can('buzzerOverride') && core.projection && <BuzzerOverride roomCode={code} stateVersion={core.projection.stateVersion} runIndex={core.projection.runIndex} playerNames={state.playerNames} winnerId={state.winnerId} excludedIds={state.excludedPlayerIds} />}
             {state.excludedPlayerIds?.length ? <p>Ausgeschlossen: {state.excludedPlayerIds.map(id => state.playerNames[id]).join(', ')}</p> : null}
-            {state.phase === 'ROUND_READY' && <button disabled={Boolean(everyoneExcluded)} onClick={() => act('weristdas:buzzer:open')}>Buzzer öffnen</button>}
+            {state.phase === 'ROUND_READY' && <button disabled={Boolean(everyoneExcluded) || !core.can('open')} onClick={() => act('weristdas:buzzer:open')}>Buzzer öffnen</button>}
             {state.phase === 'ROUND_READY' && everyoneExcluded && <p>Alle Spieler ausgeschlossen. Löse die Runde auf.</p>}
             {['ROUND_READY', 'BUZZ_OPEN', 'ANSWERING'].includes(state.phase) && !state.hintActive &&
-              <button onClick={() => act('weristdas:hint')}>Hinweis aktivieren</button>}
+              <button disabled={!core.can('hint')} onClick={() => act('weristdas:hint')}>Hinweis aktivieren</button>}
             {state.phase === 'ANSWERING' && <div className={styles.judges}>
               <p>{state.winnerName} bewerten:</p>
-              <button onClick={() => judge('BOTH_CORRECT')}>Beide richtig · +3</button>
-              {state.hintActive && <button onClick={() => judge('ONE_CORRECT')}>Eine richtig · +1</button>}
-              <button onClick={() => judge('WRONG')}>Falsch · −1</button>
+              <button disabled={!core.can('judge')} onClick={() => judge('BOTH_CORRECT')}>Beide richtig · +3</button>
+              {state.hintActive && <button disabled={!core.can('judge')} onClick={() => judge('ONE_CORRECT')}>Eine richtig · +1</button>}
+              <button disabled={!core.can('judge')} onClick={() => judge('WRONG')}>Falsch · −1</button>
             </div>}
             {['ROUND_READY', 'BUZZ_OPEN'].includes(state.phase) &&
-              <button onClick={() => act('weristdas:reveal')}>Auflösen</button>}
-            {state.phase === 'REVEAL' && <button onClick={() => act('weristdas:next')}>
+              <button disabled={!core.can('reveal')} onClick={() => act('weristdas:reveal')}>Auflösen</button>}
+            {state.phase === 'REVEAL' && <button disabled={!core.can('next')} onClick={() => act('weristdas:next')}>
               {state.roundIndex + 1 === state.roundCount ? 'Ergebnis anzeigen' : 'Nächste Runde'}
             </button>}
-            <button onClick={end}>Spiel beenden</button>
+            <button disabled={!core.can('end')} onClick={end}>Spiel beenden</button>
           </div>}
         </>}
       </section>

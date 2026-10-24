@@ -10,7 +10,7 @@
 // ============================================================
 import { Server, Socket } from 'socket.io';
 import { z } from 'zod';
-import { handleGeoGame } from './index.js';
+import { getGameEngineContract } from '../core/engineContract.js';
 import { getSocketDataIdentity } from '../../sockets/auth.js';
 import { registerGeoResync } from './resync.js';
 import { runGuardedCriticalAction } from '../core/receiptedAction.js';
@@ -86,6 +86,7 @@ export const handleGeoEvents = {
     callback?: (result: any) => void
   ) {
     await runGuardedCriticalAction({
+    gameSlug: 'wissensduell',
       io,
       socket,
       action: 'answer',
@@ -119,7 +120,7 @@ export const handleGeoEvents = {
           participationId: socket.data.participationId,
         };
 
-        await handleGeoGame.handleAnswer(io, socket, dataWithRoom, onResult);
+        onResult(await getGameEngineContract('wissensduell')!.handleCommand({ io, socket }, { action: 'answer', payload: dataWithRoom }));
       },
     }, callback);
   },
@@ -131,6 +132,7 @@ export const handleGeoEvents = {
     callback?: (result: any) => void
   ) {
     await runGuardedCriticalAction({
+    gameSlug: 'wissensduell',
       io,
       socket,
       action: 'joker5050',
@@ -146,7 +148,7 @@ export const handleGeoEvents = {
           onResult({ success: false, error: 'VIEWERS_CANNOT_MODIFY' });
           return;
         }
-        await handleGeoGame.handleJoker5050(io, socket, data, onResult);
+        onResult(await getGameEngineContract('wissensduell')!.handleCommand({ io, socket }, { action: 'joker5050', payload: data }));
       },
     }, callback);
   },
@@ -158,6 +160,7 @@ export const handleGeoEvents = {
     callback?: (result: any) => void
   ) {
     await runGuardedCriticalAction({
+    gameSlug: 'wissensduell',
       io,
       socket,
       action: 'jokerSpy',
@@ -173,7 +176,7 @@ export const handleGeoEvents = {
           onResult({ success: false, error: 'VIEWERS_CANNOT_MODIFY' });
           return;
         }
-        await handleGeoGame.handleJokerSpy(io, socket, data, onResult);
+        onResult(await getGameEngineContract('wissensduell')!.handleCommand({ io, socket }, { action: 'jokerSpy', payload: data }));
       },
     }, callback);
   },
@@ -185,6 +188,7 @@ export const handleGeoEvents = {
     callback?: (result: any) => void
   ) {
     await runGuardedCriticalAction({
+    gameSlug: 'wissensduell',
       io,
       socket,
       action: 'jokerRisk',
@@ -200,7 +204,7 @@ export const handleGeoEvents = {
           onResult({ success: false, error: 'VIEWERS_CANNOT_MODIFY' });
           return;
         }
-        await handleGeoGame.handleJokerRisk(io, socket, data, onResult);
+        onResult(await getGameEngineContract('wissensduell')!.handleCommand({ io, socket }, { action: 'jokerRisk', payload: data }));
       },
     }, callback);
   },
@@ -212,6 +216,7 @@ export const handleGeoEvents = {
     callback?: (result: any) => void
   ) {
     await runGuardedCriticalAction({
+    gameSlug: 'wissensduell',
       io,
       socket,
       action: 'reveal',
@@ -235,7 +240,7 @@ export const handleGeoEvents = {
         }
 
 
-        await handleGeoGame.handleReveal(io, socket, { roomCode: room.code }, onResult);
+        onResult(await getGameEngineContract('wissensduell')!.handleCommand({ io, socket }, { action: 'reveal', payload: { roomCode: room.code } }));
       },
     }, callback);
   },
@@ -247,6 +252,7 @@ export const handleGeoEvents = {
     callback?: (result: any) => void
   ) {
     await runGuardedCriticalAction({
+    gameSlug: 'wissensduell',
       io,
       socket,
       action: 'next',
@@ -270,7 +276,7 @@ export const handleGeoEvents = {
         }
 
 
-        await handleGeoGame.handleNext(io, socket, { roomCode: room.code }, onResult);
+        onResult(await getGameEngineContract('wissensduell')!.handleCommand({ io, socket }, { action: 'next', payload: { roomCode: room.code } }));
       },
     }, callback);
   },

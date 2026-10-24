@@ -291,7 +291,16 @@ describe('TEAM-ROOM: real HTTP / sockets / DB', () => {
     expect((await ack(r.host, slug === 'jeopardy' ? 'jeopardy:judge' : 'weristdas:judge', slug === 'jeopardy' ? { correct: true } : { result: 'BOTH_CORRECT' })).success).toBe(false);
     expect((await db.participation.findUniqueOrThrow({ where: { id: a.id } })).score).toBe(0);
     expect((await ack(r.host, 'game:resume', { roomCode: r.code, commandId: randomUUID() })).success).toBe(true);
-    expect((await db.roomGameState.findUniqueOrThrow({ where: { roomId: r.id } })).stateJson).toBe(before.stateJson);
+    const resumed = JSON.parse((await db.roomGameState.findUniqueOrThrow({ where: { roomId: r.id } })).stateJson);
+    const original = JSON.parse(before.stateJson);
+    // Gameplay is restored exactly; a running clock resumes at the new server
+    // timestamp so time spent paused cannot count toward the round.
+    expect({ ...resumed, timer: undefined }).toEqual({ ...original, timer: undefined });
+    if (original.timer) {
+      expect(resumed.timer).toMatchObject({ mode: original.timer.mode, status: 'RUNNING', endsAtMs: null, pausedAtMs: null });
+      expect(resumed.timer.startedAtMs).toBeGreaterThanOrEqual(original.timer.startedAtMs);
+      expect(resumed.timer.elapsedBeforeMs).toBeGreaterThanOrEqual(0);
+    }
     expect(await db.roomFeedEntry.count({ where: { roomId: r.id, kind: { in: ['PAUSE', 'RESUME'] } } })).toBe(2);
   });
   it('requires viewer approval and prevents a second use of a viewer invitation', async () => {

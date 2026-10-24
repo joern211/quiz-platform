@@ -14,6 +14,7 @@ import { registerJeopardyEvents } from './jeopardy/events.js';
 import { registerWerIstDasEvents } from './weristdas/events.js';
 import { werIstDasGame } from './weristdas/engine.js';
 import { logger } from '../observability/logger.js';
+import { getGameEngineContract, type ServerGameEngineContract } from './core/engineContract.js';
 
 export interface GameRoom {
   id: string;
@@ -29,6 +30,7 @@ export interface GameInitializeContext {
 
 export interface GameHandle {
   slug: string;
+  readonly contract: ServerGameEngineContract;
   roomRules?: ReturnType<typeof roomEngineRules>;
   initialize(context: GameInitializeContext): Promise<void>;
   afterStart?(context: GameInitializeContext): Promise<void> | void;
@@ -50,9 +52,10 @@ const geoHandle: GameHandle = {
   // Kanonischer Slug (Regelwerk §14): "geo" → "wissensduell".
   // Das interne Modul bleibt games/geo (Module-/Tabellenname ≠ Spiel-Slug).
   slug: 'wissensduell',
+  get contract() { return getGameEngineContract('wissensduell')!; },
   roomRules: roomEngineRules('wissensduell'),
   async initialize({ io, room, initialPhase }) {
-    await handleGeoGame.initialize(io, room, initialPhase);
+    await getGameEngineContract('wissensduell')!.createInitialState({ io, room, initialPhase: initialPhase });
   },
   afterStart({ io, room }) {
     // Geo owns its intro-to-first-round transition. Keeping this lifecycle
@@ -78,10 +81,11 @@ const jeopardyHandle: GameHandle = {
   pause: context => pauseUntimedGame(context, true),
   resume: context => pauseUntimedGame(context, false),
   slug: 'jeopardy',
+  get contract() { return getGameEngineContract('jeopardy')!; },
   roomRules: roomEngineRules('jeopardy'),
   registerEvents: registerJeopardyEvents,
   async initialize({ io, room }) {
-    await handleJeopardyGame.initialize(io, room);
+    await getGameEngineContract('jeopardy')!.createInitialState({ io, room, initialPhase: 'INTRO' });
   },
   async end({ io, room }) {
     const result = await handleJeopardyGame.handleGameEnd(io, room, undefined, true);
@@ -95,9 +99,10 @@ const werIstDasHandle: GameHandle = {
   resume: context => pauseUntimedGame(context, false),
   // Kanonischer Slug (Regelwerk §14): "weristdas" → "wer-ist-das".
   slug: 'wer-ist-das',
+  get contract() { return getGameEngineContract('wer-ist-das')!; },
   roomRules: roomEngineRules('wer-ist-das'),
   registerEvents: registerWerIstDasEvents,
-  async initialize({ io, room }) { await werIstDasGame.initialize(io, room); },
+  async initialize({ io, room }) { await getGameEngineContract('wer-ist-das')!.createInitialState({ io, room, initialPhase: 'INTRO' }); },
   async end({ io, room }) {
     const result = await werIstDasGame.end(io, room);
     return { ended: result.ended };

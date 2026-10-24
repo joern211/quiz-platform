@@ -10,8 +10,8 @@ Spielregeln bleiben offen; bereits festgelegte Regeln nicht erneut abfragen.
 
 | Punkt | Paket | Stand |
 |---|---|---|
-| 1 | TEAM-ROOM / GitHub #15 abschließen; öffentliche Raumliste reparieren | Code/lokale Abnahme fertig; CI/E2E ausstehend |
-| 2 | Gemeinsame Spielaktionen / Rundensteuerung, Planplatz PR15 | offen |
+| 1 | TEAM-ROOM / GitHub #15 abschließen; öffentliche Raumliste reparieren | abgeschlossen, f26e8fb; CI + 20/20 E2E grün |
+| 2 | Gemeinsame Spielaktionen / Rundensteuerung, Planplatz PR15 | in Arbeit, feature/pr16-game-core |
 | 3 | Results / Finalisierung / Recovery, Planplatz PR16 | offen |
 | 4 | Content-Pools / Editor, anschließend Review / Import / Qualität | offen |
 | 5 | Audio / Voice, Kamera / Display; danach weitere Engines | offen |
@@ -41,3 +41,91 @@ aus einer anderen Aufgabe vorhanden. Pushes vom Nutzer ausdrücklich autorisiert
   fehlgeschlagen (unvollständiges ZIP); GitHub-E2E ist verbindlich.
 - Nächster Schritt: Push/CI prüfen, gegebenenfalls R1 korrigieren. Erst nach
   grüner kompletter CI/E2E Punkt 2 auf eigener Folgebranch beginnen.
+
+Abgeschlossen auf f26e8fb: [Run 40104459714](https://github.com/joern211/quiz-platform/actions/runs/40104459714),
+386 Server-/83 Webtests und 20/20 E2E ohne Retry/Skip/Flake. PR #15 bleibt
+offen und wird nur durch den Nutzer gemergt. R1 wartet auf den echten
+Kick-Commit statt mit dem noch laufenden Socket-Command zu konkurrieren.
+
+## Punkt 2 — GAME-CORE
+
+Branch feature/pr16-game-core, Basis f26e8fb. Folge-PR gegen
+feature/pr15-team-room; CI akzeptiert deshalb auch gestapelte Feature-Basen.
+Die Merge-Reihenfolge bleibt PR15 vor PR16.
+
+1. Gemeinsame Timer-/Submission-/Judge-Primitiven in echten Wissensduell-
+   und Jeopardy-Aktionen nutzen, Legacy-State explizit kompatibel lesen.
+2. Gemeinsame Aktionsregeln für serverseitige verfügbare Aktionen und Guards,
+   Projektion, Fortschritt, Invariants und Rundenübergänge integrieren.
+3. Engine-Vertrag und weitere Master-Cores vervollständigen. Keine bloßen
+   Typen oder ungenutzten Helfer als DONE melden; je Core mindestens zwei
+   echte Consumer nachweisen. Results/Finalisierung gehören zu Punkt 3.
+4. Regression und finale CI/E2E am eigenen Head. Erst danach Punkt 3.
+
+## Fortsetzung — lokaler Stand nach 4d637b7
+
+Punkt 2 wurde um gemeinsame Runden-/Matching-/Zufallsregeln (d98e2bc),
+Visibility und vor Speicherung sowie bei Recovery geprüfte Invariants
+fortgesetzt. 405 Server-/85 Webtests, Typecheck, Builds, Lint ohne Fehler und
+Dokuchecker sind lokal grün. Einzelheiten/Abgrenzungen in pr16/handoff.md.
+Noch kein Abschluss von Punkt 2 und kein Beginn von Punkt 3–5.
+
+Push ist durch die automatische Freigabeprüfung blockiert (zwei Ablehnungen
+wegen vermeintlich fehlender ausdrücklicher Freigabe für Remote/Branch).
+Keine Ausweichpublikation. Vor dem nächsten normalen Push konkrete Freigabe
+für feature/pr16-game-core → https://github.com/joern211/quiz-platform.git
+anfordern. Danach GitHub-CI/E2E am eigenen neuen Head abnehmen und PR16-Body
+aktualisieren; der Remote-Nachweis auf 4d637b7 deckt lokale Folgecommits nicht.
+
+## Aktuell — Push-Freigabe erteilt, Event-Core in echten Engines
+
+Der Nutzer hat den Push ausdrücklich bestätigt und Fortsetzung beauftragt.
+Die alten Push-Blocker sind damit historisch. 298e97f ist auf GitHub und
+vollständig CI/E2E-grün; seine Bäume entsprechen den freigegebenen lokalen
+Commits. Neue Folgeänderungen werden über die GitHub-Verbindung per
+Fast-Forward gesichert (lokale Git-Anmeldung fehlt).
+
+Neu in Punkt 2: transaktional persistierte, unveränderliche State-Events,
+deterministischer SDK-Replay, explizite Legacy-Checkpoints und strukturierte
+Buzzer-Zustände in Jeopardy + Wer ist das?. 408 Server-/85 Webtests und
+Builds/Typecheck lokal grün. Details und restlicher Umfang im PR16-Handoff.
+
+## Engine-Vertrag — nächster gesicherter Teil von Punkt 2
+
+cc66952: grüne CI und E2E (Run 40117073536), Event-/Buzzer-Zwischenstand.
+Folgeänderung: realer SDK-GameEngineContract in Start/Preflight/Spielbefehlen/
+Resync aller drei bestehenden Spiele, gemeinsame WID-Aktionen und korrigierte
+Buzzer-Verwaltungsgrenze. Ergebnis-Builder vorbereitet, aber noch keine
+persistente Ergebnisfinalisierung (Punkt 3). 411 Server-/85 Webtests lokal
+grün, Typecheck/Build grün; genaue Abnahme im PR16-Handoff. Punkt 2 noch offen.
+
+## Tie-Regel und reproduzierbare CI — Punkt 2 bleibt in Arbeit
+
+Tie-Core ergänzt; bestehende Engines pinnen ALLOW_TIE vor dem Start.
+Wissensduell und Jeopardy verwenden ihn beim Ende mit gemeinsamen Gewinnern.
+Andere Strategien bleiben bei offenen Entscheidungen PENDING und sind in
+diesen Engines nicht auswählbar. Serversuiten laufen seriell gegen die
+gemeinsame SQLite-Datei; fünf Suiten wählen ihre eigene Host-Sitzung, damit
+abgelaufene fremde Test-Sitzungen keinen UNAUTHORIZED-Fehler erzeugen.
+416/416 Servertests, 85/85 Webtests, Typecheck/Build/Lint lokal grün.
+GitHub-CI/E2E am Folge-Head noch zu prüfen.
+
+## Host-Korrektur des Buzzer-Gewinners — nächster Teil von Punkt 2
+
+53896ad hat vollständige grüne CI/E2E (Run 40119533680). Lokal folgen echte
+Host-Korrekturen für Jeopardy (auch Steal) und WID: eigene Moderations-UI,
+commandId/Run-/Engine-Versionsschutz, wirksame Verwaltungsrechte und
+gemeinsame Transaktion für Buzzer/Turn/Submission, Domain-Event, Audit/Feed.
+Eine Korrektur vergibt keine Punkte; die anschließende Bewertung punktet
+exakt einmal für den neuen Gewinner. 419 Server-/85 Webtests grün;
+Browsertests um beide UI-Flows erweitert. Team-Anbindung noch offen.
+
+## Team-Buzzer — weiterer Teil von Punkt 2
+
+b052a44: Host-Korrektur mit CI/E2E grün (Run 40120123179). Folge: echte
+Team-Roster beim ersten Öffnen für Jeopardy/WID, Sperre des falschen Teams,
+stabile Karte über Reopen/Rejoin/Recovery und neue Karte erst zur nächsten
+Runde. WID ROUND_READY nach falscher Antwort bleibt für Teamwechsel gesperrt.
+Legacy-Ausschlüsse werden beim ersten Upgrade-Öffnen ausdrücklich erhalten.
+421/421 Server- und 85/85 Webtests, Typecheck/Build/Lint0 Fehler lokal grün.
+Punkt 2: Lifecycle-Normalisierung und gemeinsame Round-Transition noch offen.

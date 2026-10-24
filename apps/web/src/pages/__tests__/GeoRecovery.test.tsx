@@ -21,6 +21,7 @@ vi.mock('../../lib/socket', () => {
   const socket = {
     connected: true,
     on: (event: string, handler: (data: unknown) => void) => transport.handlers.set(event, handler),
+    off: (event: string, handler: (data: unknown) => void) => { if (transport.handlers.get(event) === handler) transport.handlers.delete(event); },
     disconnect: vi.fn(),
     emit: (event: string, _data: unknown, ack: (data: unknown) => void) => {
       if (event === 'room:subscribe') ack({ success: true });

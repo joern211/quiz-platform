@@ -13,6 +13,7 @@ describe('Wer ist das? real multiplayer sockets', () => {
   let server: HttpServer;
   let io: Server;
   let origin: string;
+  let hostSessionId: string;
   let roomId: string;
   let code: string;
   let imageId: string;
@@ -39,7 +40,8 @@ describe('Wer ist das? real multiplayer sockets', () => {
       fileSize: 12, sha256: randomUUID(), storagePath: '/tmp/weristdas-test.png', uploadedBy: 'mod-1',
     } });
     imageId = asset.id;
-    const session = await prisma.session.create({ data: { userId: 'mod-1', expiresAt: new Date(Date.now() + 60000) } });
+    const session = await prisma.session.create({ data: { userId: 'mod-1', expiresAt: new Date(Date.now() + 86400000) } });
+    hostSessionId = session.id;
     code = String(Math.floor(100000 + Math.random() * 900000)).replace(/(\d{3})(\d{3})/, '$1-$2');
     const setup = JSON.stringify({ rounds: [
       { id: 'one', imageAssetId: imageId, person1: secret, person2: 'Second', aliases1: ['HIDDEN_ALIAS'] },
@@ -88,6 +90,8 @@ describe('Wer ist das? real multiplayer sockets', () => {
     expect((await ack(alice, 'weristdas:judge', { result: 'BOTH_CORRECT' })).error).toBe('FORBIDDEN');
     expect((await ack(alice, 'weristdas:hint')).error).toBe('FORBIDDEN');
     expect((await ack(alice, 'weristdas:next')).error).toBe('FORBIDDEN');
+    expect((await ack(alice, 'weristdas:buzzer:open')).error).toBe('FORBIDDEN');
+    expect(await ack(alice, 'game:core:read')).toMatchObject({ success: true, projection: { gameSlug: 'wer-ist-das', availableActions: [] } });
     expect((await ack(moderator, 'weristdas:buzzer:open')).success).toBe(true);
     const races = await Promise.all([ack(alice, 'weristdas:buzz'), ack(bob, 'weristdas:buzz')]);
     expect(races.filter(r => r.success)).toHaveLength(1);
@@ -145,7 +149,7 @@ describe('Wer ist das? real multiplayer sockets', () => {
     const stranger = await connect();
     expect((await ack(stranger, 'room:subscribe', { roomCode: other.code, rejoinToken: aliceToken })).success).toBe(false);
     expect((await ack(stranger, 'weristdas:resync')).success).toBe(false);
-    const host = await connect(createSessionCookie((await prisma.session.findFirstOrThrow({ where: { userId: 'mod-1' } })).id, config.sessionSecret));
+    const host = await connect(createSessionCookie(hostSessionId, config.sessionSecret));
     expect((await ack(host, 'room:subscribe', { roomCode: other.code })).success).toBe(true);
     expect((await ack(host, 'game:start', { roomCode: other.code })).success).toBe(false);
     expect((await prisma.room.findUniqueOrThrow({ where: { id: other.id } })).status).toBe('LOBBY');
@@ -154,7 +158,7 @@ describe('Wer ist das? real multiplayer sockets', () => {
 
   it('isolates concurrent rooms and keeps manual end idempotent without revealing secrets', async () => {
     const game = await prisma.gameDefinition.findUniqueOrThrow({ where: { slug: 'wer-ist-das' } });
-    const session = await prisma.session.findFirstOrThrow({ where: { userId: 'mod-1' } });
+    const session = { id: hostSessionId };
     const setup = JSON.stringify({ rounds: [{ id: 'shared', imageAssetId: imageId,
       person1: secret, person2: 'Hidden person' }] });
     const rooms = await Promise.all([0, 1].map(async index => {
@@ -180,7 +184,8 @@ describe('Wer ist das? real multiplayer sockets', () => {
     expect((await ack(viewerA, 'room:subscribe', { roomCode: rooms[0].room.code })).success).toBe(true);
     expect((await ack(playerA, 'room:subscribe', { roomCode: rooms[0].room.code, rejoinToken: rooms[0].players[0].rejoinToken })).success).toBe(true);
     expect((await ack(playerB, 'room:subscribe', { roomCode: rooms[1].room.code, rejoinToken: rooms[1].players[0].rejoinToken })).success).toBe(true);
-    expect((await ack(hostA, 'game:start', { roomCode: rooms[0].room.code })).success).toBe(true);
+    const startA = await ack(hostA, 'game:start', { roomCode: rooms[0].room.code });
+    expect(startA, JSON.stringify(startA)).toMatchObject({ success: true });
     expect((await ack(hostB, 'game:start', { roomCode: rooms[1].room.code })).success).toBe(true);
     const roomAUpdates: string[] = [];
     viewerA.on('weristdas:update', state => roomAUpdates.push(state.phase));

@@ -272,6 +272,12 @@ test('J4: Vollständiger Spielablauf: starten -> feld öffnen -> buzzer -> bewer
     await buzz(player1);
     await expect(player2.getByRole('button', { name: /JETZT BUZZEN|BUZZ/i })).not.toBeVisible();
 
+    await expect(player1.getByLabel('Neuer Gewinner')).toHaveCount(0);
+    await moderator.getByLabel('Neuer Gewinner').selectOption({ label: 'Antworter' });
+    await moderator.getByLabel('Grund (optional)').fill('Buzzer-Zuordnung korrigiert');
+    await moderator.getByRole('button', { name: 'Gewinner korrigieren', exact: true }).click();
+    await expect(moderator.getByRole('heading', { name: /Buzzer-Gewinner/ }).locator('..').getByText('Antworter', { exact: true })).toBeVisible();
+
     // Moderator judges correct
     await judgeCorrect(moderator);
 

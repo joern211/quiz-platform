@@ -116,6 +116,16 @@ test('W1-W10: setup, image, private solution, buzzer, scores, reconnect, viewer 
     await expect(alice.getByText('Du bist dran – antworte mündlich.')).toBeVisible();
     await alice.reload();
     await expect(alice.getByText('Du bist dran – antworte mündlich.')).toBeVisible();
+    await moderator.getByLabel('Neuer Gewinner').selectOption({ label: 'Bob W' });
+    await moderator.getByLabel('Grund (optional)').fill('Eingang geprüft');
+    await moderator.getByRole('button', { name: 'Gewinner korrigieren', exact: true }).click();
+    await expect(bob.getByText('Du bist dran – antworte mündlich.')).toBeVisible();
+    await expect(alice.getByText('Du bist dran – antworte mündlich.')).toHaveCount(0);
+    await expect(viewer.getByText(secret)).toHaveCount(0);
+    await expect(viewer.getByLabel('Neuer Gewinner')).toHaveCount(0);
+    await moderator.getByLabel('Neuer Gewinner').selectOption({ label: 'Alice W' });
+    await moderator.getByRole('button', { name: 'Gewinner korrigieren', exact: true }).click();
+    await expect(alice.getByText('Du bist dran – antworte mündlich.')).toBeVisible();
     await moderator.getByRole('button', { name: 'Falsch · −1' }).click();
     await expect(alice.getByText('Du bist für den Rest dieser Runde vom Buzzern ausgeschlossen.')).toBeVisible();
     await alice.reload();

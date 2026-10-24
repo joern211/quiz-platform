@@ -11,6 +11,7 @@ import { resolveCanonicalSlug } from '@quiz/shared';
 import type { GamePermission } from '@quiz/shared';
 import { requireGamePermission } from './permissions.js';
 import type { GameDefinition, Room } from '@prisma/client';
+import { ensureGameStateSafe } from './recovery.js';
 
 export type GameRole = 'HOST' | 'PLAYER' | 'VIEWER';
 
@@ -108,6 +109,7 @@ export async function authorizeGameContext(
     });
     if (!participant) return { ok: false, error: 'NO_PARTICIPATION' };
   }
+  await ensureGameStateSafe(room.id);
   return { ...auth, room };
 }
 
