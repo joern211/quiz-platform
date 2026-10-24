@@ -1,10 +1,11 @@
 import { z } from 'zod';
+import { isBuzzerEligible } from './buzzer.js';
 import { CoreTimerSchema, CoreBuzzerSchema, resolveCanonicalSlug, type CoreActionKey, type CoreRuntimeProjection, type GamePermission } from '@quiz/shared';
 import { legacyRoundTimer, timerAcceptsInput } from './runtimePrimitives.js';
 
 const playerState = z.object({ answered: z.boolean(), locked: z.boolean(), jokers: z.object({ used5050: z.boolean(), usedSpy: z.boolean(), usedRisk: z.boolean() }) });
 export const geoState = z.object({ phase: z.string(), currentRoundIndex: z.number().int(), questions: z.array(z.unknown()), roundStates: z.record(z.object({ revealed: z.boolean(), timer: CoreTimerSchema.optional(), timerStartMs: z.number().nullable().optional(), timerEndMs: z.number().nullable().optional(), pauseRemainingMs: z.number().nullable().optional(), playerStates: z.record(playerState) })) });
-export const jeopardyState = z.object({ phase: z.string(), currentBoard: z.union([z.literal(1), z.literal(2)]), boardCount: z.number().int().optional(), openFields: z.record(z.unknown()), scores: z.record(z.number()), buzzOpen: z.boolean(), buzzWinner: z.string().nullable(), stealOpen: z.boolean(), stealWinner: z.string().nullable(), currentField: z.object({ firstResponderId: z.string().optional() }).nullable(), timer: CoreTimerSchema.optional() });
+export const jeopardyState = z.object({ phase: z.string(), currentBoard: z.union([z.literal(1), z.literal(2)]), boardCount: z.number().int().optional(), openFields: z.record(z.unknown()), scores: z.record(z.number()), buzzOpen: z.boolean(), buzzWinner: z.string().nullable(), stealOpen: z.boolean(), stealWinner: z.string().nullable(), buzzer: CoreBuzzerSchema.optional(), stealBuzzer: CoreBuzzerSchema.optional(), currentField: z.object({ firstResponderId: z.string().optional() }).nullable(), timer: CoreTimerSchema.optional() });
 
 type InformationRole = 'HOST' | 'PLAYER' | 'VIEWER' | 'DISPLAY';
 export const widState = z.object({ phase: z.string(), roundIndex: z.number().int().nonnegative(), roundCount: z.number().int().positive(),
@@ -97,7 +98,7 @@ export function coreActionDenial(context: CoreActionContext, key: string): strin
       // The PLAYER default BUZZER_CONTROL permits buzzing, not opening it.
       if (!(context.buzzerController ?? context.informationRole === 'HOST')) return 'FORBIDDEN';
       if (s.phase !== 'ROUND_READY') return 'INVALID_PHASE';
-      return Object.keys(s.playerNames).every(id => s.buzzer.excludedPlayerIds.includes(id)) ? 'NO_ELIGIBLE_PLAYERS' : null;
+      return Object.keys(s.playerNames).every(id => !isBuzzerEligible(s.buzzer, id)) ? 'NO_ELIGIBLE_PLAYERS' : null;
     }
     if (key === 'hint') return !context.permissions.has('REVEAL_CONTENT') ? 'FORBIDDEN'
       : ['ROUND_READY', 'BUZZ_OPEN', 'ANSWERING'].includes(s.phase) && !s.hintActive ? null : 'INVALID_PHASE';
@@ -106,7 +107,7 @@ export function coreActionDenial(context: CoreActionContext, key: string): strin
     if (key === 'next') return s.phase === 'REVEAL' ? null : 'INVALID_PHASE';
     if (s.phase !== 'BUZZ_OPEN' || !s.buzzer.open) return 'INVALID_PHASE';
     if (!context.participantId || !Object.hasOwn(s.playerNames, context.participantId)) return 'PLAYER_NOT_IN_GAME';
-    return s.buzzer.excludedPlayerIds.includes(context.participantId) ? 'PLAYER_EXCLUDED' : null;
+    return !isBuzzerEligible(s.buzzer, context.participantId) ? 'PLAYER_EXCLUDED' : null;
   }
   const decoded = jeopardyState.safeParse(context.state);
   if (!decoded.success) return 'INVALID_GAME_STATE';
@@ -120,6 +121,8 @@ export function coreActionDenial(context: CoreActionContext, key: string): strin
   const wanted = required[key as keyof typeof required];
   if (phase !== wanted) return `PHASE_NOT_${wanted}`;
   if (rule.player && (!context.participantId || !Object.hasOwn(state.scores, context.participantId))) return 'PLAYER_NOT_IN_GAME';
+  if (key === 'buzz' && state.buzzer && !isBuzzerEligible(state.buzzer, context.participantId!)) return 'PLAYER_EXCLUDED';
+  if (key === 'stealBuzz' && state.stealBuzzer && !isBuzzerEligible(state.stealBuzzer, context.participantId!)) return 'ALREADY_ANSWERED';
   if (key === 'buzz') return state.buzzOpen && !state.buzzWinner ? null : 'BUZZ_CLOSED';
   if (key === 'stealBuzz') return context.participantId === state.currentField?.firstResponderId ? 'ALREADY_ANSWERED' : state.stealOpen && !state.stealWinner ? null : 'BUZZ_CLOSED';
   if (key === 'judge' && (!state.buzzWinner || !state.currentField)) return 'PHASE_NOT_BUZZ_LOCKED';

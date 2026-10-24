@@ -1,7 +1,7 @@
 import { createHash, randomUUID } from 'node:crypto';
 import argon2 from 'argon2';
 import type { Prisma, Room } from '@prisma/client';
-import { RoomPolicySchema, normalizedParticipantName, ParticipantNameSchema, effectivePermissions, type RoomPolicy, type RoomOperation, type RoomCoreView, type GamePermission } from '@quiz/shared';
+import { RoomPolicySchema, resolveCanonicalSlug, normalizedParticipantName, ParticipantNameSchema, effectivePermissions, type RoomPolicy, type RoomOperation, type RoomCoreView, type GamePermission } from '@quiz/shared';
 import { serializeRoom } from './queue.js';
 import { roomEngineRules } from './engineRules.js';
 import { prisma } from '../persistence/prisma.js';
@@ -188,8 +188,16 @@ export async function mutateRoom(roomId: string, actor: RoomActor, op: RoomOpera
     if (!ownActions.has(op.type) && !actor.canManage && !(op.type === 'TRANSFER' && op.claim)) throw new RoomError('NOT_AUTHORIZED');
     if (['POLICY', 'SCHEDULE', 'OPEN', 'DRAFT', 'CLOSE', 'TRANSFER', 'COHOST', 'INVITE', 'REMATCH', 'LOBBY', 'SWITCH_GAME'].includes(op.type) && !owner && !(op.type === 'TRANSFER' && op.claim)) throw new RoomError('OWNER_REQUIRED');
     const teamEdit = ['TEAM_SELECT', 'TEAM_EDIT', 'TEAMS_ASSIGN'].includes(op.type);
+    let midWidRound = false;
+    if (teamEdit && resolveCanonicalSlug(room.gameDefinition.slug) === 'wer-ist-das' && room.gameState?.phase === 'ROUND_READY') {
+      try {
+        const buzzer = JSON.parse(room.gameState.stateJson)?.buzzer;
+        midWidRound = !!buzzer?.eligiblePlayerIds || (buzzer?.excludedPlayerIds?.length ?? 0) > 0;
+      }
+      catch { midWidRound = true; } // Fail closed on an unreadable round boundary.
+    }
     if (teamEdit && !actor.permissions.has('TEAM_MANAGE') && op.type !== 'TEAM_SELECT') throw new RoomError('NOT_AUTHORIZED');
-    if (teamEdit && room.status === 'RUNNING' && (!actor.permissions.has('TEAM_MANAGE') || !policy.allowTeamReshuffleBetweenRounds || !boundaryPhases.has(room.gameState?.phase ?? '') || op.type !== 'TEAMS_ASSIGN' || !op.override)) throw new RoomError('TEAMS_LOCKED');
+    if (teamEdit && room.status === 'RUNNING' && (!actor.permissions.has('TEAM_MANAGE') || !policy.allowTeamReshuffleBetweenRounds || !boundaryPhases.has(room.gameState?.phase ?? '') || midWidRound || op.type !== 'TEAMS_ASSIGN' || !op.override)) throw new RoomError('TEAMS_LOCKED');
     if (teamEdit && !['LOBBY', 'RUNNING'].includes(room.status)) throw new RoomError('TEAMS_LOCKED');
     const activePlayers = room.participations.filter(p => p.role === 'PLAYER' && p.admission === 'ACTIVE' && !p.leftAt && !p.kickedAt && !p.bannedAt);
     let result: Record<string, unknown> = {};

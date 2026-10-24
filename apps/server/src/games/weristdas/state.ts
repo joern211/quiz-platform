@@ -1,4 +1,4 @@
-import { claimBuzzer, createBuzzerState, openBuzzer, resolveBuzzer, resetBuzzerState, type BuzzerState } from '../core/buzzer.js';
+import { claimBuzzer, createBuzzerState, openBuzzer, resolveBuzzer, resetBuzzerState, isBuzzerEligible, type BuzzerState } from '../core/buzzer.js';
 import { applyScoreDelta, ensureScoreEntries } from '../core/score.js';
 import { WerIstDasPhase } from './contracts.js';
 import type { CoreTurn } from '@quiz/shared';
@@ -53,11 +53,11 @@ function requirePhase(state: WerIstDasState, ...phases: WerIstDasPhase[]) {
 
 export function openRoundBuzzer(state: WerIstDasState): WerIstDasState {
   requirePhase(state, WerIstDasPhase.ROUND_READY);
-  if (Object.keys(state.playerNames).every(id => state.buzzer.excludedPlayerIds.includes(id))) {
+  if (Object.keys(state.playerNames).every(id => !isBuzzerEligible(state.buzzer, id))) {
     throw new InvalidGameAction('NO_ELIGIBLE_PLAYERS');
   }
   return { ...state, phase: WerIstDasPhase.BUZZ_OPEN,
-    buzzer: openBuzzer(state.buzzer, { excludePlayerIds: state.buzzer.excludedPlayerIds, eligiblePlayerIds: Object.keys(state.playerNames), mode: state.buzzer.mode === 'TEAM' ? 'TEAM' : 'SELECTED' }) };
+    buzzer: openBuzzer(state.buzzer, { excludePlayerIds: state.buzzer.excludedPlayerIds, eligiblePlayerIds: state.buzzer.eligiblePlayerIds ?? Object.keys(state.playerNames), mode: state.buzzer.mode === 'TEAM' ? 'TEAM' : 'SELECTED' }) };
 }
 
 export function buzz(state: WerIstDasState, playerId: string): WerIstDasState {

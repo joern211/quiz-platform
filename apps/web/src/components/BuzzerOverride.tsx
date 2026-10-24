@@ -26,7 +26,7 @@ export function BuzzerOverride({ roomCode, stateVersion, runIndex, playerNames, 
       <option value="">Spieler auswählen</option>
       {candidates.map(([id, name]) => <option key={id} value={id}>{name}</option>)}
     </select></label>
-    <label>Grund (optional) <input value={reason} maxLength={500} disabled={pending} onChange={event => setReason(event.target.value)} /></label>
+    <label>Grund (optional) <input value={reason} maxLength={300} disabled={pending} onChange={event => setReason(event.target.value)} /></label>
     <button type="submit" disabled={pending || !candidates.some(([id]) => id === participantId)}>{pending ? 'Wird gespeichert …' : 'Gewinner korrigieren'}</button>
     {error && <p role="alert">{error}</p>}
   </form>;

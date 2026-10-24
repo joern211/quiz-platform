@@ -35,5 +35,5 @@ export function projectJeopardyForClient(state: JeopardyGameState, setupInput: u
     board1Values: (setup.board1?.categories[0]?.clues.map(c => c.value) ?? []).sort((a, b) => a - b),
     board2Values: state.boardCount === 1 ? [] : (setup.board2?.categories[0]?.clues.map(c => c.value) ?? []).sort((a, b) => a - b),
     gameEnded: state.phase === 'GAME_END', buzzWinnerId: state.buzzWinner, stealWinnerId: state.stealWinner,
-    playerNames: state.playerNames, finalScores: state.phase === 'GAME_END' ? rankScores(scores) : undefined };
+    playerNames: state.playerNames, stealExcludedPlayerIds: state.stealBuzzer?.excludedPlayerIds ?? (state.currentField?.firstResponderId ? [state.currentField.firstResponderId] : []), finalScores: state.phase === 'GAME_END' ? rankScores(scores) : undefined };
 }

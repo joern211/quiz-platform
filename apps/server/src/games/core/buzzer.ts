@@ -20,7 +20,7 @@ export function openBuzzer(state: BuzzerState, options: {
   };
   return CoreBuzzerSchema.parse(next);
 }
-function eligible(state: BuzzerState, playerId: string) {
+export function isBuzzerEligible(state: BuzzerState, playerId: string) {
   return !state.excludedPlayerIds.includes(playerId) && (!state.eligiblePlayerIds || state.eligiblePlayerIds.includes(playerId))
     && (state.mode !== 'TEAM' || !!state.teamByPlayer && Object.hasOwn(state.teamByPlayer, playerId));
 }
@@ -29,7 +29,7 @@ export function claimBuzzer(state: BuzzerState, playerId: string, now = Date.now
   CoreBuzzerSchema.parse(state);
   if (!state.open) return { accepted: false, error: 'BUZZ_CLOSED', state };
   if (state.winnerId) return { accepted: false, error: 'ALREADY_CLAIMED', state };
-  if (!eligible(state, playerId)) return { accepted: false, error: 'PLAYER_EXCLUDED', state };
+  if (!isBuzzerEligible(state, playerId)) return { accepted: false, error: 'PLAYER_EXCLUDED', state };
   return { accepted: true, state: CoreBuzzerSchema.parse({ ...state, open: false, status: 'LOCKED', winnerId: playerId,
     winnerTeamId: state.mode === 'TEAM' ? state.teamByPlayer![playerId] : null, claimedAtMs: now }) };
 }
@@ -46,7 +46,7 @@ export function resolveBuzzer(state: BuzzerState, excludeWinner = false): Buzzer
 export function overrideBuzzerWinner(state: BuzzerState, playerId: string, audit: { actorId: string; reason?: string; atMs: number }): BuzzerState {
   CoreBuzzerSchema.parse(state);
   if (state.open || !state.winnerId || state.status === 'RESOLVED') throw new CoreRuleError('INVALID_PHASE');
-  if (!eligible(state, playerId)) throw new CoreRuleError('PLAYER_EXCLUDED');
+  if (!isBuzzerEligible(state, playerId)) throw new CoreRuleError('PLAYER_EXCLUDED');
   if (state.winnerId === playerId) return state;
   return CoreBuzzerSchema.parse({ ...state, status: 'LOCKED', winnerId: playerId,
     winnerTeamId: state.mode === 'TEAM' ? state.teamByPlayer![playerId] : null,

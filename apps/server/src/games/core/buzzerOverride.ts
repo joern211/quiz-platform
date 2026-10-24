@@ -15,7 +15,7 @@ import { saveGameStateIfRevision } from './state.js';
 import { runGuardedCriticalAction } from './receiptedAction.js';
 import { gameErrorCode } from './errors.js';
 
-export const BuzzerOverridePayloadSchema = z.object({ participantId: z.string().min(1).max(128), gameStateVersion: z.number().int().positive(), runIndex: z.number().int().positive(), reason: z.string().trim().max(500).optional() }).passthrough();
+export const BuzzerOverridePayloadSchema = z.object({ participantId: z.string().min(1).max(128), gameStateVersion: z.number().int().positive(), runIndex: z.number().int().positive(), reason: z.string().trim().max(300).optional() }).passthrough();
 const wireSchema = BuzzerOverridePayloadSchema.extend({ commandId: z.string().min(1).max(128), requestId: z.string().min(1).max(128).optional(),
   protocolVersion: z.number().int().optional(), stateVersion: z.number().int().optional(), expectedRevision: z.number().int().optional() });
 

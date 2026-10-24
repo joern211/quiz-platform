@@ -8,6 +8,7 @@ import { WerIstDasPhase, WerIstDasSetupSchema, WER_IST_DAS_ENGINE_VERSION, isV2R
   isSupportedEngineVersion,
   type WerIstDasSetup, type WerIstDasRound } from './contracts.js';
 import { projectWerIstDas } from './resync.js';
+import { openRoundBuzzerForRoom } from '../core/buzzerRoster.js';
 import { loadInitialGameCount, loadInitialTieStrategy, ConfigSnapshotError } from '../core/config.js';
 import { resolveCanonicalSlug } from '@quiz/shared';
 import { resolveBuzzer } from '../core/buzzer.js';
@@ -152,6 +153,11 @@ export const werIstDasGame = {
       state = nextRound(state, setup.rounds[state.roundIndex].id);
     }
     await prisma.$transaction(async tx => {
+      if (action === 'open' && !loaded.state.buzzer.eligiblePlayerIds) {
+        const roster = await openRoundBuzzerForRoom(tx, roomId, Object.keys(state.playerNames));
+        // A legacy round may already contain wrong-answer exclusions; never clear them on upgrade.
+        state.buzzer = { ...roster, excludedPlayerIds: state.buzzer.excludedPlayerIds };
+      }
       await saveGameStateIfRevision(tx, { gameSlug: 'wer-ist-das', roomId, expectedRevision: loaded.revision, state, phase: state.phase });
       if (scoreMutation) await recordScoreMutation(tx, {
         roomId, participationId: scoreMutation.playerId, score: scoreMutation.score,

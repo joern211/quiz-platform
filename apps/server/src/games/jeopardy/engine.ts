@@ -15,6 +15,7 @@ import { recordScoreMutation } from '../core/score.js';
 import { createTimer, submitOnce, judgeSubmission, scoreJudgement } from '../core/runtimePrimitives.js';
 import { createTurn, requireWinningTurn, matchAnswer } from '../core/roundFlow.js';
 import { resolveTie } from '../core/tie.js';
+import { openRoundBuzzerForRoom } from '../core/buzzerRoster.js';
 import {
   JEOPARDY_PHASES,
   pointsForCorrect,
@@ -262,7 +263,10 @@ export const handleJeopardyGame = {
     };
 
     // Persist atomically
-    await prisma.$transaction(async (tx) => saveGameStateIfRevision(tx, { gameSlug: 'jeopardy', roomId, expectedRevision: gameStateData.revision, state, phase: state.phase }));
+    await prisma.$transaction(async (tx) => {
+      state.buzzer = await openRoundBuzzerForRoom(tx, roomId, Object.keys(state.scores));
+      await saveGameStateIfRevision(tx, { gameSlug: 'jeopardy', roomId, expectedRevision: gameStateData.revision, state, phase: state.phase });
+    });
 
     // Emit question to ALL (no answer — P0-07 fix: using io.to broadcasts to the correct room channel)
     const fieldOpenEvent: JeopardyFieldOpenEvent = {
@@ -404,8 +408,10 @@ export const handleJeopardyGame = {
         state.buzzWinner = null;
         state.buzzOpen = false;
         state.stealOpen = true;
-        state.buzzer = resolveBuzzer(state.buzzer ?? { open: false, winnerId: playerId, excludedPlayerIds: [] });
-        state.stealBuzzer = openBuzzer(state.stealBuzzer ?? createBuzzerState(), { mode: 'SELECTED', eligiblePlayerIds: Object.keys(state.scores), excludePlayerIds: [playerId] });
+        state.buzzer = resolveBuzzer(state.buzzer ?? { open: false, winnerId: playerId, excludedPlayerIds: [] }, true);
+        state.stealBuzzer = openBuzzer(createBuzzerState(), { mode: state.buzzer.mode ?? 'SELECTED',
+          eligiblePlayerIds: state.buzzer.eligiblePlayerIds ?? Object.keys(state.scores),
+          teamByPlayer: state.buzzer.teamByPlayer, excludePlayerIds: state.buzzer.excludedPlayerIds });
       }
       await saveGameStateIfRevision(tx, { gameSlug: 'jeopardy', roomId, expectedRevision: row.revision, state, phase: state.phase });
       await recordScoreMutation(tx, {
@@ -418,7 +424,7 @@ export const handleJeopardyGame = {
 
     const { state, playerId, delta, categoryIndex, value, answer } = result;
     if (!data.correct) {
-      io.to(roomChannel(roomId)).emit('jeopardy:steal:open', { categoryIndex, value, scores: state.scores, excludedPlayerId: playerId });
+      io.to(roomChannel(roomId)).emit('jeopardy:steal:open', { categoryIndex, value, scores: state.scores, excludedPlayerId: playerId, excludedPlayerIds: state.stealBuzzer?.excludedPlayerIds });
     } else {
       io.to(roomChannel(roomId)).emit('jeopardy:reveal', {
         answer: '••••••', correct: true, playerId,

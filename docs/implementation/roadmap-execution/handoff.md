@@ -119,3 +119,13 @@ gemeinsame Transaktion für Buzzer/Turn/Submission, Domain-Event, Audit/Feed.
 Eine Korrektur vergibt keine Punkte; die anschließende Bewertung punktet
 exakt einmal für den neuen Gewinner. 419 Server-/85 Webtests grün;
 Browsertests um beide UI-Flows erweitert. Team-Anbindung noch offen.
+
+## Team-Buzzer — weiterer Teil von Punkt 2
+
+b052a44: Host-Korrektur mit CI/E2E grün (Run 40120123179). Folge: echte
+Team-Roster beim ersten Öffnen für Jeopardy/WID, Sperre des falschen Teams,
+stabile Karte über Reopen/Rejoin/Recovery und neue Karte erst zur nächsten
+Runde. WID ROUND_READY nach falscher Antwort bleibt für Teamwechsel gesperrt.
+Legacy-Ausschlüsse werden beim ersten Upgrade-Öffnen ausdrücklich erhalten.
+421/421 Server- und 85/85 Webtests, Typecheck/Build/Lint0 Fehler lokal grün.
+Punkt 2: Lifecycle-Normalisierung und gemeinsame Round-Transition noch offen.

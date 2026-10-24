@@ -26,6 +26,7 @@ Commit-IDs unterscheiden sich dabei, Dateibäume sind identisch.
 | cc66952 | 4535d2c | Event-Persistenz und Buzzer-Zustände, 408 Server-/85 Webtests; CI/E2E grün, Run 40117073536 |
 | a7e4c41 | b59365f | realer Engine-Vertrag, lokal 411 Server-/85 Webtests; CI Run 40118255452 an SQLite-Sperren gescheitert |
 | 53896ad | d5364d8 | Tie-/Scheduler-/Sitzungs-Fix, 416 Server-/85 Webtests, CI und E2E grün, Run 40119533680 |
+| b052a44 | f5c3636 | echte Host-Buzzer-Korrektur und UI, 419 Server-/85 Webtests, CI/E2E grün, Run 40120123179 |
 
 Gestapelte Merge-Reihenfolge: #15 vor #16. Nach #15-Merge Base auf main
 umstellen und erneut prüfen. PR16 bleibt Draft, bis der gesamte Umfang
@@ -96,7 +97,7 @@ Lokal nach Scheduler-/Sitzungs-Korrektur: 416/416 Server-Tests (49 Dateien),
 111,79 Sekunden, 85/85 Webtests, Typecheck/Build/Lint ohne Fehler grün.
 Lint hat weiterhin 115 Warnungen. Dokuchecker und diff --check grün.
 
-## Aktuelle lokale Folgeänderung: echte Buzzer-Gewinner-Korrektur
+## Host-Buzzer-Korrektur (gesichert mit b052a44)
 
 `game:buzzer:override` für Jeopardy (Haupt-/Steal-Buzzer) und Wer ist das?.
 Nur Host bzw. ausdrücklich delegierte BUZZER_CONTROL-Verwaltung; normale
@@ -127,15 +128,42 @@ Event-Replay-Gleichheit. Vollständige Serversuite: 419/419 grün (49 Dateien,
 Engine-Vertrag aus.
 85/85 Webtests, Typecheck/Build/Lint lokal grün (115 bestehende Warnungen).
 
+## Aktuelle lokale Folgeänderung: echter Team-Buzzer
+
+Jeopardy und WID pinnen beim ersten Öffnen die aktuelle aktive Runde als
+SELECTED- bzw. TEAM-Buzzer. Keine neue Zufallsauswahl. Team-Zuordnung und
+zulässige Teilnehmer bleiben über Wrong/Reopen/Rejoin/Recovery gleich.
+Falsche Antwort sperrt im Team-Modus das gesamte ursprüngliche Team;
+Jeopardy-Steal übernimmt dieselbe Teamkarte und die Sperren. Beim nächsten
+Feld bzw. der nächsten Runde werden sie zurückgesetzt und die dann gültigen
+Teams geladen. Die echte room:command-Grenze erlaubt Team-Neuzuordnung
+nach Abschluss, sperrt aber WID ROUND_READY nach falscher Antwort als noch
+laufende Runde (auch anhand von Legacy-Ausschlüssen).
+
+Jeopardy-Player verwenden jetzt ebenfalls availableActions; Projektion/
+Resync übergeben die vollständige Steal-Sperrliste, damit Teammitglieder
+keine scheinbar zulässigen Buzzer-Buttons bekommen. Host-Korrekturen
+verwenden diese Liste ebenfalls. Optionaler Korrekturgrund ist in Wire/UI
+auf dieselben 300 Zeichen wie das persistierte Schema begrenzt.
+
+12/12 echte Runtime-Socketfälle lokal grün; neue Fälle spielen beide Engines
+mit 4 Teilnehmern und 2 Teams, falscher Antwort, Rejoin, gesperrtem Team,
+verbotener Neuzuordnung, erlaubter Neuzuordnung an der Grenze und neuem
+Roster in der Folgerunde. Der volle 421er-Lauf fand noch einen Legacy-Fehler:
+WID v1 ohne eligiblePlayerIds verlor beim ersten Öffnen alte Ausschlüsse.
+Der Adapter übernimmt sie nun ausdrücklich; Migration/Neustart/Runtime
+bestehen 18/18. Anschließend kompletter Serverlauf 421/421 grün (49 Dateien,
+99,19 Sekunden), Web85, Typecheck/Build/Lint0 Fehler (115 bestehende Warnungen).
+
 ## Exakte Fortsetzung
 
-1. Keine zwei Serversuiten gleichzeitig auf /tmp/quiz-server-test.db starten.
-   Host-Override-Folge committen und
-   per baumidentischem Fast-Forward sichern, CI/E2E am neuen Head abwarten.
-2. Punkt 2 vervollständigen: tatsächlicher Team-Buzzer-Snapshot/Teamsperren
-   in echten Engines; restliche Turn-/Submission-/Timer-Controls und
-   gemeinsame Rundenübergaben nach Master §5.33. Keine bloßen Typen/Helfer
-   als vollständigen Core-Abschluss ausgeben.
+1. Team-Folge baumidentisch pushen, GitHub-CI/E2E prüfen und Handoff/PR auf
+   den neuen Head aktualisieren. Nie zwei Serversuiten gleichzeitig auf
+   /tmp/quiz-server-test.db starten.
+2. Punkt 2 vervollständigen: gemeinsame kanonische Lifecycle-Phasen und
+   tatsächliche Round-Transition über mindestens zwei Engines, verbleibende
+   Timer-/Turn-/Submission-Controls anhand deklarierter Capabilities prüfen.
+   Keine Typen/Helfer als vollständigen Core-Abschluss ausgeben.
 3. Erst nach Punkt-2-Abnahme Punkt 3 (Results/Review/FINALIZED, Ledger-
    Korrekturen/Amendments und Recovery) auf eigener Folgebranch beginnen.
 4. Danach Punkt 4 Content/Editor und Punkt 5 Medien/Display/neue Spiele.

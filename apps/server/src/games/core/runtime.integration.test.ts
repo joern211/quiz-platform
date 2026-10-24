@@ -50,7 +50,7 @@ afterAll(async () => {
   await db.mediaAsset.deleteMany({ where: { id: { in: assets } } });
   await db.user.delete({ where: { id: hostId } }); await db.$disconnect(); globalThis.__prisma = undefined;
 });
-async function start(slug: 'wissensduell' | 'jeopardy' | 'wer-ist-das', playerCount = 2) {
+async function start(slug: 'wissensduell' | 'jeopardy' | 'wer-ist-das', playerCount = 2, teamMode = false) {
   let imageId: string | undefined;
   if (slug === 'wer-ist-das') {
     const asset = await db.mediaAsset.create({ data: { type: 'image', mimeType: 'image/png', filename: 'runtime.png', originalName: 'runtime.png', fileSize: 12, sha256: randomUUID(), storagePath: '/tmp/runtime.png', uploadedBy: hostId } });
@@ -59,7 +59,7 @@ async function start(slug: 'wissensduell' | 'jeopardy' | 'wer-ist-das', playerCo
   const game = await db.gameDefinition.findUniqueOrThrow({ where: { slug } });
   const code = String(Math.floor(100000 + Math.random() * 900000)).replace(/(\d{3})(\d{3})/, '$1-$2');
   const room = await db.room.create({ data: { code, roomName: 'Runtime proof', hostUserId: hostId, gameDefinitionId: game.id, status: 'LOBBY', runPhase: 'OPEN', viewerRequiresPin: false,
-    setupSnapshotJson: JSON.stringify(slug === 'wissensduell' ? { selectedQuestionIds: [questionId] } : slug === 'wer-ist-das' ? { rounds: [{ id: 'override', imageAssetId: imageId, person1: 'SECRET_A', person2: 'SECRET_B' }] } : { board1: { categories: [{ name: 'Test', clues: [{ value: 100, question: 'Question', answer: 'RUNTIME_SECRET' }] }] } }),
+    setupSnapshotJson: JSON.stringify(slug === 'wissensduell' ? { selectedQuestionIds: [questionId] } : slug === 'wer-ist-das' ? { rounds: [{ id: 'override', imageAssetId: imageId, person1: 'SECRET_A', person2: 'SECRET_B' }, ...(teamMode ? [{ id: 'next', imageAssetId: imageId, person1: 'SECRET_C', person2: 'SECRET_D' }] : [])] } : { board1: { categories: [{ name: 'Test', clues: [{ value: 100, question: 'Question', answer: 'RUNTIME_SECRET' }, ...(teamMode ? [{ value: 200, question: 'Second', answer: 'RUNTIME_SECRET_2' }] : [])] }] } }),
   } }); rooms.push(room.id);
   const host = await connect(cookie); expect((await gameAck(host, 'room:subscribe', { roomCode: code })).success).toBe(true);
   const players = [];
@@ -68,6 +68,11 @@ async function start(slug: 'wissensduell' | 'jeopardy' | 'wer-ist-das', playerCo
     const socket = await connect(); expect((await gameAck(socket, 'room:subscribe', { roomCode: code, rejoinToken: p.rejoinToken })).success).toBe(true);
     expect((await gameAck(socket, 'player:ready:set', { roomCode: code, ready: true })).success).toBe(true);
     players.push({ ...p, socket });
+  }
+  if (teamMode) {
+    const teams = await Promise.all(['A', 'B'].map((name, index) => db.roomTeam.create({ data: { roomId: room.id, name, color: ['#2563eb', '#dc2626'][index], icon: name } })));
+    await db.room.update({ where: { id: room.id }, data: { roomPolicyJson: JSON.stringify({ teamMode: 'MANUAL', teamCount: 2, allowTeamReshuffleBetweenRounds: true }) } });
+    for (let i = 0; i < players.length; i++) await db.participation.update({ where: { id: players[i].id }, data: { teamId: teams[i < 2 ? 0 : 1].id } });
   }
   expect((await gameAck(host, 'game:start', { roomCode: code, commandId: randomUUID() })).success).toBe(true);
   return { room, code, host, players };
@@ -228,6 +233,7 @@ it.each(['jeopardy', 'wer-ist-das'] as const)('%s: host buzzer override is audit
   expect((await runtime(host)).availableActions.some(a => a.key === 'buzzerOverride')).toBe(false);
   expect(await gameAck(host, 'game:buzzer:override', { ...payload, commandId: randomUUID() })).toMatchObject({ success: false, error: 'FORBIDDEN' });
   await db.roomPermissionGrant.deleteMany({ where: { roomId: room.id, userId: hostId } });
+  expect(await gameAck(host, 'game:buzzer:override', { ...payload, reason: 'x'.repeat(301), commandId: randomUUID() })).toMatchObject({ success: false, error: 'INVALID_PAYLOAD' });
   const response = await gameAck(host, 'game:buzzer:override', payload);
   expect(response, JSON.stringify(response)).toMatchObject({ success: true });
   const after = await db.roomGameState.findUniqueOrThrow({ where: { roomId: room.id } });
@@ -281,5 +287,47 @@ it('Jeopardy steal override preserves first-responder exclusion and supports a s
   expect(scores).toHaveLength(2);
   expect(scores).toContainEqual(expect.objectContaining({ participationId: steal.id, delta: 50 }));
   expect(scores.some(s => s.participationId === replacement.id)).toBe(false);
+  await assertEventReplay(room.id);
+});
+
+
+it.each(['jeopardy', 'wer-ist-das'] as const)('%s: pins team buzzers, excludes the wrong team and refreshes only at the next round', async slug => {
+  const { room, code, host, players } = await start(slug, 4, true);
+  const [first, teammate, opponent] = players;
+  if (slug === 'jeopardy') expect((await gameAck(host, 'jeopardy:field:open', { boardIndex: 1, categoryIndex: 0, value: 100, commandId: randomUUID() })).success).toBe(true);
+  else expect((await gameAck(host, 'weristdas:buzzer:open', { commandId: randomUUID() })).success).toBe(true);
+  const read = async () => JSON.parse((await db.roomGameState.findUniqueOrThrow({ where: { roomId: room.id } })).stateJson);
+  const initial = await read();
+  expect(initial.buzzer.mode).toBe('TEAM');
+  expect(initial.buzzer.eligiblePlayerIds).toHaveLength(4);
+  const oldTeam = initial.buzzer.teamByPlayer[first.id], otherTeam = initial.buzzer.teamByPlayer[opponent.id];
+  expect(initial.buzzer.teamByPlayer[teammate.id]).toBe(oldTeam);
+  expect((await gameAck(first.socket, slug === 'jeopardy' ? 'jeopardy:buzz' : 'weristdas:buzz', { commandId: randomUUID() })).success).toBe(true);
+  expect((await read()).buzzer.winnerTeamId).toBe(oldTeam);
+  expect((await gameAck(host, slug === 'jeopardy' ? 'jeopardy:judge' : 'weristdas:judge', { ...(slug === 'jeopardy' ? { correct: false } : { result: 'WRONG' }), commandId: randomUUID() })).success).toBe(true);
+  const assignments = { [first.id]: oldTeam, [teammate.id]: otherTeam, [opponent.id]: oldTeam, [players[3].id]: otherTeam };
+  const reshuffle = () => gameAck(host, 'room:command', { roomCode: code, protocolVersion: 1, commandId: randomUUID(), operation: { type: 'TEAMS_ASSIGN', mode: 'MANUAL', assignments, override: true } });
+  expect(await reshuffle()).toMatchObject({ success: false, error: 'TEAMS_LOCKED' });
+  if (slug === 'wer-ist-das') expect((await gameAck(host, 'weristdas:buzzer:open', { commandId: randomUUID() })).success).toBe(true);
+  const state = await read(), buzzer = slug === 'jeopardy' ? state.stealBuzzer : state.buzzer;
+  expect(buzzer.teamByPlayer).toEqual(initial.buzzer.teamByPlayer);
+  expect(buzzer.excludedPlayerIds).toEqual(expect.arrayContaining([first.id, teammate.id]));
+  expect((await runtime(teammate.socket)).availableActions.some(a => a.key === (slug === 'jeopardy' ? 'stealBuzz' : 'buzz'))).toBe(false);
+  expect((await gameAck(teammate.socket, slug === 'jeopardy' ? 'jeopardy:steal:buzz' : 'weristdas:buzz', { commandId: randomUUID() })).success).toBe(false);
+  const rejoined = await connect();
+  expect((await gameAck(rejoined, 'room:subscribe', { roomCode: code, rejoinToken: teammate.rejoinToken })).success).toBe(true);
+  expect((await runtime(rejoined)).availableActions.some(a => a.key === (slug === 'jeopardy' ? 'stealBuzz' : 'buzz'))).toBe(false);
+  expect((await gameAck(opponent.socket, slug === 'jeopardy' ? 'jeopardy:steal:buzz' : 'weristdas:buzz', { commandId: randomUUID() })).success).toBe(true);
+  expect((await gameAck(host, slug === 'jeopardy' ? 'jeopardy:steal:judge' : 'weristdas:judge', { ...(slug === 'jeopardy' ? { correct: true } : { result: 'BOTH_CORRECT' }), commandId: randomUUID() })).success).toBe(true);
+  expect(await reshuffle()).toMatchObject({ success: true });
+  expect((await gameAck(host, slug === 'jeopardy' ? 'jeopardy:next' : 'weristdas:next', { commandId: randomUUID() })).success).toBe(true);
+  if (slug === 'jeopardy') expect((await gameAck(host, 'jeopardy:field:open', { boardIndex: 1, categoryIndex: 0, value: 200, commandId: randomUUID() })).success).toBe(true);
+  else expect((await gameAck(host, 'weristdas:buzzer:open', { commandId: randomUUID() })).success).toBe(true);
+  const next = await read();
+  expect(next.buzzer.mode).toBe('TEAM');
+  expect(next.buzzer.excludedPlayerIds).toEqual([]);
+  expect(next.buzzer.teamByPlayer[teammate.id]).toBe(otherTeam);
+  expect(next.buzzer.teamByPlayer[opponent.id]).toBe(oldTeam);
+  expect((await runtime(rejoined)).availableActions.some(a => a.key === 'buzz')).toBe(true);
   await assertEventReplay(room.id);
 });

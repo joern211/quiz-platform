@@ -273,7 +273,7 @@ export function JeopardyModeratorPage() {
 
           {core.can('buzzerOverride') && core.projection && <BuzzerOverride roomCode={roomCode} stateVersion={core.projection.stateVersion} runIndex={core.projection.runIndex} playerNames={gameState.playerNames}
             winnerId={gameState.phase === 'STEAL_LOCKED' ? gameState.stealWinner?.playerId ?? null : gameState.buzzWinner?.playerId ?? null}
-            excludedIds={gameState.phase === 'STEAL_LOCKED' && gameState.stealExcludedId ? [gameState.stealExcludedId] : []} />}
+            excludedIds={gameState.phase === 'STEAL_LOCKED' ? gameState.stealExcludedIds : []} />}
           {/* Buzzer status */}
           {hasCurrentField && gameState.buzzWinner && (
             <Card padding="md" className={styles.buzzerStatus}>
