@@ -11,6 +11,7 @@ import { projectWerIstDas } from './resync.js';
 import { openRoundBuzzerForRoom } from '../core/buzzerRoster.js';
 import { loadInitialGameCount, loadInitialTieStrategy, ConfigSnapshotError } from '../core/config.js';
 import { resolveCanonicalSlug } from '@quiz/shared';
+import { transitionRoundState } from '../core/roundTransition.js';
 import { resolveBuzzer } from '../core/buzzer.js';
 import { getGameEngineContract } from '../core/engineContract.js';
 import { activateHint, buzz, createWerIstDasState, judge, nextRound, openRoundBuzzer, revealRound,
@@ -191,10 +192,12 @@ export const werIstDasGame = {
   async end(io: Server, room: { id: string; code: string; setupSnapshotJson: string | null }) {
     const setup = WerIstDasSetupSchema.parse(JSON.parse(room.setupSnapshotJson ?? '{}'));
     const result = await finishRunningGame<WerIstDasState>({ gameSlug: 'wer-ist-das',
-      roomId: room.id, nextState: state => ({ ...state, buzzer: resolveBuzzer(state.buzzer),
-        playedRoundIds: state.revealed
-          ? [...state.playedRoundIds, setup.rounds[state.roundIndex].id]
-          : state.playedRoundIds }),
+      roomId: room.id, nextState: state => {
+        const prepared = { ...state, phase: WerIstDasPhase.GAME_END, answerTurn: null, buzzer: resolveBuzzer(state.buzzer),
+          playedRoundIds: state.revealed ? [...state.playedRoundIds, setup.rounds[state.roundIndex].id] : state.playedRoundIds };
+        return state.phase === WerIstDasPhase.REVEAL ? transitionRoundState({ gameSlug: 'wer-ist-das', current: state,
+          prepared, completedRoundId: setup.rounds[state.roundIndex].id }) : prepared;
+      },
     });
     if (result.ended) {
       await sendProjections(io, room.id, result.state, setup);

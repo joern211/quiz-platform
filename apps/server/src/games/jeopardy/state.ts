@@ -4,7 +4,7 @@
 // ============================================================
 
 import { applyScoreDelta as applyCoreScoreDelta, ensureScoreEntries } from '../core/score.js';
-import type { CoreTimer, SubmissionRecord, CoreTurn } from '@quiz/shared';
+import type { CoreTimer, SubmissionRecord, CoreTurn, CoreRoundTransition } from '@quiz/shared';
 import { createBuzzerState, openBuzzer as openCoreBuzzer, resetBuzzerState, type BuzzerState } from '../core/buzzer.js';
 
 import {
@@ -68,6 +68,7 @@ export interface JeopardyFieldDef {
 
 export interface JeopardyGameState {
   tieStrategy?: 'ALLOW_TIE';
+  lastRoundTransition?: CoreRoundTransition;
   buzzer?: BuzzerState;
   stealBuzzer?: BuzzerState;
   /** Optional on legacy v1 states; new rounds persist the shared runtime records. */

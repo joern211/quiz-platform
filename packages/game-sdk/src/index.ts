@@ -3,7 +3,7 @@
 // ============================================================
 
 import { z } from 'zod';
-import type { GameManifest } from '@quiz/shared';
+import type { GameManifest, CoreGamePhase } from '@quiz/shared';
 
 export const GameEndReasonSchema = z.enum(['COMPLETED', 'HOST_ABORTED', 'TECHNICAL_ABORT', 'INSUFFICIENT_PLAYERS', 'RULE_TRIGGERED_END', 'TIME_LIMIT_REACHED', 'ERROR_RECOVERY_FAILED']);
 export const RoundEndReasonSchema = z.enum(['COMPLETED', 'TIME_EXPIRED', 'ANSWER_CORRECT', 'ANSWER_WRONG', 'TARGET_REACHED', 'PLAYER_GAVE_UP', 'HOST_SKIPPED', 'HOST_ABORTED', 'TECHNICAL_ABORT', 'RULE_TRIGGERED_END']);
@@ -29,6 +29,7 @@ export interface GameEngineContract<T extends EngineContractTypes> {
   contentSchema: z.ZodType<unknown>;
   createInitialState(context: T['InitializeContext']): Promise<T['State']>;
   validateSetup(input: unknown): EngineValidation;
+  getLifecyclePhase(state: T['State']): CoreGamePhase;
   preflightCheck(context: T['PreflightContext']): Promise<{ status: 'READY_TO_START' | 'WARNINGS' | 'BLOCKED'; blockers: string[]; warnings: string[] }>;
   validateCommand(context: T['CommandValidationContext'], command: EngineCommand): EngineValidation;
   handleCommand(context: T['CommandContext'], command: EngineCommand): Promise<{ success: boolean; error?: string; [key: string]: unknown }>;

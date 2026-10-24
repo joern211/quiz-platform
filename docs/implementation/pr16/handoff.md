@@ -27,6 +27,7 @@ Commit-IDs unterscheiden sich dabei, Dateibäume sind identisch.
 | a7e4c41 | b59365f | realer Engine-Vertrag, lokal 411 Server-/85 Webtests; CI Run 40118255452 an SQLite-Sperren gescheitert |
 | 53896ad | d5364d8 | Tie-/Scheduler-/Sitzungs-Fix, 416 Server-/85 Webtests, CI und E2E grün, Run 40119533680 |
 | b052a44 | f5c3636 | echte Host-Buzzer-Korrektur und UI, 419 Server-/85 Webtests, CI/E2E grün, Run 40120123179 |
+| b53c972 | c7c2e57 | echte Team-Buzzer, 421 Server-/85 Webtests, CI/E2E grün, Run 40121033591 |
 
 Gestapelte Merge-Reihenfolge: #15 vor #16. Nach #15-Merge Base auf main
 umstellen und erneut prüfen. PR16 bleibt Draft, bis der gesamte Umfang
@@ -128,7 +129,7 @@ Event-Replay-Gleichheit. Vollständige Serversuite: 419/419 grün (49 Dateien,
 Engine-Vertrag aus.
 85/85 Webtests, Typecheck/Build/Lint lokal grün (115 bestehende Warnungen).
 
-## Aktuelle lokale Folgeänderung: echter Team-Buzzer
+## Team-Buzzer (gesichert mit b53c972)
 
 Jeopardy und WID pinnen beim ersten Öffnen die aktuelle aktive Runde als
 SELECTED- bzw. TEAM-Buzzer. Keine neue Zufallsauswahl. Team-Zuordnung und
@@ -155,15 +156,35 @@ Der Adapter übernimmt sie nun ausdrücklich; Migration/Neustart/Runtime
 bestehen 18/18. Anschließend kompletter Serverlauf 421/421 grün (49 Dateien,
 99,19 Sekunden), Web85, Typecheck/Build/Lint0 Fehler (115 bestehende Warnungen).
 
+## Aktuelle lokale Folgeänderung: Lifecycle / Round-Transition
+
+Gemeinsame CoreGamePhase und getLifecyclePhase im realen SDK-Vertrag aller
+Engines; Runtime-Projektion enthält corePhase zusätzlich zur Unterphase.
+Kein zweites konkurrierendes Phase-Feld in der Datenbank. WID ROUND_READY
+nach falscher Antwort ist ROUND_ACTIVE, vor dem ersten Öffnen ROUND_PREPARE.
+Pause/Recovery/Spielende bleiben explizit. Alte gespeicherte States brauchen
+keine erfundenen Felder.
+
+Alle drei Engines verwenden transitionRoundState bei normalen Runden-/
+Boardwechseln und beim regulären Ende. Der Guard verlangt ROUND_END,
+zulässige Folgephase und unveränderte Scores. Gemeinsame Runtime-Resets
+löschen aktuelle Buzzer/Turn/Submission/Timer; historische Daten bleiben in
+Events bzw. Geo-Rundenstates. lastRoundTransition speichert Abschluss-ID
+und ROUND_END → ROUND_TRANSITION → ROUND_PREPARE/GAME_END atomar im
+State-Event. Ein ACK-Verlust kann keinen zweiten Rundeneffekt erzeugen.
+
+Lokale Abnahme: voller Serverlauf 423/423 (50 Dateien, 95,95 Sekunden),
+Web85, Typecheck/Build/Lint0 Fehler (115 bestehende Warnungen), Dokuchecker
+und diff --check grün. 48 gezielte Fälle grün. Terminal-Assertions für Geo wurden anschließend im vollständigen
+Runtime-Test erneut geprüft: 12/12 grün.
+Abnahmetabelle: docs/implementation/pr16/acceptance.md.
+
 ## Exakte Fortsetzung
 
-1. Team-Folge baumidentisch pushen, GitHub-CI/E2E prüfen und Handoff/PR auf
-   den neuen Head aktualisieren. Nie zwei Serversuiten gleichzeitig auf
-   /tmp/quiz-server-test.db starten.
-2. Punkt 2 vervollständigen: gemeinsame kanonische Lifecycle-Phasen und
-   tatsächliche Round-Transition über mindestens zwei Engines, verbleibende
-   Timer-/Turn-/Submission-Controls anhand deklarierter Capabilities prüfen.
-   Keine Typen/Helfer als vollständigen Core-Abschluss ausgeben.
-3. Erst nach Punkt-2-Abnahme Punkt 3 (Results/Review/FINALIZED, Ledger-
-   Korrekturen/Amendments und Recovery) auf eigener Folgebranch beginnen.
-4. Danach Punkt 4 Content/Editor und Punkt 5 Medien/Display/neue Spiele.
+1. Lifecycle-Folge baumidentisch pushen und vollständige GitHub-CI/E2E am
+   neuen Head abnehmen. Bis dahin Punkt 2 nicht als abgeschlossen ausgeben.
+   Nie zwei Serversuiten gleichzeitig auf /tmp/quiz-server-test.db starten.
+2. Nach grüner Abnahme Punkt 2 in der Roadmap abschließen. Dann Punkt 3:
+   Results/Review/FINALIZED, Ledger-Korrekturen/Amendments und Recovery auf
+   einer isolierten Folgebranch. Kein Merge durch den Agenten.
+3. Danach Punkt 4 Content/Editor und Punkt 5 Medien/Display/neue Spiele.

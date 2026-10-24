@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { coreLifecyclePhase } from './lifecycle.js';
 import { BuzzerOverridePayloadSchema, handleBuzzerOverride } from './buzzerOverride.js';
 import type { Server, Socket } from 'socket.io';
 import type { Prisma } from '@prisma/client';
@@ -115,6 +116,7 @@ export function getGameEngineContract(inputSlug: string): ServerGameEngineContra
   };
   const contract: ServerGameEngineContract = {
     manifest, setupSchema, contentSchema,
+    getLifecyclePhase: state => coreLifecyclePhase(slug, state),
     validateSetup: input => setupSchema.safeParse(input).success ? { success: true } : { success: false, error: 'INVALID_SETUP' },
     async createInitialState(context) {
       const setup: unknown = JSON.parse(context.room.setupSnapshotJson ?? '{}');

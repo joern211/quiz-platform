@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { CoreTimerSchema, CoreTurnSchema, CoreBuzzerSchema, SubmissionRecordSchema, resolveCanonicalSlug } from '@quiz/shared';
+import { CoreTimerSchema, CoreTurnSchema, CoreRoundTransitionSchema, CoreBuzzerSchema, SubmissionRecordSchema, resolveCanonicalSlug } from '@quiz/shared';
 import { CoreRuleError } from './runtimePrimitives.js';
 import { JEOPARDY_PHASES } from '../jeopardy/contracts.js';
 import { WerIstDasPhase } from '../weristdas/contracts.js';
@@ -9,7 +9,7 @@ export function assertGameInvariants(slug: string, state: unknown, phase: string
 }
 
 const scores = z.record(z.number().finite().int());
-const base = z.object({ phase: z.string(), scores, tieStrategy: z.literal('ALLOW_TIE').optional() });
+const base = z.object({ phase: z.string(), scores, tieStrategy: z.literal('ALLOW_TIE').optional(), lastRoundTransition: CoreRoundTransitionSchema.optional() });
 const buzzer = CoreBuzzerSchema;
 const geo = base.extend({ currentRoundIndex: z.number().int().nonnegative(), questions: z.array(z.unknown()).min(1), roundStates: z.record(z.object({
   revealed: z.boolean(), timer: CoreTimerSchema.optional(), playerStates: z.record(z.object({ submission: SubmissionRecordSchema.optional() })),

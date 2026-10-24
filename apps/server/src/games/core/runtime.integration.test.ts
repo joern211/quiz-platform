@@ -83,6 +83,7 @@ it('Wissensduell uses shared timer/submission/judge through real commands, pause
   cancelGeoTimer(room.id); await handleGeoGame.startRound(app.io, code);
   const playerRuntime = await runtime(player.socket);
   expect(playerRuntime.availableActions).toContainEqual(expect.objectContaining({ key: 'answer' }));
+  expect(playerRuntime.corePhase).toBe('ROUND_ACTIVE');
   expect(playerRuntime.progress).toMatchObject({ currentRound: 1, totalRounds: 1, remainingRounds: 1 });
   expect((await gameAck(host, 'game:pause', { roomCode: code, commandId: randomUUID() })).success).toBe(true);
   let state = JSON.parse((await db.roomGameState.findUniqueOrThrow({ where: { roomId: room.id } })).stateJson);
@@ -111,7 +112,10 @@ it('Wissensduell uses shared timer/submission/judge through real commands, pause
   expect((await end).finalScores).toEqual(expect.arrayContaining([
     expect.objectContaining({ participationId: player.id, score: 100, rank: 1 }),
   ]));
-  expect((await db.roomGameState.findUniqueOrThrow({ where: { roomId: room.id } })).phase).toBe('GAME_END');
+  const terminal = await db.roomGameState.findUniqueOrThrow({ where: { roomId: room.id } });
+  expect(terminal.phase).toBe('GAME_END');
+  expect(JSON.parse(terminal.stateJson).lastRoundTransition.sequence).toEqual(['ROUND_END', 'ROUND_TRANSITION', 'GAME_END']);
+  expect((await runtime(host)).corePhase).toBe('GAME_END');
   await assertEventReplay(room.id);
   expect(await db.gameDomainEvent.count({ where: { roomId: room.id, commandId } })).toBe(1);
 });
@@ -310,6 +314,7 @@ it.each(['jeopardy', 'wer-ist-das'] as const)('%s: pins team buzzers, excludes t
   expect(await reshuffle()).toMatchObject({ success: false, error: 'TEAMS_LOCKED' });
   if (slug === 'wer-ist-das') expect((await gameAck(host, 'weristdas:buzzer:open', { commandId: randomUUID() })).success).toBe(true);
   const state = await read(), buzzer = slug === 'jeopardy' ? state.stealBuzzer : state.buzzer;
+  expect((await runtime(host)).corePhase).toBe('ROUND_ACTIVE');
   expect(buzzer.teamByPlayer).toEqual(initial.buzzer.teamByPlayer);
   expect(buzzer.excludedPlayerIds).toEqual(expect.arrayContaining([first.id, teammate.id]));
   expect((await runtime(teammate.socket)).availableActions.some(a => a.key === (slug === 'jeopardy' ? 'stealBuzz' : 'buzz'))).toBe(false);
@@ -324,6 +329,9 @@ it.each(['jeopardy', 'wer-ist-das'] as const)('%s: pins team buzzers, excludes t
   if (slug === 'jeopardy') expect((await gameAck(host, 'jeopardy:field:open', { boardIndex: 1, categoryIndex: 0, value: 200, commandId: randomUUID() })).success).toBe(true);
   else expect((await gameAck(host, 'weristdas:buzzer:open', { commandId: randomUUID() })).success).toBe(true);
   const next = await read();
+  expect(next.lastRoundTransition).toMatchObject({ sequence: ['ROUND_END', 'ROUND_TRANSITION', 'ROUND_PREPARE'] });
+  expect(next.answerTurn ?? null).toBeNull();
+  expect(next.submissions ?? {}).toEqual({});
   expect(next.buzzer.mode).toBe('TEAM');
   expect(next.buzzer.excludedPlayerIds).toEqual([]);
   expect(next.buzzer.teamByPlayer[teammate.id]).toBe(otherTeam);

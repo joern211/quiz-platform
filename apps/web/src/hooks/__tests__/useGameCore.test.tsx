@@ -10,7 +10,7 @@ vi.mock('../../lib/socket', () => ({ getSocket: () => ({ connected: true,
   off: (event: string, listener: () => void) => transport.handlers.get(event)?.delete(listener),
 }) }));
 beforeEach(() => { transport.handlers.clear(); transport.requests.length = 0; });
-function projection(roomCode = '123-456') { return CoreRuntimeProjectionSchema.parse({ roomCode, runIndex: 1, gameSlug: 'wissensduell', engineVersion: 1, stateVersion: 2, enginePhase: 'INPUT_OPEN', informationRole: 'HOST', timer: null, progress: { currentRound: 1, totalRounds: 2, remainingRounds: 2, progressPercent: 0 }, availableActions: [{ key: 'reveal', event: 'geo:reveal', label: 'Auflösen' }] }); }
+function projection(roomCode = '123-456') { return CoreRuntimeProjectionSchema.parse({ roomCode, runIndex: 1, gameSlug: 'wissensduell', engineVersion: 1, stateVersion: 2, enginePhase: 'INPUT_OPEN', corePhase: 'ROUND_ACTIVE', informationRole: 'HOST', timer: null, progress: { currentRound: 1, totalRounds: 2, remainingRounds: 2, progressPercent: 0 }, availableActions: [{ key: 'reveal', event: 'geo:reveal', label: 'Auflösen' }] }); }
 function fire(event: string) { for (const listener of transport.handlers.get(event) ?? []) listener(); }
 it('ignores late snapshots and clears privileged actions on a failed refresh', () => {
   const { result } = renderHook(() => useGameCore('123-456'));

@@ -14,6 +14,7 @@ import { claimBuzzer, openBuzzer, createBuzzerState, resolveBuzzer } from '../co
 import { recordScoreMutation } from '../core/score.js';
 import { createTimer, submitOnce, judgeSubmission, scoreJudgement } from '../core/runtimePrimitives.js';
 import { createTurn, requireWinningTurn, matchAnswer } from '../core/roundFlow.js';
+import { prepareRoundRuntime, transitionRoundState } from '../core/roundTransition.js';
 import { resolveTie } from '../core/tie.js';
 import { openRoundBuzzerForRoom } from '../core/buzzerRoster.js';
 import {
@@ -640,14 +641,9 @@ export const handleJeopardyGame = {
         throw new Error('PHASE_NOT_FIELD_DONE');
       }
 
-      state = {
-        ...state,
-        currentField: null,
-        timer: undefined,
-        submissions: {},
-        phase: JEOPARDY_PHASES.SELECTING,
-      };
-      state = resetBuzzer(state);
+      state = transitionRoundState({ gameSlug: 'jeopardy', current: state,
+        completedRoundId: state.currentField ? fieldKey(state.currentBoard, state.currentField.categoryIndex, state.currentField.value) : `board:${state.currentBoard}`,
+        prepared: resetBuzzer({ ...state, ...prepareRoundRuntime(), currentField: null, phase: JEOPARDY_PHASES.SELECTING }) });
 
       await saveGameStateIfRevision(tx, { gameSlug: 'jeopardy', roomId, expectedRevision: gameStateData.revision, state, phase: state.phase });
     });
@@ -692,8 +688,9 @@ export const handleJeopardyGame = {
       }
 
       // Board 2 fields were registered at initialization; never reinsert played fields.
-      const newState = resetBuzzer({ ...state, currentBoard: 2 as const, currentField: null });
-      newState.phase = JEOPARDY_PHASES.SELECTING;
+      const newState = transitionRoundState({ gameSlug: 'jeopardy', current: state,
+        completedRoundId: state.currentField ? fieldKey(state.currentBoard, state.currentField.categoryIndex, state.currentField.value) : `board:${state.currentBoard}`,
+        prepared: resetBuzzer({ ...state, ...prepareRoundRuntime(), currentBoard: 2 as const, currentField: null, phase: JEOPARDY_PHASES.SELECTING }) });
       await prisma.$transaction(async (tx) => saveGameStateIfRevision(tx, { gameSlug: 'jeopardy', roomId: room.id, expectedRevision: gameStateData.revision, state: newState, phase: newState.phase }));
 
       const categories = setup.board2.categories.map((cat) => ({
@@ -733,7 +730,9 @@ export const handleJeopardyGame = {
   ): Promise<{ success: boolean; error?: string; ended?: boolean }> {
     const result = await finishRunningGame<JeopardyGameState>({ gameSlug: 'jeopardy',
       roomId: room.id,
-      ...(!manual ? { requiredPhase: JEOPARDY_PHASES.BOARD_COMPLETE } : {}),
+      ...(!manual ? { requiredPhase: JEOPARDY_PHASES.BOARD_COMPLETE, nextState: (state: JeopardyGameState) => transitionRoundState({ gameSlug: 'jeopardy', current: state,
+        completedRoundId: state.currentField ? fieldKey(state.currentBoard, state.currentField.categoryIndex, state.currentField.value) : `board:${state.currentBoard}`,
+        prepared: resetBuzzer({ ...state, ...prepareRoundRuntime(), phase: JEOPARDY_PHASES.GAME_END }) }) } : {}),
     });
     if (!result.ended) return { success: true, ended: false };
     const state = result.state;

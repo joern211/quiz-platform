@@ -4,9 +4,10 @@
 
 import { Server, Socket } from 'socket.io';
 import { prisma } from '../../persistence/prisma.js';
-import { resolveCanonicalSlug, slugWithLegacy, type CoreTimer, type SubmissionRecord } from '@quiz/shared';
+import { resolveCanonicalSlug, slugWithLegacy, type CoreTimer, type SubmissionRecord, type CoreRoundTransition } from '@quiz/shared';
 import { createTimer, legacyRoundTimer, timerAcceptsInput, pauseTimer, resumeTimer, endTimer, submitOnce, lockSubmission, judgeSubmission, scoreJudgement } from '../core/runtimePrimitives.js';
 import { advanceRound, matchAnswer, shuffleServer } from '../core/roundFlow.js';
+import { transitionRoundState } from '../core/roundTransition.js';
 import { resolveTie } from '../core/tie.js';
 import { ensureGameStateSafe } from '../core/recovery.js';
 import { finishRunningGame, saveGameStateIfRevision, upsertGameState } from '../core/state.js';
@@ -50,6 +51,7 @@ interface GeoRoundState {
 
 interface GeoGameState {
   tieStrategy?: 'ALLOW_TIE';
+  lastRoundTransition?: CoreRoundTransition;
   phase: string;
   currentRoundIndex: number;
   questions: any[];
@@ -1081,14 +1083,15 @@ export const handleGeoGame = {
         return;
       }
       const transition = advanceRound(state.currentRoundIndex, state.questions.length);
-      state.currentRoundIndex = transition.nextIndex;
-      state.phase = 'PROMPT';
+      const prepared = transitionRoundState({ gameSlug: 'wissensduell', current: state, completedRoundId: String(state.currentRoundIndex),
+        nextRoundId: transition.ended ? null : String(transition.nextIndex),
+        prepared: { ...state, currentRoundIndex: transition.nextIndex, phase: transition.ended ? 'GAME_END' : 'PROMPT' } });
 
       // Check if game ended
       if (transition.ended) {
         const ended = await finishRunningGame<GeoGameState>({ gameSlug: 'wissensduell',
           roomId: room.id, expectedRevision: gameStateData.revision, requiredPhase: 'REVEAL',
-          nextState: (current) => ({ ...current, currentRoundIndex: transition.nextIndex }),
+          nextState: () => prepared,
         });
         if (ended.ended) await this.handleGameEnd(io, room, ended.state);
         callback?.({ success: true, ended: true });
@@ -1096,12 +1099,12 @@ export const handleGeoGame = {
       }
 
       await prisma.$transaction(async (tx) => saveGameStateIfRevision(tx, { gameSlug: 'wissensduell',
-        roomId: room.id, expectedRevision: gameStateData.revision, state, phase: 'PROMPT',
+        roomId: room.id, expectedRevision: gameStateData.revision, state: prepared, phase: 'PROMPT',
       }));
 
       // P0-04: Emit 'geo:next' (after reveal, to trigger next round)
       io.to(roomChannel(room.id)).emit('geo:next', {
-        nextRoundIndex: state.currentRoundIndex,
+        nextRoundIndex: prepared.currentRoundIndex,
         totalQuestions: state.questions.length,
       });
 

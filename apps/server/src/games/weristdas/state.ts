@@ -1,12 +1,14 @@
-import { claimBuzzer, createBuzzerState, openBuzzer, resolveBuzzer, resetBuzzerState, isBuzzerEligible, type BuzzerState } from '../core/buzzer.js';
+import { claimBuzzer, createBuzzerState, openBuzzer, resolveBuzzer, isBuzzerEligible, type BuzzerState } from '../core/buzzer.js';
 import { applyScoreDelta, ensureScoreEntries } from '../core/score.js';
 import { WerIstDasPhase } from './contracts.js';
-import type { CoreTurn } from '@quiz/shared';
+import { prepareRoundRuntime, transitionRoundState } from '../core/roundTransition.js';
+import type { CoreTurn, CoreRoundTransition } from '@quiz/shared';
 import { advanceRound, createTurn, requireWinningTurn } from '../core/roundFlow.js';
 import { scoreJudgement } from '../core/runtimePrimitives.js';
 
 export interface WerIstDasState {
   tieStrategy?: 'ALLOW_TIE';
+  lastRoundTransition?: CoreRoundTransition;
   answerTurn?: CoreTurn | null;
   phase: WerIstDasPhase;
   roundIndex: number;
@@ -101,7 +103,9 @@ export function nextRound(state: WerIstDasState, currentRoundId: string): WerIst
   requirePhase(state, WerIstDasPhase.REVEAL);
   const transition = advanceRound(state.roundIndex, state.roundCount);
   if (transition.ended) throw new InvalidGameAction('LAST_ROUND');
-  return { ...state, answerTurn: null, roundIndex: transition.nextIndex, phase: WerIstDasPhase.ROUND_READY,
-    playedRoundIds: [...state.playedRoundIds, currentRoundId],
-    buzzer: resetBuzzerState(), hintActive: false, solvedBy: null, lastDelta: null, revealed: false };
+  const runtime = prepareRoundRuntime();
+  return transitionRoundState({ gameSlug: 'wer-ist-das', current: state, completedRoundId: currentRoundId,
+    prepared: { ...state, answerTurn: runtime.answerTurn, roundIndex: transition.nextIndex, phase: WerIstDasPhase.ROUND_READY,
+      playedRoundIds: [...state.playedRoundIds, currentRoundId],
+      buzzer: runtime.buzzer, hintActive: false, solvedBy: null, lastDelta: null, revealed: false } });
 }

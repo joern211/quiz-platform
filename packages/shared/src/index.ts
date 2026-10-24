@@ -1588,10 +1588,15 @@ export const CoreBuzzerSchema = z.object({
 export type CoreBuzzer = z.infer<typeof CoreBuzzerSchema>;
 export const CoreActionKeySchema = z.enum(['answer', 'joker5050', 'jokerSpy', 'jokerRisk', 'reveal', 'next', 'fieldOpen', 'buzz', 'judge', 'stealBuzz', 'stealJudge', 'boardSwitch', 'pause', 'resume', 'end', 'open', 'hint', 'buzzerOverride']);
 export type CoreActionKey = z.infer<typeof CoreActionKeySchema>;
+export const CoreGamePhaseSchema = z.enum(['SETUP', 'READY', 'ROUND_PREPARE', 'ROUND_ACTIVE', 'ROUND_RESOLUTION', 'ROUND_END', 'ROUND_TRANSITION', 'GAME_END', 'RESULT_REVIEW', 'FINALIZED', 'PAUSED', 'ABORTED', 'ERROR_RECOVERY']);
+export type CoreGamePhase = z.infer<typeof CoreGamePhaseSchema>;
+export const CoreRoundTransitionSchema = z.object({ completedRoundId: z.string().min(1), nextRoundId: z.string().min(1).nullable(),
+  sequence: z.tuple([z.literal('ROUND_END'), z.literal('ROUND_TRANSITION'), z.enum(['ROUND_PREPARE', 'GAME_END'])]) }).strict();
+export type CoreRoundTransition = z.infer<typeof CoreRoundTransitionSchema>;
 export const CoreRuntimeProjectionSchema = z.object({
   roomCode: z.string().regex(/^\d{3}-\d{3}$/), runIndex: z.number().int().positive(),
   gameSlug: z.string(), engineVersion: z.number().int().positive(), stateVersion: z.number().int().nonnegative(),
-  enginePhase: z.string(), informationRole: z.enum(['HOST', 'PLAYER', 'VIEWER', 'DISPLAY']),
+  enginePhase: z.string(), corePhase: CoreGamePhaseSchema, informationRole: z.enum(['HOST', 'PLAYER', 'VIEWER', 'DISPLAY']),
   recoveryRequired: z.boolean().optional(),
   timer: CoreTimerSchema.nullable(),
   progress: z.object({ currentRound: z.number().int().nonnegative(), totalRounds: z.number().int().nonnegative().nullable(), remainingRounds: z.number().int().nonnegative().nullable(), progressPercent: z.number().min(0).max(100).nullable() }),

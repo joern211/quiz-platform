@@ -129,3 +129,14 @@ Runde. WID ROUND_READY nach falscher Antwort bleibt für Teamwechsel gesperrt.
 Legacy-Ausschlüsse werden beim ersten Upgrade-Öffnen ausdrücklich erhalten.
 421/421 Server- und 85/85 Webtests, Typecheck/Build/Lint0 Fehler lokal grün.
 Punkt 2: Lifecycle-Normalisierung und gemeinsame Round-Transition noch offen.
+
+## Lifecycle und Round-Transition — Runtime-Abnahme für Punkt 2
+
+b53c972: Team-Buzzer mit CI/E2E grün (Run 40121033591). Folge: gemeinsame
+kanonische Phase im Engine-Vertrag und in Runtime-Projektionen; derselbe
+Rundenübergangsguard in Wissensduell, Jeopardy und WID. Er verlangt abgeschlossene
+Runde, zulässige Folgephase und unveränderte Scores; Runtime-Reset und
+Übergangsfolge werden im Zustand/Domain-Event atomar gespeichert. 423 Server-/
+85 Webtests, Typecheck/Build/Lint lokal grün. Noch CI/E2E am Folge-Head abnehmen,
+dann Punkt 2 abschließen und Punkt 3 starten. Vollständige Runtime-Abgrenzung
+und Nachweise: ../pr16/acceptance.md. Keine Ergebnisfinalisierung vorgetäuscht.
