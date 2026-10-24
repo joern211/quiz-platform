@@ -190,6 +190,7 @@ export async function runGuardedCriticalAction(
 function toReceiptAction(action: string): import('./commands.js').CriticalCommandAction {
   switch (action) {
     case 'buzz': return 'BUZZ';
+    case 'buzzerOverride': return 'BUZZER_OVERRIDE';
     case 'stealBuzz': case 'steal_buzz': return 'STEAL_BUZZ';
     case 'judge': return 'JUDGE';
     case 'stealJudge': case 'steal_judge': return 'STEAL_JUDGE';

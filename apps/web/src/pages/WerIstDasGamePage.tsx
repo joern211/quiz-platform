@@ -1,4 +1,5 @@
 import { useParams } from 'react-router-dom';
+import { BuzzerOverride } from '../components/BuzzerOverride';
 import { GameShell } from '../components/GameShell';
 import { getSessionData, type PlayerRole } from '../lib/socket';
 import { useWerIstDas } from '../hooks/useWerIstDas';
@@ -55,6 +56,7 @@ export function WerIstDasGamePage({ role }: { role: PlayerRole }) {
             </div>}
           {role === 'HOST' && state.phase !== 'GAME_END' && <div className={styles.controls}>
             <h2>Moderation</h2>
+            {core.can('buzzerOverride') && core.projection && <BuzzerOverride roomCode={code} stateVersion={core.projection.stateVersion} runIndex={core.projection.runIndex} playerNames={state.playerNames} winnerId={state.winnerId} excludedIds={state.excludedPlayerIds} />}
             {state.excludedPlayerIds?.length ? <p>Ausgeschlossen: {state.excludedPlayerIds.map(id => state.playerNames[id]).join(', ')}</p> : null}
             {state.phase === 'ROUND_READY' && <button disabled={Boolean(everyoneExcluded) || !core.can('open')} onClick={() => act('weristdas:buzzer:open')}>Buzzer öffnen</button>}
             {state.phase === 'ROUND_READY' && everyoneExcluded && <p>Alle Spieler ausgeschlossen. Löse die Runde auf.</p>}

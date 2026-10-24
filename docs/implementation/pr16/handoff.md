@@ -25,6 +25,7 @@ Commit-IDs unterscheiden sich dabei, Dateibäume sind identisch.
 | 298e97f | 710697e | Visibility/Invariants, 405 Server-/85 Webtests; CI/E2E grün, Run 40115586491 |
 | cc66952 | 4535d2c | Event-Persistenz und Buzzer-Zustände, 408 Server-/85 Webtests; CI/E2E grün, Run 40117073536 |
 | a7e4c41 | b59365f | realer Engine-Vertrag, lokal 411 Server-/85 Webtests; CI Run 40118255452 an SQLite-Sperren gescheitert |
+| 53896ad | d5364d8 | Tie-/Scheduler-/Sitzungs-Fix, 416 Server-/85 Webtests, CI und E2E grün, Run 40119533680 |
 
 Gestapelte Merge-Reihenfolge: #15 vor #16. Nach #15-Merge Base auf main
 umstellen und erneut prüfen. PR16 bleibt Draft, bis der gesamte Umfang
@@ -69,7 +70,7 @@ nachgewiesen ist. Kein Merge ist erfolgt.
   Buzzer öffnen. Host und ausdrücklich delegierte Co-Hosts behalten Controls.
   Bestehende Wire-Codes, besonders WID PLAYER_EXCLUDED, sind erhalten.
 
-## Aktuelle lokale Folgeänderung
+## Tie-Regel und CI-Fix (gesichert mit 53896ad)
 
 Tie-Core mit ALLOW_TIE, SUDDEN_DEATH, TIEBREAKER_QUESTION, SECONDARY_METRIC
 und HOST_DECIDES. Nicht aufgelöste Varianten bleiben PENDING ohne zufälligen
@@ -95,18 +96,46 @@ Lokal nach Scheduler-/Sitzungs-Korrektur: 416/416 Server-Tests (49 Dateien),
 111,79 Sekunden, 85/85 Webtests, Typecheck/Build/Lint ohne Fehler grün.
 Lint hat weiterhin 115 Warnungen. Dokuchecker und diff --check grün.
 
+## Aktuelle lokale Folgeänderung: echte Buzzer-Gewinner-Korrektur
+
+`game:buzzer:override` für Jeopardy (Haupt-/Steal-Buzzer) und Wer ist das?.
+Nur Host bzw. ausdrücklich delegierte BUZZER_CONTROL-Verwaltung; normale
+Spieler besitzen diese Verwaltungsbefugnis nicht. Neue Commands benötigen
+commandId sowie gameStateVersion und runIndex. gameStateVersion ist die
+Engine-CAS-Version; das alte Envelope-stateVersion bezeichnet weiterhin die
+Room-Revision und wird nicht still umgedeutet. Alte Runs/Versionen werden
+abgelehnt, ein Receipt-Replay derselben Absicht erzeugt keine zweite Wirkung.
+
+Nur der noch nicht bewertete Gewinner ist korrigierbar. Buzzer, Antwortzug,
+Jeopardy-Submission (alte CANCELLED, neue SUBMITTED), unveränderlicher
+State-Event, AuditLog und RoomFeed teilen dieselbe Transaktion. Keine
+Punktänderung durch die Korrektur. Eine anschließende Bewertung punktet
+exakt einmal für den korrigierten Gewinner. Beim Steal bleibt der erste
+Responder ausgeschlossen; mehrfache Korrektur zurück zu einer zuvor
+abgebrochenen Antwort ist möglich, ohne alte Score-Events zu verändern.
+
+Beide Moderationsansichten haben dieselbe Auswahl mit optionalem Grund.
+Clients laden ihre eigene Rollenprojektion nach; Grund/Audit/Secrets werden
+nicht in einen allgemeinen Spiel-Snapshot übernommen. Die neuen UI-Flows
+sind den bestehenden Jeopardy-J4- und WID-Browsertests hinzugefügt.
+
+Gezielte echte Socketfälle: 10/10 grün, inklusive Rechteentzug, Viewer/
+Player-Denial, fremdem Teilnehmer, altem Run/State, fehlendem commandId,
+Replay, keine vorzeitigen Lösungen, Steal-Sperre, doppelter Bewertung und
+Event-Replay-Gleichheit. Vollständige Serversuite: 419/419 grün (49 Dateien,
+89,65 Sekunden). Der Socket-Adapter führt auch die Korrektur über den realen
+Engine-Vertrag aus.
+85/85 Webtests, Typecheck/Build/Lint lokal grün (115 bestehende Warnungen).
+
 ## Exakte Fortsetzung
 
-1. Tie-/CI-/Sitzungs-Fix per geprüftem Fast-Forward sichern. Keine zweiten
-   Serversuiten gleichzeitig auf /tmp/quiz-server-test.db starten.
-2. Aktuelle GitHub-CI und vollständige E2E am neuen Head prüfen. Lokaler
-   Chromium fehlt; bisher war GitHub die verbindliche Browserabnahme.
-3. Punkt 2 vervollständigen: Host-Overrides als echte autorisierte Commands
-   mit Receipt, persistiertem Audit/Event und UI; Team-Buzzer-Snapshot/
-   Teamsperren in echten Engines; restliche Turn-/Submission-/Timer-Controls
-   und gemeinsame Rundenübergaben nach Master §5.33. Keine bloßen Typen/
-   Helfer als vollständigen Core-Abschluss ausgeben.
-4. Erst nach Punkt-2-Abnahme Punkt 3 (Results/Review/FINALIZED, Ledger-
+1. Keine zwei Serversuiten gleichzeitig auf /tmp/quiz-server-test.db starten.
+   Host-Override-Folge committen und
+   per baumidentischem Fast-Forward sichern, CI/E2E am neuen Head abwarten.
+2. Punkt 2 vervollständigen: tatsächlicher Team-Buzzer-Snapshot/Teamsperren
+   in echten Engines; restliche Turn-/Submission-/Timer-Controls und
+   gemeinsame Rundenübergaben nach Master §5.33. Keine bloßen Typen/Helfer
+   als vollständigen Core-Abschluss ausgeben.
+3. Erst nach Punkt-2-Abnahme Punkt 3 (Results/Review/FINALIZED, Ledger-
    Korrekturen/Amendments und Recovery) auf eigener Folgebranch beginnen.
-   Frühe echte Consumer: Jeopardy + Wer ist das?. Danach Content/Editor
-   (Punkt 4), Audio/Voice/Kamera/Display und weitere Engines (Punkt 5).
+4. Danach Punkt 4 Content/Editor und Punkt 5 Medien/Display/neue Spiele.

@@ -9,7 +9,7 @@ import { roomChannel } from '../../sockets/channel.js';
 import { getGameEngineContract } from './engineContract.js';
 
 import { availableCoreActions, geoState, jeopardyState, widState, type CoreActionContext } from './actionRules.js';
-import { roomPolicy } from '../../rooms/core.js';
+import { isBuzzerController } from './controllers.js';
 export { availableCoreActions, coreActionDenial, type CoreActionContext } from './actionRules.js';
 
 async function loadContext(socket: Socket) {
@@ -20,8 +20,7 @@ async function loadContext(socket: Socket) {
   try { if (room.gameState) state = JSON.parse(room.gameState.stateJson); }
   catch { /* The invariant gate freezes malformed JSON before a mutation or projection. */ }
   const informationRole: CoreActionContext['informationRole'] = self?.role === 'HOST' && actor.userId === room.hostUserId ? 'HOST' : self?.role === 'PLAYER' ? 'PLAYER' : 'VIEWER';
-  const buzzerController = actor.userId === room.hostUserId || !!actor.userId && roomPolicy(room).coHostEnabled && !!await prisma.roomPermissionGrant.findFirst({
-    where: { roomId, userId: actor.userId, permission: 'BUZZER_CONTROL', direction: 'GRANT', revokedAt: null } });
+  const buzzerController = await isBuzzerController(room, actor.userId);
   const context: CoreActionContext = { gameSlug: room.gameDefinition.slug, roomStatus: room.status, state,
     informationRole, participantId: self?.id ?? null, active: !!self && self.admission === 'ACTIVE' && !self.leftAt && !self.kickedAt && !self.bannedAt,
     permissions: actor.permissions, now: Date.now(), buzzerController };

@@ -33,6 +33,7 @@ const jeopardyRules: ActionRule[] = [
   { key: 'next', event: 'jeopardy:next', label: 'Nächstes Feld', permission: 'ROUND_ADVANCE' },
   { key: 'boardSwitch', event: 'jeopardy:board:switch', label: 'Board abschließen', permission: 'ROUND_ADVANCE' },
 ];
+const buzzerOverrideRule: ActionRule = { key: 'buzzerOverride', event: 'game:buzzer:override', label: 'Buzzer-Gewinner korrigieren', permission: 'BUZZER_CONTROL' };
 const commonRules: ActionRule[] = [
   { key: 'pause', event: 'game:pause', label: 'Spiel pausieren', permission: 'GAME_PAUSE' },
   { key: 'resume', event: 'game:resume', label: 'Spiel fortsetzen', permission: 'GAME_PAUSE' },
@@ -47,7 +48,7 @@ const widRules: ActionRule[] = [
   { key: 'next', event: 'weristdas:next', label: 'Nächste Runde', permission: 'ROUND_ADVANCE' },
 ];
 function rules(slug: string) {
-  return slug === 'wissensduell' ? [...geoRules, ...commonRules] : slug === 'jeopardy' ? [...jeopardyRules, ...commonRules] : slug === 'wer-ist-das' ? [...widRules, ...commonRules] : [];
+  return slug === 'wissensduell' ? [...geoRules, ...commonRules] : slug === 'jeopardy' ? [...jeopardyRules, buzzerOverrideRule, ...commonRules] : slug === 'wer-ist-das' ? [...widRules, buzzerOverrideRule, ...commonRules] : [];
 }
 /** A single predicate powers both public action availability and mutation guards. */
 export function coreActionDenial(context: CoreActionContext, key: string): string | null {
@@ -63,6 +64,10 @@ export function coreActionDenial(context: CoreActionContext, key: string): strin
   if (key === 'end') return phase === 'GAME_END' ? 'GAME_NOT_RUNNING' : null;
   if (key === 'resume') return phase === 'PAUSED' ? null : 'NOT_PAUSED';
   if (key === 'pause') return !['PAUSED', 'GAME_END', 'ERROR_RECOVERY'].includes(phase) && (slug !== 'wissensduell' || phase === 'INPUT_OPEN') ? null : 'INVALID_PHASE';
+  if (key === 'buzzerOverride') {
+    if (!(context.buzzerController ?? context.informationRole === 'HOST')) return 'FORBIDDEN';
+    return (slug === 'jeopardy' ? ['BUZZ_LOCKED', 'STEAL_LOCKED'] : ['ANSWERING']).includes(phase) ? null : 'INVALID_PHASE';
+  }
   if (slug === 'wissensduell') {
     const decoded = geoState.safeParse(context.state);
     if (!decoded.success) return 'INVALID_GAME_STATE';

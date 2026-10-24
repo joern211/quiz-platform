@@ -10,6 +10,7 @@ import { useJeopardy } from '../hooks/useJeopardy';
 import { JeopardyBoard } from '../components/jeopardy/JeopardyBoard';
 import { JeopardyQuestion } from '../components/jeopardy/JeopardyQuestion';
 import { Card, Button } from '@quiz/ui';
+import { BuzzerOverride } from '../components/BuzzerOverride';
 import { GameShell } from '../components/GameShell';
 import styles from './JeopardyModeratorPage.module.css';
 import { useGameCore } from '../hooks/useGameCore';
@@ -270,6 +271,9 @@ export function JeopardyModeratorPage() {
             </div>
           </Card>
 
+          {core.can('buzzerOverride') && core.projection && <BuzzerOverride roomCode={roomCode} stateVersion={core.projection.stateVersion} runIndex={core.projection.runIndex} playerNames={gameState.playerNames}
+            winnerId={gameState.phase === 'STEAL_LOCKED' ? gameState.stealWinner?.playerId ?? null : gameState.buzzWinner?.playerId ?? null}
+            excludedIds={gameState.phase === 'STEAL_LOCKED' && gameState.stealExcludedId ? [gameState.stealExcludedId] : []} />}
           {/* Buzzer status */}
           {hasCurrentField && gameState.buzzWinner && (
             <Card padding="md" className={styles.buzzerStatus}>

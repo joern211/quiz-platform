@@ -28,6 +28,7 @@ export function useWerIstDas(roomCode: string, role: PlayerRole) {
         refresh();
       });
     };
+    socket.on('game:core:changed', refresh);
     socket.on('game:pause', refresh);
     socket.on('game:resume', refresh);
     socket.on('connect', subscribe);
@@ -35,7 +36,7 @@ export function useWerIstDas(roomCode: string, role: PlayerRole) {
     socket.on('weristdas:update', setState);
     if (socket.connected) subscribe();
     connectSocket();
-    return () => { socket.off('connect', subscribe); socket.off('weristdas:update', setState); disconnectSocket(); };
+    return () => { socket.off('game:core:changed', refresh); socket.off('game:pause', refresh); socket.off('game:resume', refresh); socket.off('connect', subscribe); socket.off('weristdas:update', setState); disconnectSocket(); };
   }, [roomCode, role]);
 
   const act = useCallback((event: 'weristdas:buzzer:open' | 'weristdas:buzz' | 'weristdas:hint' |

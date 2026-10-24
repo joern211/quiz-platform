@@ -109,3 +109,13 @@ gemeinsame SQLite-Datei; fünf Suiten wählen ihre eigene Host-Sitzung, damit
 abgelaufene fremde Test-Sitzungen keinen UNAUTHORIZED-Fehler erzeugen.
 416/416 Servertests, 85/85 Webtests, Typecheck/Build/Lint lokal grün.
 GitHub-CI/E2E am Folge-Head noch zu prüfen.
+
+## Host-Korrektur des Buzzer-Gewinners — nächster Teil von Punkt 2
+
+53896ad hat vollständige grüne CI/E2E (Run 40119533680). Lokal folgen echte
+Host-Korrekturen für Jeopardy (auch Steal) und WID: eigene Moderations-UI,
+commandId/Run-/Engine-Versionsschutz, wirksame Verwaltungsrechte und
+gemeinsame Transaktion für Buzzer/Turn/Submission, Domain-Event, Audit/Feed.
+Eine Korrektur vergibt keine Punkte; die anschließende Bewertung punktet
+exakt einmal für den neuen Gewinner. 419 Server-/85 Webtests grün;
+Browsertests um beide UI-Flows erweitert. Team-Anbindung noch offen.

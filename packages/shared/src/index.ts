@@ -1586,7 +1586,7 @@ export const CoreBuzzerSchema = z.object({
   if (state.mode === 'TEAM' && (!state.teamByPlayer || state.winnerId && state.winnerTeamId !== state.teamByPlayer[state.winnerId])) ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'BUZZER_TEAM_CONFLICT' });
 });
 export type CoreBuzzer = z.infer<typeof CoreBuzzerSchema>;
-export const CoreActionKeySchema = z.enum(['answer', 'joker5050', 'jokerSpy', 'jokerRisk', 'reveal', 'next', 'fieldOpen', 'buzz', 'judge', 'stealBuzz', 'stealJudge', 'boardSwitch', 'pause', 'resume', 'end', 'open', 'hint']);
+export const CoreActionKeySchema = z.enum(['answer', 'joker5050', 'jokerSpy', 'jokerRisk', 'reveal', 'next', 'fieldOpen', 'buzz', 'judge', 'stealBuzz', 'stealJudge', 'boardSwitch', 'pause', 'resume', 'end', 'open', 'hint', 'buzzerOverride']);
 export type CoreActionKey = z.infer<typeof CoreActionKeySchema>;
 export const CoreRuntimeProjectionSchema = z.object({
   roomCode: z.string().regex(/^\d{3}-\d{3}$/), runIndex: z.number().int().positive(),

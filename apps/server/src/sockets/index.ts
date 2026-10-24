@@ -2,6 +2,7 @@
 // Socket.IO Handler Setup
 // ============================================================
 
+import { registerBuzzerOverride } from '../games/core/buzzerOverride.js';
 import { registerRoomCore } from '../rooms/socket.js';
 import { projectCoreRuntime } from '../games/core/actions.js';
 import { CoreRuleError } from '../games/core/runtimePrimitives.js';
@@ -68,6 +69,7 @@ export function setupSocketHandlers(io: Server) {
     socket.data = {};
 
     registerRoomCore(io, socket);
+    registerBuzzerOverride(io, socket);
     socket.on('game:core:read', async (_data, callback) => {
       try { callback?.({ success: true, projection: await projectCoreRuntime(socket) }); }
       catch (error) {

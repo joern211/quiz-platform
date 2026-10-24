@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { BuzzerOverridePayloadSchema, handleBuzzerOverride } from './buzzerOverride.js';
 import type { Server, Socket } from 'socket.io';
 import type { Prisma } from '@prisma/client';
 import { applyStateEvent, type GameEngineContract, type EngineCommand, type EngineValidation } from '@quiz/game-sdk';
@@ -36,6 +37,7 @@ type Result = { success: boolean; error?: string; [key: string]: unknown };
 const emptyPayload = z.object({}).passthrough();
 const roomPayload = z.object({ roomCode: z.string().regex(/^\d{3}-\d{3}$/) }).passthrough();
 function commandSchema(slug: string, action: string): z.ZodType<unknown> | null {
+  if (action === 'buzzerOverride' && ['jeopardy', 'wer-ist-das'].includes(slug)) return BuzzerOverridePayloadSchema;
   if (['pause', 'resume', 'end'].includes(action)) return roomPayload;
   if (slug === 'wissensduell') return action === 'answer' ? z.object({ optionId: z.string().min(1).max(10000) }).passthrough()
     : ['joker5050', 'jokerSpy', 'jokerRisk', 'reveal', 'next'].includes(action) ? roomPayload : null;
@@ -58,6 +60,7 @@ async function dispatch(slug: string, context: CommandContext, command: EngineCo
   if (!parsed?.success) return { success: false, error: 'INVALID_PAYLOAD' };
   const payload = parsed.data as Record<string, unknown>, { io, socket } = context;
   const action = command.action;
+  if (action === 'buzzerOverride') return handleBuzzerOverride(io, socket, payload);
   if (action === 'pause' || action === 'resume') return callbackResult(done => slug === 'wissensduell'
     ? (action === 'pause' ? handleGeoGame.handlePause(io, socket, { roomCode: String(payload.roomCode) }, done) : handleGeoGame.handleResume(io, socket, { roomCode: String(payload.roomCode) }, done))
     : pauseUntimedGame({ io, socket, roomCode: String(payload.roomCode), callback: done }, action === 'pause'));

@@ -190,6 +190,7 @@ export function useJeopardy(roomCode: string, role: PlayerRole) {
       );
     };
 
+    socket.on('game:core:changed', refresh);
     socket.on('game:pause', refresh);
     socket.on('game:resume', refresh);
     socket.on('connect', subscribe);
@@ -355,6 +356,9 @@ export function useJeopardy(roomCode: string, role: PlayerRole) {
     });
 
     return () => {
+      socket.off('game:core:changed', refresh);
+      socket.off('game:pause', refresh);
+      socket.off('game:resume', refresh);
       disconnectSocket();
     };
   }, [roomCode, role, rejoinToken]);
