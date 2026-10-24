@@ -6,11 +6,12 @@ import { Server, Socket } from 'socket.io';
 import { prisma } from '../../persistence/prisma.js';
 import { resolveCanonicalSlug, slugWithLegacy, type CoreTimer, type SubmissionRecord } from '@quiz/shared';
 import { createTimer, legacyRoundTimer, timerAcceptsInput, pauseTimer, resumeTimer, endTimer, submitOnce, lockSubmission, judgeSubmission, scoreJudgement } from '../core/runtimePrimitives.js';
-import { advanceRound, matchAnswer, rankScores, shuffleServer } from '../core/roundFlow.js';
+import { advanceRound, matchAnswer, shuffleServer } from '../core/roundFlow.js';
+import { resolveTie } from '../core/tie.js';
 import { ensureGameStateSafe } from '../core/recovery.js';
 import { finishRunningGame, saveGameStateIfRevision, upsertGameState } from '../core/state.js';
 import { withoutCommandExecution } from '../core/commandExecution.js';
-import { loadGameConfig, loadInitialGameCount } from '../core/config.js';
+import { loadGameConfig, loadInitialGameCount, loadInitialTieStrategy } from '../core/config.js';
 import { authorizeGameContext } from '../core/access.js';
 import { gameErrorCode } from '../core/errors.js';
 import { feed } from '../../rooms/core.js';
@@ -48,6 +49,7 @@ interface GeoRoundState {
 }
 
 interface GeoGameState {
+  tieStrategy?: 'ALLOW_TIE';
   phase: string;
   currentRoundIndex: number;
   questions: any[];
@@ -231,6 +233,7 @@ export const handleGeoGame = {
 
     // Create initial game state
     const gameState: GeoGameState = {
+      tieStrategy: await loadInitialTieStrategy(room.id, 'wissensduell'),
       phase: initialPhase,
       currentRoundIndex: 0,
       questions,
@@ -1297,18 +1300,21 @@ export const handleGeoGame = {
       select: { id: true, displayName: true, score: true },
     });
 
-    const finalScores = rankScores(participations
+    const tie = resolveTie(participations
       .map(p => ({ 
+        id: p.id,
         participationId: p.id, 
         displayName: p.displayName,
         score: p.score,
-      })));
+      })), state.tieStrategy ?? 'ALLOW_TIE');
+    const finalScores = tie.rankings.map(({ id: _id, ...entry }) => { void _id; return entry; });
 
     io.to(roomChannel(room.id)).emit('game:end', {
       roomCode: room.code,
       status: 'ENDED',
       runPhase: 'RESULTS',
       finalScores,
+      winnerIds: tie.winnerIds,
     });
 
     logger.info('Geo game ended', { roomId: room.id });

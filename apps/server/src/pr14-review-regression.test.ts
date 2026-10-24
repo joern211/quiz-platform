@@ -20,6 +20,7 @@ let testPrisma: PrismaClient;
 let httpServer: HttpServer;
 let io: Server;
 let origin: string;
+let hostSessionId: string;
 const sockets: ClientSocket[] = [];
 const roomIds: string[] = [];
 const assetIds: string[] = [];
@@ -55,7 +56,7 @@ async function makeHostRoom(overrides: {
             data: { roomId: room.id, displayName: `P${i}`, normalizedName: `p${i}-${code}`, role: 'PLAYER', rejoinToken: randomUUID(), connected: true, ready: true },
         });
     }
-    const host = await connect(createSessionCookie((await testPrisma.session.findFirstOrThrow({ where: { userId: HOST_USER_ID } })).id, config.sessionSecret));
+    const host = await connect(createSessionCookie(hostSessionId, config.sessionSecret));
     expect((await ack(host, 'room:subscribe', { roomCode: code })).success).toBe(true);
     return { id: room.id, code, host };
 }
@@ -65,7 +66,7 @@ beforeAll(async () => {
     await testPrisma.$connect();
     (globalThis as Record<string, unknown>).__prisma = testPrisma;
     await testPrisma.user.upsert({ where: { id: HOST_USER_ID }, update: {}, create: { id: HOST_USER_ID, displayName: 'A14 Host', passwordHash: 'x', role: 'HOST' } });
-    await testPrisma.session.create({ data: { id: `sess-a14-${randomUUID()}`, userId: HOST_USER_ID, expiresAt: new Date(Date.now() + 86400000) } });
+    hostSessionId = (await testPrisma.session.create({ data: { id: `sess-a14-${randomUUID()}`, userId: HOST_USER_ID, expiresAt: new Date(Date.now() + 86400000) } })).id;
     httpServer = createServer();
     io = new Server(httpServer);
     setupSocketHandlers(io);

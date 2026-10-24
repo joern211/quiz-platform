@@ -6,14 +6,15 @@
 import { Server, Socket } from 'socket.io';
 import { prisma } from '../../persistence/prisma.js';
 import { finishRunningGame, saveGameStateIfRevision, upsertGameState } from '../core/state.js';
-import { loadInitialGameCount, ConfigSnapshotError } from '../core/config.js';
+import { loadInitialGameCount, loadInitialTieStrategy, ConfigSnapshotError } from '../core/config.js';
 import { logger } from '../../observability/logger.js';
 import { roomChannel } from '../../sockets/index.js';
 import { authorizeGameContext } from '../core/access.js';
 import { claimBuzzer, openBuzzer, createBuzzerState, resolveBuzzer } from '../core/buzzer.js';
 import { recordScoreMutation } from '../core/score.js';
 import { createTimer, submitOnce, judgeSubmission, scoreJudgement } from '../core/runtimePrimitives.js';
-import { createTurn, requireWinningTurn, matchAnswer, rankScores } from '../core/roundFlow.js';
+import { createTurn, requireWinningTurn, matchAnswer } from '../core/roundFlow.js';
+import { resolveTie } from '../core/tie.js';
 import {
   JEOPARDY_PHASES,
   pointsForCorrect,
@@ -98,6 +99,7 @@ export const handleJeopardyGame = {
 
     // Build initial state
     let state = createJeopardyGameState(1, playerIds, playerNames);
+    state.tieStrategy = await loadInitialTieStrategy(room.id, 'jeopardy');
     state.boardCount = boardCount;
 
     // Register all fields from board 1
@@ -731,15 +733,15 @@ export const handleJeopardyGame = {
     const state = result.state;
 
     const scores = state?.scores ?? {};
-    const finalScores = rankScores(Object.entries(scores)
+    const tie = resolveTie(Object.entries(scores)
       .map(([playerId, score]) => ({
+        id: playerId,
         playerId,
         playerName: state?.playerNames[playerId] ?? 'Unknown',
         score,
-      })));
-
-    const topScore = finalScores[0]?.score ?? 0;
-    const winnerIds = finalScores.filter((s) => s.score === topScore).map((s) => s.playerId);
+      })), state.tieStrategy ?? 'ALLOW_TIE');
+    const finalScores = tie.rankings.map(({ id: _id, ...entry }) => { void _id; return entry; });
+    const winnerIds = tie.winnerIds;
 
     const endEvent: JeopardyGameEndEvent = {
       finalScores,

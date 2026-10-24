@@ -1402,6 +1402,7 @@ export interface ConfigFieldSpec<V = unknown> {
   unit?: 'durationMs' | 'bytes' | 'percent' | 'points' | 'count' | 'bool' | 'string';
   changeClass: ConfigChangeClass;
   nullable?: boolean;
+  allowedValues?: readonly unknown[];
   /** Zentraler Default (SYSTEM_DEFAULT). */
   systemDefault: V;
 }
@@ -1568,6 +1569,8 @@ export const CoreTurnSchema = z.object({
   cycle: z.number().int().nonnegative(),
 }).strict().refine(t => new Set(t.order).size === t.order.length && t.index < t.order.length, { message: 'INVALID_TURN' });
 export type CoreTurn = z.infer<typeof CoreTurnSchema>;
+export const CoreTieStrategySchema = z.enum(['ALLOW_TIE', 'SUDDEN_DEATH', 'TIEBREAKER_QUESTION', 'SECONDARY_METRIC', 'HOST_DECIDES']);
+export type CoreTieStrategy = z.infer<typeof CoreTieStrategySchema>;
 export const CoreBuzzerSchema = z.object({
   open: z.boolean(), winnerId: z.string().nullable(), excludedPlayerIds: z.array(z.string()),
   // Optional only for explicitly supported pre-core states.

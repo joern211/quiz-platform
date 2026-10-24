@@ -16,6 +16,7 @@ describe('Jeopardy multiplayer socket integration', () => {
   let httpServer: HttpServer;
   let io: Server;
   let origin: string;
+  let hostSessionId: string;
   let code: string;
   let roomId: string;
   let moderator: ClientSocket;
@@ -39,8 +40,9 @@ describe('Jeopardy multiplayer socket integration', () => {
   beforeAll(async () => {
     const game = await prisma.gameDefinition.findUniqueOrThrow({ where: { slug: 'jeopardy' } });
     const session = await prisma.session.create({
-      data: { userId: 'mod-1', expiresAt: new Date(Date.now() + 60000) },
+      data: { userId: 'mod-1', expiresAt: new Date(Date.now() + 86400000) },
     });
+    hostSessionId = session.id;
     code = String(Math.floor(100000 + Math.random() * 900000)).replace(/(\d{3})(\d{3})/, '$1-$2');
     const room = await prisma.room.create({
       data: {
@@ -195,7 +197,7 @@ describe('Jeopardy multiplayer socket integration', () => {
           normalizedName: name.toLowerCase(), rejoinToken: randomUUID(), connected: true, ready: true },
       })));
       const otherModerator = await connect(createSessionCookie(
-        (await prisma.session.findFirstOrThrow({ where: { userId: 'mod-1' } })).id,
+        hostSessionId,
         config.sessionSecret
       ));
       expect((await ack(otherModerator, 'room:subscribe', { roomCode: failedRoom.code })).success).toBe(true);
@@ -222,7 +224,7 @@ describe('Jeopardy multiplayer socket integration', () => {
       normalizedName: name.toLowerCase(), rejoinToken: randomUUID(), connected: true, ready: true,
     } })));
     const host = await connect(createSessionCookie(
-      (await prisma.session.findFirstOrThrow({ where: { userId: 'mod-1' } })).id, config.sessionSecret
+      hostSessionId, config.sessionSecret
     ));
     const spectator = await connect();
     expect((await ack(host, 'room:subscribe', { roomCode: gameRoom.code })).success).toBe(true);
@@ -301,7 +303,7 @@ describe('Jeopardy multiplayer socket integration', () => {
           normalizedName: displayName.toLowerCase(), rejoinToken: randomUUID(), connected: true, ready: true },
       })));
       const host = await connect(createSessionCookie(
-        (await prisma.session.findFirstOrThrow({ where: { userId: 'mod-1' } })).id,
+        hostSessionId,
         config.sessionSecret
       ));
       const first = await connect();
@@ -439,7 +441,7 @@ describe('Jeopardy multiplayer socket integration', () => {
         rejoinToken: randomUUID(), connected: true, ready: true,
       } });
       const host = await connect(createSessionCookie(
-        (await prisma.session.findFirstOrThrow({ where: { userId: 'mod-1' } })).id, config.sessionSecret
+        hostSessionId, config.sessionSecret
       ));
       const client = await connect();
       expect((await ack(host, 'room:subscribe', { roomCode: room.code })).success).toBe(true);
@@ -471,7 +473,7 @@ describe('Jeopardy multiplayer socket integration', () => {
 
   it('keeps two simultaneous Jeopardy rooms and their buzzer winners isolated', async () => {
     const game = await prisma.gameDefinition.findUniqueOrThrow({ where: { slug: 'jeopardy' } });
-    const session = await prisma.session.findFirstOrThrow({ where: { userId: 'mod-1' } });
+    const session = { id: hostSessionId };
     const rooms = [];
     const clients = [];
     for (const label of ['Parallel A', 'Parallel B']) {

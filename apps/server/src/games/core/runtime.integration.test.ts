@@ -184,3 +184,19 @@ it('a read freezes malformed persisted JSON and returns only recovery metadata',
   expect(JSON.parse(frozen.stateJson).recoverySnapshotJson).toBe(invalid);
   expect(JSON.stringify(await runtime(viewer))).not.toContain('MALFORMED_PRIVATE_STATE');
 });
+
+it.each(['wissensduell', 'jeopardy'] as const)('%s pins its supported tie rule and publishes joint winners without a new random choice', async slug => {
+  const { room, code, host, players } = await start(slug);
+  cancelGeoTimer(room.id);
+  const before = await db.room.findUniqueOrThrow({ where: { id: room.id } });
+  expect(JSON.parse(before.gameConfigSnapshotJson!).values.tieStrategy.value).toBe('ALLOW_TIE');
+  expect(await gameAck(host, 'room:config:update', { roomCode: code, expectedRevision: before.revision, changes: { tieStrategy: 'HOST_DECIDES' } })).toMatchObject({ success: false, error: 'INVALID_CONFIG' });
+  expect(await gameAck(host, 'room:config:update', { roomCode: code, expectedRevision: before.revision, changes: { tieStrategy: 'ALLOW_TIE' } })).toMatchObject({ success: false, error: 'LOCKED_AFTER_START' });
+  const end = new Promise<{ winnerIds: string[]; finalScores: Array<{ rank: number }> }>(resolve => host.once(slug === 'wissensduell' ? 'game:end' : 'jeopardy:game:end', resolve));
+  expect((await gameAck(host, 'game:end', { roomCode: code, commandId: randomUUID() })).success).toBe(true);
+  const result = await end;
+  expect(new Set(result.winnerIds)).toEqual(new Set(players.map(player => player.id)));
+  expect(result.finalScores.map(entry => entry.rank)).toEqual([1, 1]);
+  expect((await db.room.findUniqueOrThrow({ where: { id: room.id } })).gameConfigSnapshotJson).toBe(before.gameConfigSnapshotJson);
+  expect(JSON.parse((await db.roomGameState.findUniqueOrThrow({ where: { roomId: room.id } })).stateJson).tieStrategy).toBe('ALLOW_TIE');
+});

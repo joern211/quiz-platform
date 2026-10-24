@@ -98,3 +98,14 @@ Resync aller drei bestehenden Spiele, gemeinsame WID-Aktionen und korrigierte
 Buzzer-Verwaltungsgrenze. Ergebnis-Builder vorbereitet, aber noch keine
 persistente Ergebnisfinalisierung (Punkt 3). 411 Server-/85 Webtests lokal
 grün, Typecheck/Build grün; genaue Abnahme im PR16-Handoff. Punkt 2 noch offen.
+
+## Tie-Regel und reproduzierbare CI — Punkt 2 bleibt in Arbeit
+
+Tie-Core ergänzt; bestehende Engines pinnen ALLOW_TIE vor dem Start.
+Wissensduell und Jeopardy verwenden ihn beim Ende mit gemeinsamen Gewinnern.
+Andere Strategien bleiben bei offenen Entscheidungen PENDING und sind in
+diesen Engines nicht auswählbar. Serversuiten laufen seriell gegen die
+gemeinsame SQLite-Datei; fünf Suiten wählen ihre eigene Host-Sitzung, damit
+abgelaufene fremde Test-Sitzungen keinen UNAUTHORIZED-Fehler erzeugen.
+416/416 Servertests, 85/85 Webtests, Typecheck/Build/Lint lokal grün.
+GitHub-CI/E2E am Folge-Head noch zu prüfen.

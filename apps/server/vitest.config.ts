@@ -7,10 +7,11 @@ export default defineConfig({
     environment: 'node',
     include: ['src/**/*.test.ts'],
     exclude: ['**/node_modules/**', '**/dist/**'],
-    // Keep all test files in the SAME VM fork so the module-level prisma
-    // singleton (opened at file-import time) is shared. Tests that need
-    // fresh DB state use createTestApp() + patching.
+    // Integration files patch the lazy Prisma proxy before app startup.
     pool: 'vmForks',
+    // These integration files intentionally share the seeded SQLite database.
+    // Run files sequentially; races inside each multiplayer test remain real.
+    fileParallelism: false,
     poolOptions: {
       vmForks: { isolate: false },
     },

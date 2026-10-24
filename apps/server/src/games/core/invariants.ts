@@ -9,7 +9,7 @@ export function assertGameInvariants(slug: string, state: unknown, phase: string
 }
 
 const scores = z.record(z.number().finite().int());
-const base = z.object({ phase: z.string(), scores });
+const base = z.object({ phase: z.string(), scores, tieStrategy: z.literal('ALLOW_TIE').optional() });
 const buzzer = CoreBuzzerSchema;
 const geo = base.extend({ currentRoundIndex: z.number().int().nonnegative(), questions: z.array(z.unknown()).min(1), roundStates: z.record(z.object({
   revealed: z.boolean(), timer: CoreTimerSchema.optional(), playerStates: z.record(z.object({ submission: SubmissionRecordSchema.optional() })),

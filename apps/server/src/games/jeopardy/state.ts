@@ -67,6 +67,7 @@ export interface JeopardyFieldDef {
 // ============================================================
 
 export interface JeopardyGameState {
+  tieStrategy?: 'ALLOW_TIE';
   buzzer?: BuzzerState;
   stealBuzzer?: BuzzerState;
   /** Optional on legacy v1 states; new rounds persist the shared runtime records. */
@@ -135,6 +136,7 @@ export function createJeopardyGameState(
 
   return {
     currentBoard,
+    tieStrategy: 'ALLOW_TIE',
     boardsCompleted: [false, false],
     openFields: {},
     currentField: null,

@@ -6,6 +6,7 @@ import { advanceRound, createTurn, requireWinningTurn } from '../core/roundFlow.
 import { scoreJudgement } from '../core/runtimePrimitives.js';
 
 export interface WerIstDasState {
+  tieStrategy?: 'ALLOW_TIE';
   answerTurn?: CoreTurn | null;
   phase: WerIstDasPhase;
   roundIndex: number;
@@ -27,6 +28,7 @@ export function createWerIstDasState(
 ): WerIstDasState {
   if (!Number.isInteger(roundCount) || roundCount < 1) throw new Error('INVALID_SETUP');
   return {
+    tieStrategy: 'ALLOW_TIE',
     phase: WerIstDasPhase.ROUND_READY,
     roundIndex: 0,
     roundCount,

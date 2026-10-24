@@ -37,6 +37,7 @@ let testPrisma: PrismaClient;
 let httpServer: HttpServer;
 let io: Server;
 let origin: string;
+let hostSessionId: string;
 const sockets: ClientSocket[] = [];
 const roomIds: string[] = [];
 
@@ -69,7 +70,7 @@ async function makeHostRoom(overrides: {
       data: { roomId: room.id, displayName: `P${i}`, normalizedName: `p${i}-${code}`, role: 'PLAYER', rejoinToken: randomUUID(), connected: true, ready: true },
     });
   }
-  const host = await connect(createSessionCookie((await testPrisma.session.findFirstOrThrow({ where: { userId: HOST_USER_ID } })).id, config.sessionSecret));
+  const host = await connect(createSessionCookie(hostSessionId, config.sessionSecret));
   expect((await ack(host, 'room:subscribe', { roomCode: code })).success).toBe(true);
   return { id: room.id, code, host };
 }
@@ -80,7 +81,7 @@ beforeAll(async () => {
   await testPrisma.$connect();
   (globalThis as Record<string, unknown>).__prisma = testPrisma;
   await testPrisma.user.upsert({ where: { id: HOST_USER_ID }, update: {}, create: { id: HOST_USER_ID, displayName: 'A14 Host', passwordHash: 'x', role: 'HOST' } });
-  await testPrisma.session.create({ data: { id: `sess-a14-${randomUUID()}`, userId: HOST_USER_ID, expiresAt: new Date(Date.now() + 86400000) } });
+  hostSessionId = (await testPrisma.session.create({ data: { id: `sess-a14-${randomUUID()}`, userId: HOST_USER_ID, expiresAt: new Date(Date.now() + 86400000) } })).id;
   httpServer = createServer();
   io = new Server(httpServer);
   setupSocketHandlers(io);
@@ -104,7 +105,8 @@ async function reviewWid() {
   const room = await makeHostRoom({slug:'wer-ist-das', setup:{rounds:[{id:'r1',imageAssetId:image.id,person1:'A',person2:'B'},{id:'r2',imageAssetId:image.id,person1:'C',person2:'D'}]}});
   const players = await testPrisma.participation.findMany({where:{roomId:room.id,role:'PLAYER'},orderBy:{displayName:'asc'}});
   const clients = await Promise.all(players.map(async p => { const s=await connect(); expect((await ack(s,'room:subscribe',{roomCode:room.code,rejoinToken:p.rejoinToken})).success).toBe(true); return s; }));
-  expect((await ack(room.host,'game:start',{roomCode:room.code})).success).toBe(true);
+  const start = await ack(room.host,'game:start',{roomCode:room.code});
+  expect(start, JSON.stringify(start)).toMatchObject({success: true});
   return {...room, players, clients};
 }
 

@@ -8,7 +8,7 @@ import { WerIstDasPhase, WerIstDasSetupSchema, WER_IST_DAS_ENGINE_VERSION, isV2R
   isSupportedEngineVersion,
   type WerIstDasSetup, type WerIstDasRound } from './contracts.js';
 import { projectWerIstDas } from './resync.js';
-import { loadInitialGameCount, ConfigSnapshotError } from '../core/config.js';
+import { loadInitialGameCount, loadInitialTieStrategy, ConfigSnapshotError } from '../core/config.js';
 import { resolveCanonicalSlug } from '@quiz/shared';
 import { resolveBuzzer } from '../core/buzzer.js';
 import { getGameEngineContract } from '../core/engineContract.js';
@@ -107,6 +107,7 @@ export const werIstDasGame = {
     const roundCount = await loadInitialGameCount(room.id, 'wer-ist-das', 'roundCount');
     if (roundCount > setup.rounds.length) throw new ConfigSnapshotError(room.id, 'roundCount exceeds setup');
     const state = createWerIstDasState(roundCount, names, scores);
+    state.tieStrategy = await loadInitialTieStrategy(room.id, 'wer-ist-das');
     // engineVersion beim Start pinnen (Regelwerk §5.22): Recovery nutzt die
     // exakt gleiche Version.
     await upsertGameState({ gameSlug: 'wer-ist-das', roomId: room.id, state, phase: state.phase, engineVersion: WER_IST_DAS_ENGINE_VERSION });
