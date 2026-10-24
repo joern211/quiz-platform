@@ -1,4 +1,12 @@
-# Known Issues — v0.3.0
+# Known Issues — historischer Audit v0.3.0
+
+**Einordnung vom 24.10.2026:** Die folgenden OPEN/FIXED-Zeilen stammen vom
+16.09.2026 und sind kein aktueller Fehlerstatus. Sie werden ohne erneute
+Einzelprüfung nicht umklassifiziert. Für den aktuellen Paketstand gelten
+[PR15-Verifikation](docs/implementation/pr15/verification.md) und der
+[laufende Umsetzungsplan](docs/implementation/roadmap-execution/handoff.md).
+Die öffentliche Raumliste wurde nachgearbeitet; ihre aktuellen Nachweise
+stehen dort. Die historische Liste bleibt als Auditspur erhalten.
 
 > Alle bekannten Fehler. FIXED = in diesem Branch behoben. OFFEN = noch nicht.
 > Version: v0.3.0 · Branch: `gate-1-2-fixes` · Stand: 2026-09-16

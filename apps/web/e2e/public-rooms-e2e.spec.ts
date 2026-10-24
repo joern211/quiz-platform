@@ -32,9 +32,11 @@ test('R1: public discovery shows real occupancy and joins the selected room thro
     const full = await hostContext.request.get(`${BASE}/api/v1/rooms/public`);
     expect((await full.json()).data.find((r: { code: string }) => r.code === code)).toMatchObject({ playerCount: 2, maxPlayers: 2, waitlist: true });
     await host.getByRole('region', { name: 'Raum und Teams' }).getByRole('button', { name: 'Entfernen', exact: true }).first().click();
-    // A fresh discovery response must immediately release the kicked slot.
-    const listed = await hostContext.request.get(`${BASE}/api/v1/rooms/public`);
-    const summary = (await listed.json()).data.find((r: { code: string }) => r.code === code);
-    expect(summary).toMatchObject({ playerCount: 1, maxPlayers: 2, canJoin: true });
+    // The click sends an asynchronous socket command. Observe its committed
+    // effect, rather than racing an HTTP read against the in-flight mutation.
+    await expect.poll(async () => {
+      const listed = await hostContext.request.get(`${BASE}/api/v1/rooms/public`);
+      return (await listed.json()).data.find((r: { code: string }) => r.code === code);
+    }).toMatchObject({ playerCount: 1, maxPlayers: 2, canJoin: true });
   } finally { await Promise.allSettled([hostContext.close(), playerContext.close()]); }
 });

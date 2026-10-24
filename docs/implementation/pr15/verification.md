@@ -20,6 +20,12 @@ Der lokale Chromium-Download liefert ein unvollständiges ZIP und ist
 fehlgeschlagen. Kein lokaler E2E-Pass. Finale Freigabe erst nach CI/E2E am neuen
 GitHub-Head. Historische Nachweise unten gelten für den früheren Umfang.
 
+Erster Nacharbeitslauf am Head 15941e9: CI grün, 19 bestehende E2E grün;
+neuer R1 zunächst rot, weil der HTTP-Read direkt nach dem UI-Klick mit dem
+noch laufenden Kick-Command konkurrierte. R1 wartet nun ohne feste Schlafzeit
+auf dessen echten DB-Effekt. Die Erwartung 1/2 und alle Prüfungen bleiben
+unverändert. Aktueller vollständiger Lauf bleibt vor Freigabe verbindlich.
+
 Freigabebedingung: erfolgreiche CI und vollständige E2E am aktuellen PR-Head.
 Maßgeblich ist der aktuelle [GitHub-Check](https://github.com/joern211/quiz-platform/pull/15/checks);
 die PR-Beschreibung hält den zuletzt vollständig verifizierten Head und Run fest.

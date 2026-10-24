@@ -1,10 +1,10 @@
 # Online Quiz Plattform
 
-⚠️ **Prototyp v0.3.0 – Wissensduell, Jeopardy & Wer-ist-das? sind vollständig spielbar**
+⚠️ **Prototyp – Wissensduell, Jeopardy & Wer ist das? sind spielbar; vollständige V1-Verträge folgen**
 
 ![Version](https://img.shields.io/badge/version-0.3.0-blue)
 ![License](https://img.shields.io/badge/license-MIT-green)
-![Node](https://img.shields.io/badge/node-20+-green)
+![Node](https://img.shields.io/badge/node-22+-green)
 
 **Repository:** [https://github.com/joern211/quiz-platform](https://github.com/joern211/quiz-platform)
 
@@ -51,7 +51,7 @@ sind keine eigenen Spiele, sondern **Content-Pools** von Wissensduell.
 
 ### Voraussetzungen
 
-- Node.js 20+
+- Node.js 22+ (entsprechend `.nvmrc` und `package.json`)
 - pnpm 9+
 - (Docker für Container-Deployment)
 
@@ -165,6 +165,13 @@ Passwort:  secret
 ---
 
 ## ⚠️ Bekannte Einschränkungen
+
+Der spielbare Prototyp ist noch keine vollständige Umsetzung des
+Masterregelwerks. Einheitliche GameEngine-Verträge, vollständige
+Ergebnisfinalisierung, gemeinsamer Content-Editor sowie Voice/Kamera/Display
+werden nacheinander ergänzt. [Paketstand und Wiederaufnahme](docs/implementation/roadmap-execution/handoff.md)
+unterscheiden geprüfte Umsetzung und offene Arbeit. Die alte
+`KNOWN_ISSUES.md` ist ausdrücklich ein historischer Audit.
 
 - **Drei Spiele vollständig spielbar** (Wissensduell, Jeopardy, Wer-ist-das?); alle anderen sind im Katalog als `PLANNED` gekennzeichnet und starten keine Räume
 - **SQLite Datenbank**: Nicht geeignet für horizontale Skalierung
