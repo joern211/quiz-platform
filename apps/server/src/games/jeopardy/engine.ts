@@ -13,6 +13,7 @@ import { authorizeGameContext } from '../core/access.js';
 import { claimBuzzer } from '../core/buzzer.js';
 import { recordScoreMutation } from '../core/score.js';
 import { createTimer, submitOnce, judgeSubmission, scoreJudgement } from '../core/runtimePrimitives.js';
+import { createTurn, requireWinningTurn, matchAnswer, rankScores } from '../core/roundFlow.js';
 import {
   JEOPARDY_PHASES,
   pointsForCorrect,
@@ -53,8 +54,11 @@ function submitVerbal(state: JeopardyGameState, participantId: string, steal: bo
   state.timer ??= createTimer('UNLIMITED', now);
   state.submissions ??= {};
   state.submissions[key] = submitOnce({ previous: state.submissions[key], participantId, roundId: key, value: null, timer: state.timer, now });
+  state.submissions[key].matchStatus = matchAnswer(null, state.currentField!.fieldDef.answer, 'MANUAL_ONLY');
+  state.answerTurn = createTurn([participantId]);
 }
 function judgeVerbal(state: JeopardyGameState, participantId: string, steal: boolean, correct: boolean): void {
+  requireWinningTurn(state.answerTurn, participantId);
   const key = verbalSubmissionKey(state, participantId, steal), submission = state.submissions?.[key];
   // Legacy rounds have no trustworthy submission timestamp; do not invent one.
   if (submission) state.submissions![key] = judgeSubmission(submission, correct ? 'CORRECT' : 'WRONG', Date.now());
@@ -390,6 +394,7 @@ export const handleJeopardyGame = {
         state.phase = isBoardComplete(state, state.currentBoard) ? JEOPARDY_PHASES.BOARD_COMPLETE : JEOPARDY_PHASES.FIELD_DONE;
       } else {
         state.phase = JEOPARDY_PHASES.STEAL_OPEN;
+        state.answerTurn = null;
         state.currentField!.firstResponderId = playerId;
         state.buzzWinner = null;
         state.buzzOpen = false;
@@ -720,13 +725,12 @@ export const handleJeopardyGame = {
     const state = result.state;
 
     const scores = state?.scores ?? {};
-    const finalScores = Object.entries(scores)
+    const finalScores = rankScores(Object.entries(scores)
       .map(([playerId, score]) => ({
         playerId,
         playerName: state?.playerNames[playerId] ?? 'Unknown',
         score,
-      }))
-      .sort((a, b) => b.score - a.score);
+      })));
 
     const topScore = finalScores[0]?.score ?? 0;
     const winnerIds = finalScores.filter((s) => s.score === topScore).map((s) => s.playerId);

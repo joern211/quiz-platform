@@ -80,9 +80,15 @@ it('Wissensduell uses shared timer/submission/judge through real commands, pause
   expect((await gameAck(host, 'geo:reveal', { roomCode: code, commandId })).success).toBe(true);
   expect((await gameAck(host, 'geo:reveal', { roomCode: code, commandId })).replayed).toBe(true);
   state = JSON.parse((await db.roomGameState.findUniqueOrThrow({ where: { roomId: room.id } })).stateJson);
-  expect(state.roundStates[0].playerStates[player.id].submission).toMatchObject({ participantId: player.id, roundId: '0', value: 'a', status: 'JUDGED', decision: 'CORRECT' });
+  expect(state.roundStates[0].playerStates[player.id].submission).toMatchObject({ participantId: player.id, roundId: '0', value: 'a', status: 'JUDGED', decision: 'CORRECT', matchStatus: 'MATCH' });
   expect(await db.scoreEvent.count({ where: { roomId: room.id, participationId: player.id } })).toBe(1);
   expect(state.scores[player.id]).toBe(100);
+  const end = new Promise<any>(resolve => host.once('game:end', resolve));
+  expect((await gameAck(host, 'geo:next', { roomCode: code, commandId: randomUUID() })).success).toBe(true);
+  expect((await end).finalScores).toEqual(expect.arrayContaining([
+    expect.objectContaining({ participationId: player.id, score: 100, rank: 1 }),
+  ]));
+  expect((await db.roomGameState.findUniqueOrThrow({ where: { roomId: room.id } })).phase).toBe('GAME_END');
 });
 it('Jeopardy uses the same durable submission/judge with unlimited time and no fabricated oral text', async () => {
   const { room, code, host, players } = await start('jeopardy'); const [player] = players;
@@ -91,7 +97,12 @@ it('Jeopardy uses the same durable submission/judge with unlimited time and no f
   expect((await gameAck(player.socket, 'jeopardy:buzz', { commandId: randomUUID() })).success).toBe(true);
   let state = JSON.parse((await db.roomGameState.findUniqueOrThrow({ where: { roomId: room.id } })).stateJson);
   expect(state.timer).toMatchObject({ mode: 'UNLIMITED', status: 'RUNNING', endsAtMs: null });
-  expect(Object.values(state.submissions)).toEqual([expect.objectContaining({ participantId: player.id, value: null, status: 'SUBMITTED', decision: null })]);
+  expect(Object.values(state.submissions)).toEqual([expect.objectContaining({ participantId: player.id, value: null, status: 'SUBMITTED', decision: null, matchStatus: 'NEEDS_JUDGE' })]);
+  expect(state.answerTurn).toMatchObject({ mode: 'FIXED', order: [player.id], index: 0 });
+  const persistedTurn = state.answerTurn;
+  const replacement = await connect();
+  expect((await gameAck(replacement, 'room:subscribe', { roomCode: code, rejoinToken: player.rejoinToken })).success).toBe(true);
+  expect(JSON.parse((await db.roomGameState.findUniqueOrThrow({ where: { roomId: room.id } })).stateJson).answerTurn).toEqual(persistedTurn);
   expect((await runtime(host)).availableActions).toContainEqual(expect.objectContaining({ key: 'judge' }));
   const viewer = await connect(); await gameAck(viewer, 'room:subscribe', { roomCode: code });
   const publicRuntime = await runtime(viewer);

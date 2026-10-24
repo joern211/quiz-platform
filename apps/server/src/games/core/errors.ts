@@ -12,6 +12,7 @@ const PUBLIC_CODES = new Set([
   'INVALID_GAME_STATE', 'COMMAND_UNSUPPORTED', 'GAME_NOT_RUNNING',
   'PLAYER_NOT_IN_ROUND', 'JOKER_ALREADY_USED', 'NOT_ALL_ANSWERED',
   'PHASE_NOT_SELECTING', 'PHASE_NOT_BOARD_COMPLETE', 'FORBIDDEN', 'WRONG_GAME',
+  'TURN_OWNER_CONFLICT', 'INVALID_ROUND_INDEX', 'INVALID_SCORE', 'ANSWER_TOO_LONG',
   'INVALID_SETUP',
   // PR11-Nacharbeit D: persistierter State von einer Engine-Version, die
   // dieser Reader nicht exakt versteht → kontrollierte Ablehnung (kein

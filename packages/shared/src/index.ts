@@ -1559,8 +1559,15 @@ export const SubmissionRecordSchema = z.object({
   submittedAtMs: z.number().int().nonnegative(),
   judgedAtMs: z.number().int().nonnegative().nullable(),
   decision: JudgeDecisionSchema.nullable(),
+  matchStatus: z.enum(['MATCH', 'NO_MATCH', 'NEEDS_JUDGE']).optional(),
 }).strict();
 export type SubmissionRecord = z.infer<typeof SubmissionRecordSchema>;
+export const CoreTurnSchema = z.object({
+  mode: z.enum(['FIXED', 'RANDOM', 'ROTATING_START', 'CUSTOM_HOST_ORDER']),
+  order: z.array(z.string().min(1)).min(1), index: z.number().int().nonnegative(),
+  cycle: z.number().int().nonnegative(),
+}).strict().refine(t => new Set(t.order).size === t.order.length && t.index < t.order.length, { message: 'INVALID_TURN' });
+export type CoreTurn = z.infer<typeof CoreTurnSchema>;
 export const CoreActionKeySchema = z.enum(['answer', 'joker5050', 'jokerSpy', 'jokerRisk', 'reveal', 'next', 'fieldOpen', 'buzz', 'judge', 'stealBuzz', 'stealJudge', 'boardSwitch', 'pause', 'resume', 'end']);
 export type CoreActionKey = z.infer<typeof CoreActionKeySchema>;
 export const CoreRuntimeProjectionSchema = z.object({

@@ -1,4 +1,4 @@
-import { createHash, randomInt, randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import argon2 from 'argon2';
 import type { Prisma, Room } from '@prisma/client';
 import { RoomPolicySchema, normalizedParticipantName, ParticipantNameSchema, effectivePermissions, type RoomPolicy, type RoomOperation, type RoomCoreView, type GamePermission } from '@quiz/shared';
@@ -6,6 +6,7 @@ import { serializeRoom } from './queue.js';
 import { roomEngineRules } from './engineRules.js';
 import { prisma } from '../persistence/prisma.js';
 import { assertCommandMutation } from '../games/core/commandExecution.js';
+import { shuffleServer } from '../games/core/roundFlow.js';
 
 export class RoomError extends Error { constructor(readonly code: string) { super(code); } }
 export function roomPolicy(room: Pick<Room, 'roomPolicyJson' | 'pinHash' | 'viewerRequiresPin'>): RoomPolicy {
@@ -166,9 +167,7 @@ async function setTeam(tx: Prisma.TransactionClient, room: Room, participantId: 
   await tx.teamMembership.create({ data: { roomId: room.id, participationId: participantId, teamId, runIndex: room.runIndex } });
 }
 function shuffled<T>(values: T[]): T[] {
-  const copy = [...values];
-  for (let i = copy.length - 1; i > 0; i--) { const j = randomInt(i + 1); [copy[i], copy[j]] = [copy[j], copy[i]]; }
-  return copy;
+  return shuffleServer(values);
 }
 export interface RoomActor { participantId: string; userId: string | null; sessionId?: string; canManage: boolean; permissions: Set<GamePermission> }
 

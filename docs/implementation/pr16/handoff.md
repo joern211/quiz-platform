@@ -67,3 +67,23 @@ Lokale Abnahme des zweiten Teils: **395/395 Servertests (43 Dateien)**,
 Cross-Game-Fehlercodes wurden durch eine explizite serverseitige
 Engine-Bindung erhalten. Der bestehende Recovery-Test verwendet nun auch
 die reale Socket-off-Schnittstelle für das saubere Entfernen neuer Listener.
+
+## Dritter Teil — Rundenregeln (Fortsetzung)
+
+Gemeinsames Fisher-Yates-Shuffle mit kryptographischem Serverzufall ersetzt
+zufälliges Sortieren in Wissensduell und wird auch von Teamzuweisungen genutzt.
+Die konkrete Auswahl bleibt im State. Matching EXACT/NORMALIZED/SYNONYM/FUZZY/
+MANUAL_ONLY liefert explizit MATCH/NO_MATCH/NEEDS_JUDGE; Fuzzy-Näherungen werden
+nie automatisch gewertet. Wissensduell nutzt EXACT, Jeopardy MANUAL_ONLY.
+Antwortrechte werden in Jeopardy und Wer ist das? mit dem Buzzergewinner
+abgeglichen; Altstates ohne Turn werden explizit über ihren gespeicherten
+Gewinner gelesen. Rundenwechsel von Wissensduell und Wer ist das? prüfen die
+Grenze gemeinsam. Wissensduell und Jeopardy liefern Competition-Ränge ohne
+zufällige Tie-Auflösung. Diese Änderungen sind Teilfortschritt, nicht die
+vollständige Abnahme sämtlicher Turn-/Tie-/Buzzer-Funktionen.
+
+Abnahme: 398/398 Servertests (44 Dateien), anschließend gezielte echte
+Socketfälle erneut inkl. natürlichem Wissensduell-Spielende und unverändertem
+Jeopardy-Antwortrecht nach Gerätewechsel. Typecheck und beide Builds grün.
+Fortsetzung: vollständige Visibility-Anbindung, State-Invariants und Engine-
+Vertrag. Voriger Head 4d637b7 hat grüne CI/E2E (Run 40106514606).

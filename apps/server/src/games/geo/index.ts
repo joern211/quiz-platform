@@ -6,6 +6,7 @@ import { Server, Socket } from 'socket.io';
 import { prisma } from '../../persistence/prisma.js';
 import { resolveCanonicalSlug, slugWithLegacy, type CoreTimer, type SubmissionRecord } from '@quiz/shared';
 import { createTimer, legacyRoundTimer, timerAcceptsInput, pauseTimer, resumeTimer, endTimer, submitOnce, lockSubmission, judgeSubmission, scoreJudgement } from '../core/runtimePrimitives.js';
+import { advanceRound, matchAnswer, rankScores, shuffleServer } from '../core/roundFlow.js';
 import { finishRunningGame, saveGameStateIfRevision, upsertGameState } from '../core/state.js';
 import { withoutCommandExecution } from '../core/commandExecution.js';
 import { loadGameConfig, loadInitialGameCount } from '../core/config.js';
@@ -164,7 +165,7 @@ export const handleGeoGame = {
       });
       
       // Shuffle and take configured amount
-      const shuffled = geoQuestions.sort(() => Math.random() - 0.5);
+      const shuffled = shuffleServer(geoQuestions);
       const count = questionCount;
       questions = shuffled.slice(0, Math.min(count, shuffled.length));
     } else {
@@ -183,7 +184,7 @@ export const handleGeoGame = {
           include: { pack: true },
         });
         
-        const shuffled = geoQuestions.sort(() => Math.random() - 0.5);
+        const shuffled = shuffleServer(geoQuestions);
         const count = questionCount;
         questions = shuffled.slice(0, Math.min(count, shuffled.length));
       }
@@ -654,7 +655,7 @@ export const handleGeoGame = {
       const wrongOptions = options.filter((o: any) => o.id !== question.correctOptionId);
       
       // Randomly select two wrong options
-      const shuffled = wrongOptions.sort(() => Math.random() - 0.5);
+      const shuffled = shuffleServer(wrongOptions);
       const eliminated = shuffled.slice(0, 2).map((o: any) => o.id);
       playerState.eliminatedOptions = eliminated;
 
@@ -932,7 +933,9 @@ export const handleGeoGame = {
           const ps = playerState as GeoPlayerState;
           if (!ps.answered) continue;
 
-          const isCorrect = ps.selectedOptionId === question.correctOptionId;
+          const match = matchAnswer(ps.selectedOptionId, question.correctOptionId, 'EXACT');
+          const isCorrect = match === 'MATCH';
+          if (ps.submission) ps.submission.matchStatus = match;
           if (ps.submission) ps.submission = judgeSubmission(ps.submission, isCorrect ? 'CORRECT' : 'WRONG', Date.now());
           let points = 0;
           let bonus = 0;
@@ -1067,14 +1070,15 @@ export const handleGeoGame = {
         callback?.({ success: false, error: 'INVALID_PHASE' });
         return;
       }
-      state.currentRoundIndex++;
+      const transition = advanceRound(state.currentRoundIndex, state.questions.length);
+      state.currentRoundIndex = transition.nextIndex;
       state.phase = 'PROMPT';
 
       // Check if game ended
-      if (state.currentRoundIndex >= state.questions.length) {
+      if (transition.ended) {
         const ended = await finishRunningGame<GeoGameState>({
           roomId: room.id, expectedRevision: gameStateData.revision, requiredPhase: 'REVEAL',
-          nextState: (current) => ({ ...current, currentRoundIndex: current.currentRoundIndex + 1 }),
+          nextState: (current) => ({ ...current, currentRoundIndex: transition.nextIndex }),
         });
         if (ended.ended) await this.handleGameEnd(io, room, ended.state);
         callback?.({ success: true, ended: true });
@@ -1277,22 +1281,21 @@ export const handleGeoGame = {
     return { ended: result.ended };
   },
 
-  async handleGameEnd(io: Server, room: any, _state: GeoGameState) {
+  async handleGameEnd(io: Server, room: any, state: GeoGameState) {
     cancelGeoTimer(room.id);
 
     // Get final scores with participation details
     const participations = await prisma.participation.findMany({
-      where: { roomId: room.id },
+      where: { roomId: room.id, role: 'PLAYER', id: { in: Object.keys(state.scores) } },
       select: { id: true, displayName: true, score: true },
     });
 
-    const finalScores = participations
+    const finalScores = rankScores(participations
       .map(p => ({ 
         participationId: p.id, 
         displayName: p.displayName,
         score: p.score,
-      }))
-      .sort((a, b) => b.score - a.score);
+      })));
 
     io.to(roomChannel(room.id)).emit('game:end', {
       roomCode: room.code,

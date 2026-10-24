@@ -1,8 +1,12 @@
 import { claimBuzzer, createBuzzerState, openBuzzer, resetBuzzerState, type BuzzerState } from '../core/buzzer.js';
 import { applyScoreDelta, ensureScoreEntries } from '../core/score.js';
 import { WerIstDasPhase } from './contracts.js';
+import type { CoreTurn } from '@quiz/shared';
+import { advanceRound, createTurn, requireWinningTurn } from '../core/roundFlow.js';
+import { scoreJudgement } from '../core/runtimePrimitives.js';
 
 export interface WerIstDasState {
+  answerTurn?: CoreTurn | null;
   phase: WerIstDasPhase;
   roundIndex: number;
   roundCount: number;
@@ -59,7 +63,7 @@ export function buzz(state: WerIstDasState, playerId: string): WerIstDasState {
   if (!(playerId in state.playerNames)) throw new InvalidGameAction('PLAYER_NOT_IN_GAME');
   const result = claimBuzzer(state.buzzer, playerId);
   if (!result.accepted) throw new InvalidGameAction(result.error);
-  return { ...state, phase: WerIstDasPhase.ANSWERING, buzzer: result.state };
+  return { ...state, phase: WerIstDasPhase.ANSWERING, buzzer: result.state, answerTurn: createTurn([playerId]) };
 }
 
 export function activateHint(state: WerIstDasState): WerIstDasState {
@@ -73,9 +77,10 @@ export function judge(state: WerIstDasState, result: 'BOTH_CORRECT' | 'ONE_CORRE
   requirePhase(state, WerIstDasPhase.ANSWERING);
   const playerId = state.buzzer.winnerId;
   if (!playerId) throw new InvalidGameAction('BUZZ_CLOSED');
+  requireWinningTurn(state.answerTurn, playerId);
   if (result === 'ONE_CORRECT' && !state.hintActive) throw new InvalidGameAction('HINT_REQUIRED');
-  const delta = result === 'WRONG' ? -1 : result === 'BOTH_CORRECT' ? 3 : 1;
-  const next = { ...state, scores: applyScoreDelta(state.scores, playerId, delta), lastDelta: delta };
+  const delta = scoreJudgement(result === 'WRONG' ? 'WRONG' : result === 'BOTH_CORRECT' ? 'CORRECT' : 'PARTIAL', { correct: 3, wrong: -1, partial: 1 });
+  const next = { ...state, answerTurn: null, scores: applyScoreDelta(state.scores, playerId, delta), lastDelta: delta };
   if (result !== 'WRONG') return {
     state: { ...next, phase: WerIstDasPhase.REVEAL, revealed: true, solvedBy: playerId,
       buzzer: { ...next.buzzer, open: false } }, delta, playerId,
@@ -87,14 +92,15 @@ export function judge(state: WerIstDasState, result: 'BOTH_CORRECT' | 'ONE_CORRE
 
 export function revealRound(state: WerIstDasState): WerIstDasState {
   requirePhase(state, WerIstDasPhase.ROUND_READY, WerIstDasPhase.BUZZ_OPEN);
-  return { ...state, phase: WerIstDasPhase.REVEAL, revealed: true,
+  return { ...state, answerTurn: null, phase: WerIstDasPhase.REVEAL, revealed: true,
     buzzer: { ...state.buzzer, open: false, winnerId: null } };
 }
 
 export function nextRound(state: WerIstDasState, currentRoundId: string): WerIstDasState {
   requirePhase(state, WerIstDasPhase.REVEAL);
-  if (state.roundIndex + 1 >= state.roundCount) throw new InvalidGameAction('LAST_ROUND');
-  return { ...state, roundIndex: state.roundIndex + 1, phase: WerIstDasPhase.ROUND_READY,
+  const transition = advanceRound(state.roundIndex, state.roundCount);
+  if (transition.ended) throw new InvalidGameAction('LAST_ROUND');
+  return { ...state, answerTurn: null, roundIndex: transition.nextIndex, phase: WerIstDasPhase.ROUND_READY,
     playedRoundIds: [...state.playedRoundIds, currentRoundId],
     buzzer: resetBuzzerState(), hintActive: false, solvedBy: null, lastDelta: null, revealed: false };
 }
