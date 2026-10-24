@@ -22,8 +22,9 @@ bleibt Draft, bis der vollständige Paketumfang nachgewiesen ist.
 
 ## Nicht abgeschlossen
 
-Gemeinsame Aktionsregeln/NextAction, Engine-Vertrag, Projektionen,
-Invariants, Rundenübergänge und weitere Master-Cores sind noch offen.
+Vollständiger Engine-Vertrag, Invariants, Rundenübergänge und weitere
+Master-Cores sind noch offen. Die neue gemeinsame Metadaten-Projektion
+ersetzt noch nicht alle inhaltlichen Engine-Projektionen.
 Dieser Teilumfang allein ist **kein** vollständiger GAME-CORE-DoD-Nachweis.
 Results/Finalisierung folgen anschließend in Punkt 3 des Nutzerplans.
 
@@ -38,3 +39,31 @@ unbegrenzte Zeit, doppelte Abgabe und manuelle/partielle Bewertung.
 
 Zwischenstand pushen und GitHub-CI/E2E prüfen. Danach gemeinsame Aktionsregeln und
 Projektionen an beide Engines anbinden. Keine Pflicht-Tests überspringen.
+
+## Zweiter Teil — Aktionsregeln und öffentliche Runtime-Projektion
+
+Eine gemeinsame Prüfung liefert verfügbare Aktionen und prüft tatsächliche
+Engine-Mutationen. Sie wird innerhalb der Receipt-Mutation angewendet, damit
+bereits abgeschlossene Commands vor einem Phasenwechsel weiter korrekt
+replayed werden. Der Engine-Slug ist eine serverseitige Handlerbindung;
+fremde Spiel-Events bleiben WRONG_GAME statt irrtümlich gegen die Regeln
+des aktuellen Raums geprüft zu werden. Alte spezifische Wire-Codes bleiben.
+
+`game:core:read` liefert eine strikt validierte, secretfreie Projektion:
+Raumcode/Run, Engine-Version, State-Version, Phase, Timer, Fortschritt und
+erlaubte Aktionen. Wissensduell-/Jeopardy-Hostseiten richten Controls danach
+aus. Der Client verwirft fremde Räume, veraltete Antworten und Antworten
+nach Disconnect/Unmount. Fehlgeschlagener Refresh entfernt alte Rechte.
+
+Gegenproben: gemeinsame Predicate-Tests; echte Zwei-Engine-Sockets inkl.
+Viewer, Replay und Raumgrenzen; Hook-Tests für verspätete Snapshots und
+Entzug. Vorheriger Zwischenstand 322ad86 hat grüne CI/E2E
+([Run 40105496666](https://github.com/joern211/quiz-platform/actions/runs/40105496666));
+die neue Änderung benötigt einen eigenen aktuellen Nachweis.
+
+Lokale Abnahme des zweiten Teils: **395/395 Servertests (43 Dateien)**,
+**85/85 Webtests (12 Dateien)**, Typecheck und beide Builds grün; Lint
+0 Fehler / 115 Warnungen. Keine übersprungenen Tests. Die alten
+Cross-Game-Fehlercodes wurden durch eine explizite serverseitige
+Engine-Bindung erhalten. Der bestehende Recovery-Test verwendet nun auch
+die reale Socket-off-Schnittstelle für das saubere Entfernen neuer Listener.

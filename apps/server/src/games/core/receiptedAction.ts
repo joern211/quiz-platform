@@ -26,12 +26,16 @@ import { resolveCommandContextForSocket, type CommandContextResult } from './com
 import { requireGamePermission } from './permissions.js';
 import { wireErrorToAppError } from './appError.js';
 import { gameErrorCode } from './errors.js';
+import { assertCoreActionAllowed } from './actions.js';
+import { roomChannel } from '../../sockets/channel.js';
 
 export interface GuardedActionArgs {
   io: Server;
   socket: Socket;
   /** Engine-Aktionsschlüssel (z.B. 'buzz', 'judge'). */
   action: string;
+  /** Server-owned engine binding; never read this value from client payload. */
+  gameSlug?: string;
   /** Für das Receipt: stable, actionsspezifische Keyliste (fachlich relevante Felder). */
   payload: unknown;
   /**
@@ -121,6 +125,7 @@ export async function runGuardedCriticalAction(
   }
 
   const finish = (result: { success: boolean; error?: string; [k: string]: unknown }, replayed?: boolean) => {
+    if (result.success && !replayed) args.io.to(roomChannel(perm.roomId)).emit('game:core:changed');
     if (!result.success && result.error) {
       const appError = wireErrorToAppError(String(result.error), { context: { action: args.action } });
       callback?.({ ...result, code: appError.code, messageKey: appError.messageKey, traceId: appError.traceId, ...(replayed ? { replayed: true } : {}) });
@@ -140,7 +145,10 @@ export async function runGuardedCriticalAction(
         // Audit PR14, 14-02/14-03: mitgesendete Versionserwartung wird
         // serverseitig gegen die aktuelle Room-Revision geprüft.
         stateVersion: cmdCtx.ctx.envelope?.stateVersion,
-        mutate: () => awaitEngineResult((onResult) => args.handler(onResult)),
+        mutate: async () => {
+          await assertCoreActionAllowed(args.socket, args.action, args.gameSlug);
+          return awaitEngineResult((onResult) => args.handler(onResult));
+        },
         toResponse: (d) => d,
       });
       if (receipted.success) {
@@ -165,6 +173,7 @@ export async function runGuardedCriticalAction(
 
   // Legacy-Pfad (kein Absichtstoken): bestehendes Verhalten.
   try {
+    await assertCoreActionAllowed(args.socket, args.action, args.gameSlug);
     const result = await awaitEngineResult((onResult) => args.handler(onResult));
     finish(result);
   } catch (error) {

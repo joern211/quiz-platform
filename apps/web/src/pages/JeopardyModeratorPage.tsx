@@ -12,10 +12,12 @@ import { JeopardyQuestion } from '../components/jeopardy/JeopardyQuestion';
 import { Card, Button } from '@quiz/ui';
 import { GameShell } from '../components/GameShell';
 import styles from './JeopardyModeratorPage.module.css';
+import { useGameCore } from '../hooks/useGameCore';
 
 export function JeopardyModeratorPage() {
   const { code } = useParams<{ code: string }>();
   const roomCode = code ?? '';
+  const core = useGameCore(roomCode);
   const navigate = useNavigate();
   const { connected, gameState, secretAnswer, error, clearError, actions } =
     useJeopardy(roomCode, 'HOST');
@@ -55,9 +57,9 @@ export function JeopardyModeratorPage() {
   const hasCurrentField =
     gameState.currentField !== null;
   const isBuzzLocked =
-    gameState.phase === 'BUZZ_LOCKED';
+    gameState.phase === 'BUZZ_LOCKED' && core.can('judge');
   const isStealLocked =
-    gameState.phase === 'STEAL_LOCKED';
+    gameState.phase === 'STEAL_LOCKED' && core.can('stealJudge');
   const isFieldDone = gameState.phase === 'FIELD_DONE';
 
   return (
@@ -69,6 +71,7 @@ export function JeopardyModeratorPage() {
           <h1 className={styles.title}>
             Jeopardy – Board {gameState.boardNumber}
           </h1>
+          {core.projection && <progress aria-label="Spielfortschritt" max={100} value={core.projection.progress.progressPercent ?? undefined} />}
         </div>
       </div>
 
@@ -128,7 +131,7 @@ export function JeopardyModeratorPage() {
                   : null
               }
               onFieldClick={handleFieldClick}
-              interactive={gameState.phase === 'SELECTING'}
+              interactive={gameState.phase === 'SELECTING' && core.can('fieldOpen')}
               highlightedField={
                 hasCurrentField
                   ? {
@@ -232,12 +235,13 @@ export function JeopardyModeratorPage() {
               {isBoardComplete ? (
                 <Button
                   size="lg"
+                  disabled={!core.can('boardSwitch')}
                   onClick={handleSwitchBoard}
                 >
                   Board {gameState.boardNumber === 1 ? '1' : '2'} abgeschlossen → {gameState.boardNumber === 1 ? 'Board 2' : 'Spielende'}
                 </Button>
               ) : (
-                <Button size="lg" onClick={handleNext}>
+                <Button size="lg" disabled={!core.can('next')} onClick={handleNext}>
                   → Nächste Frage
                 </Button>
               )}

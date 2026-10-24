@@ -57,6 +57,7 @@ export function registerWerIstDasEvents(io: Server, socket: Socket) {
         // Guard: wirksames Recht aus der DB + Receipt-Modus (Absichtstoken)
         // + Protokollversions-Check. Die Engine bleibt der Fach-Kontext.
         await runGuardedCriticalAction({
+    gameSlug: 'wer-ist-das',
           io,
           socket,
           action,

@@ -9,10 +9,12 @@ import { Card, Button } from '@quiz/ui';
 import { Timer } from '@quiz/ui';
 import { GameShell } from '../components/GameShell';
 import styles from './ModeratorGamePage.module.css';
+import { useGameCore } from '../hooks/useGameCore';
 
 export function ModeratorGamePage() {
   const { code } = useParams<{ code: string }>();
   const roomCode = code ?? '';
+  const core = useGameCore(roomCode);
   const navigate = useNavigate();
   const socketRef = useRef<ReturnType<typeof getSocket> | null>(null);
   const [connected, setConnected] = useState(false);
@@ -241,15 +243,16 @@ export function ModeratorGamePage() {
       </Card>
 
       <div className={styles.actions}>
+        {core.projection && <progress aria-label="Spielfortschritt" max={100} value={core.projection.progress.progressPercent ?? undefined} />}
         {!recoveryError && (!revealed ? (
           <>
-            <Button variant="secondary" onClick={timerPaused ? handleResumeTimer : handlePauseTimer}>
+            <Button variant="secondary" disabled={!core.can(timerPaused ? 'resume' : 'pause')} onClick={timerPaused ? handleResumeTimer : handlePauseTimer}>
               {timerPaused ? '▶ Weiter' : '⏸ Pause'}
             </Button>
-            <Button onClick={handleReveal}>✓ Auflösen</Button>
+            <Button disabled={!core.can('reveal')} onClick={handleReveal}>✓ Auflösen</Button>
           </>
         ) : (
-          <Button onClick={handleNextQuestion}>Nächste Frage →</Button>
+          <Button disabled={!core.can('next')} onClick={handleNextQuestion}>Nächste Frage →</Button>
         ))}
         <Button variant="danger" onClick={handleEndGame}>Spiel beenden</Button>
       </div>

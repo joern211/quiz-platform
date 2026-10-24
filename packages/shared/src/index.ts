@@ -1561,6 +1561,17 @@ export const SubmissionRecordSchema = z.object({
   decision: JudgeDecisionSchema.nullable(),
 }).strict();
 export type SubmissionRecord = z.infer<typeof SubmissionRecordSchema>;
+export const CoreActionKeySchema = z.enum(['answer', 'joker5050', 'jokerSpy', 'jokerRisk', 'reveal', 'next', 'fieldOpen', 'buzz', 'judge', 'stealBuzz', 'stealJudge', 'boardSwitch', 'pause', 'resume', 'end']);
+export type CoreActionKey = z.infer<typeof CoreActionKeySchema>;
+export const CoreRuntimeProjectionSchema = z.object({
+  roomCode: z.string().regex(/^\d{3}-\d{3}$/), runIndex: z.number().int().positive(),
+  gameSlug: z.string(), engineVersion: z.number().int().positive(), stateVersion: z.number().int().nonnegative(),
+  enginePhase: z.string(), informationRole: z.enum(['HOST', 'PLAYER', 'VIEWER', 'DISPLAY']),
+  timer: CoreTimerSchema.nullable(),
+  progress: z.object({ currentRound: z.number().int().nonnegative(), totalRounds: z.number().int().nonnegative().nullable(), remainingRounds: z.number().int().nonnegative().nullable(), progressPercent: z.number().min(0).max(100).nullable() }),
+  availableActions: z.array(z.object({ key: CoreActionKeySchema, event: z.string(), label: z.string() }).strict()),
+}).strict();
+export type CoreRuntimeProjection = z.infer<typeof CoreRuntimeProjectionSchema>;
 export const ParticipantNameSchema = z.string().transform(s => s.normalize('NFKC').trim().replace(/\s+/g, ' '))
   .pipe(z.string().min(1).max(100).refine(s => !/[\p{Cc}\p{Cf}]/u.test(s), 'NAME_INVALID'));
 export function normalizedParticipantName(name: string): string {

@@ -101,6 +101,7 @@ function runJeopardyCriticalAction(
   callback?: (result: { success: boolean; error?: string; [k: string]: unknown }) => void,
 ): Promise<void> {
   return runGuardedCriticalAction({
+    gameSlug: 'jeopardy',
     io,
     socket,
     action: args.action,
@@ -248,6 +249,7 @@ export function registerJeopardyEvents(io: Server, socket: Socket) {
           callback?.({ success: false, error: 'WRONG_GAME' }); return;
         }
         await runGuardedCriticalAction({
+    gameSlug: 'jeopardy',
           io,
           socket,
           action: 'boardSwitch',

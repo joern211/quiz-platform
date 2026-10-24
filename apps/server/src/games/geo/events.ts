@@ -86,6 +86,7 @@ export const handleGeoEvents = {
     callback?: (result: any) => void
   ) {
     await runGuardedCriticalAction({
+    gameSlug: 'wissensduell',
       io,
       socket,
       action: 'answer',
@@ -131,6 +132,7 @@ export const handleGeoEvents = {
     callback?: (result: any) => void
   ) {
     await runGuardedCriticalAction({
+    gameSlug: 'wissensduell',
       io,
       socket,
       action: 'joker5050',
@@ -158,6 +160,7 @@ export const handleGeoEvents = {
     callback?: (result: any) => void
   ) {
     await runGuardedCriticalAction({
+    gameSlug: 'wissensduell',
       io,
       socket,
       action: 'jokerSpy',
@@ -185,6 +188,7 @@ export const handleGeoEvents = {
     callback?: (result: any) => void
   ) {
     await runGuardedCriticalAction({
+    gameSlug: 'wissensduell',
       io,
       socket,
       action: 'jokerRisk',
@@ -212,6 +216,7 @@ export const handleGeoEvents = {
     callback?: (result: any) => void
   ) {
     await runGuardedCriticalAction({
+    gameSlug: 'wissensduell',
       io,
       socket,
       action: 'reveal',
@@ -247,6 +252,7 @@ export const handleGeoEvents = {
     callback?: (result: any) => void
   ) {
     await runGuardedCriticalAction({
+    gameSlug: 'wissensduell',
       io,
       socket,
       action: 'next',

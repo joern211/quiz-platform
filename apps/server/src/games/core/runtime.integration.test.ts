@@ -8,10 +8,16 @@ import { config } from '../../config/index.js';
 import { connectGameClient, gameAck } from '../../test-socket-harness.js';
 import { cancelGeoTimer, handleGeoGame } from '../geo/index.js';
 import { socketIdentityMap } from '../../http/middleware/auth.js';
+import { CoreRuntimeProjectionSchema } from '@quiz/shared';
 
 let db: PrismaClient, app: ReturnType<typeof createApp>, origin: string, cookie: string, questionId: string, packId: string;
 const hostId = `runtime-${randomUUID()}`, rooms: string[] = [], sockets: Socket[] = [];
 async function connect(auth?: string) { const socket = await connectGameClient(origin, auth); sockets.push(socket); return socket; }
+async function runtime(socket: Socket) {
+  const response = await gameAck(socket, 'game:core:read', {});
+  expect(response.success).toBe(true);
+  return CoreRuntimeProjectionSchema.parse(response.projection);
+}
 beforeAll(async () => {
   const { PrismaClient } = await import('@prisma/client');
   db = new PrismaClient({ datasourceUrl: process.env.DATABASE_URL }); await db.$connect(); globalThis.__prisma = db;
@@ -52,6 +58,9 @@ async function start(slug: 'wissensduell' | 'jeopardy') {
 it('Wissensduell uses shared timer/submission/judge through real commands, pause and rejoin', async () => {
   const { room, code, host, players } = await start('wissensduell'); const [player] = players;
   cancelGeoTimer(room.id); await handleGeoGame.startRound(app.io, code);
+  const playerRuntime = await runtime(player.socket);
+  expect(playerRuntime.availableActions).toContainEqual(expect.objectContaining({ key: 'answer' }));
+  expect(playerRuntime.progress).toMatchObject({ currentRound: 1, totalRounds: 1, remainingRounds: 1 });
   expect((await gameAck(host, 'game:pause', { roomCode: code, commandId: randomUUID() })).success).toBe(true);
   let state = JSON.parse((await db.roomGameState.findUniqueOrThrow({ where: { roomId: room.id } })).stateJson);
   expect(state.roundStates[0].timer.status).toBe('PAUSED');
@@ -60,9 +69,12 @@ it('Wissensduell uses shared timer/submission/judge through real commands, pause
   expect(state.roundStates[0].playerStates[player.id].submission).toBeUndefined();
   expect((await gameAck(host, 'game:resume', { roomCode: code, commandId: randomUUID() })).success).toBe(true);
   expect((await gameAck(player.socket, 'geo:answer', { optionId: 'a', commandId: randomUUID() })).success).toBe(true);
+  expect((await runtime(player.socket)).availableActions).not.toContainEqual(expect.objectContaining({ key: 'answer' }));
+  expect((await gameAck(player.socket, 'geo:answer', { optionId: 'b', commandId: randomUUID() })).error).toBe('ALREADY_ANSWERED');
   const replacement = await connect(); expect((await gameAck(replacement, 'room:subscribe', { roomCode: code, rejoinToken: player.rejoinToken })).success).toBe(true);
   expect(await gameAck(replacement, 'geo:resync', {})).toMatchObject({ ownAnswered: true, ownAnswer: 'a' });
   const viewer = await connect(); await gameAck(viewer, 'room:subscribe', { roomCode: code });
+  expect((await runtime(viewer)).availableActions).toEqual([]);
   expect(await gameAck(viewer, 'geo:resync', {})).toMatchObject({ ownAnswer: null, ownAnswered: false });
   const commandId = randomUUID();
   expect((await gameAck(host, 'geo:reveal', { roomCode: code, commandId })).success).toBe(true);
@@ -75,10 +87,16 @@ it('Wissensduell uses shared timer/submission/judge through real commands, pause
 it('Jeopardy uses the same durable submission/judge with unlimited time and no fabricated oral text', async () => {
   const { room, code, host, players } = await start('jeopardy'); const [player] = players;
   expect((await gameAck(host, 'jeopardy:field:open', { boardIndex: 1, categoryIndex: 0, value: 100, commandId: randomUUID() })).success).toBe(true);
+  expect((await runtime(player.socket)).availableActions).toContainEqual(expect.objectContaining({ key: 'buzz' }));
   expect((await gameAck(player.socket, 'jeopardy:buzz', { commandId: randomUUID() })).success).toBe(true);
   let state = JSON.parse((await db.roomGameState.findUniqueOrThrow({ where: { roomId: room.id } })).stateJson);
   expect(state.timer).toMatchObject({ mode: 'UNLIMITED', status: 'RUNNING', endsAtMs: null });
   expect(Object.values(state.submissions)).toEqual([expect.objectContaining({ participantId: player.id, value: null, status: 'SUBMITTED', decision: null })]);
+  expect((await runtime(host)).availableActions).toContainEqual(expect.objectContaining({ key: 'judge' }));
+  const viewer = await connect(); await gameAck(viewer, 'room:subscribe', { roomCode: code });
+  const publicRuntime = await runtime(viewer);
+  expect(publicRuntime.availableActions).toEqual([]);
+  expect(JSON.stringify(publicRuntime)).not.toContain('RUNTIME_SECRET');
   expect((await gameAck(host, 'game:pause', { roomCode: code, commandId: randomUUID() })).success).toBe(true);
   expect((await gameAck(host, 'jeopardy:judge', { correct: true, commandId: randomUUID() })).success).toBe(false);
   expect((await gameAck(host, 'game:resume', { roomCode: code, commandId: randomUUID() })).success).toBe(true);
