@@ -1574,6 +1574,7 @@ export const CoreRuntimeProjectionSchema = z.object({
   roomCode: z.string().regex(/^\d{3}-\d{3}$/), runIndex: z.number().int().positive(),
   gameSlug: z.string(), engineVersion: z.number().int().positive(), stateVersion: z.number().int().nonnegative(),
   enginePhase: z.string(), informationRole: z.enum(['HOST', 'PLAYER', 'VIEWER', 'DISPLAY']),
+  recoveryRequired: z.boolean().optional(),
   timer: CoreTimerSchema.nullable(),
   progress: z.object({ currentRound: z.number().int().nonnegative(), totalRounds: z.number().int().nonnegative().nullable(), remainingRounds: z.number().int().nonnegative().nullable(), progressPercent: z.number().min(0).max(100).nullable() }),
   availableActions: z.array(z.object({ key: CoreActionKeySchema, event: z.string(), label: z.string() }).strict()),

@@ -7,6 +7,7 @@ import { prisma } from '../../persistence/prisma.js';
 import { resolveCanonicalSlug, slugWithLegacy, type CoreTimer, type SubmissionRecord } from '@quiz/shared';
 import { createTimer, legacyRoundTimer, timerAcceptsInput, pauseTimer, resumeTimer, endTimer, submitOnce, lockSubmission, judgeSubmission, scoreJudgement } from '../core/runtimePrimitives.js';
 import { advanceRound, matchAnswer, rankScores, shuffleServer } from '../core/roundFlow.js';
+import { ensureGameStateSafe } from '../core/recovery.js';
 import { finishRunningGame, saveGameStateIfRevision, upsertGameState } from '../core/state.js';
 import { withoutCommandExecution } from '../core/commandExecution.js';
 import { loadGameConfig, loadInitialGameCount } from '../core/config.js';
@@ -101,6 +102,7 @@ export async function restoreActiveTimers(io: Server): Promise<void> {
     for (const room of roomsWithActiveRound) {
       try {
         if (!room.gameState) continue;
+        await ensureGameStateSafe(room.id);
         const state: GeoGameState = JSON.parse(room.gameState.stateJson);
         if (state.phase !== 'INPUT_OPEN' || !state.roundStates || !Number.isInteger(state.currentRoundIndex)) continue;
         const roundState = state.roundStates[state.currentRoundIndex];
@@ -237,7 +239,7 @@ export const handleGeoGame = {
     };
 
     // Save through the shared game-state core.
-    await upsertGameState({
+    await upsertGameState({ gameSlug: 'wissensduell',
       roomId: room.id,
       engineVersion: 1,
       phase: initialPhase,
@@ -289,7 +291,7 @@ export const handleGeoGame = {
     const question = state.questions[state.currentRoundIndex];
 
     if (!question) {
-      const ended = await finishRunningGame<GeoGameState>({
+      const ended = await finishRunningGame<GeoGameState>({ gameSlug: 'wissensduell',
         roomId: roomRecord.id, expectedRevision: gameStateData.revision,
       });
       if (ended.ended) await this.handleGameEnd(io, roomRecord, ended.state);
@@ -325,7 +327,7 @@ export const handleGeoGame = {
       state.phase = 'ERROR_RECOVERY';
       state.recoveryError = 'CONFIG_SNAPSHOT_INVALID';
       await prisma.$transaction(async (tx) => {
-        await saveGameStateIfRevision(tx, {
+        await saveGameStateIfRevision(tx, { gameSlug: 'wissensduell',
           roomId: roomRecord.id, expectedRevision: gameStateData.revision,
           state, phase: 'ERROR_RECOVERY',
         });
@@ -382,7 +384,7 @@ export const handleGeoGame = {
 
     // A concurrent game:end must prevent both the state transition and event.
     await prisma.$transaction(async (tx) => {
-      await saveGameStateIfRevision(tx, {
+      await saveGameStateIfRevision(tx, { gameSlug: 'wissensduell',
         roomId: roomRecord.id, expectedRevision: gameStateData.revision, state, phase: 'INPUT_OPEN',
       });
       const updated = await tx.room.updateMany({
@@ -435,6 +437,11 @@ export const handleGeoGame = {
   // ============================================================
 
   async handleTimerExpired(io: Server, room: any) {
+    try { await ensureGameStateSafe(room.id); }
+    catch (error) {
+      if (gameErrorCode(error) === 'STATE_INVARIANT_FAILED') io.to(roomChannel(room.id)).emit('game:core:changed');
+      throw error;
+    }
     try {
       const gameStateData = await prisma.roomGameState.findUnique({
         where: { roomId: room.id },
@@ -455,7 +462,7 @@ export const handleGeoGame = {
         if (player.submission) player.submission = lockSubmission(player.submission);
       }
 
-      await prisma.$transaction(async (tx) => saveGameStateIfRevision(tx, {
+      await prisma.$transaction(async (tx) => saveGameStateIfRevision(tx, { gameSlug: 'wissensduell',
         roomId: room.id, expectedRevision: gameStateData.revision, state, phase: 'INPUT_LOCKED',
       }));
 
@@ -537,7 +544,7 @@ export const handleGeoGame = {
         playerState.selectedOptionId = data.optionId;
         roundState.playerStates[participationId] = playerState;
 
-        await saveGameStateIfRevision(tx, {
+        await saveGameStateIfRevision(tx, { gameSlug: 'wissensduell',
           roomId: room.id, expectedRevision: existing.revision, state: parsed, phase: parsed.phase,
         });
 
@@ -669,7 +676,7 @@ export const handleGeoGame = {
         eliminated: eliminated.includes(o.id),
       }));
 
-      await prisma.$transaction(async (tx) => saveGameStateIfRevision(tx, {
+      await prisma.$transaction(async (tx) => saveGameStateIfRevision(tx, { gameSlug: 'wissensduell',
         roomId: room.id, expectedRevision: gameStateData.revision, state, phase: state.phase,
       }));
       const result = { roundIndex: state.currentRoundIndex, options: optionsWithEliminated, eliminated };
@@ -771,7 +778,7 @@ export const handleGeoGame = {
 
       playerState.spyDistribution = distribution;
 
-      await prisma.$transaction(async (tx) => saveGameStateIfRevision(tx, {
+      await prisma.$transaction(async (tx) => saveGameStateIfRevision(tx, { gameSlug: 'wissensduell',
         roomId: room.id, expectedRevision: gameStateData.revision, state, phase: state.phase,
       }));
       const result = { roundIndex: state.currentRoundIndex, distribution };
@@ -846,7 +853,7 @@ export const handleGeoGame = {
       // Mark joker as used
       playerState.jokers.usedRisk = true;
 
-      await prisma.$transaction(async (tx) => saveGameStateIfRevision(tx, {
+      await prisma.$transaction(async (tx) => saveGameStateIfRevision(tx, { gameSlug: 'wissensduell',
         roomId: room.id, expectedRevision: gameStateData.revision, state, phase: state.phase,
       }));
       const result = { roundIndex: state.currentRoundIndex, active: true };
@@ -979,7 +986,7 @@ export const handleGeoGame = {
         state.phase = 'REVEAL';
 
         // Update game state
-        await saveGameStateIfRevision(tx, {
+        await saveGameStateIfRevision(tx, { gameSlug: 'wissensduell',
           roomId: room.id, expectedRevision: gameStateData.revision, state, phase: 'REVEAL',
         });
 
@@ -1076,7 +1083,7 @@ export const handleGeoGame = {
 
       // Check if game ended
       if (transition.ended) {
-        const ended = await finishRunningGame<GeoGameState>({
+        const ended = await finishRunningGame<GeoGameState>({ gameSlug: 'wissensduell',
           roomId: room.id, expectedRevision: gameStateData.revision, requiredPhase: 'REVEAL',
           nextState: (current) => ({ ...current, currentRoundIndex: transition.nextIndex }),
         });
@@ -1085,7 +1092,7 @@ export const handleGeoGame = {
         return;
       }
 
-      await prisma.$transaction(async (tx) => saveGameStateIfRevision(tx, {
+      await prisma.$transaction(async (tx) => saveGameStateIfRevision(tx, { gameSlug: 'wissensduell',
         roomId: room.id, expectedRevision: gameStateData.revision, state, phase: 'PROMPT',
       }));
 
@@ -1161,7 +1168,7 @@ export const handleGeoGame = {
       state.phase = 'PAUSED';
 
       await prisma.$transaction(async (tx) => {
-        await saveGameStateIfRevision(tx, {
+        await saveGameStateIfRevision(tx, { gameSlug: 'wissensduell',
           roomId: room.id, expectedRevision: gameStateData.revision, state, phase: state.phase,
         });
         const updated = await tx.room.updateMany({
@@ -1240,7 +1247,7 @@ export const handleGeoGame = {
       roundState.timerEndMs = newTimerEndMs;
       state.phase = 'INPUT_OPEN';
       await prisma.$transaction(async (tx) => {
-        await saveGameStateIfRevision(tx, {
+        await saveGameStateIfRevision(tx, { gameSlug: 'wissensduell',
           roomId: room.id, expectedRevision: gameStateData.revision, state, phase: state.phase,
         });
         const updated = await tx.room.updateMany({
@@ -1276,7 +1283,7 @@ export const handleGeoGame = {
   // ============================================================
 
   async end(io: Server, room: { id: string; code: string }): Promise<{ ended: boolean }> {
-    const result = await finishRunningGame<GeoGameState>({ roomId: room.id });
+    const result = await finishRunningGame<GeoGameState>({ gameSlug: 'wissensduell', roomId: room.id });
     if (result.ended) await this.handleGameEnd(io, room, result.state);
     return { ended: result.ended };
   },

@@ -27,6 +27,7 @@
 
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { spawn, type ChildProcess } from 'node:child_process';
+import { createServer as createPortProbe } from 'node:net';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
@@ -265,7 +266,13 @@ beforeAll(async () => {
   await createTestDatabase(dbUrl);
   prisma = new PrismaClient({ datasourceUrl: dbUrl });
   await prisma.$connect();
-  port = 42100 + Math.floor(Math.random() * 400);
+  // Ask the OS instead of colliding with the small fixed range used by other suites.
+  const probe = createPortProbe();
+  await new Promise<void>(resolve => probe.listen(0, '127.0.0.1', resolve));
+  const address = probe.address();
+  if (!address || typeof address === 'string') throw new Error('NO_TEST_PORT');
+  port = address.port;
+  await new Promise<void>((resolve, reject) => probe.close(error => error ? reject(error) : resolve()));
   // FRESCHER Prozess liest die VOR dem Start persistierten Räume.
   await startServer();
 }, 120000);

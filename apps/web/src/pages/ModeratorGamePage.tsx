@@ -244,6 +244,7 @@ export function ModeratorGamePage() {
 
       <div className={styles.actions}>
         {core.projection && <progress aria-label="Spielfortschritt" max={100} value={core.projection.progress.progressPercent ?? undefined} />}
+        {core.projection?.recoveryRequired && <p role="alert">Der Spielzustand muss geprüft werden. Das Spiel wurde angehalten.</p>}
         {!recoveryError && (!revealed ? (
           <>
             <Button variant="secondary" disabled={!core.can(timerPaused ? 'resume' : 'pause')} onClick={timerPaused ? handleResumeTimer : handlePauseTimer}>

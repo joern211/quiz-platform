@@ -259,21 +259,22 @@ describe('Jeopardy multiplayer socket integration', () => {
       } });
       return room;
     };
-    const expired = JSON.stringify({ phase: 'INPUT_OPEN', currentRoundIndex: 0,
-      roundStates: { 0: { timerEndMs: Date.now() - 1000 } } });
-    await createRoom('geo', '{invalid-json');
+    const expired = JSON.stringify({ phase: 'INPUT_OPEN', currentRoundIndex: 0, questions: [{}], scores: {},
+      roundStates: { 0: { timerEndMs: Date.now() - 1000, revealed: false, playerStates: {} } } });
+    const malformed = await createRoom('geo', '{invalid-json');
     await createRoom('jeopardy', expired);
     await createRoom('geo', expired, 'RUNNING', 'PAUSED');
     await createRoom('geo', expired, 'ENDED');
     await createRoom('geo', JSON.stringify({ phase: 'REVEAL', currentRoundIndex: 0,
       roundStates: { 0: { timerEndMs: Date.now() - 1000 } } }));
     const valid = await createRoom('geo', expired);
-    const future = await createRoom('geo', JSON.stringify({ phase: 'INPUT_OPEN', currentRoundIndex: 0,
-      roundStates: { 0: { timerEndMs: Date.now() + 60000 } } }));
+    const future = await createRoom('geo', JSON.stringify({ phase: 'INPUT_OPEN', currentRoundIndex: 0, questions: [{}], scores: {},
+      roundStates: { 0: { timerEndMs: Date.now() + 60000, revealed: false, playerStates: {} } } }));
     const expire = vi.spyOn(handleGeoGame, 'handleTimerExpired').mockResolvedValue(undefined);
     const schedule = vi.spyOn(globalThis, 'setTimeout');
     try {
       await restoreActiveTimers(io);
+      expect((await prisma.roomGameState.findUniqueOrThrow({ where: { roomId: malformed.id } })).phase).toBe('ERROR_RECOVERY');
       expect(expire).toHaveBeenCalledTimes(1);
       expect(expire.mock.calls[0][1].id).toBe(valid.id);
       expect(schedule.mock.calls.some(([, milliseconds]) => typeof milliseconds === 'number' && milliseconds > 59000)).toBe(true);
@@ -444,8 +445,7 @@ describe('Jeopardy multiplayer socket integration', () => {
       expect((await ack(host, 'room:subscribe', { roomCode: room.code })).success).toBe(true);
       expect((await ack(client, 'room:subscribe', { roomCode: room.code, rejoinToken: player.rejoinToken })).success).toBe(true);
       expect((await ack(host, 'game:start', { roomCode: room.code })).success).toBe(true);
-      await new Promise(resolve => setTimeout(resolve, 3200));
-      expect((await ack(client, 'geo:resync')).phase).toBe('INPUT_OPEN');
+      await vi.waitFor(async () => expect((await ack(client, 'geo:resync')).phase).toBe('INPUT_OPEN'), { timeout: 6000, interval: 100 });
       if (pauseBeforeEnd) {
         expect((await ack(host, 'game:pause', { roomCode: room.code })).success).toBe(true);
         expect((await ack(client, 'geo:resync')).phase).toBe('PAUSED');

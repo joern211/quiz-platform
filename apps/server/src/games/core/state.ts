@@ -6,6 +6,7 @@
 import type { Prisma, RoomGameState } from '@prisma/client';
 import { prisma } from '../../persistence/prisma.js';
 import { assertCommandMutation } from './commandExecution.js';
+import { assertGameInvariants } from './invariants.js';
 
 export class GameStateConflictError extends Error {
   readonly code = 'STATE_CONFLICT';
@@ -42,8 +43,10 @@ export async function upsertGameState<TState>(params: {
   state: TState;
   phase: string;
   engineVersion?: number;
+  gameSlug?: string;
 }): Promise<void> {
   const { roomId, state, phase, engineVersion = 1 } = params;
+  if (params.gameSlug) assertGameInvariants(params.gameSlug, state, phase);
   const stateJson = JSON.stringify(state);
 
   await prisma.$transaction(async (tx) => {
@@ -78,11 +81,13 @@ export async function saveGameStateIfRevision<TState>(
     expectedRevision: number;
     state: TState;
     phase: string;
+    gameSlug?: string;
   }
 ): Promise<void> {
   const { roomId, expectedRevision, state, phase } = params;
 
   await assertCommandMutation(tx, roomId);
+  if (params.gameSlug) assertGameInvariants(params.gameSlug, state, phase);
 
   const result = await tx.roomGameState.updateMany({
     where: { roomId, revision: expectedRevision },
@@ -104,6 +109,7 @@ export async function finishRunningGame<TState extends { phase: string }>(params
   expectedRevision?: number;
   requiredPhase?: string;
   nextState?: (state: TState) => TState;
+  gameSlug?: string;
 }): Promise<{ ended: boolean; state: TState }> {
   return prisma.$transaction(async (tx) => {
     const room = await tx.room.findUniqueOrThrow({ where: { id: params.roomId } });
@@ -123,6 +129,7 @@ export async function finishRunningGame<TState extends { phase: string }>(params
     const endedState = { ...(params.nextState?.(state) ?? state), phase: 'GAME_END' } as TState;
     await saveGameStateIfRevision(tx, {
       roomId: params.roomId, expectedRevision: row.revision, state: endedState, phase: 'GAME_END',
+      gameSlug: params.gameSlug,
     });
     const updated = await tx.room.updateMany({
       where: { id: params.roomId, status: 'RUNNING', revision: room.revision },

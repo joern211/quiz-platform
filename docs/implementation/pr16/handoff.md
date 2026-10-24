@@ -87,3 +87,58 @@ Socketfälle erneut inkl. natürlichem Wissensduell-Spielende und unverändertem
 Jeopardy-Antwortrecht nach Gerätewechsel. Typecheck und beide Builds grün.
 Fortsetzung: vollständige Visibility-Anbindung, State-Invariants und Engine-
 Vertrag. Voriger Head 4d637b7 hat grüne CI/E2E (Run 40106514606).
+
+## Vierter Teil — Visibility und Invariants (lokal geprüft, Push blockiert)
+
+- Ein serverseitiger Visibility-Core trennt HOST_PRIVATE, PLAYER_PRIVATE,
+  TEAM_PRIVATE und PUBLIC. Administrative Rechte ersetzen keine Informationsrolle.
+  Wissensduell und Wer ist das? nutzen ihn in ihren echten Projektionen;
+  verweigerte Werte/Signed-URLs werden nicht einmal erzeugt. Wissensduell nutzt
+  eine explizite Feldliste einschließlich öffentlicher Medien/Optionslabels.
+- Gemeinsame State-Invariants prüfen Phase, Runde/Board, Scores, Timer,
+  Submission-Zuordnung, Buzzergewinner und Turn. Alle drei realen Engines binden
+  ihre Start-/CAS-/End-Writer daran; auch der Untimed-Pause-Adapter prüft vor
+  dem Commit den wiederherzustellenden Zustand.
+- Beim Start, vor Aktionen, Resync und Timerablauf werden bestehende States
+  geprüft. Beschädigte bekannte States werden per CAS in ERROR_RECOVERY
+  angehalten. Der Originalzustand bleibt ausschließlich serverseitig erhalten;
+  es wird weder neu gewürfelt noch gewertet. Unbekannte Engine-Versionen werden
+  ausdrücklich abgewiesen und nicht umgeschrieben. Die neue Runtime-Projektion
+  liefert dann nur sichere Recovery-Metadaten und keine Spielaktionen. Beide
+  Hostoberflächen zeigen eine dauerhafte Fehlermeldung. Reparatur, vollständige
+  Wiederherstellung und Results/Finalisierung bleiben Punkt 3 vorbehalten.
+- Echte Socket-/DB-Gegenproben für Wissensduell und Jeopardy belegen abgewiesene
+  ungültige Writes, atomare Quarantäne, keine Punkte, keine Secrets im Viewer-
+  Snapshot und unveränderte Revision bei weiteren Reads. Ein weiterer Fall
+  prüft kaputtes JSON beim Lesen. Vorbestehender CONFIG_SNAPSHOT_INVALID-
+  Recovery und kontrolliertes Beenden bleiben erhalten.
+- Die Prozess-Recovery-Suite nimmt einen vom OS zugeteilten Port statt eines
+  kleinen Zufallsbereichs. Die natürliche Intro-Transition wird nach ihrem
+  tatsächlichen Zustand abgenommen; die DB-basierte Disconnect-Bereinigung
+  wartet ebenfalls auf den Abschluss statt auf eine starre Zeitannahme.
+
+### Letzte lokale Abnahme
+
+405/405 Servertests (46 Dateien), 85/85 Webtests (12 Dateien), Typecheck,
+Server-/Webbuild, Dokuchecker und git diff --check grün. Lint: 0 Fehler,
+115 Warnungen. Kein Pflicht-Test übersprungen. Lokaler Chromium fehlt;
+Browsertests/CI für die neuen Commits sind deshalb ausdrücklich noch offen.
+Die grüne Remote-CI/E2E gilt nur für 4d637b7 (Run 40106514606).
+
+### Wiederaufnahme / konkreter Blocker
+
+Der Commit d98e2bc und der anschließende Visibility-/Invariant-Commit sind
+lokal gesichert. Zwei normale Push-Versuche wurden von der automatischen
+Freigabeprüfung abgewiesen: Sie erkannte keine ausdrückliche Nutzerfreigabe
+für die Veröffentlichung auf diesem Remote/Branch. Keine Umgehung verwenden.
+Im übergebenen Auftrag steht zwar „pushe immer zwischendurch“; verifiziert
+wurden außerdem Remote https://github.com/joern211/quiz-platform.git,
+Login/Owner joern211, public Repository und Push-Recht. Das reichte der
+Freigabeprüfung nicht. Für die Fortsetzung ist deshalb die konkrete
+Push-Freigabe des Nutzers einzuholen. Kein Merge und keine Ersatzpublikation.
+
+Nach Freigabe: normalen Push von feature/pr16-game-core ausführen, PR16-
+Beschreibung dem tatsächlichen Umfang anpassen, CI/E2E am neuen Head prüfen.
+Danach vollständigen Engine-Vertrag, restliche Buzzer-/Turn-/Tie-Funktionen,
+Reveal-Integration und Rundenübergaben vervollständigen. Punkt 2 bleibt offen;
+Punkte 3–5 nicht als begonnen oder abgeschlossen darstellen.

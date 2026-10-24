@@ -61,3 +61,18 @@ Die Merge-Reihenfolge bleibt PR15 vor PR16.
    Typen oder ungenutzten Helfer als DONE melden; je Core mindestens zwei
    echte Consumer nachweisen. Results/Finalisierung gehören zu Punkt 3.
 4. Regression und finale CI/E2E am eigenen Head. Erst danach Punkt 3.
+
+## Fortsetzung — lokaler Stand nach 4d637b7
+
+Punkt 2 wurde um gemeinsame Runden-/Matching-/Zufallsregeln (d98e2bc),
+Visibility und vor Speicherung sowie bei Recovery geprüfte Invariants
+fortgesetzt. 405 Server-/85 Webtests, Typecheck, Builds, Lint ohne Fehler und
+Dokuchecker sind lokal grün. Einzelheiten/Abgrenzungen in pr16/handoff.md.
+Noch kein Abschluss von Punkt 2 und kein Beginn von Punkt 3–5.
+
+Push ist durch die automatische Freigabeprüfung blockiert (zwei Ablehnungen
+wegen vermeintlich fehlender ausdrücklicher Freigabe für Remote/Branch).
+Keine Ausweichpublikation. Vor dem nächsten normalen Push konkrete Freigabe
+für feature/pr16-game-core → https://github.com/joern211/quiz-platform.git
+anfordern. Danach GitHub-CI/E2E am eigenen neuen Head abnehmen und PR16-Body
+aktualisieren; der Remote-Nachweis auf 4d637b7 deckt lokale Folgecommits nicht.

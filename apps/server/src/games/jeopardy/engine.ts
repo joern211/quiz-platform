@@ -131,7 +131,7 @@ export const handleJeopardyGame = {
     state.phase = JEOPARDY_PHASES.SELECTING;
 
     // Persist through the shared game-state core.
-    await upsertGameState({
+    await upsertGameState({ gameSlug: 'jeopardy',
       roomId: room.id,
       engineVersion: 1,
       phase: JEOPARDY_PHASES.SELECTING,
@@ -258,7 +258,7 @@ export const handleJeopardyGame = {
     };
 
     // Persist atomically
-    await prisma.$transaction(async (tx) => saveGameStateIfRevision(tx, { roomId, expectedRevision: gameStateData.revision, state, phase: state.phase }));
+    await prisma.$transaction(async (tx) => saveGameStateIfRevision(tx, { gameSlug: 'jeopardy', roomId, expectedRevision: gameStateData.revision, state, phase: state.phase }));
 
     // Emit question to ALL (no answer — P0-07 fix: using io.to broadcasts to the correct room channel)
     const fieldOpenEvent: JeopardyFieldOpenEvent = {
@@ -336,7 +336,7 @@ export const handleJeopardyGame = {
       state.buzzOpen = claim.state.open;
       state.buzzWinner = claim.state.winnerId;
       state.phase = JEOPARDY_PHASES.BUZZ_LOCKED;
-      await saveGameStateIfRevision(tx, { roomId, expectedRevision: gameStateData.revision, state, phase: state.phase });
+      await saveGameStateIfRevision(tx, { gameSlug: 'jeopardy', roomId, expectedRevision: gameStateData.revision, state, phase: state.phase });
 
       return { state, displayName: auth.actor.displayName };
     });
@@ -400,7 +400,7 @@ export const handleJeopardyGame = {
         state.buzzOpen = false;
         state.stealOpen = true;
       }
-      await saveGameStateIfRevision(tx, { roomId, expectedRevision: row.revision, state, phase: state.phase });
+      await saveGameStateIfRevision(tx, { gameSlug: 'jeopardy', roomId, expectedRevision: row.revision, state, phase: state.phase });
       await recordScoreMutation(tx, {
         roomId, participationId: playerId, score: state.scores[playerId], delta,
         reason: data.correct ? 'JEOPARDY_CORRECT' : 'JEOPARDY_WRONG_FIRST',
@@ -476,7 +476,7 @@ export const handleJeopardyGame = {
       state.stealWinner = claim.state.winnerId;
       state.phase = JEOPARDY_PHASES.STEAL_LOCKED;
 
-      await saveGameStateIfRevision(tx, { roomId, expectedRevision: gameStateData.revision, state, phase: state.phase });
+      await saveGameStateIfRevision(tx, { gameSlug: 'jeopardy', roomId, expectedRevision: gameStateData.revision, state, phase: state.phase });
 
       return { displayName: auth.actor.displayName };
     });
@@ -546,7 +546,7 @@ export const handleJeopardyGame = {
         state.phase = JEOPARDY_PHASES.FIELD_DONE;
       }
 
-      await saveGameStateIfRevision(tx, { roomId, expectedRevision: gameStateData.revision, state, phase: state.phase });
+      await saveGameStateIfRevision(tx, { gameSlug: 'jeopardy', roomId, expectedRevision: gameStateData.revision, state, phase: state.phase });
 
       await recordScoreMutation(tx, {
         roomId, participationId: stealWinnerId, score: state.scores[stealWinnerId], delta,
@@ -635,7 +635,7 @@ export const handleJeopardyGame = {
       };
       state = resetBuzzer(state);
 
-      await saveGameStateIfRevision(tx, { roomId, expectedRevision: gameStateData.revision, state, phase: state.phase });
+      await saveGameStateIfRevision(tx, { gameSlug: 'jeopardy', roomId, expectedRevision: gameStateData.revision, state, phase: state.phase });
     });
 
     io.to(roomChannel(roomId)).emit('jeopardy:next', { phase: JEOPARDY_PHASES.SELECTING });
@@ -680,7 +680,7 @@ export const handleJeopardyGame = {
       // Board 2 fields were registered at initialization; never reinsert played fields.
       const newState = resetBuzzer({ ...state, currentBoard: 2 as const, currentField: null });
       newState.phase = JEOPARDY_PHASES.SELECTING;
-      await prisma.$transaction(async (tx) => saveGameStateIfRevision(tx, { roomId: room.id, expectedRevision: gameStateData.revision, state: newState, phase: newState.phase }));
+      await prisma.$transaction(async (tx) => saveGameStateIfRevision(tx, { gameSlug: 'jeopardy', roomId: room.id, expectedRevision: gameStateData.revision, state: newState, phase: newState.phase }));
 
       const categories = setup.board2.categories.map((cat) => ({
         name: cat.name,
@@ -717,7 +717,7 @@ export const handleJeopardyGame = {
     _state?: JeopardyGameState,
     manual = false
   ): Promise<{ success: boolean; error?: string; ended?: boolean }> {
-    const result = await finishRunningGame<JeopardyGameState>({
+    const result = await finishRunningGame<JeopardyGameState>({ gameSlug: 'jeopardy',
       roomId: room.id,
       ...(!manual ? { requiredPhase: JEOPARDY_PHASES.BOARD_COMPLETE } : {}),
     });

@@ -107,7 +107,7 @@ export const werIstDasGame = {
     const state = createWerIstDasState(roundCount, names, scores);
     // engineVersion beim Start pinnen (Regelwerk §5.22): Recovery nutzt die
     // exakt gleiche Version.
-    await upsertGameState({ roomId: room.id, state, phase: state.phase, engineVersion: WER_IST_DAS_ENGINE_VERSION });
+    await upsertGameState({ gameSlug: 'wer-ist-das', roomId: room.id, state, phase: state.phase, engineVersion: WER_IST_DAS_ENGINE_VERSION });
     await sendProjections(io, room.id, state, setup);
   },
 
@@ -149,7 +149,7 @@ export const werIstDasGame = {
       state = nextRound(state, setup.rounds[state.roundIndex].id);
     }
     await prisma.$transaction(async tx => {
-      await saveGameStateIfRevision(tx, { roomId, expectedRevision: loaded.revision, state, phase: state.phase });
+      await saveGameStateIfRevision(tx, { gameSlug: 'wer-ist-das', roomId, expectedRevision: loaded.revision, state, phase: state.phase });
       if (scoreMutation) await recordScoreMutation(tx, {
         roomId, participationId: scoreMutation.playerId, score: scoreMutation.score,
         delta: scoreMutation.delta, reason: `weristdas:${payload!.result!.toLowerCase()}`,
@@ -180,7 +180,7 @@ export const werIstDasGame = {
 
   async end(io: Server, room: { id: string; code: string; setupSnapshotJson: string | null }) {
     const setup = WerIstDasSetupSchema.parse(JSON.parse(room.setupSnapshotJson ?? '{}'));
-    const result = await finishRunningGame<WerIstDasState>({
+    const result = await finishRunningGame<WerIstDasState>({ gameSlug: 'wer-ist-das',
       roomId: room.id, nextState: state => ({ ...state, buzzer: { ...state.buzzer, open: false },
         playedRoundIds: state.revealed
           ? [...state.playedRoundIds, setup.rounds[state.roundIndex].id]

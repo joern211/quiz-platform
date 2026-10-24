@@ -125,7 +125,7 @@ export async function runGuardedCriticalAction(
   }
 
   const finish = (result: { success: boolean; error?: string; [k: string]: unknown }, replayed?: boolean) => {
-    if (result.success && !replayed) args.io.to(roomChannel(perm.roomId)).emit('game:core:changed');
+    if (result.success && !replayed || result.error === 'STATE_INVARIANT_FAILED') args.io.to(roomChannel(perm.roomId)).emit('game:core:changed');
     if (!result.success && result.error) {
       const appError = wireErrorToAppError(String(result.error), { context: { action: args.action } });
       callback?.({ ...result, code: appError.code, messageKey: appError.messageKey, traceId: appError.traceId, ...(replayed ? { replayed: true } : {}) });
@@ -165,6 +165,7 @@ export async function runGuardedCriticalAction(
     } catch (error) {
       logger.error(`receipted action ${args.action} threw`, { error });
       const wireError = gameErrorCode(error);
+      if (wireError === 'STATE_INVARIANT_FAILED') args.io.to(roomChannel(perm.roomId)).emit('game:core:changed');
       const appError = wireErrorToAppError(wireError, { internalDetail: error, context: { action: args.action } });
       callback?.({ success: false, outcomeUnknown: true, error: wireError, code: appError.code, messageKey: appError.messageKey, traceId: appError.traceId });
     }
@@ -179,6 +180,7 @@ export async function runGuardedCriticalAction(
   } catch (error) {
     logger.error(`action ${args.action} threw`, { error });
     const wireError = gameErrorCode(error);
+    if (wireError === 'STATE_INVARIANT_FAILED') args.io.to(roomChannel(perm.roomId)).emit('game:core:changed');
     const appError = wireErrorToAppError(wireError, { internalDetail: error, context: { action: args.action } });
     callback?.({ success: false, error: wireError, code: appError.code, messageKey: appError.messageKey, traceId: appError.traceId });
   }

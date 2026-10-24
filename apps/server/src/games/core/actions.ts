@@ -4,6 +4,8 @@ import { CoreTimerSchema, CoreRuntimeProjectionSchema, resolveCanonicalSlug, typ
 import { prisma } from '../../persistence/prisma.js';
 import { socketRoomActor } from '../../rooms/socket.js';
 import { CoreRuleError, legacyRoundTimer, timerAcceptsInput } from './runtimePrimitives.js';
+import { ensureGameStateSafe } from './recovery.js';
+import { roomChannel } from '../../sockets/channel.js';
 
 const playerState = z.object({ answered: z.boolean(), locked: z.boolean(), jokers: z.object({ used5050: z.boolean(), usedSpy: z.boolean(), usedRisk: z.boolean() }) });
 const geoState = z.object({ phase: z.string(), currentRoundIndex: z.number().int(), questions: z.array(z.unknown()), roundStates: z.record(z.object({ revealed: z.boolean(), timer: CoreTimerSchema.optional(), timerStartMs: z.number().nullable().optional(), timerEndMs: z.number().nullable().optional(), pauseRemainingMs: z.number().nullable().optional(), playerStates: z.record(playerState) })) });
@@ -102,23 +104,41 @@ async function loadContext(socket: Socket) {
   const { roomId, actor } = await socketRoomActor(socket);
   const room = await prisma.room.findUniqueOrThrow({ where: { id: roomId }, include: { gameDefinition: true, gameState: true, participations: { where: { id: actor.participantId } } } });
   const self = room.participations[0];
+  let state: unknown = null;
+  try { if (room.gameState) state = JSON.parse(room.gameState.stateJson); }
+  catch { /* The invariant gate freezes malformed JSON before a mutation or projection. */ }
   const informationRole: InformationRole = self?.role === 'HOST' && actor.userId === room.hostUserId ? 'HOST' : self?.role === 'PLAYER' ? 'PLAYER' : 'VIEWER';
-  const context: CoreActionContext = { gameSlug: room.gameDefinition.slug, roomStatus: room.status, state: room.gameState ? JSON.parse(room.gameState.stateJson) : null,
+  const context: CoreActionContext = { gameSlug: room.gameDefinition.slug, roomStatus: room.status, state,
     informationRole, participantId: self?.id ?? null, active: !!self && self.admission === 'ACTIVE' && !self.leftAt && !self.kickedAt && !self.bannedAt,
     permissions: actor.permissions, now: Date.now() };
   return { context, room };
 }
 export async function assertCoreActionAllowed(socket: Socket, key: string, expectedSlug?: string): Promise<void> {
-  const { context } = await loadContext(socket);
+  const { context, room } = await loadContext(socket);
   if (expectedSlug && resolveCanonicalSlug(expectedSlug) !== resolveCanonicalSlug(context.gameSlug)) throw new CoreRuleError('WRONG_GAME');
+  if (key !== 'end') await ensureGameStateSafe(room.id);
   if (!['wissensduell', 'jeopardy'].includes(resolveCanonicalSlug(context.gameSlug) ?? context.gameSlug)) return;
   const denied = coreActionDenial(context, key);
   if (denied) throw new CoreRuleError(denied);
 }
 export async function projectCoreRuntime(socket: Socket): Promise<CoreRuntimeProjection> {
-  const { context, room } = await loadContext(socket);
+  let loaded = await loadContext(socket);
+  try { await ensureGameStateSafe(loaded.room.id); }
+  catch (error) {
+    if (!(error instanceof CoreRuleError) || error.code !== 'STATE_INVARIANT_FAILED') throw error;
+    loaded = await loadContext(socket);
+    socket.nsp.to(roomChannel(loaded.room.id)).emit('game:core:changed');
+  }
+  const { context, room } = loaded;
   if (!room.gameState) throw new CoreRuleError('GAME_NOT_FOUND');
   const slug = resolveCanonicalSlug(context.gameSlug) ?? context.gameSlug;
+  if (room.gameState.phase === 'ERROR_RECOVERY') return CoreRuntimeProjectionSchema.parse({
+    roomCode: room.code, runIndex: room.runIndex, gameSlug: slug, engineVersion: room.gameState.engineVersion,
+    stateVersion: room.gameState.revision, enginePhase: 'ERROR_RECOVERY', recoveryRequired: true,
+    informationRole: context.informationRole, timer: null,
+    progress: { currentRound: 0, totalRounds: null, remainingRounds: null, progressPercent: null },
+    availableActions: [],
+  });
   let currentRound = 0, totalRounds: number | null = null, completed = 0, timer = null;
   if (slug === 'wissensduell') {
     const state = geoState.parse(context.state), round = state.roundStates[state.currentRoundIndex];

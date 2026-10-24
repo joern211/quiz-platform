@@ -6,6 +6,7 @@
 import { createApp } from './app.js';
 import { prisma } from './persistence/prisma.js';
 import { restoreActiveTimers } from './games/geo/index.js';
+import { validateActiveGames } from './games/core/recovery.js';
 import { migrateCanonicalSlugsOnStartup } from './persistence/canonicalSlugMigration.js';
 import { cleanupOrphanedTempAssets } from './media/lifecycle.js';
 import { logger } from './observability/logger.js';
@@ -23,6 +24,7 @@ export async function start() {
     // Spielidentitäten (Regelwerk §5.22/§5.23/§14). Muss VOR der
     // Timer-Restoration laufen, damit aktive Räume den kanonischen Slug tragen.
     await migrateCanonicalSlugsOnStartup(prisma);
+    await validateActiveGames();
 
     // P0-16: Restauriere aktive Timer nach Server-Restart
     await restoreActiveTimers(io);
