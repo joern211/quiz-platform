@@ -221,7 +221,7 @@ export function PlayerGamePage() {
 
       {answerSubmitted && <p role="status">Antwort gespeichert.</p>}
 
-      <Card padding="lg" className={styles.questionCard}>
+      <Card padding="lg" className={styles.questionCard} role="region" aria-label="Aktuelle Frage">
         <p className={styles.category}>{question.category}</p>
         <h2 className={styles.prompt}>{question.prompt}</h2>
         

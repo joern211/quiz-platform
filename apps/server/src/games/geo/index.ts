@@ -10,6 +10,8 @@ import { withoutCommandExecution } from '../core/commandExecution.js';
 import { loadGameConfig, loadInitialGameCount } from '../core/config.js';
 import { authorizeGameContext } from '../core/access.js';
 import { gameErrorCode } from '../core/errors.js';
+import { feed } from '../../rooms/core.js';
+import { changed } from '../../rooms/socket.js';
 import { applyScoreDelta, recordScoreMutation } from '../core/score.js';
 import { logger } from '../../observability/logger.js';
 import { roomChannel } from '../../sockets/index.js';
@@ -56,6 +58,15 @@ export function cancelGeoTimer(roomId: string): void {
   const timer = activeTimers.get(roomId);
   if (timer) clearTimeout(timer);
   activeTimers.delete(roomId);
+}
+
+/** Intro transitions share the same cancellable lifecycle as round timers. */
+export function scheduleGeoIntro(roomId: string, start: () => Promise<void>): void {
+  cancelGeoTimer(roomId);
+  activeTimers.set(roomId, withoutCommandExecution(() => setTimeout(() => {
+    activeTimers.delete(roomId);
+    void start();
+  }, 3000)));
 }
 
 /** Test-Hook: IDs der Räume mit aktuell gesetztem (in-Memory) Timer. */
@@ -189,7 +200,7 @@ export const handleGeoGame = {
 
     // Get participations
     const participations = await prisma.participation.findMany({
-      where: { roomId: room.id, role: 'PLAYER' },
+      where: { roomId: room.id, role: 'PLAYER', admission: 'ACTIVE', leftAt: null, kickedAt: null, bannedAt: null },
     });
 
     // Initialize player states
@@ -329,7 +340,7 @@ export const handleGeoGame = {
 
     // Create each player's round state before answers or jokers arrive.
     const players = await prisma.participation.findMany({
-      where: { roomId: roomRecord.id, role: 'PLAYER' }, select: { id: true },
+      where: { roomId: roomRecord.id, role: 'PLAYER', admission: 'ACTIVE', leftAt: null, kickedAt: null, bannedAt: null }, select: { id: true },
     });
     const playerStates: Record<string, GeoPlayerState> = {};
     for (const player of players) {
@@ -536,7 +547,7 @@ export const handleGeoGame = {
       });
       const roomSockets = await io.in(roomChannel(room.id)).fetchSockets();
       for (const moderator of roomSockets) {
-        if (moderator.data.role === 'HOST' && moderator.data.roomId === room.id) {
+        if (moderator.data.role === 'HOST' && moderator.data.roomId === room.id && moderator.data.userId === room.hostUserId) {
           moderator.emit('geo:answered:moderator', {
             questionIndex: roundIndex, participantId: participationId, optionId: data.optionId,
           });
@@ -580,7 +591,7 @@ export const handleGeoGame = {
         return;
       }
       const participation = await prisma.participation.findFirst({
-        where: { id: auth.actor.participationId, roomId: auth.actor.roomId, role: 'PLAYER' },
+        where: { id: auth.actor.participationId, roomId: auth.actor.roomId, role: 'PLAYER', admission: 'ACTIVE', leftAt: null, kickedAt: null, bannedAt: null },
         include: { room: true },
       });
       if (!participation) {
@@ -675,7 +686,7 @@ export const handleGeoGame = {
         return;
       }
       const participation = await prisma.participation.findFirst({
-        where: { id: auth.actor.participationId, roomId: auth.actor.roomId, role: 'PLAYER' },
+        where: { id: auth.actor.participationId, roomId: auth.actor.roomId, role: 'PLAYER', admission: 'ACTIVE', leftAt: null, kickedAt: null, bannedAt: null },
         include: { room: true },
       });
       if (!participation) {
@@ -777,7 +788,7 @@ export const handleGeoGame = {
         return;
       }
       const participation = await prisma.participation.findFirst({
-        where: { id: auth.actor.participationId, roomId: auth.actor.roomId, role: 'PLAYER' },
+        where: { id: auth.actor.participationId, roomId: auth.actor.roomId, role: 'PLAYER', admission: 'ACTIVE', leftAt: null, kickedAt: null, bannedAt: null },
         include: { room: true },
       });
       if (!participation) {
@@ -857,7 +868,7 @@ export const handleGeoGame = {
         }
 
         const auth = await authorizeGameContext(socket, {
-          roles: ['HOST'], requireParticipation: true, gameSlug: resolveCanonicalSlug('geo')!, requireRunning: true,
+          roles: ['HOST'], requireParticipation: true, gameSlug: resolveCanonicalSlug('geo')!, requireRunning: true, controlPermission: 'REVEAL_CONTENT',
         });
         if (!auth.ok || auth.room.id !== roomRecord.id) {
           callback?.({ success: false, error: auth.ok ? 'WRONG_ROOM' : auth.error });
@@ -1021,7 +1032,7 @@ export const handleGeoGame = {
 
       // P0-17: Authorization check
       const auth = await authorizeGameContext(socket, {
-        roles: ['HOST'], requireParticipation: true, gameSlug: resolveCanonicalSlug('geo')!, requireRunning: true,
+        roles: ['HOST'], requireParticipation: true, gameSlug: resolveCanonicalSlug('geo')!, requireRunning: true, controlPermission: 'ROUND_ADVANCE',
       });
       if (!auth.ok || auth.room.id !== room.id) {
         callback?.({ success: false, error: auth.ok ? 'WRONG_ROOM' : auth.error });
@@ -1097,7 +1108,7 @@ export const handleGeoGame = {
       }
 
       const auth = await authorizeGameContext(socket, {
-        roles: ['HOST'], requireParticipation: true, gameSlug: resolveCanonicalSlug('geo')!, requireRunning: true,
+        roles: ['HOST'], requireParticipation: true, gameSlug: resolveCanonicalSlug('geo')!, requireRunning: true, controlPermission: 'GAME_PAUSE',
       });
       if (!auth.ok || auth.room.id !== room.id) {
         callback?.({ success: false, error: auth.ok ? 'WRONG_ROOM' : auth.error });
@@ -1135,11 +1146,13 @@ export const handleGeoGame = {
           where: { id: room.id, revision: room.revision, status: 'RUNNING' },
           data: { runPhase: 'PAUSED', revision: { increment: 1 } },
         });
+        await feed(tx, room.id, null, 'PAUSE', 'Spiel pausiert');
         if (updated.count !== 1) throw new Error('STATE_CONFLICT');
       });
       cancelGeoTimer(room.id);
 
       // Emit pause event
+      changed(io, room.id);
       io.to(roomChannel(room.id)).emit('geo:paused', {
         roundIndex: state.currentRoundIndex,
         remainingMs: pauseRemainingMs,
@@ -1173,7 +1186,7 @@ export const handleGeoGame = {
       }
 
       const auth = await authorizeGameContext(socket, {
-        roles: ['HOST'], requireParticipation: true, gameSlug: resolveCanonicalSlug('geo')!, requireRunning: true,
+        roles: ['HOST'], requireParticipation: true, gameSlug: resolveCanonicalSlug('geo')!, requireRunning: true, controlPermission: 'GAME_PAUSE',
       });
       if (!auth.ok || auth.room.id !== room.id) {
         callback?.({ success: false, error: auth.ok ? 'WRONG_ROOM' : auth.error });
@@ -1211,6 +1224,7 @@ export const handleGeoGame = {
           where: { id: room.id, revision: room.revision, status: 'RUNNING', runPhase: 'PAUSED' },
           data: { runPhase: 'ROUND_ACTIVE', revision: { increment: 1 } },
         });
+        await feed(tx, room.id, null, 'RESUME', 'Spiel fortgesetzt');
         if (updated.count !== 1) throw new Error('STATE_CONFLICT');
       });
       const existingTimer = activeTimers.get(room.id);
@@ -1225,6 +1239,7 @@ export const handleGeoGame = {
 
       activeTimers.set(room.id, timer);
 
+      changed(io, room.id);
       io.to(roomChannel(room.id)).emit('geo:resumed', { timerEndMs: newTimerEndMs });
       callback?.({ success: true, timerEndMs: newTimerEndMs });
     } catch (error) {

@@ -134,6 +134,8 @@ async function createTestRoomInDb(hostUserId: string, maxPlayers = 30) {
   const { prisma } = await import('../persistence/prisma.js');
   const raw = `${String(Math.floor(Math.random() * 900) + 100)}-${String(Math.floor(Math.random() * 900) + 100)}`;
   const geoDef = await getOrCreateGeoGame();
+  // This synthetic engine must permit the 30-player limiter fixture too.
+  await prisma.gameDefinition.update({ where: { id: geoDef.id }, data: { maxPlayers } });
   await prisma.room.upsert({
     where: { code: raw },
     update: {},
@@ -183,9 +185,9 @@ describe('Rate Limiter — Join Route (dev mode)', () => {
     const results = await Promise.all([0, 1, 2, 3, 4].map((i) =>
       req.post(`/api/v1/rooms/${roomCode}/join`).send({ displayName: `Player${i}` }),
     ));
-    // All should be 201 (first player joined) or 400 (room fills up).
-    // In dev mode the limiter middleware never blocks.
-    expect(results.every((r) => r.status === 201 || r.status === 400)).toBe(true);
+    // The 30-slot fixture has room for every concurrent join: neither
+    // throttling nor SQLite transaction contention may reject one.
+    expect(results.map(r => r.status), JSON.stringify(results.map(r => r.body))).toEqual([201, 201, 201, 201, 201]);
   });
 });
 

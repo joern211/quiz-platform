@@ -4,7 +4,8 @@
 
 import { useParams, useNavigate } from 'react-router-dom';
 import { useEffect, useState } from 'react';
-import { io } from 'socket.io-client';
+import { getSocket, connectSocket, disconnectSocket } from '../lib/socket';
+import { getSession } from '../lib/sessionStore';
 import type { GeoResyncResponse } from '../lib/socket';
 import { Card } from '@quiz/ui';
 import { Timer } from '@quiz/ui';
@@ -24,10 +25,10 @@ export function ViewerGamePage() {
   const [actionError, setActionError] = useState('');
 
   useEffect(() => {
-    const socket = io(window.location.origin, { withCredentials: true });
+    const socket = getSocket();
     
     const subscribe = () => {
-      socket.emit('room:subscribe', { roomCode: code, role: 'VIEWER' }, (response: { success: boolean }) => {
+      socket.emit('room:subscribe', { roomCode: code ?? '', role: 'VIEWER', rejoinToken: getSession().rejoinToken ?? undefined }, (response: { success: boolean }) => {
         if (!response.success) return;
         socket.emit('geo:resync', {}, (res: GeoResyncResponse) => {
           if (!res.success) return;
@@ -50,7 +51,7 @@ export function ViewerGamePage() {
     
     socket.on('room:snapshot', (data) => {
       setPlayers(data.players || []);
-      setScores(data.scores || {});
+      setScores(Object.fromEntries(data.players.map(p => [p.id, p.score])));
     });
 
     // P0-11: Listen for geo:question (not geo:show)
@@ -88,7 +89,8 @@ export function ViewerGamePage() {
       if (data.status === 'ENDED') navigate(`/zuschauen/${code}/ergebnis`);
     });
 
-    return () => { socket.disconnect(); };
+    connectSocket();
+    return () => { disconnectSocket(); };
   }, [code, navigate]);
 
   return (

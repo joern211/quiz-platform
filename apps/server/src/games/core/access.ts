@@ -69,17 +69,26 @@ export async function authorizeGameContext(
     gameSlug: string;
     requireParticipation?: boolean;
     requireRunning?: boolean;
+    controlPermission?: GamePermission;
   }
 ): Promise<
   | { ok: true; actor: GameActor; room: Room & { gameDefinition: GameDefinition } }
   | { ok: false; error: 'NOT_IN_ROOM' | 'FORBIDDEN' | 'NO_PARTICIPATION' | 'ROOM_NOT_FOUND' | 'WRONG_GAME' | 'GAME_NOT_RUNNING' }
 > {
-  const auth = authorizeGameAction(socket, options);
+  let auth = authorizeGameAction(socket, options);
+  if (!auth.ok && options.controlPermission) {
+    const permission = await requireGamePermission(socket, options.controlPermission);
+    if (permission.ok) auth = authorizeGameAction(socket, { ...options, roles: ['HOST', 'PLAYER', 'VIEWER'] });
+  }
   if (!auth.ok) return auth;
   const room = await prisma.room.findUnique({
     where: { id: auth.actor.roomId }, include: { gameDefinition: true },
   });
   if (!room) return { ok: false, error: 'ROOM_NOT_FOUND' };
+  if (auth.actor.role === 'HOST' && socket.data.userId !== room.hostUserId) {
+    auth.actor.role = 'VIEWER';
+    if (!options.roles.includes('VIEWER')) return { ok: false, error: 'FORBIDDEN' };
+  }
   // Slug-Vergleich über die kanonische Identität (Regelwerk §5.23): Räume,
   // die noch einen Legacy-Slug tragen (Migration fehlgeschlagen / übersprungen),
   // werden weiterhin korrekt autorisiert — Legacy und Engine-Slug werden auf
@@ -94,7 +103,7 @@ export async function authorizeGameContext(
     const participant = await prisma.participation.findFirst({
       where: {
         id: auth.actor.participationId, roomId: room.id,
-        role: auth.actor.role, connected: true, kickedAt: null,
+        role: auth.actor.role, connected: true, kickedAt: null, bannedAt: null, leftAt: null, admission: 'ACTIVE', connectionId: socket.id,
       }, select: { id: true },
     });
     if (!participant) return { ok: false, error: 'NO_PARTICIPATION' };

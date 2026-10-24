@@ -142,14 +142,14 @@ export function ModeratorLobbyPage() {
   };
 
   const handleForceStart = () => {
-    if (confirm('Wirklich ohne alle Spieler starten?')) {
+    if (confirm('Warnungen bestätigen und bei erlaubter Ready-Regel starten? Mindestspieler und andere Blocker bleiben verbindlich.')) {
       setLoading(true);
       if (!socketRef.current) {
         setLoading(false);
         setKickError('Socket-Verbindung ist nicht verfügbar.');
         return;
       }
-      emitCommand(socketRef.current, 'game:start', { roomCode }, `${roomCode}:game:start`, (response) => {
+      emitCommand(socketRef.current, 'game:start', { roomCode, overrideReady: true, acknowledgeWarnings: true }, `${roomCode}:game:start:override`, (response) => {
         setLoading(false);
         if (response.success) {
           const gameSlug = (response.gameSlug as string | undefined) ?? '';
@@ -199,8 +199,8 @@ export function ModeratorLobbyPage() {
     navigator.clipboard.writeText(code || '').catch(() => {});
   };
 
-  const connectedCount = players.filter(p => p.connected).length;
-  const readyCount = players.filter(p => p.ready && p.connected).length;
+  const connectedCount = players.filter(p => p.role === 'PLAYER' && p.connected).length;
+  const readyCount = players.filter(p => p.role === 'PLAYER' && p.ready && p.connected).length;
   const canStart = connectedCount >= 2 && readyCount === connectedCount;
 
   // Generate QR code URL for room link

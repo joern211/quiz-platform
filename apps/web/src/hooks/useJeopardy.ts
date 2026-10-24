@@ -74,6 +74,7 @@ export interface JeopardyGameEndPayload {
 // ── Hook state ─────────────────────────────────────────────────
 
 export type JeopardyPhase =
+  | 'PAUSED'
   | 'INTRO'
   | 'SELECTING'
   | 'BUZZ_OPEN'
@@ -147,16 +148,7 @@ export function useJeopardy(roomCode: string, role: PlayerRole) {
     socketRef.current = getSocket();
     const socket = socketRef.current;
 
-    const subscribe = () => {
-      setConnected(true);
-      socket.emit(
-        'room:subscribe',
-        { roomCode, role, rejoinToken: rejoinToken ?? undefined },
-        (response) => {
-          if (!response.success) {
-            setError(`Raumverbindung fehlgeschlagen: ${response.error}`);
-            return;
-          }
+    const refresh = () => {
           socket.emit('jeopardy:resync', {}, (res: JeopardyResyncResponse) => {
             if (!res.success || !res.currentBoard || !res.phase) {
               setError(`Spielstand konnte nicht geladen werden: ${res.error ?? 'Ungültige Antwort'}`);
@@ -181,10 +173,25 @@ export function useJeopardy(roomCode: string, role: PlayerRole) {
               gameEnd: res.phase === 'GAME_END' && res.finalScores ? { finalScores: res.finalScores, winnerIds: res.finalScores.filter((entry) => entry.score === res.finalScores![0]?.score).map((entry) => entry.playerId) } : null,
             }));
           });
+    };
+
+    const subscribe = () => {
+      setConnected(true);
+      socket.emit(
+        'room:subscribe',
+        { roomCode, role, rejoinToken: rejoinToken ?? undefined },
+        (response) => {
+          if (!response.success) {
+            setError(`Raumverbindung fehlgeschlagen: ${response.error}`);
+            return;
+          }
+          refresh();
         }
       );
     };
 
+    socket.on('game:pause', refresh);
+    socket.on('game:resume', refresh);
     socket.on('connect', subscribe);
     if (socket.connected) subscribe();
     connectSocket();

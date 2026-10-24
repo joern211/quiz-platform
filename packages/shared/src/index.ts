@@ -531,14 +531,14 @@ export const GAME_MANIFESTS: GameManifestSpec[] = [
     tags: ['quiz', 'joker', 'timer'],
     status: 'AVAILABLE',
     hasBuzzer: false,
-    hasTeams: false,
+    hasTeams: true,
     hasCamera: false,
     hasAudio: false,
     hasTimer: true,
     setupSchemaVersion: 1,
     engineVersion: 1,
-    capabilities: ['SUBMISSIONS', 'JUDGE', 'TIMER', 'CONTENT_POOLS', 'VIEWER'],
-    lateJoin: false,
+    capabilities: ['TEAMS', 'LATE_JOIN', 'TEAM_RESHUFFLE', 'SUBMISSIONS', 'JUDGE', 'TIMER', 'CONTENT_POOLS', 'VIEWER'],
+    lateJoin: true,
     viewer: true,
     broadcast: false,
     contentType: 'questions',
@@ -577,14 +577,14 @@ export const GAME_MANIFESTS: GameManifestSpec[] = [
     tags: ['buzzer', 'board'],
     status: 'AVAILABLE',
     hasBuzzer: true,
-    hasTeams: false,
+    hasTeams: true,
     hasCamera: false,
     hasAudio: false,
     hasTimer: true,
     setupSchemaVersion: 1,
     engineVersion: 1,
-    capabilities: ['BUZZER', 'JUDGE', 'TIMER', 'CONTENT_POOLS', 'VIEWER'],
-    lateJoin: false,
+    capabilities: ['TEAMS', 'LATE_JOIN', 'TEAM_RESHUFFLE', 'BUZZER', 'JUDGE', 'TIMER', 'CONTENT_POOLS', 'VIEWER'],
+    lateJoin: true,
     viewer: true,
     broadcast: false,
     contentType: 'board',
@@ -607,7 +607,7 @@ export const GAME_MANIFESTS: GameManifestSpec[] = [
     tags: ['buzzer', 'fusion'],
     status: 'BETA',
     hasBuzzer: true,
-    hasTeams: false,
+    hasTeams: true,
     hasCamera: false,
     hasAudio: false,
     hasTimer: false,
@@ -615,8 +615,8 @@ export const GAME_MANIFESTS: GameManifestSpec[] = [
     // Audit PR14, 14-04: Manifest trägt die TATSÄCHLICHE Engine-Version
     // (v2: Composite-Setup, rollenbasierte Projektion) — war fälschlich 1.
     engineVersion: 2,
-    capabilities: ['BUZZER', 'JUDGE', 'CONTENT_POOLS', 'VIEWER'],
-    lateJoin: false,
+    capabilities: ['TEAMS', 'LATE_JOIN', 'TEAM_RESHUFFLE', 'BUZZER', 'JUDGE', 'CONTENT_POOLS', 'VIEWER'],
+    lateJoin: true,
     viewer: true,
     broadcast: false,
     contentType: 'media',
@@ -1506,4 +1506,97 @@ export function createCommandIntentClient() {
     });
   };
   return { intentToken, discardIntentToken, discardIntentTokenIfCurrent, withCommandEnvelope, emitCommand };
+}
+
+
+export const AccessModeSchema = z.enum(['PUBLIC_JOIN', 'PIN_PROTECTED', 'APPROVAL_REQUIRED', 'INVITE_ONLY']);
+export const RoomPolicySchema = z.object({
+  playerAccess: AccessModeSchema.default('PUBLIC_JOIN'),
+  viewerAccess: AccessModeSchema.default('PUBLIC_JOIN'),
+  readyRule: z.enum(['ALL_READY_REQUIRED', 'HOST_CAN_OVERRIDE', 'READY_CHECK_DISABLED']).default('ALL_READY_REQUIRED'),
+  allowLateJoin: z.boolean().default(false),
+  waitlist: z.boolean().default(false),
+  coHostEnabled: z.boolean().default(false),
+  hostGraceMs: z.number().int().min(1000).max(86400000).default(60000),
+  teamMode: z.enum(['OFF', 'MANUAL', 'RANDOM', 'SELF_SELECT', 'ROTATION']).default('OFF'),
+  teamCount: z.number().int().min(2).max(100).default(2),
+  minTeamSize: z.number().int().min(1).max(100).default(1),
+  maxTeamSize: z.number().int().min(1).max(100).default(100),
+  equality: z.enum(['REQUIRED', 'WARN', 'ANY']).default('ANY'),
+  scoring: z.enum(['INDIVIDUAL_SCORE', 'TEAM_SCORE']).default('INDIVIDUAL_SCORE'),
+  allowTeamReshuffleBetweenRounds: z.boolean().default(false),
+}).strict().refine(p => p.minTeamSize <= p.maxTeamSize, { message: 'TEAM_SIZE_INVALID' });
+export type RoomPolicy = z.infer<typeof RoomPolicySchema>;
+/** Public discovery is a separate projection: never expose setup, PINs or tokens. */
+export const PublicRoomSummarySchema = z.object({
+  id: z.string(), code: z.string(), roomName: z.string(), status: z.string(), runPhase: z.string(),
+  lifecycle: z.enum(['SCHEDULED', 'LOBBY_OPEN', 'LOBBY_LOCKED', 'GAME_ACTIVE', 'PAUSED']),
+  scheduledAt: z.string().datetime().nullable(),
+  maxPlayers: z.number().int().positive(), allowViewers: z.boolean(), cameraEnabled: z.boolean(),
+  playerCount: z.number().int().nonnegative(), viewerCount: z.number().int().nonnegative(),
+  canJoin: z.boolean(), waitlist: z.boolean(), accessMode: AccessModeSchema,
+  game: z.object({ slug: z.string(), name: z.string(), category: z.string() }),
+  createdAt: z.string().datetime(),
+});
+export type PublicRoomSummary = z.infer<typeof PublicRoomSummarySchema>;
+export const ParticipantNameSchema = z.string().transform(s => s.normalize('NFKC').trim().replace(/\s+/g, ' '))
+  .pipe(z.string().min(1).max(100).refine(s => !/[\p{Cc}\p{Cf}]/u.test(s), 'NAME_INVALID'));
+export function normalizedParticipantName(name: string): string {
+  return ParticipantNameSchema.parse(name).toLocaleLowerCase('de-DE');
+}
+export const RoomOperationSchema = z.discriminatedUnion('type', [
+  z.object({ type: z.literal('POLICY'), policy: RoomPolicySchema }),
+  z.object({ type: z.literal('LOCK'), locked: z.boolean() }),
+  z.object({ type: z.literal('SCHEDULE'), scheduledAt: z.string().datetime(), expiresAt: z.string().datetime().optional() }),
+  z.object({ type: z.literal('OPEN') }),
+  z.object({ type: z.literal('DRAFT') }),
+  z.object({ type: z.literal('TEAMS_ASSIGN'), mode: z.enum(['MANUAL', 'RANDOM', 'ROTATION']), assignments: z.record(z.string().nullable()).optional(), override: z.boolean().default(false) }),
+  z.object({ type: z.literal('TEAM_EDIT'), teamId: z.string(), name: z.string().trim().min(1).max(50), color: z.string().regex(/^#[a-fA-F0-9]{6}$/), icon: z.string().min(1).max(16) }),
+  z.object({ type: z.literal('TEAM_SELECT'), teamId: z.string() }),
+  z.object({ type: z.literal('ADMIT'), participantId: z.string(), approve: z.boolean(), teamId: z.string().optional() }),
+  z.object({ type: z.literal('RENAME'), participantId: z.string(), name: ParticipantNameSchema }),
+  z.object({ type: z.literal('LEAVE') }),
+  z.object({ type: z.literal('KICK'), participantId: z.string(), reason: z.string().max(300).optional() }),
+  z.object({ type: z.literal('BAN'), participantId: z.string(), reason: z.string().max(300).optional() }),
+  z.object({ type: z.literal('UNBAN'), participantId: z.string() }),
+  z.object({ type: z.literal('TOKEN_ROTATE'), participantId: z.string() }),
+  z.object({ type: z.literal('COHOST'), userId: z.string(), permissions: z.array(z.enum(['GAME_START', 'GAME_PAUSE', 'ROUND_ADVANCE', 'JUDGE_ANSWER', 'SCORE_ADJUST', 'BUZZER_CONTROL', 'TIMER_CONTROL', 'REVEAL_CONTENT', 'TEAM_MANAGE', 'PLAYER_MANAGE', 'GAME_ABORT'])).max(11) }),
+  z.object({ type: z.literal('TRANSFER'), userId: z.string(), claim: z.boolean().default(false) }),
+  z.object({ type: z.literal('INVITE'), role: z.enum(['PLAYER', 'VIEWER']) }),
+  z.object({ type: z.literal('MESSAGE'), message: z.string().trim().min(1).max(300) }),
+  z.object({ type: z.literal('LOBBY') }),
+  z.object({ type: z.literal('REMATCH') }),
+  z.object({ type: z.literal('SWITCH_GAME'), gameSlug: z.string(), sourceRoomId: z.string().optional() }),
+  z.object({ type: z.literal('CLOSE') }),
+  z.object({ type: z.literal('EMERGENCY'), action: z.enum(['ABORT_ROUND', 'RESTART_ROUND', 'SKIP_ROUND', 'ABORT_GAME']), points: z.enum(['KEEP_POINTS', 'ROLLBACK_ROUND_POINTS']) }),
+]);
+export type RoomOperation = z.infer<typeof RoomOperationSchema>;
+export const RoomCommandSchema = z.object({
+  roomCode: z.string().regex(/^\d{3}-\d{3}$/),
+  commandId: z.string().min(1).max(128),
+  protocolVersion: z.literal(1),
+  stateVersion: z.number().int().nonnegative().optional(),
+  operation: RoomOperationSchema,
+}).strict();
+export type RoomCommand = z.infer<typeof RoomCommandSchema>;
+
+export interface RoomCoreView {
+  gameSlug: string;
+  history: Array<{ runIndex: number; endedAt: string; players: Array<{ displayName: string; score: number }> }>;
+  switchOptions: Array<{ id: string; roomName: string; gameSlug: string }>;
+  revision: number;
+  lifecycle: string;
+  policy: RoomPolicy;
+  scheduledAt: string | null;
+  hostStatus: 'ONLINE' | 'DISCONNECTED' | 'HOST_MISSING';
+  canManage: boolean;
+  isOwner: boolean;
+  permissions: string[];
+  selfId: string | null;
+  selfAdmission: string | null;
+  teams: Array<{ id: string; name: string; color: string; icon: string; score: number }>;
+  participants: Array<{ id: string; displayName: string; role: string; admission: string; connected: boolean; ready: boolean; teamId: string | null; score: number; banned: boolean; connectionQuality: 'GUT' | 'INSTABIL' | 'SCHLECHT' | 'UNKNOWN'; userId?: string | null }>;
+  feed: Array<{ id: string; kind: string; message: string; createdAt: string }>;
+  preflight: { status: 'READY_TO_START' | 'WARNINGS' | 'BLOCKED'; blockers: string[]; warnings: string[] };
+  runIndex: number;
 }

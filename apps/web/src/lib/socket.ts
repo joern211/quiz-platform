@@ -8,7 +8,7 @@ import { io, Socket } from 'socket.io-client';
 export type PlayerRole = 'HOST' | 'PLAYER' | 'VIEWER';
 
 export interface WerIstDasView {
-  phase: 'ROUND_READY' | 'BUZZ_OPEN' | 'ANSWERING' | 'REVEAL' | 'GAME_END';
+  phase: 'PAUSED' | 'ROUND_READY' | 'BUZZ_OPEN' | 'ANSWERING' | 'REVEAL' | 'GAME_END';
   roundIndex: number;
   roundCount: number;
   roundId: string;
@@ -95,6 +95,10 @@ export interface GeoResyncResponse {
 }
 
 export type ServerToClientEvents = {
+  'room:probe': (ack: () => void) => void;
+  'room:core:changed': () => void;
+  'room:lobby': (data: { roomCode: string }) => void;
+  'room:closed': () => void;
   'weristdas:update': (state: WerIstDasView) => void;
   'room:snapshot': (state: RoomState & { identity?: { participationId: string; role: PlayerRole } }) => void;
   'room:update': (state: RoomState) => void;
@@ -172,7 +176,9 @@ export type ClientToServerEvents = {
   'weristdas:reveal': (data: Record<string, never> & CommandEnvelopeFields, ack: (res: { success: boolean; error?: string }) => void) => void;
   'weristdas:next': (data: Record<string, never> & CommandEnvelopeFields, ack: (res: { success: boolean; error?: string }) => void) => void;
   'weristdas:resync': (data: Record<string, never>, ack: (res: { success: boolean; error?: string; state?: WerIstDasView }) => void) => void;
-  'room:subscribe': (data: { roomCode: string; rejoinToken?: string; pin?: string; role?: PlayerRole }, ack: (res: { success: boolean; error?: string; snapshot?: RoomState }) => void) => void;
+  'room:command': (data: import('@quiz/shared').RoomCommand, ack: (res: CommandResponse) => void) => void;
+  'room:core:read': (data: Record<string, never>, ack: (res: { success: boolean; view?: import('@quiz/shared').RoomCoreView }) => void) => void;
+  'room:subscribe': (data: { roomCode: string; rejoinToken?: string; pin?: string; inviteToken?: string; role?: PlayerRole }, ack: (res: { success: boolean; error?: string; snapshot?: RoomState; rejoinToken?: string }) => void) => void;
   'room:resync': (data: { roomCode: string; rejoinToken?: string }, ack: (res: { success: boolean; state?: RoomState }) => void) => void;
   'room:kick': (data: { roomCode: string; playerId: string }, ack: (res: { success: boolean; error?: string }) => void) => void;
   'player:ready:set': (data: { roomCode: string; ready: boolean; rejoinToken?: string }, ack: (res: { success: boolean }) => void) => void;
@@ -204,7 +210,7 @@ export interface JeopardyResyncResponse {
   success: boolean;
   error?: string;
   currentBoard?: 1 | 2;
-  phase?: 'INTRO' | 'SELECTING' | 'BUZZ_OPEN' | 'BUZZ_LOCKED' | 'STEAL_OPEN' | 'STEAL_LOCKED' | 'FIELD_DONE' | 'BOARD_COMPLETE' | 'GAME_END';
+  phase?: 'PAUSED' | 'INTRO' | 'SELECTING' | 'BUZZ_OPEN' | 'BUZZ_LOCKED' | 'STEAL_OPEN' | 'STEAL_LOCKED' | 'FIELD_DONE' | 'BOARD_COMPLETE' | 'GAME_END';
   scores?: Array<{ playerId: string; playerName: string; score: number }>;
   playerNames?: Record<string, string>;
   currentField?: { categoryIndex: number; value: number; question: string; answer?: string; buzzWinnerId?: string | null; buzzWinnerName?: string | null; firstResponderId?: string } | null;
