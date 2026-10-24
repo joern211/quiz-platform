@@ -1527,6 +1527,18 @@ export const RoomPolicySchema = z.object({
   allowTeamReshuffleBetweenRounds: z.boolean().default(false),
 }).strict().refine(p => p.minTeamSize <= p.maxTeamSize, { message: 'TEAM_SIZE_INVALID' });
 export type RoomPolicy = z.infer<typeof RoomPolicySchema>;
+/** Public discovery is a separate projection: never expose setup, PINs or tokens. */
+export const PublicRoomSummarySchema = z.object({
+  id: z.string(), code: z.string(), roomName: z.string(), status: z.string(), runPhase: z.string(),
+  lifecycle: z.enum(['SCHEDULED', 'LOBBY_OPEN', 'LOBBY_LOCKED', 'GAME_ACTIVE', 'PAUSED']),
+  scheduledAt: z.string().datetime().nullable(),
+  maxPlayers: z.number().int().positive(), allowViewers: z.boolean(), cameraEnabled: z.boolean(),
+  playerCount: z.number().int().nonnegative(), viewerCount: z.number().int().nonnegative(),
+  canJoin: z.boolean(), waitlist: z.boolean(), accessMode: AccessModeSchema,
+  game: z.object({ slug: z.string(), name: z.string(), category: z.string() }),
+  createdAt: z.string().datetime(),
+});
+export type PublicRoomSummary = z.infer<typeof PublicRoomSummarySchema>;
 export const ParticipantNameSchema = z.string().transform(s => s.normalize('NFKC').trim().replace(/\s+/g, ' '))
   .pipe(z.string().min(1).max(100).refine(s => !/[\p{Cc}\p{Cf}]/u.test(s), 'NAME_INVALID'));
 export function normalizedParticipantName(name: string): string {

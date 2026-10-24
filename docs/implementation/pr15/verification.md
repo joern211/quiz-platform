@@ -1,5 +1,25 @@
 # PR15 — Verifikation
 
+## Nachprüfung öffentliche Raumliste — 24.10.2026
+
+API und UI verwenden einen gemeinsamen PublicRoomSummary-Vertrag. Belegung
+zählt aktive Player (auch bei vorübergehendem Disconnect), keine Wartenden,
+abgelehnten oder entfernten Identitäten. Aktive Zuschauer werden über beide
+Bestandsmodelle gezählt. Entwürfe/abgelaufene/geschlossene Räume sind verborgen;
+geplante/gesperrte Räume und Pause werden korrekt angezeigt. Eintrittsaktionen
+berücksichtigen Zugang, Kapazität, Warteliste und Late Join. PINs/Setup/Tokens
+verlassen diese Projektion nicht.
+
+Lokal: **386/386 Servertests**, **83/83 Webtests**, Typecheck und beide Builds
+grün; Lint 0 Fehler / 115 Warnungen. Neue HTTP-Abnahme deckt echten DB-Zustand,
+Lifecycle, beide Viewer-Modelle, Belegung und Secrets ab; drei UI-Tests prüfen
+Arrayvertrag, Navigation, Zugangsstatus und Fehler/Retry. Neuer Browserfall R1
+prüft echte öffentliche Liste → Beitritt → Warteliste → Kick/Belegung.
+
+Der lokale Chromium-Download liefert ein unvollständiges ZIP und ist
+fehlgeschlagen. Kein lokaler E2E-Pass. Finale Freigabe erst nach CI/E2E am neuen
+GitHub-Head. Historische Nachweise unten gelten für den früheren Umfang.
+
 Freigabebedingung: erfolgreiche CI und vollständige E2E am aktuellen PR-Head.
 Maßgeblich ist der aktuelle [GitHub-Check](https://github.com/joern211/quiz-platform/pull/15/checks);
 die PR-Beschreibung hält den zuletzt vollständig verifizierten Head und Run fest.

@@ -2,7 +2,7 @@
 // Online Quiz Plattform - Rooms Router
 // ============================================================
 
-import { RoomError, joinPlayer, roomPolicy, tokenHash, mutateRoom } from '../rooms/core.js';
+import { RoomError, joinPlayer, roomPolicy, tokenHash, mutateRoom, lifecycle } from '../rooms/core.js';
 import { changed, closeRoomSockets } from '../rooms/socket.js';
 import type { Server } from 'socket.io';
 import { Router } from 'express';
@@ -14,7 +14,7 @@ import { verifySession } from '../auth/session.js';
 import { logger } from '../observability/logger.js';
 import { config } from '../config/index.js';
 import { CreateRoomSchema, JoinRoomSchema, validateBody } from './validators.js';
-import { resolveCanonicalSlug, getGameManifest, type GameManifest } from '@quiz/shared';
+import { resolveCanonicalSlug, getGameManifest, PublicRoomSummarySchema, type GameManifest } from '@quiz/shared';
 import { bindSnapshotAssetsToRoom } from '../media/lifecycle.js';
 import { isStartableSlug } from '../games/registry.js';
 
@@ -196,6 +196,10 @@ roomsRouter.get('/public', async (_req, res) => {
       where: {
         isPublic: true,
         status: { in: ['LOBBY', 'RUNNING'] },
+        AND: [
+          { OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }] },
+          { OR: [{ lifecycle: null }, { lifecycle: { notIn: ['DRAFT_ROOM', 'EXPIRED', 'CLOSED'] } }] },
+        ],
       },
       select: {
         id: true,
@@ -206,20 +210,31 @@ roomsRouter.get('/public', async (_req, res) => {
         maxPlayers: true,
         allowViewers: true,
         cameraEnabled: true,
+        lifecycle: true,
+        expiresAt: true,
+        scheduledAt: true,
+        roomPolicyJson: true,
+        pinHash: true,
+        viewerRequiresPin: true,
         gameDefinition: {
           select: {
             slug: true,
             name: true,
             category: true,
+            maxPlayers: true,
           },
         },
         _count: {
           select: {
             participations: {
-              where: { role: 'PLAYER' },
+              where: { role: 'PLAYER', admission: 'ACTIVE', leftAt: null, kickedAt: null, bannedAt: null },
             },
-            viewerSessions: true,
+            viewerSessions: { where: { connected: true } },
           },
+        },
+        participations: {
+          where: { role: 'VIEWER', admission: 'ACTIVE', connected: true, leftAt: null, kickedAt: null, bannedAt: null },
+          select: { id: true },
         },
         createdAt: true,
       },
@@ -229,20 +244,29 @@ roomsRouter.get('/public', async (_req, res) => {
 
     res.json({
       success: true,
-      data: rooms.map(r => ({
+      data: rooms.map(r => {
+        const phase = lifecycle(r), policy = roomPolicy(r);
+        const maxPlayers = Math.min(r.maxPlayers, r.gameDefinition.maxPlayers);
+        const waiting = r._count.participations >= maxPlayers;
+        const canJoin = (phase === 'LOBBY_OPEN' || (['GAME_ACTIVE', 'PAUSED'].includes(phase) && policy.allowLateJoin && isStartableSlug(r.gameDefinition.slug)))
+          && policy.playerAccess !== 'INVITE_ONLY' && (!waiting || policy.waitlist);
+        return PublicRoomSummarySchema.parse({
         id: r.id,
         code: r.code,
         roomName: r.roomName,
         status: r.status,
         runPhase: r.runPhase,
-        maxPlayers: r.maxPlayers,
+        maxPlayers,
+        lifecycle: phase,
+        scheduledAt: r.scheduledAt?.toISOString() ?? null,
+        canJoin, waitlist: waiting && policy.waitlist, accessMode: policy.playerAccess,
         allowViewers: r.allowViewers,
         cameraEnabled: r.cameraEnabled,
-        game: r.gameDefinition,
+        game: { slug: r.gameDefinition.slug, name: r.gameDefinition.name, category: r.gameDefinition.category },
         playerCount: r._count.participations,
-        viewerCount: r._count.viewerSessions,
-        createdAt: r.createdAt,
-      })),
+        viewerCount: r._count.viewerSessions + r.participations.length,
+        createdAt: r.createdAt.toISOString(),
+      }); }),
     });
   } catch (error) {
     logger.error('Failed to list rooms', { error });

@@ -18,11 +18,18 @@ Voice-/Kameratests folgen wie geplant in deren Arbeitspaketen. Vollständige FIN
 
 ## Aktueller Stand
 
-[Draft-PR15](https://github.com/joern211/quiz-platform/pull/15) angelegt.
+[PR15](https://github.com/joern211/quiz-platform/pull/15) offen, kein Draft.
 Gemeinsame Implementierung und neue echte Integrationstests vorhanden.
 Details und Grenzen: [acceptance.md](acceptance.md), [compatibility.md](compatibility.md),
 [verification.md](verification.md). Die Freigabe setzt grüne CI und vollständige Browserabnahme am aktuellen
 Head voraus. Der aktuelle Nachweis steht in den PR-Checks und der PR-Beschreibung.
+
+24.10.: öffentliche Raumliste nachgearbeitet (Arrayvertrag, Lifecycle,
+Belegung, Zugang und Fehleranzeige). Lokal 386 Server-/83 Webtests grün,
+Typecheck/Build/Lint bestanden. Neuer E2E-Fall R1 wartet auf den aktuellen
+GitHub-Lauf. Der Nutzer hat anschließend die sequenzielle Umsetzung der fünf
+Folgepakete autorisiert; Fortschritt und Wiederaufnahme stehen in
+[roadmap-execution/handoff.md](../roadmap-execution/handoff.md).
 
 ## Wiederaufnahme
 
