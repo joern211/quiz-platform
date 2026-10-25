@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link } from 'react-router-dom';
 import { PublicResultViewSchema, type PublicResultView, type ResultOperation, type RoomCoreView } from '@quiz/shared';
 import { Card, Button } from '@quiz/ui';
 import { connectSocket, emitCommand, getSocket, type PlayerRole } from '../lib/socket';
@@ -7,7 +7,6 @@ import { getSession } from '../lib/sessionStore';
 import styles from './ResultScreen.module.css';
 
 export function ResultScreen({ roomCode, role }: { roomCode: string; role: PlayerRole }) {
-  const navigate = useNavigate();
   const [result, setResult] = useState<PublicResultView | null>(null), [room, setRoom] = useState<RoomCoreView | null>(null);
   const [error, setError] = useState(''), [pending, setPending] = useState(false), [loading, setLoading] = useState(true);
   const [participantId, setParticipantId] = useState(''), [delta, setDelta] = useState(''), [reason, setReason] = useState('');
@@ -41,11 +40,11 @@ export function ResultScreen({ roomCode, role }: { roomCode: string; role: Playe
         ...(role === 'VIEWER' ? { role: 'VIEWER' as const, pin: sessionStorage.getItem(`qp_viewerPin:${roomCode}`) ?? undefined } : {}) }, response => { if (!disposed && response.success) { readRoom(); void refreshRef.current(); } });
     };
     const disconnected = () => setRoom(null);
-    const lobby = (data: { roomCode: string }) => { if (data.roomCode === roomCode) navigate(role === 'HOST' ? `/moderator/raum/${roomCode}/lobby` : role === 'PLAYER' ? `/raum/${roomCode}/lobby` : `/zuschauen/${roomCode}/lobby`); };
-    socket.on('connect', subscribe); socket.on('room:core:changed', readRoom); socket.on('disconnect', disconnected); socket.on('room:lobby', lobby);
+
+    socket.on('connect', subscribe); socket.on('room:core:changed', readRoom); socket.on('disconnect', disconnected);
     if (socket.connected) subscribe(); else connectSocket();
-    return () => { disposed = true; socket.off('connect', subscribe); socket.off('room:core:changed', readRoom); socket.off('disconnect', disconnected); socket.off('room:lobby', lobby); };
-  }, [roomCode, role, navigate]);
+    return () => { disposed = true; socket.off('connect', subscribe); socket.off('room:core:changed', readRoom); socket.off('disconnect', disconnected); };
+  }, [roomCode, role]);
   useEffect(() => { const s = getSocket(), changed = () => { void refresh(); }; s.on('game:result:changed', changed); s.on('connect', changed); return () => { s.off('game:result:changed', changed); s.off('connect', changed); }; }, [refresh]);
   const canManage = !loading && room?.permissions.includes('SCORE_ADJUST') && !!result?.resultStatus && !revision;
   const execute = (operation: ResultOperation) => {
@@ -89,10 +88,7 @@ export function ResultScreen({ roomCode, role }: { roomCode: string; role: Playe
         </form>}
       </Card>}
       {room?.history.length ? <label>Frühere Partie <select aria-label="Frühere Partie" value={runIndex ?? ''} onChange={e => { setRevision(null); setRunIndex(e.target.value ? Number(e.target.value) : null); }} disabled={pending}><option value="">Aktuelle Partie</option>{room.history.map(h => <option key={h.runIndex} value={h.runIndex}>Partie {h.runIndex}</option>)}</select></label> : null}
-      {room?.isOwner && result.resultStatus === 'FINALIZED' && result.runIndex === room.runIndex && !revision && <Button disabled={pending} onClick={() => {
-        if (busy.current) return; busy.current = true; setPending(true);
-        emitCommand(getSocket(), 'room:command', { roomCode, operation: { type: 'REMATCH', runIndex: result.runIndex } }, `${roomCode}:rematch:${result.runIndex}`, response => { busy.current = false; setPending(false); if (!response.success) setError('Revanche konnte nicht vorbereitet werden.'); });
-      }}>Revanche vorbereiten</Button>}
+
     </>}
     <Link to="/"><Button variant="ghost">Startseite</Button></Link>
   </div>;

@@ -123,3 +123,14 @@ Zwei zusätzliche Webtests prüfen genau eine Raumaufnahme neben dem Panel
 und die Abnahme nach StrictMode-Effektwiederholung. Web91, Typecheck, Build,
 Lint0 Fehler/113 Warnungen und diff-check grün. Neuen Head pushen und die
 vollständige CI/E2E erneut prüfen. Punkt 3 bleibt bis dahin in Abnahme.
+
+## Gemeinsame Ergebnis-/Raumansicht — letzter UI-Abgleich
+
+Die Revancheaktion bleibt ausschließlich im globalen RoomPanel, das nun
+auch runIndex mitsendet; die Ergebnisseite erzeugt keinen zweiten gleich
+benannten Button und übernimmt keine zweite Lobby-Navigation. Der neue
+Integrationstest montiert beide echten Komponenten mit vollständigem
+Raum-View, prüft genau einen Revanchebutton und die gepinnte Partie.
+Web92, Web-Typecheck/-Build, Lint0 Fehler/113 Warnungen und diff-check grün.
+Die vorherige Browserkorrektur liegt auf 83a14ced (Baum 173b74bd), CI Run
+40146259561. Nächsten UI-Head pushen und dessen komplette CI/E2E abnehmen.

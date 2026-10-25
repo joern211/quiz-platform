@@ -1,3 +1,4 @@
+import { RoomPolicySchema } from '@quiz/shared';
 import { StrictMode } from 'react';
 import { RoomPanel } from './RoomPanel';
 import { act, render, screen } from '@testing-library/react';
@@ -5,11 +6,11 @@ import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import { beforeEach, expect, it, vi } from 'vitest';
 import { ResultScreen } from './ResultScreen';
-const transport = vi.hoisted(() => ({ handlers: new Map<string, () => void>(), command: vi.fn(), subscriptions: vi.fn(), permissions: [] as string[] }));
+const transport = vi.hoisted(() => ({ handlers: new Map<string, () => void>(), command: vi.fn(), subscriptions: vi.fn(), owner: false, permissions: [] as string[] }));
 vi.mock('../lib/socket', () => ({
   getSocket: () => ({ connected: true, emit: (event: string, _payload: unknown, callback: (result: unknown) => void) => {
     if (event === 'room:subscribe') { transport.subscriptions(); callback({ success: true }); }
-    if (event === 'room:core:read') callback({ success: true, view: { permissions: transport.permissions, history: [], isOwner: false, runIndex: 1 } });
+    if (event === 'room:core:read') callback({ success: true, view: { gameSlug: 'jeopardy', permissions: transport.permissions, history: [], switchOptions: [], revision: 1, lifecycle: 'IDLE', policy: RoomPolicySchema.parse({}), scheduledAt: null, hostStatus: 'ONLINE', canManage: transport.owner, isOwner: transport.owner, selfId: 'a', selfAdmission: 'ACTIVE', teams: [], participants: [], feed: [], preflight: { status: 'BLOCKED', blockers: [], warnings: [] }, runIndex: 1 } });
   }, on: (event: string, handler: () => void) => transport.handlers.set(event, handler), off: (event: string) => transport.handlers.delete(event) }),
   connectSocket: vi.fn(), emitCommand: transport.command,
 }));
@@ -17,7 +18,7 @@ vi.mock('../lib/sessionStore', () => ({ getSession: () => ({ roomCode: '123-456'
 const data = { roomCode: '123-456', roomName: 'Result', status: 'ENDED', runPhase: 'GAME_END', runIndex: 1, resultRevision: 1, resultStatus: 'GAME_END',
   game: { slug: 'jeopardy', name: 'Jeopardy' }, scores: [{ rank: 1, participationId: 'a', displayName: 'Alice', role: 'PLAYER', score: 100 }, { rank: 1, participationId: 'b', displayName: 'Bob', role: 'PLAYER', score: 100 }], endedAt: new Date().toISOString() };
 function mount() { return render(<MemoryRouter><ResultScreen roomCode="123-456" role="HOST" /></MemoryRouter>); }
-beforeEach(() => { transport.handlers.clear(); transport.command.mockReset(); transport.subscriptions.mockReset(); transport.permissions = [];
+beforeEach(() => { transport.handlers.clear(); transport.command.mockReset(); transport.subscriptions.mockReset(); transport.owner = false; transport.permissions = [];
   vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, json: async () => ({ success: true, data }) })); });
 it('shows tied authoritative ranks, supplies protected-read proof and hides management without permission', async () => {
   mount(); expect(await screen.findByText('Alice: 100 Punkte')).toBeInTheDocument();
@@ -53,4 +54,13 @@ it('settles the authoritative result after StrictMode effect replay', async () =
   render(<StrictMode><MemoryRouter><ResultScreen roomCode="123-456" role="PLAYER" /></MemoryRouter></StrictMode>);
   expect(await screen.findByText('Alice: 100 Punkte')).toBeInTheDocument();
   expect(screen.queryByText('Lädt …')).not.toBeInTheDocument();
+});
+
+it('shows one shared rematch control and pins its intent to the displayed run', async () => {
+  transport.owner = true; transport.permissions = ['SCORE_ADJUST'];
+  vi.mocked(fetch).mockResolvedValue({ ok: true, json: async () => ({ success: true, data: { ...data, resultStatus: 'FINALIZED' } }) } as Response);
+  render(<MemoryRouter initialEntries={['/moderator/raum/123-456/ergebnis']}><ResultScreen roomCode="123-456" role="HOST" /><RoomPanel /></MemoryRouter>);
+  await screen.findByText('Verbindlich bestätigt');
+  const buttons = screen.getAllByRole('button', { name: 'Revanche vorbereiten' }); expect(buttons).toHaveLength(1);
+  await userEvent.click(buttons[0]); expect(transport.command.mock.calls[0][2].operation).toEqual({ type: 'REMATCH', runIndex: 1 });
 });
