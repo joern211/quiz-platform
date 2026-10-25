@@ -171,6 +171,7 @@ export interface CommandEnvelopeFields {
 }
 
 export type ClientToServerEvents = {
+  'game:result:read': (data: import('zod').z.infer<typeof import('@quiz/shared').ResultReadSchema>, ack: (res: { success: boolean; data?: unknown; error?: string }) => void) => void;
   'game:buzzer:override': (data: { participantId: string; reason?: string; gameStateVersion: number; runIndex: number } & CommandEnvelopeFields, ack: (res: { success: boolean; error?: string }) => void) => void;
   'weristdas:buzzer:open': (data: Record<string, never> & CommandEnvelopeFields, ack: (res: { success: boolean; error?: string }) => void) => void;
   'weristdas:buzz': (data: Record<string, never> & CommandEnvelopeFields, ack: (res: { success: boolean; error?: string }) => void) => void;

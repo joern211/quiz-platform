@@ -1691,3 +1691,4 @@ export const PublicResultViewSchema = z.object({
   endedAt: z.string().nullable(),
 });
 export type PublicResultView = z.infer<typeof PublicResultViewSchema>;
+export const ResultReadSchema = z.object({ roomCode: z.string().regex(/^\d{3}-\d{3}$/), runIndex: z.number().int().positive().optional(), revision: z.number().int().positive().optional() }).strict();

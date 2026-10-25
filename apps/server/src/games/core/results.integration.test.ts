@@ -153,6 +153,14 @@ it('requires participation proof for protected result reads and rejects forged a
   expect((await request(app.app).get(`/api/v1/rooms/${r.code}/results`).set('Cookie', cookie)).status).toBe(200);
   expect((await request(app.app).get(`/api/v1/rooms/${r.code}/results`).set('X-Rejoin-Token', r.players[0].rejoinToken)).status).toBe(200);
   expect((await request(app.app).get(`/api/v1/rooms/${r.code}/results`).set('X-Rejoin-Token', 'foreign-token')).status).toBe(403);
+  const viewer = await connect();
+  expect((await gameAck(viewer, 'game:result:read', { roomCode: r.code })).success).toBe(false);
+  expect((await gameAck(viewer, 'room:subscribe', { roomCode: r.code, role: 'VIEWER' })).success).toBe(true);
+  const viewerResult = await gameAck(viewer, 'game:result:read', { roomCode: r.code });
+  expect(viewerResult).toMatchObject({ success: true, data: { runIndex: 1, resultStatus: 'GAME_END' } });
+  expect(JSON.stringify(viewerResult)).not.toMatch(/RESULT_SECRET|UNPLAYED_SECRET|configSnapshot|rejoinToken/);
+  expect((await gameAck(viewer, 'game:result:read', { roomCode: '000-000' })).success).toBe(false);
+
   const count = await db.scoreEvent.count({ where: { roomId: r.room.id } });
   expect((await command(r, { type: 'ADJUST', participantId: r.players[0].id, score: 9000, reason: 'Forged' }, 1)).error).toBe('INVALID_PAYLOAD');
   expect(await db.scoreEvent.count({ where: { roomId: r.room.id } })).toBe(count);

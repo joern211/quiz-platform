@@ -19,14 +19,18 @@ export function ResultScreen({ roomCode, role }: { roomCode: string; role: Playe
       const query = new URLSearchParams(); if (runIndex) query.set('runIndex', String(runIndex)); if (revision) query.set('revision', String(revision));
       const response = await fetch(`/api/v1/rooms/${roomCode}/results?${query}`, { credentials: 'include',
         headers: session.roomCode === roomCode && session.rejoinToken ? { 'X-Rejoin-Token': session.rejoinToken } : {} });
-      const data = await response.json();
+      let data = await response.json();
+      if (response.status === 403 && getSocket().connected) data = await new Promise(resolve => {
+        getSocket().timeout(8000).emit('game:result:read', { roomCode, ...(runIndex ? { runIndex } : {}), ...(revision ? { revision } : {}) }, (error, value) => resolve(error ? { success: false, error: { message: 'Ergebniszugriff nicht bestätigt.' } } : value));
+      });
       if (!alive.current || current !== request.current) return;
       const parsed = PublicResultViewSchema.safeParse(data.data);
-      if (!response.ok || !data.success || !parsed.success) { setResult(null); setError(data.error?.message ?? 'Ergebnis konnte nicht geladen werden.'); }
+      if (!data.success || !parsed.success) { setResult(null); setError(data.error?.message ?? 'Ergebnis konnte nicht geladen werden.'); }
       else { setResult(parsed.data); setError(''); }
     } catch { if (alive.current && current === request.current) setError('Verbindungsfehler. Bitte erneut laden.'); }
     finally { if (alive.current && current === request.current) setLoading(false); }
   }, [roomCode, runIndex, revision]);
+  const refreshRef = useRef(refresh); refreshRef.current = refresh;
   useEffect(() => { alive.current = true; setResult(null); setLoading(true); void refresh(); return () => { alive.current = false; ++request.current; }; }, [refresh]);
   useEffect(() => {
     const socket = getSocket(); let disposed = false;
@@ -34,7 +38,7 @@ export function ResultScreen({ roomCode, role }: { roomCode: string; role: Playe
     const subscribe = () => {
       const session = getSession();
       socket.emit('room:subscribe', { roomCode, rejoinToken: session.roomCode === roomCode ? session.rejoinToken ?? undefined : undefined,
-        ...(role === 'VIEWER' ? { role: 'VIEWER' as const, pin: sessionStorage.getItem(`qp_viewerPin:${roomCode}`) ?? undefined } : {}) }, response => { if (!disposed && response.success) readRoom(); });
+        ...(role === 'VIEWER' ? { role: 'VIEWER' as const, pin: sessionStorage.getItem(`qp_viewerPin:${roomCode}`) ?? undefined } : {}) }, response => { if (!disposed && response.success) { readRoom(); void refreshRef.current(); } });
     };
     const disconnected = () => setRoom(null);
     const lobby = (data: { roomCode: string }) => { if (data.roomCode === roomCode) navigate(role === 'HOST' ? `/moderator/raum/${roomCode}/lobby` : role === 'PLAYER' ? `/raum/${roomCode}/lobby` : `/zuschauen/${roomCode}/lobby`); };
@@ -42,7 +46,7 @@ export function ResultScreen({ roomCode, role }: { roomCode: string; role: Playe
     if (socket.connected) subscribe(); else connectSocket();
     return () => { disposed = true; socket.off('connect', subscribe); socket.off('room:core:changed', readRoom); socket.off('disconnect', disconnected); socket.off('room:lobby', lobby); };
   }, [roomCode, role, navigate]);
-  useEffect(() => { const s = getSocket(), changed = () => { void refresh(); }; s.on('game:result:changed', changed); return () => { s.off('game:result:changed', changed); }; }, [refresh]);
+  useEffect(() => { const s = getSocket(), changed = () => { void refresh(); }; s.on('game:result:changed', changed); s.on('connect', changed); return () => { s.off('game:result:changed', changed); s.off('connect', changed); }; }, [refresh]);
   const canManage = !loading && room?.permissions.includes('SCORE_ADJUST') && !!result?.resultStatus && !revision;
   const execute = (operation: ResultOperation) => {
     if (busy.current || !result?.resultRevision) return;

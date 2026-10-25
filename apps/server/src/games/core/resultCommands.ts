@@ -1,6 +1,6 @@
 import type { Server, Socket } from 'socket.io';
 import type { Prisma } from '@prisma/client';
-import { ResultCommandSchema, effectivePermissions, type ResultCommand, type GamePermission } from '@quiz/shared';
+import { ResultCommandSchema, ResultReadSchema, effectivePermissions, type ResultCommand, type GamePermission } from '@quiz/shared';
 import { prisma } from '../../persistence/prisma.js';
 import { socketRoomActor, changed } from '../../rooms/socket.js';
 import { audit, feed, roomPolicy, type RoomActor } from '../../rooms/core.js';
@@ -9,7 +9,7 @@ import { assertCommandMutation } from './commandExecution.js';
 import { runReceipted } from './commands.js';
 import { CoreRuleError } from './runtimePrimitives.js';
 import { saveGameStateIfRevision } from './state.js';
-import { StoredGameResultSchema } from './results.js';
+import { StoredGameResultSchema, readGameResult, publicResultView } from './results.js';
 import { rankScores } from './roundFlow.js';
 import { wireErrorToAppError } from './appError.js';
 import { logger } from '../../observability/logger.js';
@@ -105,6 +105,21 @@ export async function mutateResult(roomId: string, actor: RoomActor, command: Re
 }
 
 export function registerResultCommands(io: Server, socket: Socket) {
+  socket.on('game:result:read', (raw: unknown, ack?: (response: Record<string, unknown>) => void) => {
+    void (async () => {
+      const parsed = ResultReadSchema.safeParse(raw);
+      if (!parsed.success) { ack?.({ success: false, error: 'INVALID_PAYLOAD' }); return; }
+      try {
+        const { roomId } = await socketRoomActor(socket);
+        const room = await prisma.room.findUniqueOrThrow({ where: { id: roomId } });
+        if (room.code !== parsed.data.roomCode) throw new CoreRuleError('WRONG_ROOM');
+        const read = await readGameResult(roomId, parsed.data.runIndex ?? room.runIndex, parsed.data.revision);
+        if (!read) throw new CoreRuleError('RESULT_NOT_FOUND');
+        ack?.({ success: true, data: publicResultView(room.code, read) });
+      } catch (error) { ack?.({ success: false, error: error instanceof CoreRuleError ? error.code : 'RESULT_NOT_FOUND' }); }
+    })();
+  });
+
   socket.on('game:result:command', (raw: unknown, ack?: (response: Record<string, unknown>) => void) => {
     void (async () => {
       const parsed = ResultCommandSchema.safeParse(raw);

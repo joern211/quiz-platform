@@ -81,3 +81,14 @@ und diff --check grün. Die acht neuen echten Socket-/HTTP-/DB-Fälle einschlie�
 zweifacher Replay-Reparatur und Negativfällen sind im vollständigen Lauf enthalten.
 Nächster Schritt: exakten Baum pushen, Draft-Folge-PR anlegen, CI/E2E abnehmen;
 insbesondere die erweiterte Browserstrecke T1 beobachten.
+
+## Gesicherter Remote-Zwischenstand 1a56644
+
+Draft-PR17 erstellt; Baum ac41e54 ist identisch zum lokalen ac1382b.
+Voller lokaler Stand 431 Server-/89 Webtests grün. GitHub-CI/E2E Run
+40144726278 läuft. Folgeprüfung ergänzt den rollenabhängigen Socket-Leseweg
+für bereits zugelassene Viewer privater Räume ohne Player-Rejoin-Token,
+korrekte Player-/Viewer-Ergebnisrouten und Refresh nach Reconnect. Gezielte
+Ergebnissuite 8/8, Typecheck und Web89 grün. Geo-Browserassertion verwendet
+die jetzt einheitliche deutsche Einheit Punkte statt pts; die Prüfung eines
+numerischen Ergebnisses bleibt erhalten. Folgeänderung pushen/CI abnehmen.

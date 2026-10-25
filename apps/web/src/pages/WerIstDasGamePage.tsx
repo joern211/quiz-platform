@@ -26,7 +26,7 @@ export function WerIstDasGamePage({ role }: { role: PlayerRole }) {
         {!state && <p>Spielstand wird geladen …</p>}
         {state && <>
           <p>Runde {state.roundIndex + 1} von {state.roundCount}</p>
-          {state.phase === 'GAME_END' ? <div><h2>Spiel beendet · Ergebnis</h2><Link to={`/${role === 'HOST' ? 'moderator' : role === 'PLAYER' ? 'player' : 'viewer'}/raum/${code}/ergebnis`}>Zum Ergebnis</Link></div> :
+          {state.phase === 'GAME_END' ? <div><h2>Spiel beendet · Ergebnis</h2><Link to={role === 'HOST' ? `/moderator/raum/${code}/ergebnis` : role === 'PLAYER' ? `/raum/${code}/ergebnis` : `/zuschauen/${code}/ergebnis`}>Zum Ergebnis</Link></div> :
             <img className={styles.image}
               src={state.gameImageUrl ?? `/api/v1/media/${state.imageAssetId}`}
               alt="Errate die beiden Personen" />}
