@@ -7,13 +7,14 @@ import { MemoryRouter } from 'react-router-dom';
 import { beforeEach, expect, it, vi } from 'vitest';
 import { ResultScreen } from './ResultScreen';
 const transport = vi.hoisted(() => ({ handlers: new Map<string, () => void>(), command: vi.fn(), subscriptions: vi.fn(), owner: false, permissions: [] as string[] }));
-vi.mock('../lib/socket', () => ({
-  getSocket: () => ({ connected: true, emit: (event: string, _payload: unknown, callback: (result: unknown) => void) => {
+vi.mock('../lib/socket', () => {
+  const socket = { connected: true, emit: (event: string, _payload: unknown, callback: (result: unknown) => void) => {
     if (event === 'room:subscribe') { transport.subscriptions(); callback({ success: true }); }
     if (event === 'room:core:read') callback({ success: true, view: { gameSlug: 'jeopardy', permissions: transport.permissions, history: [], switchOptions: [], revision: 1, lifecycle: 'IDLE', policy: RoomPolicySchema.parse({}), scheduledAt: null, hostStatus: 'ONLINE', canManage: transport.owner, isOwner: transport.owner, selfId: 'a', selfAdmission: 'ACTIVE', teams: [], participants: [], feed: [], preflight: { status: 'BLOCKED', blockers: [], warnings: [] }, runIndex: 1 } });
-  }, on: (event: string, handler: () => void) => transport.handlers.set(event, handler), off: (event: string) => transport.handlers.delete(event) }),
-  connectSocket: vi.fn(), emitCommand: transport.command,
-}));
+  }, on: (event: string, handler: () => void) => transport.handlers.set(event, handler), off: (event: string) => transport.handlers.delete(event) };
+  return { getSocket: () => socket, observeSocket: (listener: (value: typeof socket) => void) => { listener(socket); return () => {}; },
+  connectSocket: vi.fn(), emitCommand: transport.command, };
+});
 vi.mock('../lib/sessionStore', () => ({ getSession: () => ({ roomCode: '123-456', role: 'PLAYER', rejoinToken: 'proof' }) }));
 const data = { roomCode: '123-456', roomName: 'Result', status: 'ENDED', runPhase: 'GAME_END', runIndex: 1, resultRevision: 1, resultStatus: 'GAME_END',
   game: { slug: 'jeopardy', name: 'Jeopardy' }, scores: [{ rank: 1, participationId: 'a', displayName: 'Alice', role: 'PLAYER', score: 100 }, { rank: 1, participationId: 'b', displayName: 'Bob', role: 'PLAYER', score: 100 }], endedAt: new Date().toISOString() };

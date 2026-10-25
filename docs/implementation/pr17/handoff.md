@@ -134,3 +134,25 @@ Raum-View, prüft genau einen Revanchebutton und die gepinnte Partie.
 Web92, Web-Typecheck/-Build, Lint0 Fehler/113 Warnungen und diff-check grün.
 Die vorherige Browserkorrektur liegt auf 83a14ced (Baum 173b74bd), CI Run
 40146259561. Nächsten UI-Head pushen und dessen komplette CI/E2E abnehmen.
+
+## Browserlauf 6dd37ad — präziser Locator und echter Socket-Lifetime-Fix
+
+Run 40146546740: CI Server431/Web92 grün. G4-4 fand den Teilnehmernamen
+zweimal (Ranking und Raumfeed); die Ergebnisprüfung ist nun auf die neue
+Region Spielergebnis und deren Ranglisteneintrag begrenzt, statt die
+fachliche Assertion zu entfernen. T1 schaffte den kompletten neuen
+Ergebnisworkflow, verlor im ersten Versuch nach Rematch aber das Panel;
+der Retry war grün. Diese Flake ist nicht als abgeschlossen gewertet.
+
+Ursache: Das permanente RoomPanel hielt einen Socket, den eine Seite beim
+Routen-/StrictMode-Wechsel entsorgt hatte. Der gemeinsame Socket-Store
+stellt nun observeSocket bereit. Das Panel bindet seine Listener bei
+Client-Neuanlage neu und verwirft alte ACKs per Client-/Generationsprüfung.
+Seiten bleiben allein für Admission zuständig. Automatische Rejoin- oder
+Spielaktionen wurden nicht hinzugefügt. Tests prüfen Store-Neuanlage/
+Unsubscribe und Panel-Refresh auf Partie 2 nach Clientersatz.
+
+Web94/94 (14 Dateien), Web-Typecheck/Build, Lint0 Fehler/113 Warnungen und
+diff-check grün. Neuen Head pushen und vollständige CI/E2E erneut abnehmen.
+Punkt 3 bleibt in Abnahme; Punkte 4–5 nicht begonnen. Alle Änderungen sind
+weiterhin auf feature/pr17-results-recovery, PR17 Draft, kein Merge.

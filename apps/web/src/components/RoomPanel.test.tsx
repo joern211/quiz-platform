@@ -5,11 +5,15 @@ import { beforeEach, expect, it, vi } from 'vitest';
 import { RoomPolicySchema, type RoomCoreView } from '@quiz/shared';
 import { RoomPanel } from './RoomPanel';
 
-const transport = vi.hoisted(() => ({ handlers: new Map<string, () => void>(), read: null as unknown, command: vi.fn() }));
-vi.mock('../lib/socket', () => ({
-  getSocket: () => ({ connected: true, emit: (event: string, _payload: unknown, callback: (result: unknown) => void) => { if (event === 'room:core:read') callback({ success: true, view: transport.read }); }, on: (event: string, handler: () => void) => transport.handlers.set(event, handler), off: (event: string) => transport.handlers.delete(event) }),
-  connectSocket: vi.fn(), emitCommand: transport.command,
-}));
+const transport = vi.hoisted(() => ({ handlers: new Map<string, () => void>(), read: null as unknown, command: vi.fn(), replaceSocket: null as null | (() => void) }));
+vi.mock('../lib/socket', () => {
+  const makeSocket = () => ({ connected: true, emit: (event: string, _payload: unknown, callback: (result: unknown) => void) => { if (event === 'room:core:read') callback({ success: true, view: transport.read }); }, on: (event: string, handler: () => void) => transport.handlers.set(event, handler), off: (event: string) => transport.handlers.delete(event) });
+  let socket = makeSocket();
+  const observers = new Set<(value: typeof socket) => void>();
+  transport.replaceSocket = () => { socket = makeSocket(); for (const observer of observers) observer(socket); };
+  return { getSocket: () => socket, observeSocket: (listener: (value: typeof socket) => void) => { observers.add(listener); listener(socket); return () => { observers.delete(listener); }; },
+  connectSocket: vi.fn(), emitCommand: transport.command, };
+});
 vi.mock('../lib/sessionStore', () => ({ getSession: () => ({ role: 'VIEWER' }), setSession: vi.fn() }));
 function view(overrides: Partial<RoomCoreView> = {}): RoomCoreView {
   return { gameSlug: 'jeopardy', history: [], switchOptions: [], revision: 1, lifecycle: 'LOBBY_OPEN', policy: RoomPolicySchema.parse({}), scheduledAt: null, hostStatus: 'ONLINE', canManage: false, isOwner: false, permissions: [], selfId: 'p1', selfAdmission: 'ACTIVE', teams: [], participants: [{ id: 'p1', displayName: 'Alice', role: 'PLAYER', admission: 'ACTIVE', connected: true, ready: false, teamId: null, score: 0, banned: false, connectionQuality: 'UNKNOWN' }], feed: [], preflight: { status: 'BLOCKED', blockers: ['NOT_ENOUGH_PLAYERS'], warnings: [] }, runIndex: 1, ...overrides };
@@ -42,4 +46,13 @@ it('uses the ordinary player role for self selection and shows a disconnect warn
   await userEvent.click(screen.getByRole('button', { name: 'Team wählen' }));
   expect(transport.command.mock.calls[0][2]).toMatchObject({ operation: { type: 'TEAM_SELECT', teamId: 'team1' } });
   expect(screen.queryByText('Verwaltung delegieren')).not.toBeInTheDocument();
+});
+
+it('follows a recreated page socket and refreshes the next run instead of retaining the disconnected client', async () => {
+  transport.read = view({ lifecycle: 'LOBBY_OPEN', runIndex: 1 });
+  render(<MemoryRouter initialEntries={['/moderator/raum/123-456/lobby']}><RoomPanel /></MemoryRouter>);
+  expect(await screen.findByText('Lobby geöffnet · Spiel 1')).toBeInTheDocument();
+  transport.read = view({ lifecycle: 'LOBBY_OPEN', runIndex: 2 });
+  await act(async () => transport.replaceSocket?.());
+  expect(await screen.findByText('Lobby geöffnet · Spiel 2')).toBeInTheDocument();
 });

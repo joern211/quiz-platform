@@ -58,7 +58,7 @@ export function ResultScreen({ roomCode, role }: { roomCode: string; role: Playe
       });
   };
   if (loading && !result) return <p>Lädt …</p>;
-  return <div className={styles.page}>
+  return <section className={styles.page} aria-label="Spielergebnis">
     <h1 className={styles.title}>{role === 'HOST' ? 'Ergebnis' : 'Spiel beendet'}</h1><p>{result?.game.name ?? 'Spiel'} · Raum {roomCode}{result && ` · Partie ${result.runIndex}`}</p>
     {error && <div role="alert"><p>{error}</p><Button onClick={() => void refresh()}>Erneut laden</Button></div>}
     {result && <>
@@ -91,5 +91,5 @@ export function ResultScreen({ roomCode, role }: { roomCode: string; role: Playe
 
     </>}
     <Link to="/"><Button variant="ghost">Startseite</Button></Link>
-  </div>;
+  </section>;
 }

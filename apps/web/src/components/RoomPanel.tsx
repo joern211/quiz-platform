@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import type { RoomCoreView, RoomOperation, RoomPolicy } from '@quiz/shared';
 import { Button, Card } from '@quiz/ui';
-import { getSocket, emitCommand } from '../lib/socket';
+import { getSocket, observeSocket, emitCommand } from '../lib/socket';
 import { gamePath } from '../lib/gamePaths';
 import { getSession, setSession } from '../lib/sessionStore';
 import styles from './RoomPanel.module.css';
@@ -23,20 +23,32 @@ export function RoomPanel() {
   useEffect(() => {
     setView(null); setDraft(null); setError(''); setPrivateResult('');
     if (!code) return;
-    const socket = getSocket();
-    const refresh = () => socket.emit('room:core:read', {}, response => {
-      if (response.success && response.view) { setView(response.view); setDraft(old => old ?? response.view!.policy); }
-    });
-    // Each page owns room admission; this shared panel only reads after its snapshot.
-    const connected = refresh;
+    let socket: ReturnType<typeof getSocket> | null = null, generation = 0, disposed = false;
+    const refresh = () => {
+      const current = getSocket(), expected = generation;
+      current.emit('room:core:read', {}, response => {
+        if (!disposed && current === socket && expected === generation && response.success && response.view) {
+          setView(response.view); setDraft(old => old ?? response.view!.policy);
+        }
+      });
+    };
     const toLobby = () => { const session = getSession(); navigate(session.role === 'HOST' ? `/moderator/raum/${code}/lobby` : session.role === 'VIEWER' ? `/zuschauen/${code}/lobby` : `/raum/${code}/lobby`); };
     const closed = () => { setSession({ roomCode: null, participationId: null, rejoinToken: null, role: null }); navigate('/kategorien'); };
     const probe = (ack: () => void) => ack();
-    socket.on('room:probe', probe);
-    socket.on('game:end', refresh); socket.on('room:snapshot', refresh); socket.on('room:core:changed', refresh); socket.on('room:lobby', toLobby); socket.on('room:closed', closed); socket.on('connect', connected);
-    refresh();
+    const detach = () => {
+      if (!socket) return;
+      socket.off('room:probe', probe); socket.off('game:end', refresh); socket.off('room:snapshot', refresh);
+      socket.off('room:core:changed', refresh); socket.off('room:lobby', toLobby); socket.off('room:closed', closed); socket.off('connect', refresh);
+    };
+    // Pages own admission. This persistent panel follows client replacement across routes.
+    const stopObserving = observeSocket(current => {
+      detach(); socket = current; ++generation;
+      socket.on('room:probe', probe); socket.on('game:end', refresh); socket.on('room:snapshot', refresh);
+      socket.on('room:core:changed', refresh); socket.on('room:lobby', toLobby); socket.on('room:closed', closed); socket.on('connect', refresh);
+      refresh();
+    });
     const interval = window.setInterval(refresh, 10000);
-    return () => { window.clearInterval(interval); socket.off('room:probe', probe); socket.off('game:end', refresh); socket.off('room:snapshot', refresh); socket.off('room:core:changed', refresh); socket.off('room:lobby', toLobby); socket.off('room:closed', closed); socket.off('connect', connected); };
+    return () => { disposed = true; ++generation; stopObserving(); window.clearInterval(interval); detach(); };
   }, [code, location.pathname, navigate]);
   useEffect(() => {
     if (code && view?.selfAdmission === 'ACTIVE' && ['GAME_ACTIVE', 'PAUSED'].includes(view.lifecycle) && /lobby$/.test(location.pathname) && getSession().role === 'PLAYER') navigate(gamePath(view.gameSlug, 'PLAYER', code));
