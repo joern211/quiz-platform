@@ -1,0 +1,21 @@
+.page { max-width: 1200px; margin: 0 auto; padding: 2rem 1rem 4rem; }
+.heading { display: flex; justify-content: space-between; align-items: start; gap: 1rem; flex-wrap: wrap; margin-bottom: 1.5rem; }
+.heading p { color: var(--muted); margin-top: .5rem; }
+.layout { display: grid; grid-template-columns: minmax(230px, 300px) minmax(0, 1fr); gap: 1.5rem; align-items: start; }
+.panel { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 1.25rem; min-width: 0; }
+.panel h2 { margin-bottom: 1rem; font-size: 1.2rem; }
+.panel label { display: grid; gap: .35rem; margin-block: .75rem; }
+.panel input, .panel textarea, .panel select { width: 100%; box-sizing: border-box; min-height: 44px; padding: .6rem .75rem; border: 1px solid var(--border); border-radius: var(--radius); background: var(--bg); color: var(--fg); font: inherit; }
+.panel textarea { min-height: 100px; resize: vertical; }
+.panel button { min-height: 44px; padding: .55rem .9rem; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface-2); color: var(--fg); cursor: pointer; font: inherit; }
+.panel button:disabled { opacity: .5; cursor: default; }
+.actions { display: flex; gap: .6rem; flex-wrap: wrap; margin-block: .8rem; }
+.list { list-style: none; padding: 0; display: grid; gap: .5rem; margin-block: 1rem; }
+.list button { width: 100%; text-align: left; }
+.selected { border-color: var(--accent) !important; }
+.status { padding: .6rem .8rem; background: var(--surface-2); border-radius: var(--radius); }
+.error { border: 1px solid var(--danger, currentColor); padding: .75rem; margin-block: .75rem; border-radius: var(--radius); }
+.preview { white-space: pre-wrap; overflow-wrap: anywhere; padding: 1rem; background: var(--bg); border-radius: var(--radius); }
+.options { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: .75rem; }
+.meta { color: var(--muted); font-size: .9rem; margin-block: .4rem; }
+@media (max-width: 760px) { .layout, .options { grid-template-columns: 1fr; } .page { padding-top: 1rem; } }

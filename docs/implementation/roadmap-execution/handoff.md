@@ -12,8 +12,8 @@ Spielregeln bleiben offen; bereits festgelegte Regeln nicht erneut abfragen.
 |---|---|---|
 | 1 | TEAM-ROOM / GitHub #15 abschließen; öffentliche Raumliste reparieren | abgeschlossen, f26e8fb; CI + 20/20 E2E grün |
 | 2 | Gemeinsame Spielaktionen / Rundensteuerung, Planplatz PR15 | abgeschlossen, a1b55eb; CI/E2E grün |
-| 3 | Results / Finalisierung / Recovery, Planplatz PR16 | in Arbeit, feature/pr17-results-recovery |
-| 4 | Content-Pools / Editor, anschließend Review / Import / Qualität | offen |
+| 3 | Results / Finalisierung / Recovery, Planplatz PR16 | abgeschlossen, 7316415; vollständige CI/E2E grün |
+| 4 | Content-Pools / Editor, anschließend Review / Import / Qualität | in Arbeit, feature/pr18-content-editor |
 | 5 | Audio / Voice, Kamera / Display; danach weitere Engines | offen |
 
 ## Wiederaufnahme
@@ -148,3 +148,10 @@ in Run 40143108619 grün. PR16 Ready for Review, nicht gemergt. Punkt 3 auf
 eigener Folgebranch: persistente Round-/GameResults, Review/Finalisierung,
 kompensierende Ledger-Korrekturen/Amendments, Historie und Replay-Recovery.
 Stand und exakte Fortsetzung: ../pr17/handoff.md. Punkte 4–5 weiterhin offen.
+
+## Wiederaufnahme 25.10.2026 — Punkt 3 fertig / Punkt 4 begonnen
+
+7316415: Run 40147789297 vollständig grün, 20/20 E2E ohne Retry/Flake.
+PR17 Ready for Review, kein Merge. Punkt 4 folgt auf eigener gestapelter
+Branch; Einzelstand und offene Master-Anforderungen: ../pr18/handoff.md.
+Punkt 5 bleibt offen.

@@ -5,6 +5,7 @@
 import { useState, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { z } from 'zod';
+import { ContentPoolPicker } from '../components/ContentPoolPicker';
 import { Card, Button, Input } from '@quiz/ui';
 import styles from './JeopardySetupPage.module.css';
 
@@ -49,6 +50,8 @@ export type JeopardyValidationError = {
 };
 
 export function JeopardySetupPage() {
+  const [contentPools, setContentPools] = useState<string[]>([]);
+  const [poolQuestionCount, setPoolQuestionCount] = useState(5);
   const navigate = useNavigate();
   const fileInputRef = useRef<HTMLInputElement>(null);
   
@@ -170,7 +173,7 @@ export function JeopardySetupPage() {
     const engineBoard1 = toEngineBoard(board1);
     const engineBoard2 = toEngineBoard(board2);
     const validation = JeopardyBoardSchema.safeParse({ board1: engineBoard1, board2: engineBoard2 });
-    if (!validation.success) {
+    if (!contentPools.length && !validation.success) {
       const errors = validation.error.errors.map(e => {
         const path0 = String(e.path[0] ?? '');
         // Category index is e.path[1] — could be 0 (valid) or undefined (root error)
@@ -203,7 +206,7 @@ export function JeopardySetupPage() {
           allowViewers: true,
           isPublic: true,
           idempotencyKey: idempotencyRef.current,
-          setupSnapshotJson: { board1: engineBoard1, board2: engineBoard2 },
+          setupSnapshotJson: contentPools.length ? { contentSelection: { poolIds: contentPools, count: poolQuestionCount } } : { board1: engineBoard1, board2: engineBoard2 },
         }),
       });
 
@@ -228,6 +231,8 @@ export function JeopardySetupPage() {
   return (
     <div className={styles.page}>
       <h1 className={styles.title}>Jeopardy einrichten</h1>
+      <ContentPoolPicker gameSlug="jeopardy" selected={contentPools} onChange={setContentPools} />
+      {contentPools.length > 0 && <label>Fragen aus Pools <input aria-label="Fragen aus Pools" type="number" min={1} max={30} value={poolQuestionCount} onChange={e => setPoolQuestionCount(Number(e.target.value))} /></label>}
 
       {/* Validation errors */}
       {validationErrors.length > 0 && (

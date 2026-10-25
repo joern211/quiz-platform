@@ -1,3 +1,4 @@
+import { ContentPoolPicker } from '../components/ContentPoolPicker';
 // ============================================================
 // Moderator Setup Page
 // ============================================================
@@ -8,6 +9,7 @@ import { Card, Button, Input } from '@quiz/ui';
 import styles from './ModeratorSetupPage.module.css';
 
 export function ModeratorSetupPage() {
+  const [contentPools, setContentPools] = useState<string[]>([]);
   const { gameSlug } = useParams<{ gameSlug: string }>();
   const navigate = useNavigate();
   const [roomName, setRoomName] = useState('');
@@ -57,6 +59,7 @@ export function ModeratorSetupPage() {
             questionCount,
             timerDuration,
             selectedQuestionIds: selectedQuestions,
+            ...(contentPools.length ? { contentSelection: { poolIds: contentPools, count: questionCount } } : {}),
           }),
         }),
       });
@@ -137,6 +140,7 @@ export function ModeratorSetupPage() {
 
         <Card padding="lg">
           <h2>Spieloptionen</h2>
+          {(gameSlug === 'wissensduell' || gameSlug === 'geo') && <ContentPoolPicker gameSlug="wissensduell" selected={contentPools} onChange={setContentPools} />}
           
           <div className={styles.form}>
             <div className={styles.inputGroup}>

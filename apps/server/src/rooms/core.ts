@@ -144,7 +144,8 @@ export async function roomPreflight(roomId: string, overrideReady = false, db: P
   const slug = room.gameDefinition.slug;
   if (slug === 'wissensduell' || slug === 'geo') {
     const selected = Array.isArray(setup.selectedQuestionIds) ? setup.selectedQuestionIds as string[] : null;
-    const questions = await db.geoQuestion.count({ where: { enabled: true, ...(selected?.length ? { id: { in: selected } } : setup.questionPoolId ? { packId: String(setup.questionPoolId) } : {}) } });
+    const pinnedCount = await db.contentUse.count({ where: { roomId: room.id, runIndex: room.runIndex } });
+    const questions = pinnedCount || await db.geoQuestion.count({ where: { enabled: true, ...(selected?.length ? { id: { in: selected } } : setup.questionPoolId ? { packId: String(setup.questionPoolId) } : {}) } });
     if (!questions || (selected?.length && questions !== selected.length)) blockers.push('CONTENT_NOT_READY');
   } else if (slug === 'wer-ist-das' || slug === 'weristdas') {
     if (!Array.isArray(setup.rounds) || !setup.rounds.length) blockers.push('CONTENT_NOT_READY');
@@ -343,6 +344,7 @@ export async function mutateRoom(roomId: string, actor: RoomActor, op: RoomOpera
           configSnapshotJson: room.gameConfigSnapshotJson, stateJson: room.gameState?.stateJson, scoresJson: JSON.stringify(room.participations.map(p => ({ id: p.id, displayName: p.displayName, score: p.score, teamId: p.teamId }))), teamsJson: JSON.stringify(room.teams),
         } });
         let gameDefinitionId = room.gameDefinitionId, setupSnapshotJson = room.setupSnapshotJson;
+        let contentSource = { roomId, runIndex: room.runIndex };
         if (op.type === 'SWITCH_GAME') {
           const game = await tx.gameDefinition.findUnique({ where: { slug: op.gameSlug } });
           if (!game || !supportedRoomEngines.has(game.slug) || !['AVAILABLE', 'BETA'].includes(game.status)) throw new RoomError('GAME_NOT_STARTABLE');
@@ -351,7 +353,11 @@ export async function mutateRoom(roomId: string, actor: RoomActor, op: RoomOpera
           if (op.sourceRoomId && !source) throw new RoomError('SETUP_NOT_OWNED');
           if (!source && game.slug !== 'wissensduell') throw new RoomError('PREPARED_SETUP_REQUIRED');
           setupSnapshotJson = source?.setupSnapshotJson ?? '{}';
+          contentSource = { roomId: source?.id ?? '', runIndex: source?.runIndex ?? 0 };
         }
+        const content = await tx.contentUse.findMany({ where: contentSource });
+        for (const item of content) await tx.contentUse.create({ data: { roomId, runIndex: room.runIndex + 1, itemId: item.itemId,
+          itemRevision: item.itemRevision, position: item.position, snapshotJson: item.snapshotJson } });
         await tx.roomGameState.deleteMany({ where: { roomId } });
         await tx.participation.updateMany({ where: { roomId }, data: { score: 0, ready: false } });
         await tx.roomTeam.updateMany({ where: { roomId }, data: { score: 0 } });

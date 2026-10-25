@@ -85,6 +85,104 @@ model GameDefinition {
 // Content / Questions
 // ------------------------------------------------------------
 
+model ContentPool {
+  id String @id @default(uuid())
+  gameSlug String
+  name String
+  description String @default("")
+  scope String @default("PRIVATE")
+  ownerId String?
+  editorIdsJson String @default("[]")
+  defaultsJson String @default("{}")
+  status String @default("ACTIVE")
+  revision Int @default(1)
+  forkedFromPoolId String?
+  legacyPackId String? @unique
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  items ContentItem[]
+  @@index([gameSlug, scope, ownerId])
+  @@map("content_pools")
+}
+
+model ContentItem {
+  id String @id @default(uuid())
+  poolId String
+  pool ContentPool @relation(fields: [poolId], references: [id], onDelete: Restrict)
+  gameSlug String
+  title String @default("")
+  payloadJson String
+  language String?
+  difficulty String?
+  tagIdsJson String?
+  source String @default("")
+  sourceUrl String @default("")
+  license String @default("")
+  status String @default("DRAFT")
+  revision Int @default(1)
+  reviewState String @default("NOT_REVIEWED")
+  lockState String @default("EDITABLE")
+  duplicatedFromId String?
+  legacyQuestionId String? @unique
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  revisions ContentRevision[]
+  uses ContentUse[]
+  @@index([poolId, status])
+  @@map("content_items")
+}
+
+model ContentRevision {
+  id String @id @default(uuid())
+  itemId String
+  item ContentItem @relation(fields: [itemId], references: [id], onDelete: Restrict)
+  revision Int
+  actorId String?
+  kind String
+  changedFieldsJson String
+  snapshotJson String
+  createdAt DateTime @default(now())
+  @@unique([itemId, revision])
+  @@map("content_revisions")
+}
+
+model ContentTag {
+  id String @id @default(uuid())
+  name String
+  slug String @unique
+  description String @default("")
+  category String @default("")
+  aliasesJson String @default("[]")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  @@map("content_tags")
+}
+
+model ContentUse {
+  id String @id @default(uuid())
+  roomId String
+  runIndex Int
+  itemId String
+  item ContentItem @relation(fields: [itemId], references: [id], onDelete: Restrict)
+  itemRevision Int
+  position Int @default(0)
+  snapshotJson String
+  createdAt DateTime @default(now())
+  @@unique([roomId, runIndex, itemId])
+  @@map("content_uses")
+}
+
+model ContentMutationReceipt {
+  id String @id @default(uuid())
+  actorId String
+  commandId String
+  intentHash String
+  responseJson String
+  createdAt DateTime @default(now())
+  @@unique([actorId, commandId])
+  @@map("content_mutation_receipts")
+}
+
 model QuestionPack {
   id          String   @id @default(uuid())
   gameSlug    String

@@ -1692,3 +1692,73 @@ export const PublicResultViewSchema = z.object({
 });
 export type PublicResultView = z.infer<typeof PublicResultViewSchema>;
 export const ResultReadSchema = z.object({ roomCode: z.string().regex(/^\d{3}-\d{3}$/), runIndex: z.number().int().positive().optional(), revision: z.number().int().positive().optional() }).strict();
+
+// Content pools and shared game-specific editor schemas (Master §6).
+
+export const ContentGameSchema = z.enum(['wissensduell', 'jeopardy']);
+export const ContentScopeSchema = z.enum(['PRIVATE', 'SHARED', 'PUBLIC', 'SYSTEM']);
+export const ContentStatusSchema = z.enum(['DRAFT', 'READY', 'DISABLED', 'ARCHIVED', 'TRASHED']);
+export const ContentDifficultySchema = z.enum(['VERY_EASY', 'EASY', 'MEDIUM', 'HARD', 'VERY_HARD']);
+export const ContentLanguageSchema = z.enum(['de-DE', 'en-US', 'tr-TR']);
+const text = z.string().trim().min(1).max(10000);
+export const QuizContentSchema = z.object({
+  prompt: text, category: z.string().trim().min(1).max(100),
+  options: z.array(z.object({ id: z.string().min(1).max(40), text }).strict()).min(2).max(6),
+  correctOptionId: z.string().min(1).max(40), explanation: z.string().max(10000).default(''),
+  points: z.number().int().min(0).max(100000).default(100),
+  wrongPoints: z.number().int().min(-100000).max(0).default(0),
+  durationMs: z.number().int().min(1000).max(3600000).default(20000),
+}).strict().superRefine((q, ctx) => {
+  if (new Set(q.options.map(o => o.id)).size !== q.options.length || !q.options.some(o => o.id === q.correctOptionId))
+    ctx.addIssue({ code: 'custom', path: ['correctOptionId'], message: 'Eindeutige Optionen und eine gültige richtige Antwort erforderlich.' });
+  if (new Set(q.options.map(o => o.text.toLocaleLowerCase().trim())).size !== q.options.length)
+    ctx.addIssue({ code: 'custom', path: ['options'], message: 'Antwortoptionen dürfen nicht doppelt sein.' });
+});
+export const JeopardyItemSchema = z.object({
+  question: text, answer: text, category: z.string().trim().min(1).max(100),
+  value: z.number().int().min(1).max(100000),
+}).strict();
+export function validateContentPayload(gameSlug: string, payload: unknown) {
+  return (gameSlug === 'wissensduell' ? QuizContentSchema : JeopardyItemSchema).safeParse(payload);
+}
+export const ContentDefaultsSchema = z.object({
+  language: ContentLanguageSchema.default('de-DE'), difficulty: ContentDifficultySchema.nullable().default(null),
+  tagIds: z.array(z.string().uuid()).max(30).default([]),
+}).strict();
+export const CreateContentPoolSchema = z.object({
+  commandId: z.string().uuid(), gameSlug: ContentGameSchema, name: z.string().trim().min(1).max(150),
+  description: z.string().max(2000).default(''), scope: z.enum(['PRIVATE', 'SHARED']).default('PRIVATE'),
+  defaults: ContentDefaultsSchema.default({}), editorIds: z.array(z.string().uuid()).max(30).default([]),
+}).strict();
+export const ContentItemInputSchema = z.object({
+  title: z.string().trim().max(200).default(''), payload: z.record(z.unknown()),
+  language: ContentLanguageSchema.nullable().default(null), difficulty: ContentDifficultySchema.nullable().default(null),
+  tagIds: z.array(z.string().uuid()).max(30).nullable().default(null),
+  source: z.string().max(2000).default(''), sourceUrl: z.string().url().max(2000).or(z.literal('')).default(''),
+  license: z.string().max(500).default(''),
+}).strict();
+export const ContentSelectionSchema = z.object({
+  poolIds: z.array(z.string().min(1).max(128)).min(1).max(20), count: z.number().int().min(1).max(100).default(10),
+  language: ContentLanguageSchema.default('de-DE'), difficulty: ContentDifficultySchema.optional(),
+  tagIds: z.array(z.string().uuid()).max(30).default([]),
+  mode: z.enum(['RANDOM', 'MANUAL']).default('RANDOM'), itemIds: z.array(z.string().min(1).max(128)).max(100).default([]),
+  repeatRule: z.enum(['NO_REPEAT_IN_ROOM', 'ALLOW_REPEATS', 'PREFER_UNSEEN']).default('NO_REPEAT_IN_ROOM'),
+  visibility: z.literal('HOST_PREVIEW').default('HOST_PREVIEW'),
+}).strict();
+export const CONTENT_TEMPLATES = {
+  wissensduell: { title: '', payload: { prompt: '', category: 'Allgemeinwissen', options: [
+    { id: 'a', text: '' }, { id: 'b', text: '' }, { id: 'c', text: '' }, { id: 'd', text: '' },
+  ], correctOptionId: 'a', explanation: '', points: 100, wrongPoints: 0, durationMs: 20000 } },
+  jeopardy: { title: '', payload: { question: '', answer: '', category: 'Allgemeinwissen', value: 100 } },
+} as const;
+export interface ContentItemView {
+  id: string; poolId: string; gameSlug: string; revision: number; status: string; title: string;
+  payload: Record<string, unknown>; language: string | null; difficulty: string | null; tagIds: string[] | null;
+  source: string; sourceUrl: string; license: string; reviewState: string; lockState: string;
+  effective: { language: string; difficulty: string | null; tagIds: string[] };
+  validation: Array<{ path: string; message: string }>; updatedAt: string;
+}
+export interface ContentPoolView {
+  id: string; gameSlug: string; name: string; description: string; scope: string; ownerId: string | null;
+  revision: number; defaults: z.infer<typeof ContentDefaultsSchema>; canEdit: boolean;
+}

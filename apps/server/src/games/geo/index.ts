@@ -3,6 +3,7 @@
 // ============================================================
 
 import { Server, Socket } from 'socket.io';
+import { readPinnedContent } from '../../content/core.js';
 import { prisma } from '../../persistence/prisma.js';
 import { resolveCanonicalSlug, slugWithLegacy, type CoreTimer, type SubmissionRecord, type CoreRoundTransition } from '@quiz/shared';
 import { createTimer, legacyRoundTimer, timerAcceptsInput, pauseTimer, resumeTimer, endTimer, submitOnce, lockSubmission, judgeSubmission, scoreJudgement } from '../core/runtimePrimitives.js';
@@ -150,7 +151,10 @@ export const handleGeoGame = {
     // Get questions based on setup
     let questions: any[] = [];
     
-    if (setup.selectedQuestionIds && setup.selectedQuestionIds.length > 0) {
+    const pinned = await readPinnedContent(room.id);
+    if (pinned.length) {
+      questions = pinned.map(q => ({ ...q.payload, id: q.id, contentRevision: q.revision, options: JSON.stringify(q.payload.options) }));
+    } else if (setup.selectedQuestionIds && setup.selectedQuestionIds.length > 0) {
       // P0-08: Get specific questions
       const geoQuestions = await prisma.geoQuestion.findMany({
         where: {

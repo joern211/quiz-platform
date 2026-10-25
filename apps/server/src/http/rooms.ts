@@ -1,4 +1,6 @@
 import { readGameResult, publicResultView } from '../games/core/results.js';
+import { ContentError, contentActor, selectRoomContent, applyPinnedContent } from '../content/core.js';
+import { ZodError } from 'zod';
 import { rankScores } from '../games/core/roundFlow.js';
 // ============================================================
 // Online Quiz Plattform - Rooms Router
@@ -484,6 +486,12 @@ roomsRouter.post('/', createLimiter, async (req, res) => {
     let moderatorToken: string | null = null;
     try {
       room = await prisma.$transaction(async (tx) => {
+        // Server materializes authorized READY content; client-provided payloads
+        // never become trusted engine snapshots.
+        const contentItems = setupSnapshotJson.contentSelection === undefined ? [] : await selectRoomContent(tx,
+          await contentActor(tx, sessionId), resolveCanonicalSlug(gameDef!.slug) ?? gameDef!.slug, setupSnapshotJson.contentSelection);
+        const materializedSetup = contentItems.length ? applyPinnedContent(setupSnapshotJson,
+          resolveCanonicalSlug(gameDef!.slug) ?? gameDef!.slug, contentItems) : setupSnapshotJson;
         const createdRoom = await tx.room.create({
           data: {
             code,
@@ -497,7 +505,7 @@ roomsRouter.post('/', createLimiter, async (req, res) => {
             viewerRequiresPin,
             viewerLimit,
             lobbyChatEnabled,
-            setupSnapshotJson: JSON.stringify(setupSnapshotJson),
+            setupSnapshotJson: JSON.stringify(materializedSetup),
             setupSchemaVersion: roomSetupSchemaVersion,
             isPublic: isPublic ?? true,
             idempotencyKey: idemKey,
@@ -507,6 +515,8 @@ roomsRouter.post('/', createLimiter, async (req, res) => {
             runPhase: 'OPEN',
           },
         });
+        for (const [position, item] of contentItems.entries()) await tx.contentUse.create({ data: { roomId: createdRoom.id, runIndex: createdRoom.runIndex,
+          itemId: item.id, itemRevision: item.revision, position, snapshotJson: JSON.stringify(item) } });
         const modPart = await tx.participation.create({
           data: {
             roomId: createdRoom.id,
@@ -577,6 +587,8 @@ roomsRouter.post('/', createLimiter, async (req, res) => {
       },
     });
   } catch (error) {
+    if (error instanceof ContentError || error instanceof ZodError) return res.status(error instanceof ContentError ? error.status : 400).json({ success: false,
+      error: { code: error instanceof ContentError ? error.code : 'INVALID_CONTENT_SELECTION', message: 'Inhaltsauswahl prüfen.' } });
     logger.error('Failed to create room', { error });
     res.status(500).json({
       success: false,

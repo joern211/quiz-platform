@@ -33,6 +33,7 @@ import { RoomsPage }       from './pages/RoomsPage';
 import { ProfilePage }     from './pages/ProfilePage';
 import { AdminPage }       from './pages/AdminPage';
 import { NotFoundPage }    from './pages/NotFoundPage';
+import { ContentPage } from './pages/ContentPage';
 
 // Jeopardy pages
 import { JeopardyModeratorPage } from './pages/JeopardyModeratorPage';
@@ -68,6 +69,7 @@ export default function App() {
           <Route path="/kategorie/:categorySlug" element={<CategoryPage />} />
           <Route path="/spiel/:gameSlug"         element={<GamePage />} />
           <Route path="/beitreten"               element={<JoinPage />} />
+          <Route path="/inhalte" element={<ContentPage />} />
 
           {/* ── Moderator ── */}
           <Route path="/moderator/anmelden"                              element={<ModeratorLoginPage />} />

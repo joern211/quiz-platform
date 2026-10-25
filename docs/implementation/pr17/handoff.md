@@ -167,3 +167,12 @@ name Ergebnis trifft sowohl H1 Ergebnis als auch H2 Ergebnis prüfen. Die
 Assertion prüft nun genau H1 mit exact=true. Keine Prüfung wurde entfernt.
 Playwright --list lädt alle 20 aktiven Fälle. Neuen Test-/Doku-Head pushen
 und dessen vollständige CI/E2E abnehmen; danach erst Punkt 3 abschließen.
+
+## Abgeschlossen — Wiederaufnahme am 25.10.2026
+
+Finaler Code-Head 73164154159e925a4362b771880265f15f9b0167:
+[Run 40147789297](https://github.com/joern211/quiz-platform/actions/runs/40147789297)
+ist vollständig grün: 431 Server-/94 Webtests, 20/20 E2E ohne Retry/Flake,
+Typecheck/Build/Lint erfolgreich. PR17 ist Ready for Review, ungemergt.
+Die zuvor offenen Abnahmehinweise sind historisch. Punkt 3 abgeschlossen.
+Punkt 4 wird auf feature/pr18-content-editor fortgesetzt; kein Merge.
