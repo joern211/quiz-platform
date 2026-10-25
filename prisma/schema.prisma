@@ -890,3 +890,36 @@ model ContentReviewAssignment {
   @@index([assigneeId, status])
   @@map("content_review_assignments")
 }
+
+model ContentPlaytest {
+  id           String                    @id @default(uuid())
+  code         String                    @unique
+  ownerId      String
+  poolId       String
+  gameSlug     String
+  snapshotJson String
+  position     Int                       @default(0)
+  version      Int                       @default(1)
+  phase        String                    @default("QUESTION")
+  startedAt    DateTime                  @default(now())
+  expiresAt    DateTime
+  createdAt    DateTime                  @default(now())
+  feedback     ContentPlaytestFeedback[]
+
+  @@index([ownerId, expiresAt])
+  @@map("content_playtests")
+}
+
+model ContentPlaytestFeedback {
+  id         String          @id @default(uuid())
+  playtestId String
+  playtest   ContentPlaytest @relation(fields: [playtestId], references: [id], onDelete: Cascade)
+  position   Int
+  clientKey  String
+  kind       String
+  value      String
+  createdAt  DateTime        @default(now())
+
+  @@unique([playtestId, position, clientKey, kind])
+  @@map("content_playtest_feedback")
+}

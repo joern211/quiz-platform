@@ -176,3 +176,40 @@ test('C4: private template creates a new draft, versioned review work stays sepa
     expect((await checked.json()).data).toMatchObject({ status: 'DRAFT', reviewState: 'APPROVED' });
   } finally { await context.close(); }
 });
+
+test('C5: editor playtest shares a draft with a guest device, hides solutions until reveal, collects a warning and closes access', async ({ browser }) => {
+  test.setTimeout(90000);
+  const hostContext = await browser.newContext(), guestContext = await browser.newContext();
+  try {
+    expect((await hostContext.request.post(`${BASE}/api/v1/auth/e2e-token`, { data: { userId: 'mod-1' } })).status()).toBe(200);
+    const name = `Playtest ${crypto.randomUUID()}`;
+    const created = await hostContext.request.post(`${BASE}/api/v1/content/pools`, { data: { commandId: crypto.randomUUID(), gameSlug: 'wissensduell', name } });
+    expect(created.status()).toBe(201); const pool = (await created.json()).data;
+    const question = await hostContext.request.post(`${BASE}/api/v1/content/pools/${pool.id}/items`, { data: { commandId: crypto.randomUUID(), item: { title: 'Playtestfrage',
+      payload: { prompt: 'Test auf anderem Gerät?', category: 'Test', options: [{ id: 'a', text: 'Ja' }, { id: 'b', text: 'Nein' }], correctOptionId: 'a', explanation: 'PLAYTEST_PRIVATE_SOLUTION', durationMs: 60000 } } } });
+    expect(question.status()).toBe(201);
+    const editor = await hostContext.newPage(); await editor.goto(`${BASE}/inhalte`);
+    await editor.getByRole('button').filter({ hasText: name }).click(); await editor.getByRole('button', { name: 'Playtestfrage · DRAFT · V1', exact: true }).click();
+    await editor.getByRole('button', { name: 'Playtest starten', exact: true }).click();
+    const share = await editor.getByLabel('Testlink für andere Geräte').inputValue();
+    const opened = hostContext.waitForEvent('page'); await editor.getByRole('link', { name: 'Playtest als Host öffnen' }).click(); const host = await opened;
+    await expect(host.getByText('PLAYTEST_PRIVATE_SOLUTION', { exact: true })).toBeVisible();
+    const guest = await guestContext.newPage(); await guest.goto(share);
+    await expect(guest.getByRole('heading', { name: 'Test auf anderem Gerät?' })).toBeVisible();
+    await expect(guest.getByText('PLAYTEST_PRIVATE_SOLUTION', { exact: true })).toHaveCount(0);
+    await guest.getByLabel('Perspektive').selectOption('VIEWER');
+    await expect(guest.getByRole('button', { name: 'Testantwort abgeben' })).toHaveCount(0);
+    await guest.getByLabel('Perspektive').selectOption('PLAYER');
+    await guest.getByRole('radio', { name: 'Ja', exact: true }).check(); await guest.getByRole('button', { name: 'Testantwort abgeben' }).click();
+    await expect(guest.getByText('Deine Testantwort: a', { exact: true })).toBeVisible();
+    await guest.reload(); await expect(guest.getByText('Deine Testantwort: a', { exact: true })).toBeVisible();
+    await guest.getByLabel('Fehler oder Warnung melden').fill('Bitte Formulierung prüfen'); await guest.getByRole('button', { name: 'Hinweis speichern' }).click();
+    await expect(host.getByRole('region', { name: 'Gesammelte Playtest-Hinweise' })).toContainText('Bitte Formulierung prüfen');
+    await host.getByRole('button', { name: 'Auflösen', exact: true }).click();
+    await expect(guest.getByText('PLAYTEST_PRIVATE_SOLUTION', { exact: true })).toBeVisible();
+    await host.getByRole('button', { name: 'Playtest beenden', exact: true }).click();
+    await expect(guest.getByRole('alert')).toContainText('beendet, abgelaufen');
+    const unchanged = await hostContext.request.get(`${BASE}/api/v1/content/pools/${pool.id}`);
+    expect((await unchanged.json()).data.items[0].status).toBe('DRAFT');
+  } finally { await Promise.allSettled([hostContext.close(), guestContext.close()]); }
+});

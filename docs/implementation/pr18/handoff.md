@@ -348,7 +348,51 @@ CI-Versuch hatte zwei Datenbank-/Socket-Timeouts in der älteren P14-Suite.
   Hinweis nicht vom15-Sekunden-Heartbeat bei5-Sekunden-Assertion ab.
   Keine Assertions entfernt, keine pauschalen Retries/Timeout-Erhöhungen.
 
-Gezielt26/26 Tests, beide Builds/Typecheck und Lint0 Fehler/113 Warnungen
-grün. Vollständige Server-Suite und exakte GitHub-Prüfung folgen.
+Gezielt26/26 und vollständig470/470 Server-Tests (55 Dateien), beide
+Builds/Typecheck und Lint0 Fehler/113 Warnungen grün. Lokal als6693b5b
+gesichert. Push durch automatische Freigabeprüfung blockiert; auch nach
+Wiederfinden der Nutzeranweisung zu regelmäßigen Zwischenpushes wurde die
+Freigabe aus Personal Context nicht akzeptiert. Kein Push-Workaround.
 Playtest ist der nächste Teil; sein lokaler Entwurf gehört noch nicht
 zu diesem gesicherten Commit. Paket4 offen, Paket5 unbegonnen, kein Merge.
+
+## Zehnter Teil — PLAYTEST aus dem Editor (§6.27)
+
+- Gespeicherte Frage aus dem Editor als Playtest starten, auch INVALID/DRAFT.
+  Eigener Zustand mit gepinnten ausgewählten Revisionen; unveränderliche
+  Snapshot-/Owner-/Pool-/Code-Identität per SQL-Trigger. Keine normalen Räume,
+  Teilnahmen, ContentUses, ScoreEvents, Runden-/Spielergebnisse oder Eventpunkte.
+- Eine Stunde gültiger kryptographischer Testcode für andere Geräte. Player,
+  Viewer und Team als Gast; HOST und Steuerung nur für den Ersteller mit
+  aktuell gültiger Hostsession. Accountdeaktivierung oder Verlust des
+  Poolzugriffs widerruft auch den Gastcode und seine Medien. Beenden und
+  Ablauf sperren Gast-/Medienzugriff. Kein Zugang zu anderen Poolfragen.
+- Host/Player/Viewer/Team haben explizite Projektionen. Lösungen nur HOST
+  oder nach gemeinsamer Auflösung. INVALID-DRAFT-Optionen werden ebenfalls
+  über Feld-Allowlist projiziert. Ein Perspektivwechsel entfernt Hostdaten
+  sofort und ignoriert alte Antworten. Keine Raum-/Socket-Aktivierung.
+- Zeitgrenze, revisionsgebundene Reveal/Next/Close-Steuerung, eine Testantwort
+  pro Client/Frage, identischer Retry ohne Duplikat und Wiederaufnahme nach
+  Reload. Quizoptionen servervalidiert; Viewer/Team können nichts abgeben.
+  Jeopardy hat eine freie Testantwort; dieser Fragenplaytest simuliert keinen
+  vollständigen Multiplayer-Buzzer-/Steal-/Judge-Ablauf.
+- Validierungswarnungen plus explizite Fehlermeldungen aus Testgeräten.
+  Gesammelte Meldungen nur in der HOST-Ansicht. Fehler beim Senden erhalten
+  den Text. Testdaten ändern oder veröffentlichen die Ausgangsfrage nicht.
+- Medienkontext an Code/aktuelle Frage/Revision gebunden. Signierte spätere
+  Fragen bleiben gesperrt; alte Links verlieren beim Weitergehen Zugriff.
+  Echte HTTP-Tests decken Assetswap, Ablauf, Close und Zugriffsentzug ab.
+- C5 bildet Editorstart, echtes zweites Gastgerät, Rollenwechsel, Testantwort,
+  Reload, Meldung, Auflösung und Close ab. Insgesamt25 Browserfälle gelistet.
+  Browserausführung am neuen Stand noch offen: lokal kein Chromium vorhanden,
+  GitHub-Push derzeit blockiert. Kein behauptetes Browser-Grün.
+
+Nachweise: sechs neue echte HTTP-/DB-Fälle für beide Spiele und vier neue
+Webfälle; vollständige Server-Suite476/476 (56 Dateien), Websuite120/120
+(22 Dateien), beide Builds und Typecheck grün. Lint0 Fehler/113 bestehende
+Warnungen. C5 ist gelistet, jedoch noch nicht im Browser ausgeführt.
+
+Paket4 ist weiterhin offen: Auswahl-/Difficulty-Progression, Spiel-Presets /
+Room-Templates und BLIND_HOST durch alle Lese-/Recovery-/Info-Pfade sowie
+weitere Master-§6-Detailabnahmen. Audio-Headerprüfung ist kein vollständiger
+Decoder/Normalizer. Paket5 bleibt unbegonnen. Kein Merge.

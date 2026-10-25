@@ -182,3 +182,18 @@ Prüfaufgaben, Einzelreview mit Tastatur/Wiederaufnahme und weitere Public-
 Privacy-/Receipt-Fixes. Lokal467 Server/116 Web grün, C4 zusätzlich aktiv.
 Nächste Schritte und verbleibende Grenzen in ../pr18/handoff.md.
 Punkt4 offen, Punkt5 unbegonnen, kein Merge.
+
+## Punkt4 — PLAYTEST und Teststabilität lokal gesichert
+
+Ältere P14-Regressionen erhalten eine eigene Testdatenbank und vollständigen
+Disconnect-Abbau; verspätete room:probe-Antworten schreiben nach Identitäts-
+wechsel nicht mehr. C3 synchronisiert die echte Anwesenheitsregistrierung.
+470 Servertests für diesen Teil grün; lokaler Commit6693b5b.
+
+Danach PLAYTEST aus Editor mit temporärem Gerätecode, vier Perspektiven,
+Auflösung, Testantworten und gesammelten Hinweisen; immutable Snapshot und
+aktive Mediengrenzen. Keine normalen Räume, Stats oder ScoreEvents.
+476 Server-/120 Webtests, beide Builds und Typecheck grün; neue echte
+HTTP-/DB-Abnahmen. Lint0 Fehler/113 bestehende Warnungen. Einzelstand, Browsergrenzen
+und Restumfang in ../pr18/handoff.md. GitHub-Sicherung durch automatische
+Freigabeprüfung blockiert; kein Workaround. Punkt4 offen, Punkt5 unbegonnen.

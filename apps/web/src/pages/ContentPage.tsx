@@ -7,6 +7,7 @@ import styles from './ContentPage.module.css';
 import { ContentImportTools, ContentReviewInbox } from '../components/ContentTools';
 import { ContentTemplates, SaveContentTemplate } from '../components/ContentTemplates';
 import { ContentReviewAssignments } from '../components/ContentReviewAssignments';
+import { StartContentPlaytest } from '../components/StartContentPlaytest';
 import { ContentMedia } from '../components/ContentMedia';
 import { ContentMediaFields } from '../components/ContentMediaFields';
 import { ContentCollaboration } from '../components/ContentCollaboration';
@@ -133,6 +134,7 @@ export function ContentEditor({ initial, pool, onSaved, dirtyFlag, actorId }: { 
       <button disabled={dirty || busy} onClick={() => contentApi.preview(item.id, previewRole, reveal).then(setPreview).catch(e => setError(errorMessage(e)))}>Vorschau laden</button>
       {preview && <div className={styles.preview}>{Object.entries(preview).filter(([key]) => !['mediaUrl', 'mediaType'].includes(key)).map(([key, value]) => <p key={key}><strong>{{ prompt: 'Frage', question: 'Frage', category: 'Kategorie', answer: 'Lösung', correctOptionId: 'Richtige Antwort', explanation: 'Erklärung', options: 'Antwortmöglichkeiten', value: 'Punktwert' }[key] ?? key}:</strong> {Array.isArray(value) ? value.map(v => `${v.id}: ${v.text}`).join(' · ') : String(value)}</p>)}<ContentMedia mediaUrl={typeof preview.mediaUrl === 'string' ? preview.mediaUrl : undefined} mediaType={typeof preview.mediaType === 'string' ? preview.mediaType : undefined} onRefresh={() => { if (item) void contentApi.preview(item.id, previewRole, reveal).then(setPreview).catch(e => setError(errorMessage(e))); }} /></div>}
     </fieldset>}
+    {item && (pool.canReadInternal ?? (pool.canEdit || pool.canPropose)) && <StartContentPlaytest item={item} disabled={dirty || busy} />}
     <SaveContentTemplate gameSlug={pool.gameSlug} item={draft} disabled={busy} />
     {item && actorId && <ContentReviewAssignments key={item.id} item={item} pool={pool} actorId={actorId} />}
     {item && <ContentCollaboration item={item} pool={pool} actorId={actorId} dirty={dirty || busy} onSaved={updated => { setItem(updated); onSaved(updated); }} />}

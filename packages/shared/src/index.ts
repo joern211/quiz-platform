@@ -1795,3 +1795,10 @@ export const ContentBatchSchema = z.object({
 export const ContentTemplateInputSchema = z.object({ name: z.string().trim().min(1).max(150), gameSlug: ContentGameSchema,
   item: ContentItemInputSchema.refine(v => v.payload.mediaAssetId === undefined, 'Vorlagen enthalten Medienoptionen, keine konkrete Datei.') }).strict();
 export interface ContentTemplateView { id: string; name: string; gameSlug: string; scope: 'SYSTEM' | 'PRIVATE'; revision: number; item: z.infer<typeof ContentItemInputSchema> }
+
+export interface ContentPlaytestView {
+  code: string; gameSlug: string; phase: 'QUESTION' | 'REVEAL' | 'CLOSED'; version: number; position: number; total: number;
+  role: 'HOST' | 'PLAYER' | 'VIEWER' | 'TEAM'; canControl: boolean; expiresAt: string; endsAt: number | null; question: Record<string, unknown> | null;
+  warnings: Array<{ path: string; message: string }>; ownAnswer: string | null; ownReport: boolean;
+  reports: Array<{ position: number; message: string; createdAt: string }>;
+}

@@ -34,6 +34,7 @@ import { ProfilePage }     from './pages/ProfilePage';
 import { AdminPage }       from './pages/AdminPage';
 import { NotFoundPage }    from './pages/NotFoundPage';
 import { ContentPage } from './pages/ContentPage';
+import { ContentPlaytestPage } from './pages/ContentPlaytestPage';
 
 // Jeopardy pages
 import { JeopardyModeratorPage } from './pages/JeopardyModeratorPage';
@@ -70,6 +71,7 @@ export default function App() {
           <Route path="/spiel/:gameSlug"         element={<GamePage />} />
           <Route path="/beitreten"               element={<JoinPage />} />
           <Route path="/inhalte" element={<ContentPage />} />
+          <Route path="/inhalte/playtest/:code" element={<ContentPlaytestPage />} />
 
           {/* ── Moderator ── */}
           <Route path="/moderator/anmelden"                              element={<ModeratorLoginPage />} />
@@ -110,7 +112,7 @@ export default function App() {
           {/* ── 404 ── */}
           <Route path="*" element={<NotFoundPage />} />
         </Routes>
-        <RoomPanel />
+        {!location.pathname.startsWith('/inhalte/playtest/') && <RoomPanel />}
       </main>
       <Footer />
     </div>

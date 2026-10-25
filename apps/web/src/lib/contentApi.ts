@@ -1,4 +1,4 @@
-import type { ContentItemView, ContentPoolView, ContentBatchSchema, ContentTemplateView } from '@quiz/shared';
+import type { ContentItemView, ContentPoolView, ContentBatchSchema, ContentTemplateView, ContentPlaytestView } from '@quiz/shared';
 
 import type { z } from 'zod';
 
@@ -22,6 +22,10 @@ async function request<T>(path: string, method = 'GET', body?: unknown): Promise
   return json.data as T;
 }
 export const contentApi = {
+  startPlaytest: (poolId: string, items: Array<{ id: string; revision: number }>) => request<{ code: string; expiresAt: string }>('/playtests', 'POST', { commandId: crypto.randomUUID(), poolId, items }),
+  playtest: (code: string, role: string, clientKey: string) => request<ContentPlaytestView>(`/playtests/${encodeURIComponent(code)}?role=${role}&clientKey=${clientKey}`),
+  controlPlaytest: (code: string, version: number, action: 'REVEAL' | 'NEXT' | 'CLOSE') => request(`/playtests/${encodeURIComponent(code)}/control`, 'POST', { commandId: crypto.randomUUID(), version, action }),
+  playtestFeedback: (code: string, input: { clientKey: string; version: number; role: string; kind: 'ANSWER' | 'REPORT'; value: string }) => request(`/playtests/${encodeURIComponent(code)}/feedback`, 'POST', input),
   templates: (gameSlug: string) => request<ContentTemplateView[]>(`/templates/catalog?gameSlug=${encodeURIComponent(gameSlug)}`),
   saveTemplate: (gameSlug: string, name: string, item: unknown) => request('/templates', 'POST', { commandId: crypto.randomUUID(), gameSlug, name, item }),
   useTemplate: (template: ContentTemplateView, pool: ContentPoolView) => request<ContentItemView>(`/templates/${encodeURIComponent(template.id)}/use`, 'POST', { commandId: crypto.randomUUID(), revision: template.revision, poolId: pool.id, poolRevision: pool.revision }),

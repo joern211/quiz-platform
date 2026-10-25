@@ -3,10 +3,12 @@ import { access } from 'node:fs/promises';
 import type { ContentItem } from '@prisma/client';
 import { z } from 'zod';
 import { ContentMediaRightsSchema } from '@quiz/shared';
+import { hasPlaytestAuthority } from './playtestAccess.js';
 import { config } from '../config/index.js';
 import { ContentError, canReadPool, contentActor, type ContentActor, type ContentDb } from './core.js';
 
 const contextSchema = z.discriminatedUnion('kind', [
+  z.object({ kind: z.literal('PLAYTEST'), code: z.string().min(20).max(64), itemId: z.string().min(1).max(128), revision: z.number().int().positive() }).strict(),
   z.object({ kind: z.literal('EDITOR'), itemId: z.string().min(1).max(128), revision: z.number().int().positive() }).strict(),
   z.object({ kind: z.literal('ROOM'), roomId: z.string().min(1).max(128), runIndex: z.number().int().positive(), itemId: z.string().min(1).max(128) }).strict(),
 ]);
@@ -66,6 +68,13 @@ export async function canDeliverContentMedia(db: ContentDb, assetId: string, que
   if (expected.length !== given.length || !timingSafeEqual(expected, given)) return false;
   let context: Context;
   try { context = contextSchema.parse(JSON.parse(Buffer.from(ctx, 'base64url').toString('utf8'))); } catch { return false; }
+  if (context.kind === 'PLAYTEST') {
+    const test = await db.contentPlaytest.findUnique({ where: { code: context.code } });
+    if (!test || test.expiresAt <= new Date() || test.phase === 'CLOSED' || !await hasPlaytestAuthority(db, test)) return false;
+    const snapshot = JSON.parse(test.snapshotJson)[test.position];
+    return snapshot?.id === context.itemId && snapshot.revision === context.revision && snapshot.payload?.mediaAssetId === assetId
+      && await db.contentMediaReference.count({ where: { itemId: context.itemId, itemRevision: context.revision, assetId } }) > 0;
+  }
   if (context.kind === 'EDITOR') {
     let actor: ContentActor; try { actor = await contentActor(db, sessionId); } catch { return false; }
     const item = await db.contentItem.findUnique({ where: { id: context.itemId }, include: { pool: true } });
@@ -74,7 +83,7 @@ export async function canDeliverContentMedia(db: ContentDb, assetId: string, que
     return !['PUBLIC', 'SYSTEM'].includes(item.pool.scope) || item.pool.ownerId === actor.userId || actor.role === 'ADMIN' || item.status === 'READY' && item.reviewState === 'APPROVED';
   }
   const room = await db.room.findUnique({ where: { id: context.roomId }, include: { gameDefinition: true, gameState: true } });
-  if (!room || room.runIndex !== context.runIndex || ['CLOSED', 'EXPIRED'].includes(room.lifecycle ?? '')
+  if (!room || room.runIndex !== context.runIndex || room.status === 'ARCHIVED' || ['CLOSED', 'EXPIRED'].includes(room.lifecycle ?? '')
     || room.expiresAt && room.expiresAt <= new Date() || !room.gameState) return false;
   const use = await db.contentUse.findUnique({ where: { roomId_runIndex_itemId: { roomId: room.id, runIndex: context.runIndex, itemId: context.itemId } } });
   if (!use || JSON.parse(use.snapshotJson).payload?.mediaAssetId !== assetId) return false;

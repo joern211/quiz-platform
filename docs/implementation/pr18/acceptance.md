@@ -81,3 +81,18 @@ Tastaturbefehle und kontogebundenen Cursor. C4 ergänzt den realen Browserweg.
 Draftversionen oder nach Scopewechsel unzulässigen Receipt-Antworten. Diese
 Gegenproben sind echte HTTP-/DB-Fälle. Globale Publikationsrechte bleiben
 unverändert: Public-Finalentscheidung ausschließlich ADMIN.
+
+## Ergänzung: temporärer Fragen-Playtest
+
+PLAYTEST startet aus dem Editor mit gespeicherter Revision, auch DRAFT.
+Temporärer Gerätecode, vier Perspektiven, explizite Auflösung, Testantworten,
+Zeitgrenze und private Fehler-/Warnmeldung sind verbunden. Originalfragen
+bleiben unverändert. Echte HTTP-/DB-Gegenproben belegen keine normalen
+Räume/Teilnahmen/ScoreEvents/Ergebnisse/ContentUses sowie Revisions-, Rollen-,
+Ablauf-, Zugriffs- und Mediengrenzen. Invalide Optionsmetadaten werden auch
+im alten Vorschauendpunkt nicht mehr ungefiltert an Leser weitergegeben.
+
+Der Fragenplaytest ist keine vollständige Multiplayer-Engine-Simulation;
+Jeopardy-Buzzer/Steal/Judge sind hier nicht nachgebaut. C5 für den realen
+Browserweg ist erstellt und gelistet, am neuen Head noch nicht ausgeführt.
+Push aktuell durch automatische Freigabeprüfung blockiert, lokal gesichert.

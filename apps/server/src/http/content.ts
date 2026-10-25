@@ -12,6 +12,8 @@ import { CorrectionAccessSchema, CorrectionSubmitSchema, eligibleCorrectionConte
 import { ContentError, contentActor, canReadPool, requirePool, poolView, itemView, validateTagIds, contentInputData,
   mutateContent, saveRevision, changeItem, auditContent, type ContentActor, type ContentDb } from '../content/core.js';
 
+import { CreatePlaytestSchema, PlaytestReadSchema, PlaytestFeedbackSchema, createContentPlaytest, readContentPlaytest, controlContentPlaytest, submitPlaytestFeedback } from '../content/playtest.js';
+import { previewContentPayload } from '../content/preview.js';
 import { contentTemplateCatalog, instantiateContentTemplate, assignReview, advanceAssignment } from '../content/workflow.js';
 import { contentMediaUrl, validateContentMedia } from '../content/media.js';
 import { setItemStatus, previewBatch, commitBatch, requireContributor } from '../content/operations.js';
@@ -25,7 +27,7 @@ function endpoint(action: (req: Request, res: Response) => Promise<unknown>) {
     res.setHeader('Cache-Control', 'no-store');
     try { await action(req, res); } catch (error) {
       if (error instanceof z.ZodError) { res.status(400).json({ success: false, error: { code: 'INVALID_CONTENT', message: 'Eingaben prüfen.', details: error.issues.map(e => ({ path: e.path.join('.'), message: e.message })) } }); return; }
-      if (error instanceof ContentError) { const messages: Record<string, string> = { MEDIA_NOT_ACCESSIBLE: 'Dieses Medium ist nicht verfügbar oder für dich nicht freigegeben.', MEDIA_NOT_READY: 'Das Medium ist noch nicht spielbereit. Bitte Datei und Verarbeitung prüfen.', MEDIA_RIGHTS_REQUIRED: 'Bitte Medienquelle, Nutzungsrechte und gegebenenfalls Einwilligung ergänzen.' }; res.status(error.status).json({ success: false, error: { code: error.code, message: messages[error.code] ?? error.code, details: error.details } }); return; }
+      if (error instanceof ContentError) { const messages: Record<string, string> = { PLAYTEST_NOT_ACCESSIBLE: 'Der Playtest ist beendet oder abgelaufen.', PLAYTEST_ANSWER_CLOSED: 'Die Antwortzeit ist beendet.', REVISION_CONFLICT: 'Der Test oder Inhalt wurde inzwischen geändert. Bitte neu laden.', SUBMISSION_CONFLICT: 'Die Testantwort wurde bereits abgegeben.', PLAYTEST_FEEDBACK_LIMIT: 'Für diesen Test wurden bereits genügend Hinweise und Antworten gesammelt.', PLAYTEST_LIMIT: 'Bitte zuerst einen laufenden Playtest beenden.', MEDIA_NOT_ACCESSIBLE: 'Dieses Medium ist nicht verfügbar oder für dich nicht freigegeben.', MEDIA_NOT_READY: 'Das Medium ist noch nicht spielbereit. Bitte Datei und Verarbeitung prüfen.', MEDIA_RIGHTS_REQUIRED: 'Bitte Medienquelle, Nutzungsrechte und gegebenenfalls Einwilligung ergänzen.' }; res.status(error.status).json({ success: false, error: { code: error.code, message: messages[error.code] ?? error.code, details: error.details } }); return; }
       // ORM exception messages may contain complete payloads/answers.
       logger.error('Content request failed', { method: req.method, errorType: error instanceof Error ? error.name : 'Unknown' });
       res.status(500).json({ success: false, error: { code: 'INTERNAL_ERROR', message: 'Inhalte konnten nicht verarbeitet werden.' } });
@@ -168,9 +170,7 @@ contentRouter.get('/items/:id/preview', endpoint(async (req, res) => {
   const actor = await contentActor(prisma, session(req)); const { item } = await itemAccess(prisma, actor, String(req.params.id));
   const role = z.enum(['HOST', 'PLAYER', 'VIEWER', 'TEAM']).parse(req.query.role ?? 'PLAYER');
   const reveal = req.query.reveal === 'true'; const payload = JSON.parse(item.payloadJson);
-  const visible = item.gameSlug === 'wissensduell' ? { prompt: payload.prompt, category: payload.category, options: payload.options,
-    ...((reveal || role === 'HOST') ? { correctOptionId: payload.correctOptionId, explanation: payload.explanation } : {}) }
-    : { question: payload.question, category: payload.category, value: payload.value, ...((reveal || role === 'HOST') ? { answer: payload.answer } : {}) };
+  const visible = previewContentPayload(item.gameSlug, payload, reveal || role === 'HOST');
   if (typeof payload.mediaAssetId === 'string') await validateContentMedia(prisma, actor, payload);
   const media = typeof payload.mediaAssetId === 'string' ? { mediaType: payload.mediaType,
     mediaUrl: contentMediaUrl(payload.mediaAssetId, { kind: 'EDITOR', itemId: item.id, revision: item.revision }) } : {};
@@ -413,4 +413,23 @@ contentRouter.post('/assignments/:id/status', endpoint(async (req, res) => {
   const data = await mutateContent(session(req), input.commandId, { action: 'REVIEW_ASSIGNMENT_STATUS', id: req.params.id, input },
     (db, actor) => advanceAssignment(db, actor, String(req.params.id), input.revision, input.status));
   res.json({ success: true, data });
+}));
+
+contentRouter.post('/playtests', endpoint(async (req, res) => {
+  const input = CreatePlaytestSchema.parse(req.body);
+  const data = await mutateContent(session(req), input.commandId, { action: 'PLAYTEST_CREATE', input }, (db, actor) => createContentPlaytest(db, actor, input));
+  res.status(201).json({ success: true, data });
+}));
+contentRouter.get('/playtests/:code', endpoint(async (req, res) => {
+  const code = z.string().min(20).max(64).parse(req.params.code), input = PlaytestReadSchema.parse(req.query);
+  res.json({ success: true, data: await readContentPlaytest(prisma, code, session(req), input) });
+}));
+contentRouter.post('/playtests/:code/control', endpoint(async (req, res) => {
+  const code = z.string().min(20).max(64).parse(req.params.code), input = command.extend({ version: z.number().int().positive(), action: z.enum(['REVEAL', 'NEXT', 'CLOSE']) }).strict().parse(req.body);
+  const data = await mutateContent(session(req), input.commandId, { action: 'PLAYTEST_CONTROL', code, input }, (db, actor) => controlContentPlaytest(db, actor, code, input.version, input.action));
+  res.json({ success: true, data });
+}));
+contentRouter.post('/playtests/:code/feedback', endpoint(async (req, res) => {
+  const code = z.string().min(20).max(64).parse(req.params.code), input = PlaytestFeedbackSchema.parse(req.body);
+  res.json({ success: true, data: await submitPlaytestFeedback(code, session(req), input) });
 }));

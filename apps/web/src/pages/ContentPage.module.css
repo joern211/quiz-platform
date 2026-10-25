@@ -20,6 +20,8 @@
 .meta { color: var(--muted); font-size: .9rem; margin-block: .4rem; }
 @media (max-width: 760px) { .layout, .options { grid-template-columns: 1fr; } .page { padding-top: 1rem; } }
 
-.panel .check { display: flex; align-items: center; gap: .75rem; }
+.panel .check { min-height: 44px; display: flex; align-items: center; gap: .75rem; }
 .panel .check input { width: 24px; min-height: 24px; flex: 0 0 24px; }
 .panel input[type="checkbox"] { width: 24px; min-height: 24px; }
+
+.playtestLinks a { display: inline-flex; align-items: center; min-height: 44px; }
