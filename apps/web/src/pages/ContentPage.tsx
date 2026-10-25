@@ -154,14 +154,14 @@ export function ContentPage() {
     {error && <p className={styles.error} role="alert">{error} {!userId && <Link to="/moderator/anmelden?returnTo=%2Finhalte">Als Host anmelden</Link>}</p>}
     {loading ? <p role="status">Pools werden geladen …</p> : <div className={styles.layout}>
       <aside className={styles.panel}><h2>Deine Pools</h2><ul className={styles.list}>{pools.map(p => <li key={p.id}><button className={pool?.id === p.id ? styles.selected : ''} onClick={() => load(p.id)}>{p.name}<br /><small>{p.gameSlug} · {p.scope}</small></button></li>)}</ul>
-        <form onSubmit={async e => { e.preventDefault(); try { const p = await contentApi.createPool(slug, name); setPools(rows => [p, ...rows]); setName(''); await load(p.id); } catch (err) { setError(errorMessage(err)); } }}>
+        <form onSubmit={async e => { e.preventDefault(); try { const p = await contentApi.createPool(slug, name); setPools(rows => [p, ...rows.filter(row => row.id !== p.id)]); setName(''); await load(p.id); } catch (err) { setError(errorMessage(err)); } }}>
           <h3>Neuer privater Pool</h3><label>Spiel<select aria-label="Spiel" value={slug} onChange={e => setSlug(e.target.value)}><option value="wissensduell">Wissensduell</option><option value="jeopardy">Jeopardy</option></select></label>
           <label>Poolname<input required maxLength={150} value={name} onChange={e => setName(e.target.value)} /></label><button disabled={!userId}>Pool erstellen</button>
         </form>
       </aside>
       <div>{pool ? <>
         <section className={styles.panel}><h2>{pool.name}</h2><p className={styles.meta}>{pool.gameSlug} · {pool.scope} · Version {pool.revision}</p>
-          <div className={styles.actions}>{pool.canEdit && <button onClick={() => open(null)}>Neue Frage</button>}<button onClick={async () => { try { const p = await contentApi.fork(pool.id); setPools(rows => [p, ...rows]); await load(p.id); } catch (e) { setError(errorMessage(e)); } }}>Private Kopie erstellen</button></div>
+          <div className={styles.actions}>{pool.canEdit && <button onClick={() => open(null)}>Neue Frage</button>}<button onClick={async () => { try { const p = await contentApi.fork(pool.id); setPools(rows => [p, ...rows.filter(row => row.id !== p.id)]); await load(p.id); } catch (e) { setError(errorMessage(e)); } }}>Private Kopie erstellen</button></div>
           <label>Fragen durchsuchen<input type="search" value={query} onChange={e => setQuery(e.target.value)} /></label>
           <ul className={styles.list}>{items.filter(q => `${q.title} ${JSON.stringify(q.payload)}`.toLocaleLowerCase().includes(query.toLocaleLowerCase())).map(q => <li key={q.id}><button onClick={() => open(q)}>{q.title || String(q.payload.prompt ?? q.payload.question ?? 'Unbenannter Entwurf')} · {q.status} · V{q.revision}</button></li>)}</ul>
           {!items.length && <p>Noch keine Fragen. Starte mit einer neuen Frage.</p>}

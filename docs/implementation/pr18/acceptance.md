@@ -1,0 +1,40 @@
+# Content / Editor — Abnahme und Grenzen
+
+Master-Regelwerk 28.09.2026, §6. Dieses Dokument ist eine aktuelle
+Implementierungsabgrenzung, keine pauschale Erfüllungserklärung für §6.
+Punkt4 des autorisierten Fünf-Schritte-Plans bleibt in Arbeit.
+
+| Bereich | Reales Verhalten | Nachweis / Grenze |
+|---|---|---|
+| Pools / Ownership | PRIVATE, ausdrücklich ausgewählte SHARED-Editoren, PUBLIC nach ADMIN-Freigabe; SYSTEM nur Admin-editierbar; Fork nach PRIVATE | content.integration.test.ts: fremde Ressourcen/Revisionen verborgen, deaktivierte Accounts, Access-Revoke, private DRAFT-Kopie |
+| Gemeinsamer Editor | Wissensduell + Jeopardy, Quick/Advanced, explizites READY, Autosave, Quellen/Lizenz/Sprache/Difficulty/Tags | ContentEditor.test.tsx: Autosave, Save-in-flight, kein Auto-READY, Read-only, Spiel-spezifische Felder |
+| Revision / Konflikt | CAS, immutable Revisionen, Vergleich; fremde Fassung übernehmen oder eigenen Entwurf ausdrücklich auf geprüfter aktueller Revision speichern | echte HTTP/DB-Tests für Stale/Restore/DB-Trigger; UI prüft neue Basisrevision |
+| Snapshots / Consumer | serverseitige berechtigte Auswahl und ContentUse in derselben Raum-Transaktion; konkrete Payloads + Item-/Poolrevision; Änderungen beeinflussen Partie nicht | echte game:start-, Buzz-/Judge-/Reveal-Commands beider Engines; unveränderliche Uses |
+| Auswahl / Repeat | Multi-Pool, feste Counts je Pool, Sprache, Difficulty, Tags, Kategorie; NO_REPEAT_IN_ROOM, PREFER_UNSEEN, ALLOW_REPEATS | HTTP/DB-Fälle für Count/Filter/Version; echter Rematch mit Erschöpfung/Rollback; Event-Regel erst mit Event-Core |
+| Import / Export | JSON1, CSV, XLSX; persistierte Preview; New/Exact/Similar/Conflict/Invalid; Entscheidungen pro Zeile/Tag; DRAFT-only, Stale-Fence, Receipts | Roundtrip in beiden Schemas; Formel-/Format-Ablehnung; keine Writes vor Commit; keine stillen Updates |
+| Public Review | Quellen-/Lizenz-/READY-Gate, Pool-Sperre, nur ADMIN final; Gameplay-Vorschlag lässt publiziertes Original bis Entscheidung unverändert | echte HTTP-/DB-Reapproval-Fälle, C2-Browser von Dateiimport bis ADMIN-Freigabe |
+| Spieler-Korrekturen | stabile Teilnehmer-ID + Rejoin-Token; nur gespeicherte Auflösungs-Evidenz; Vorschlag/Inbox, Owner-/Admin-Entscheid | zwei echte Engine-Consumer; vor Reveal leer, künftige Fragen verborgen, falsche Tokens/Expired verweigert; alte Snapshots bleiben erhalten |
+| Qualität / Kommentare / Locks | konkrete Status-Counts/Gründe, Inbox, interne Kommentar-Endpunkte, manuelle und Review-Sperren | HTTP/DB-Nachweis; weitere UI für Kommentar-/Lock-/Usage-Arbeit offen |
+| Browser / Regression | Alle bestehenden 20 Browserfälle bleiben aktiv; C1 ergänzt beide Editoren/Setups; C2 ergänzt Import/Public Review | Aktueller CI/E2E-Head ist verbindlich; Ergebnisse älterer Heads gelten nicht automatisch für neue Commits |
+
+## Noch nicht DONE
+
+- BLIND_HOST: bisher ausdrücklich nicht auswählbar. Erfordert vollständige
+  Informationsgrenzen über Pool-Lesewege, Start, Projektion, Host-Mitspiel,
+  Judge/Co-Host und Recovery; keine Freigabe nur wegen UI-Schalter.
+- Vollständige Difficulty-Progression, Host-Templates/Presets, Room-Templates,
+  definierter Quick-Setup-Ablauf und optionale erweiterte Feldmodelle.
+- Concurrent-Editor-Anzeige, Bulk-Workflows, Playtest, Review-Assignments,
+  Keyboard-/Batch-Review und alle übrigen verbindlichen §6-Abnahmen.
+- Vollständige Übersetzungsentitäten und Content-Statistik-Regeln mit ihren
+  späteren Cores; die jetzige Sprachwahl ist kein vollständiges i18n-System.
+- Medienreferenzen im neuen Modell/Editor/Import und Delivery/READY-Prüfung
+  vervollständigen. Legacy-Daten sind unverändert vorhanden; neue Kopien
+  werden hier noch nicht als verlustfrei/fertig erklärt.
+- Retention/Quotas/Cleanup mit dem Betriebs-Paket; keine automatische Löschung
+  historischer Daten oder unfreigegebener Drafts eingeführt.
+
+## Wiederaufnahme
+
+Siehe handoff.md und ../roadmap-execution/handoff.md. Alle Arbeit liegt auf
+feature/pr18-content-editor, gestapelt auf PR17. Push autorisiert; kein Merge.

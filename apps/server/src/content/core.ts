@@ -39,8 +39,11 @@ export function poolView(pool: ContentPool, actor: ContentActor): ContentPoolVie
 }
 export function itemView(item: ContentItem, pool: ContentPool): ContentItemView {
   const defaults = ContentDefaultsSchema.parse(JSON.parse(pool.defaultsJson));
-  const payload: Record<string, unknown> = JSON.parse(item.payloadJson);
-  const validation = validateContentPayload(item.gameSlug, payload);
+  const rawPayload: Record<string, unknown> = JSON.parse(item.payloadJson);
+  const validation = validateContentPayload(item.gameSlug, rawPayload);
+  // Display the same effective game defaults that selection/engines use.
+  // Invalid drafts preserve their original input for correction.
+  const payload: Record<string, unknown> = validation.success ? validation.data : rawPayload;
   const tagIds: string[] | null = item.tagIdsJson === null ? null : JSON.parse(item.tagIdsJson);
   return { id: item.id, poolId: item.poolId, gameSlug: item.gameSlug, revision: item.revision, status: item.status, title: item.title,
     payload, language: item.language, difficulty: item.difficulty, tagIds, source: item.source, sourceUrl: item.sourceUrl, license: item.license,

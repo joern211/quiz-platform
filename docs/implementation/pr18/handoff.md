@@ -176,3 +176,23 @@ Content-Reader und Delivery-/READY-Prüfung; die Legacy-Tabellen wurden nie
 verändert, aber das neue Modell ist hier noch nicht vollständig. Punkt5
 (Audio/Voice/Kamera/Display) bleibt unbegonnen. Weiter regelmäßig sichern;
 kein Merge. Keine Push-Rückfrage erforderlich.
+
+## Wiederaufnahme nach Chatabbruch — fünfter Teil
+
+f3f14e3 ist auf GitHub vollständig CI/E2E-grün (Run 40202295665).
+Die lokalen Folgeänderungen sind erhalten und jetzt geprüft:
+- Raum-Subscriptions teilen die bestehende Admission-Queue. Verschachtelte
+  Viewer-Aufnahme bleibt möglich; abgelaufene Async-Kontexte dürfen keine
+  spätere Queue umgehen. Disconnect-CAS bleibt gegenüber Geräteersatz
+  unabhängig, danach Feed/Projektion serialisiert; Identität immer bereinigt.
+- Der Editor liest effektive Spiel-Defaults. Public-Metadatenänderungen
+  werden dadurch nicht fälschlich zu Gameplayänderungen. Lokale Poollisten
+  bleiben auch bei wiederholten Antworten frei von doppelten IDs.
+- Korrekturtest bindet Snapshot-Nachweis an die tatsächliche Content-ID.
+- Abnahme: 453/453 Server (53 Dateien), 106/106 Web (18 Dateien), beide Builds,
+  Typecheck und Lint 0 Fehler/113 bestehende Warnungen. Neue Queue-Fälle
+  prüfen Reentranz, unabhängige Räume, Fehlerfreigabe und detached-Kontexte;
+  bestehende echte Socket-/DB-/Rejoin-/Rematch-Gegenproben bleiben aktiv.
+
+Nächster Teil: Sammelbearbeitung, Zusammenarbeit/Prüfwerkzeuge und danach
+vollständige Medienreferenzen. Punkt4 bleibt offen; Punkt5 unbegonnen.

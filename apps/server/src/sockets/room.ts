@@ -3,6 +3,7 @@
 // ============================================================
 
 import { assertRoomLive, RoomError, joinViewer } from '../rooms/core.js';
+import { serializeRoom } from '../rooms/queue.js';
 import { changed } from '../rooms/socket.js';
 import { Server, Socket } from 'socket.io';
 import { prisma } from '../persistence/prisma.js';
@@ -49,6 +50,17 @@ export async function handleRoomSubscription(
   socket: Socket,
   data: { roomCode: string; rejoinToken?: string; pin?: string; moderatorToken?: string; inviteToken?: string },
   callback?: RoomAcknowledgement
+) {
+  const room = await prisma.room.findUnique({ where: { code: data.roomCode }, select: { id: true } });
+  if (!room) { callback?.({ success: false, error: 'ROOM_NOT_FOUND' }); return; }
+  return serializeRoom(room.id, () => subscribeInRoom(io, socket, data, callback));
+}
+
+async function subscribeInRoom(
+  io: Server,
+  socket: Socket,
+  data: { roomCode: string; rejoinToken?: string; pin?: string; moderatorToken?: string; inviteToken?: string },
+  callback?: RoomAcknowledgement,
 ) {
   const { roomCode, rejoinToken, pin, moderatorToken } = data;
 

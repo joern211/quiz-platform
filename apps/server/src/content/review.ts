@@ -32,8 +32,9 @@ export async function proposeItemChange(db: ContentDb, actor: ContentActor, item
   if (!validation.success) throw new ContentError('CONTENT_NOT_READY', 400, validation.error.issues);
   const data = contentInputData(input), publicContent = ['PUBLIC', 'SYSTEM'].includes(pool.scope);
   if (publicContent && (!input.source || !input.license)) throw new ContentError('PUBLIC_REQUIREMENTS_MISSING');
-  const current = JSON.parse(item.payloadJson);
-  const gameplayChanged = canonicalContent(current) !== canonicalContent(input.payload) || input.language !== item.language || input.difficulty !== item.difficulty;
+  const currentRaw: unknown = JSON.parse(item.payloadJson), currentParsed = validateContentPayload(item.gameSlug, currentRaw);
+  const current = currentParsed.success ? currentParsed.data : currentRaw;
+  const gameplayChanged = canonicalContent(current) !== canonicalContent(validation.data) || input.language !== item.language || input.difficulty !== item.difficulty;
   if (publicContent && !gameplayChanged) {
     // Only non-gameplay metadata can bypass reapproval; payload differences
     // (including text changes) are conservatively reviewed.

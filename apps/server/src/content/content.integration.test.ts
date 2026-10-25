@@ -30,7 +30,7 @@ async function pool(gameSlug = 'wissensduell', scope = 'PRIVATE', editorIds: str
   const response = await api(owner).post('/pools', { commandId: commandId(), name: 'Pool', gameSlug, scope, editorIds });
   expect(response.status).toBe(201); return response.body.data;
 }
-async function item(poolId: string, value = quiz) {
+async function item(poolId: string, value: object = quiz) {
   const response = await api(owner).post(`/pools/${poolId}/items`, { commandId: commandId(), item: value });
   expect(response.status).toBe(201); return response.body.data;
 }
@@ -77,12 +77,25 @@ describe('content HTTP/DB contracts', () => {
     expect((await api(owner).post('/pools', { ...input, name: 'Different' })).status).toBe(409);
   });
   it('keeps incomplete drafts, gates READY, validates refs and never auto-publishes', async () => {
-    const p = await pool(); const q = await item(p.id, { title: 'Bad', payload: {} } as typeof quiz);
+    const p = await pool(); const q = await item(p.id, { title: 'Bad', payload: {} });
     expect(q.status).toBe('DRAFT'); expect(q.validation.length).toBeGreaterThan(0);
     expect((await api(owner).post(`/items/${q.id}/status`, { commandId: commandId(), revision: 1, status: 'READY' })).status).toBe(400);
     expect((await api(owner).put(`/items/${q.id}`, { commandId: commandId(), revision: 1, item: { ...quiz, tagIds: [randomUUID()] } })).status).toBe(400);
     const response = await api(owner).put(`/items/${q.id}`, { commandId: commandId(), revision: 1, item: quiz });
     expect(response.body.data.status).toBe('DRAFT'); await ready(q.id, 2);
+  });
+  it('shows the same effective game defaults in the editor and does not mistake them for a public gameplay edit', async () => {
+    const p = await pool(); const minimal = { title: 'Minimal', payload: { prompt: 'Frage?', category: 'Test',
+      options: [{ id: 'a', text: 'A' }, { id: 'b', text: 'B' }], correctOptionId: 'a' }, source: 'Eigene Frage', license: 'Eigene Rechte' };
+    const q = await item(p.id, minimal);
+    expect(q.payload).toMatchObject({ durationMs: 20000, points: 100, wrongPoints: 0, explanation: '' });
+    await ready(q.id);
+    await db.contentPool.update({ where: { id: p.id }, data: { scope: 'PUBLIC' } });
+    await db.contentItem.update({ where: { id: q.id }, data: { reviewState: 'APPROVED' } });
+    const patched = await api(owner).post(`/items/${q.id}/propose`, { commandId: commandId(), revision: 2,
+      item: { ...minimal, title: 'Metadaten', payload: q.payload } });
+    expect(patched.body.data.kind).toBe('PATCH');
+    expect(patched.body.data.item.status).toBe('READY');
   });
   it('rejects stale edits and restores as a new revision, keeping immutable originals', async () => {
     const p = await pool(), q = await item(p.id);
@@ -105,14 +118,14 @@ describe('content HTTP/DB contracts', () => {
   });
   it('previews omit answer secrets from PLAYER/VIEWER/TEAM before reveal', async () => {
     for (const [slug, value, secret] of [['wissensduell', quiz, 'SECRET_EXPLANATION'], ['jeopardy', clue, 'SECRET_CLUE_ANSWER']] as const) {
-      const p = await pool(slug), q = await item(p.id, value as typeof quiz);
+      const p = await pool(slug), q = await item(p.id, value);
       for (const role of ['PLAYER', 'VIEWER', 'TEAM']) expect(JSON.stringify((await api(owner).get(`/items/${q.id}/preview?role=${role}`)).body)).not.toContain(secret);
       expect(JSON.stringify((await api(owner).get(`/items/${q.id}/preview?role=HOST`)).body)).toContain(secret);
     }
   });
   it('pins authorized READY selection for both real engines; edits/archive cannot change a room', async () => {
     for (const [gameSlug, value] of [['wissensduell', quiz], ['jeopardy', clue]] as const) {
-      const p = await pool(gameSlug), q = await item(p.id, value as typeof quiz); await ready(q.id);
+      const p = await pool(gameSlug), q = await item(p.id, value); await ready(q.id);
       const intent = { gameSlug, roomName: 'Pinned', idempotencyKey: randomUUID(), setupSnapshotJson: { contentSelection: { poolIds: [p.id], count: 1 } } };
       expect((await supertest(app.app).post('/api/v1/rooms').set('Cookie', other).send(intent)).status).toBe(404);
       const response = await supertest(app.app).post('/api/v1/rooms').set('Cookie', owner).send(intent);
@@ -156,7 +169,7 @@ describe('content HTTP/DB contracts', () => {
   });
   it('round-trips game payloads through JSON, CSV and real XLSX; refuses formulas', async () => {
     for (const [slug, value] of [['wissensduell', quiz], ['jeopardy', clue]] as const) {
-      const p = await pool(slug); await item(p.id, value as typeof quiz);
+      const p = await pool(slug); await item(p.id, value);
       const sessionId = owner.split('=')[1].split('.')[0]; const actor = await contentActor(db, sessionId);
       for (const format of ['JSON', 'CSV', 'XLSX'] as const) {
         const bytes = await exportContent(db, actor, p.id, format);
@@ -326,7 +339,7 @@ describe('content HTTP/DB contracts', () => {
       const accepted = await api(owner).post(`/reviews/${submitted.body.data.reviewId}/decide`, { commandId: commandId(), approve: true, reason: 'Geprüft' });
       expect(accepted.status, JSON.stringify(accepted.body)).toBe(200);
       expect((await db.contentItem.findUniqueOrThrow({ where: { id: q.id } })).payloadJson).toContain('Korrigierte Frage');
-      expect((await db.contentUse.findFirstOrThrow({ where: { roomId: room.id } })).snapshotJson).toContain('PRIVATE_CONTENT_PROMPT');
+      expect((await db.contentUse.findFirstOrThrow({ where: { roomId: room.id, itemId: q.id } })).snapshotJson).toContain('PRIVATE_CONTENT_PROMPT');
       const staleProposal = await request('/corrections', { ...proposal, commandId: randomUUID() });
       expect((await api(owner).post(`/reviews/${staleProposal.body.data.reviewId}/decide`, { commandId: commandId(), approve: false, reason: 'Bereits korrigiert' })).status).toBe(200);
       await db.room.update({ where: { id: room.id }, data: { expiresAt: new Date(Date.now() - 1000) } });
