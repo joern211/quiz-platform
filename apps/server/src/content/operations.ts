@@ -2,13 +2,12 @@ import type { ContentPool } from '@prisma/client';
 import { z } from 'zod';
 import { ContentBatchSchema, ContentItemInputSchema, type ContentStatus, validateContentPayload } from '@quiz/shared';
 import { validateContentMedia } from './media.js';
-import { ContentError, requirePool, itemView, validateTagIds, saveRevision, changeItem, contentInputData,
+import { ContentError, canContributePool, requirePool, itemView, validateTagIds, saveRevision, changeItem, contentInputData,
   type ContentDb, type ContentActor } from './core.js';
 
 /** Internal editorial data is never exposed to other readers of a PUBLIC pool. */
 export function requireContributor(pool: ContentPool, actor: ContentActor) {
-  if (actor.role !== 'ADMIN' && pool.ownerId !== actor.userId && !(pool.scope === 'SHARED' &&
-    (JSON.parse(pool.editorIdsJson) as string[]).includes(actor.userId))) throw new ContentError('NOT_AUTHORIZED', 403);
+  if (!canContributePool(pool, actor)) throw new ContentError('NOT_AUTHORIZED', 403);
 }
 export async function setItemStatus(db: ContentDb, actor: ContentActor, id: string, revision: number, requested: ContentStatus, preview = false) {
   const item = await db.contentItem.findUnique({ where: { id } }); if (!item) throw new ContentError('RESOURCE_NOT_ACCESSIBLE', 404);

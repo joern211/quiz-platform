@@ -1,7 +1,7 @@
 import { Router, type Request, type Response } from 'express';
 import { z } from 'zod';
 import { ContentItemInputSchema, CreateContentPoolSchema, ContentDefaultsSchema, ContentStatusSchema, CONTENT_TEMPLATES,
-  ContentGameSchema, ContentBatchSchema } from '@quiz/shared';
+  ContentGameSchema, ContentBatchSchema, ContentTemplateInputSchema } from '@quiz/shared';
 import { prisma } from '../persistence/prisma.js';
 import { verifySession } from '../auth/session.js';
 import { config } from '../config/index.js';
@@ -12,6 +12,7 @@ import { CorrectionAccessSchema, CorrectionSubmitSchema, eligibleCorrectionConte
 import { ContentError, contentActor, canReadPool, requirePool, poolView, itemView, validateTagIds, contentInputData,
   mutateContent, saveRevision, changeItem, auditContent, type ContentActor, type ContentDb } from '../content/core.js';
 
+import { contentTemplateCatalog, instantiateContentTemplate, assignReview, advanceAssignment } from '../content/workflow.js';
 import { contentMediaUrl, validateContentMedia } from '../content/media.js';
 import { setItemStatus, previewBatch, commitBatch, requireContributor } from '../content/operations.js';
 
@@ -134,7 +135,7 @@ contentRouter.post('/items/:id/status', endpoint(async (req, res) => {
     (db, actor) => setItemStatus(db, actor, String(req.params.id), input.revision, input.status)); res.json({ success: true, data });
 }));
 contentRouter.get('/items/:id/history', endpoint(async (req, res) => {
-  const actor = await contentActor(prisma, session(req)); const { item } = await itemAccess(prisma, actor, String(req.params.id));
+  const actor = await contentActor(prisma, session(req)); const { item, pool } = await itemAccess(prisma, actor, String(req.params.id)); requireContributor(pool, actor);
   const rows = await prisma.contentRevision.findMany({ where: { itemId: item.id }, orderBy: { revision: 'desc' } });
   res.json({ success: true, data: rows.map(row => ({ revision: row.revision, kind: row.kind, actorId: row.actorId, createdAt: row.createdAt,
     changedFields: JSON.parse(row.changedFieldsJson), snapshot: contentInputDataToView(row.snapshotJson) })) });
@@ -245,8 +246,10 @@ contentRouter.get('/reviews', endpoint(async (req, res) => {
   for (const row of all) {
     const pool = await prisma.contentPool.findUnique({ where: { id: row.poolId } });
     if (!pool || !canReadPool(pool, actor)) continue;
+    try { requireContributor(pool, actor); } catch { continue; }
     const canDecide = actor.role === 'ADMIN' || (pool.ownerId === actor.userId && row.kind !== 'PUBLIC_POOL' && !['PUBLIC', 'SYSTEM'].includes(pool.scope));
-    visible.push({ ...row, proposed: JSON.parse(row.proposedJson), poolName: pool.name, canDecide });
+    const currentRows = await prisma.contentItem.findMany({ where: { poolId: pool.id, ...(row.itemId ? { id: row.itemId } : { status: { notIn: ['ARCHIVED', 'TRASHED', 'DISABLED'] } }) } });
+    visible.push({ ...row, current: currentRows.map(item => itemView(item, pool)), proposed: JSON.parse(row.proposedJson), poolName: pool.name, canDecide });
   } res.json({ success: true, data: visible });
 }));
 contentRouter.post('/reviews/:id/decide', endpoint(async (req, res) => {
@@ -357,4 +360,57 @@ contentRouter.get('/items/:id/media', endpoint(async (req, res) => {
   if (!asset || asset.processStatus !== 'READY') throw new ContentError('MEDIA_NOT_READY');
   if (['PUBLIC', 'SYSTEM'].includes(pool.scope) && actor.role !== 'ADMIN' && pool.ownerId !== actor.userId && item.reviewState !== 'APPROVED') throw new ContentError('RESOURCE_NOT_ACCESSIBLE', 404);
   res.json({ success: true, data: { url: contentMediaUrl(asset.id, { kind: 'EDITOR', itemId: item.id, revision: item.revision }), type: asset.type } });
+}));
+
+contentRouter.get('/templates/catalog', endpoint(async (req, res) => {
+  const actor = await contentActor(prisma, session(req)), slug = ContentGameSchema.parse(req.query.gameSlug);
+  res.json({ success: true, data: await contentTemplateCatalog(prisma, actor, slug) });
+}));
+contentRouter.post('/templates', endpoint(async (req, res) => {
+  const input = command.merge(ContentTemplateInputSchema).strict().parse(req.body);
+  const data = await mutateContent(session(req), input.commandId, { action: 'TEMPLATE_SAVE', input }, async (db, actor) => {
+    await validateTagIds(db, input.item.tagIds ?? []);
+    const row = await db.contentTemplate.create({ data: { ownerId: actor.userId, gameSlug: input.gameSlug, name: input.name, itemJson: JSON.stringify(input.item) } });
+    await auditContent(db, actor, 'CONTENT_TEMPLATE_CREATE', row.id, { gameSlug: row.gameSlug, revision: row.revision });
+    return { id: row.id, name: row.name, revision: row.revision };
+  }); res.status(201).json({ success: true, data });
+}));
+contentRouter.post('/templates/:id/use', endpoint(async (req, res) => {
+  const input = revisionCommand.extend({ poolId: z.string().min(1).max(128), poolRevision: z.number().int().positive() }).strict().parse(req.body);
+  const data = await mutateContent(session(req), input.commandId, { action: 'TEMPLATE_USE', id: req.params.id, input },
+    (db, actor) => instantiateContentTemplate(db, actor, String(req.params.id), input.revision, input.poolId, input.poolRevision));
+  res.status(201).json({ success: true, data });
+}));
+contentRouter.post('/templates/:id/archive', endpoint(async (req, res) => {
+  const input = revisionCommand.strict().parse(req.body);
+  const data = await mutateContent(session(req), input.commandId, { action: 'TEMPLATE_ARCHIVE', id: req.params.id, input }, async (db, actor) => {
+    const row = await db.contentTemplate.findFirst({ where: { id: String(req.params.id), ownerId: actor.userId, status: 'ACTIVE' } });
+    if (!row) throw new ContentError('RESOURCE_NOT_ACCESSIBLE', 404);
+    if (row.revision !== input.revision) throw new ContentError('REVISION_CONFLICT', 409);
+    await db.contentTemplate.update({ where: { id: row.id, revision: input.revision }, data: { status: 'ARCHIVED', revision: { increment: 1 } } });
+    await auditContent(db, actor, 'CONTENT_TEMPLATE_ARCHIVE', row.id, { revision: row.revision + 1 }); return { archived: true };
+  }); res.json({ success: true, data });
+}));
+contentRouter.post('/assignments', endpoint(async (req, res) => {
+  const input = command.extend({ itemId: z.string().min(1).max(128), itemRevision: z.number().int().positive(), assigneeId: z.string().min(1).max(128), note: z.string().trim().max(2000).default(''), assignmentRevision: z.number().int().positive().nullable() }).strict().parse(req.body);
+  const data = await mutateContent(session(req), input.commandId, { action: 'REVIEW_ASSIGNMENT', input }, (db, actor) => assignReview(db, actor, input));
+  res.status(201).json({ success: true, data });
+}));
+contentRouter.get('/assignments', endpoint(async (req, res) => {
+  const actor = await contentActor(prisma, session(req));
+  const ownPools = await prisma.contentPool.findMany({ where: { ownerId: actor.userId }, select: { id: true } });
+  const rows = await prisma.contentReviewAssignment.findMany({ where: { ...(req.query.itemId ? { itemId: z.string().min(1).max(128).parse(req.query.itemId) } : {}), ...(actor.role === 'ADMIN' ? {} : { OR: [{ assigneeId: actor.userId }, { assignedBy: actor.userId }, { poolId: { in: ownPools.map(p => p.id) } }] }) }, orderBy: { updatedAt: 'desc' }, take: 100 });
+  const visible = [];
+  for (const row of rows) {
+    const item = await prisma.contentItem.findUnique({ where: { id: row.itemId }, include: { pool: true } }); if (!item || !canReadPool(item.pool, actor)) continue;
+    try { requireContributor(item.pool, actor); } catch { continue; }
+    visible.push({ ...row, itemTitle: item.title, poolName: item.pool.name, currentRevision: item.revision, stale: item.revision !== row.itemRevision || item.poolId !== row.poolId,
+      canAdvance: actor.role === 'ADMIN' || row.assigneeId === actor.userId });
+  } res.json({ success: true, data: visible });
+}));
+contentRouter.post('/assignments/:id/status', endpoint(async (req, res) => {
+  const input = revisionCommand.extend({ status: z.enum(['IN_REVIEW', 'DONE']) }).strict().parse(req.body);
+  const data = await mutateContent(session(req), input.commandId, { action: 'REVIEW_ASSIGNMENT_STATUS', id: req.params.id, input },
+    (db, actor) => advanceAssignment(db, actor, String(req.params.id), input.revision, input.status));
+  res.json({ success: true, data });
 }));

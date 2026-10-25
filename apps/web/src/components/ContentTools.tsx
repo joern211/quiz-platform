@@ -1,5 +1,6 @@
 import { useRef, useState } from 'react';
 import type { ContentPoolView } from '@quiz/shared';
+import { ContentReviewQueue } from './ContentReviewQueue';
 import { contentApi, type ImportPreviewRow, type ReviewView } from '../lib/contentApi';
 import styles from '../pages/ContentPage.module.css';
 
@@ -57,14 +58,18 @@ export function ContentImportTools({ pool, onChanged }: { pool: ContentPoolView;
   </details>;
 }
 
-export function ContentReviewInbox({ onChanged }: { onChanged: () => void }) {
+export function ContentReviewInbox({ onChanged, actorId }: { onChanged: () => void; actorId?: string }) {
+  const [sequential, setSequential] = useState(false);
   const [open, setOpen] = useState(false), [reviews, setReviews] = useState<ReviewView[]>([]), [inbox, setInbox] = useState<Awaited<ReturnType<typeof contentApi.inbox>>>([]);
   const [error, setError] = useState(''), [reason, setReason] = useState<Record<string, string>>({}), [busy, setBusy] = useState(false);
   const load = async () => { const [r, i] = await Promise.all([contentApi.reviews(), contentApi.inbox()]); setReviews(r); setInbox(i); };
   return <section className={styles.panel}><button disabled={busy} onClick={async () => { setError(''); setBusy(true); try { await load(); setOpen(v => !v); } catch (e) { setError(message(e)); } finally { setBusy(false); } }}>Prüfungen & Inbox</button>
     {error && <p role="alert">{error}</p>}
-    {open && <><h2>Offene Prüfungen ({reviews.length})</h2>{reviews.map(review => <article key={review.id} className={styles.panel}>
+    {open && <><h2>Offene Prüfungen ({reviews.length})</h2><button disabled={busy} onClick={() => setSequential(v => !v)}>{sequential ? 'Alle Prüfungen anzeigen' : 'Einzeln prüfen'}</button>
+      {sequential && <ContentReviewQueue reviews={reviews} actorId={actorId ?? 'session'} onChanged={async () => { await load(); onChanged(); }} />}
+      {(sequential ? [] : reviews).map(review => <article key={review.id} className={styles.panel}>
       <h3>{review.poolName}</h3><p>{{ PUBLIC_POOL: 'Öffentliche Freigabe', CONTENT_CHANGE: 'Änderung an veröffentlichtem Inhalt', ITEM_REVIEW: 'Fragenprüfung', CORRECTION: 'Korrekturvorschlag' }[review.kind] ?? 'Prüfung'} · {new Date(review.createdAt).toLocaleString()}</p>
+      <details><summary>Gespeicherte Fassung vergleichen</summary><pre className={styles.preview}>{JSON.stringify(review.current ?? [], null, 2)}</pre></details>
       <details><summary>Vorschlag ansehen</summary><pre className={styles.preview}>{JSON.stringify(review.proposed, null, 2)}</pre></details>
       {review.canDecide && <><label>Prüfanmerkung / Ablehnungsgrund<input value={reason[review.id] ?? ''} onChange={e => setReason(v => ({ ...v, [review.id]: e.target.value }))} /></label><div className={styles.actions}>{[true, false].map(approve => <button key={String(approve)} disabled={busy || !approve && !reason[review.id]?.trim()} onClick={async () => {
         if (!window.confirm(approve ? 'Diesen Vorschlag verbindlich freigeben?' : 'Änderungen anfordern?')) return; setBusy(true);

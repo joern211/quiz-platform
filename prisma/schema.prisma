@@ -858,3 +858,35 @@ model ContentMediaReference {
   @@index([assetId])
   @@map("content_media_references")
 }
+
+model ContentTemplate {
+  id String @id @default(uuid())
+  ownerId String
+  gameSlug String
+  name String
+  itemJson String
+  revision Int @default(1)
+  status String @default("ACTIVE")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  @@index([ownerId, gameSlug, status])
+  @@map("content_templates")
+}
+
+model ContentReviewAssignment {
+  id String @id @default(uuid())
+  itemId String
+  poolId String
+  assigneeId String
+  assignedBy String
+  itemRevision Int
+  revision Int @default(1)
+  status String @default("OPEN")
+  note String @default("")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  completedAt DateTime?
+  @@unique([itemId, assigneeId])
+  @@index([assigneeId, status])
+  @@map("content_review_assignments")
+}

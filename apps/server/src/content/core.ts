@@ -22,6 +22,9 @@ export function canReadPool(pool: ContentPool, actor: ContentActor): boolean {
   return actor.role === 'ADMIN' || pool.ownerId === actor.userId || ['PUBLIC', 'SYSTEM'].includes(pool.scope)
     || (pool.scope === 'SHARED' && editors(pool).includes(actor.userId));
 }
+export function canContributePool(pool: ContentPool, actor: ContentActor): boolean {
+  return actor.role === 'ADMIN' || pool.ownerId === actor.userId || (pool.scope === 'SHARED' && editors(pool).includes(actor.userId));
+}
 export function canEditPool(pool: ContentPool, actor: ContentActor): boolean {
   return actor.role === 'ADMIN' || (!['PUBLIC', 'SYSTEM'].includes(pool.scope)
     && (pool.ownerId === actor.userId || (pool.scope === 'SHARED' && editors(pool).includes(actor.userId))));
@@ -35,6 +38,7 @@ export async function requirePool(db: ContentDb, id: string, actor: ContentActor
 export function poolView(pool: ContentPool, actor: ContentActor): ContentPoolView {
   return { id: pool.id, name: pool.name, description: pool.description, gameSlug: pool.gameSlug, ownerId: pool.ownerId,
     scope: pool.scope, revision: pool.revision, defaults: ContentDefaultsSchema.parse(JSON.parse(pool.defaultsJson)), canEdit: canEditPool(pool, actor) && pool.status === 'ACTIVE',
+    canReadInternal: canContributePool(pool, actor), canAssignReview: actor.role === 'ADMIN' || pool.ownerId === actor.userId,
     canPropose: pool.status === 'ACTIVE' && (pool.ownerId === actor.userId || actor.role === 'ADMIN'),
     canManage: pool.status === 'ACTIVE' && canEditPool(pool, actor) && (pool.ownerId === actor.userId || actor.role === 'ADMIN'), editorIds: editors(pool) };
 }
@@ -90,8 +94,25 @@ export async function mutateContent<T>(sessionId: string | null, commandId: stri
       else if (result?.gameSlug && result?.id) await requirePool(tx, String(result.id), actor);
       // Compound results (review/batch) may contain items from other pools.
       // Re-check those grants as well before replaying a stored response.
-      for (const item of [result?.item, ...(Array.isArray(result?.results) ? result.results.map((r: { item?: { poolId?: string } }) => r.item) : [])]) {
-        if (item?.poolId) await requirePool(tx, String(item.poolId), actor);
+      for (const item of [result?.payload ? result : null, result?.item, ...(Array.isArray(result?.results) ? result.results.map((r: { item?: { poolId?: string } }) => r.item) : [])]) {
+        if (item?.poolId) {
+          const pool = await requirePool(tx, String(item.poolId), actor);
+          if (['PUBLIC', 'SYSTEM'].includes(pool.scope) && !canContributePool(pool, actor)) {
+            const current = await tx.contentItem.findUnique({ where: { id: String(item.id) } });
+            if (!current || current.revision !== item.revision || current.status !== 'READY' || current.reviewState !== 'APPROVED') throw new ContentError('NOT_AUTHORIZED', 403);
+          }
+        }
+      }
+      if (result?.itemId) {
+        const item = await tx.contentItem.findUnique({ where: { id: String(result.itemId) } });
+        if (!item) throw new ContentError('RESOURCE_NOT_ACCESSIBLE', 404);
+        const pool = await requirePool(tx, item.poolId, actor);
+        if (!canContributePool(pool, actor)) throw new ContentError('NOT_AUTHORIZED', 403);
+        if (result.assigneeId && actor.role !== 'ADMIN' && result.assigneeId !== actor.userId && result.assignedBy !== actor.userId && pool.ownerId !== actor.userId) throw new ContentError('NOT_AUTHORIZED', 403);
+      }
+      if (result?.reviewId) {
+        const review = await tx.contentReview.findUnique({ where: { id: String(result.reviewId) } });
+        if (!review || !canContributePool(await requirePool(tx, review.poolId, actor), actor)) throw new ContentError('NOT_AUTHORIZED', 403);
       }
       return result as T;
     }

@@ -287,3 +287,46 @@ Statistik/Retention gehören weiterhin zu ihren vorgesehenen Cores.
 Offen in Punkt4: BLIND_HOST, Progression/Presets/Templates, Playtest,
 Review-Assignments/Batch-Review sowie weitere verbindliche §6-Details.
 Punkt5 (Voice/Kamera/Display/Audio-Systeme) bleibt unbegonnen; kein Merge.
+
+## Achter Teil — Vorlagen / Prüfaufgaben / Review-Warteschlange
+
+cdadb97: vollständige GitHub-CI und23/23 E2E grün, Run40222792665.
+
+Neu umgesetzt:
+- SYSTEM-Quickvorlagen plus persistierte private Host-Fragenvorlagen für
+  Wissensduell/Jeopardy. Jede Verwendung erzeugt eine neue DRAFT-Identität;
+  Receipts, Pool-/Vorlagenrevision und aktueller Zugriff werden geprüft.
+  Archivierung verändert erzeugte Fragen nicht. Konkrete Mediendateien
+  werden bei Vorlagen bewusst nach UI-Bestätigung ausgelassen, während
+  Medienoptionen erhalten bleiben. Server verbietet stille Asset-ID-Kopien
+  in der Vorlage. Upload setzt Rechte weiterhin ausdrücklich neu.
+- Owner/Admin weist aktuellen Editor-Prüfauftrag mit fester Itemrevision
+  zu. OPEN → IN_REVIEW → DONE, Aufgabe und Content unabhängig. Bei neuer
+  Contentrevision/Poolwechsel ist explizite Neuzuweisung erforderlich.
+  Session/Grant/Assignment-CAS, Inbox und Audit sind integriert. Abschluss
+  veröffentlicht weder privat noch öffentlich und verändert keine Frage.
+- Einzeln bedienbare Review-Warteschlange mit Original/Vorschlag, Grund,
+  Skip/Next, Fortschritt, kontogebundenem Wiederaufnahmecursor und A/R/S/N.
+  Tastaturbefehle greifen nicht beim Tippen; fehlende Entscheiderrechte
+  werden auch per Tastatur nicht übergangen. PUBLIC final weiter ADMIN.
+- Zugriffslücken geschlossen: fremde PUBLIC-Leser erhalten keine internen
+  Reviews/ungeprüften Vorschläge oder alten privaten Draftrevisionen.
+  Mutation-Receipt-Replay prüft interne Kommentare/Tasks/Reviews sowie
+  historische Itemversionen nach geändertem Scope/Grant erneut.
+- Interne Leserechte/Review-Zuweisung getrennt von Editierbarkeit: Kommentare,
+  Historie und Aufgaben bleiben für Berechtigte bei Review-Sperre verfügbar,
+  ohne dadurch die Inhaltssperre aufzuheben.
+- C4 ergänzt echte Template-Erstellung/Verwendung, getrennten Aufgabenabschluss
+  und Review-Queue-Entscheidung über Tastatur. Alle24 Browserfälle aktiv.
+
+Nachweise:467/467 Server (54 Dateien),116/116 Web (21 Dateien), beide Builds
+und Typecheck grün, Lint0 Fehler/113 bestehende Warnungen. Content32/32 mit
+beiden Template-Schemas, neuen DRAFT-IDs/Receipts, Eigentums-/Revisionsgrenzen,
+Aufgaben ohne Publishing und PUBLIC-Privacy/Replay-Gegenproben. Exakte
+GitHub-CI/E2E am folgenden Head noch offen.
+
+Punkt4 bleibt in Arbeit. Nächste Lücken: echtes Playtest, Auswahl-/Difficulty-
+Progression, Spiel-Presets/Room-Templates und BLIND_HOST über alle Lese- und
+Recovery-Pfade; außerdem weitere Master-§6-Detailabnahmen. Vorhandene Audio-
+Headerprüfung ist weiterhin kein vollständiger Decoder/Normalizer. Punkt5
+noch nicht begonnen. Kein Merge, Push weiterhin autorisiert.

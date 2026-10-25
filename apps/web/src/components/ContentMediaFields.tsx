@@ -23,7 +23,7 @@ export function ContentMediaFields({ item, payload, disabled, onChange }: { item
       } catch (e) { if (alive.current) setError(e instanceof Error ? e.message : 'Upload fehlgeschlagen.'); }
       finally { if (alive.current) setBusy(false); }
     }} /></label>
-    {Boolean(payload.mediaAssetId) && <><p>{payload.mediaType === 'audio' ? 'Audio' : 'Bild'} verknüpft. Ein Austausch verändert keine gespeicherte Partie.</p>
+    {Boolean(payload.mediaAssetId || payload.mediaType || payload.mediaRights) && <><p>{payload.mediaAssetId ? `${payload.mediaType === 'audio' ? 'Audio' : 'Bild'} verknüpft. Ein Austausch verändert keine gespeicherte Partie.` : 'Medienoptionen vorbereitet. Lade eine Datei hoch oder entferne die Medienoptionen.'}</p>
       <button disabled={disabled || busy} onClick={() => { onChange({ mediaAssetId: undefined, mediaType: undefined, mediaRights: undefined }); setPreview(null); }}>Medium aus Frage entfernen</button>
       <label>Medienquelle<input disabled={disabled} value={rights.source} onChange={e => changeRight('source', e.target.value)} /></label>
       <label>Quellen-URL des Mediums<input type="url" disabled={disabled} value={rights.sourceUrl} onChange={e => changeRight('sourceUrl', e.target.value)} /></label>
@@ -32,7 +32,7 @@ export function ContentMediaFields({ item, payload, disabled, onChange }: { item
       <label><input type="checkbox" disabled={disabled} checked={rights.ownMaterial} onChange={e => changeRight('ownMaterial', e.target.checked)} />Eigenes Material</label>
       <label><input type="checkbox" disabled={disabled} checked={rights.recognizablePerson} onChange={e => changeRight('recognizablePerson', e.target.checked)} />Erkennbare Privatperson</label>
       {rights.recognizablePerson && <label><input type="checkbox" disabled={disabled} checked={rights.consent} onChange={e => changeRight('consent', e.target.checked)} />Einwilligung zur vorgesehenen Nutzung liegt vor</label>}
-      {item && <button disabled={busy} onClick={() => void load()}>Gespeichertes Medium anzeigen</button>}
+      {item && typeof payload.mediaAssetId === 'string' && <button disabled={busy} onClick={() => void load()}>Gespeichertes Medium anzeigen</button>}
       {preview && <ContentMedia mediaUrl={preview.url} mediaType={preview.type} onRefresh={() => void load()} />}
     </>}
   </fieldset>;

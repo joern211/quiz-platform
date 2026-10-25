@@ -7,7 +7,7 @@ export function ContentCollaboration({ item, pool, actorId, dirty, onSaved }: { 
   const key = useRef(crypto.randomUUID()), [others, setOthers] = useState<Array<{ id: string; displayName: string }>>([]);
   const [presenceError, setPresenceError] = useState(''), [comments, setComments] = useState<CommentView[] | null>(null), [text, setText] = useState('');
   const [usage, setUsage] = useState<Awaited<ReturnType<typeof contentApi.usage>> | null>(null), [error, setError] = useState(''), [busy, setBusy] = useState(false);
-  const internal = pool.canEdit || pool.canPropose;
+  const internal = pool.canReadInternal ?? (pool.canEdit || pool.canPropose);
   useEffect(() => {
     if (!actorId || !internal) return;
     let current = true, pending = false;
@@ -34,7 +34,7 @@ export function ContentCollaboration({ item, pool, actorId, dirty, onSaved }: { 
       <h3>Interne Prüfkommentare</h3>
       <button disabled={busy} onClick={() => void run(async () => setComments(await contentApi.comments(item.id)))}>Kommentare laden</button>
       {comments && <><p>{comments.filter(c => c.status === 'OPEN').length} offene Kommentare</p><ul className={styles.list}>{comments.map(c => <li key={c.id}><p>{c.message}</p><small>{c.status} · {new Date(c.createdAt).toLocaleString()}</small>
-        {(pool.canManage || c.actorId === actorId) && <div className={styles.actions}>{['OPEN', 'RESOLVED', 'REJECTED'].filter(s => s !== c.status).map(status => <button key={status} disabled={busy} onClick={() => void run(async () => { await contentApi.resolveComment(c.id, status); setComments(await contentApi.comments(item.id)); })}>{{ OPEN: 'Wieder öffnen', RESOLVED: 'Erledigt', REJECTED: 'Ablehnen' }[status]}</button>)}</div>}
+        {((pool.canAssignReview ?? pool.canManage) || c.actorId === actorId) && <div className={styles.actions}>{['OPEN', 'RESOLVED', 'REJECTED'].filter(s => s !== c.status).map(status => <button key={status} disabled={busy} onClick={() => void run(async () => { await contentApi.resolveComment(c.id, status); setComments(await contentApi.comments(item.id)); })}>{{ OPEN: 'Wieder öffnen', RESOLVED: 'Erledigt', REJECTED: 'Ablehnen' }[status]}</button>)}</div>}
       </li>)}</ul></>}
       <label>Neuer interner Kommentar<textarea disabled={busy} maxLength={2000} value={text} onChange={e => setText(e.target.value)} /></label>
       <button disabled={busy || !text.trim()} onClick={() => void run(async () => { await contentApi.comment(item.id, text); setText(''); setComments(await contentApi.comments(item.id)); })}>Kommentar senden</button>

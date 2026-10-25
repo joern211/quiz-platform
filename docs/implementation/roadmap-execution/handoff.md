@@ -173,3 +173,12 @@ Lokaler Folgeteil bindet Medienrefs/Rechte an Editor/Import/READY/Preflight
 und reale Wissensduell-/Jeopardy-Delivery, mit Kontextsignaturen, geschützter
 Historie und additiver Legacy-Migration.463/463 Server,112/112 Web lokal grün.
 Details und ehrliche Restgrenzen stehen im PR18-Handoff. Punkt4 bleibt offen.
+
+## Punkt4 — Vorlagen und Review-Arbeitsschritte
+
+Medienstand cdadb97 vollständig CI/E2E-grün (Run40222792665,23/23 E2E).
+Folgeteil ergänzt private/System-Fragenvorlagen, getrennte versionsgebundene
+Prüfaufgaben, Einzelreview mit Tastatur/Wiederaufnahme und weitere Public-
+Privacy-/Receipt-Fixes. Lokal467 Server/116 Web grün, C4 zusätzlich aktiv.
+Nächste Schritte und verbleibende Grenzen in ../pr18/handoff.md.
+Punkt4 offen, Punkt5 unbegonnen, kein Merge.

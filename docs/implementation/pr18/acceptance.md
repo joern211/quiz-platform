@@ -67,3 +67,17 @@ Die oben genannte offene Medienintegration ist damit für diesen beschriebenen
 Pfad implementiert. Vollständige Audio-Decodierung/Normalisierung und weitere
 Legacy-Optionsfelder/erweiterte Medienmodelle werden damit nicht als DONE
 behauptet. Laufzeitdaten/History bekommen keine rückwirkende Secretfreigabe.
+
+## Ergänzung: Fragenvorlagen und Review-Arbeitsschritte
+
+SYSTEM-Quickvorlagen und eigene Fragevorlagen erzeugen neue DRAFTs mit
+Revision-/Receipt-/Ownership-Grenzen für beide unterstützten Spiele.
+Spiel-Presets und Room-Templates sind dadurch noch nicht implementiert.
+Prüfaufgaben sind versionsgebunden und geben beim Abschluss nichts frei.
+Die Einzelprüfung besitzt Original/Vorschlag, Skip/Next, Begründung,
+Tastaturbefehle und kontogebundenen Cursor. C4 ergänzt den realen Browserweg.
+
+Öffentliche Leser erhalten keine internen Pending-Proposals, alten privaten
+Draftversionen oder nach Scopewechsel unzulässigen Receipt-Antworten. Diese
+Gegenproben sind echte HTTP-/DB-Fälle. Globale Publikationsrechte bleiben
+unverändert: Public-Finalentscheidung ausschließlich ADMIN.

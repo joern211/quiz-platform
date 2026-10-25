@@ -138,3 +138,39 @@ test('C3: concurrent editors preserve conflicts; confirmed batch action and inte
     await expect(first.getByRole('button', { name: 'Gemeinsame Frage · ARCHIVED · V3', exact: true })).toBeVisible();
   } finally { await context.close(); }
 });
+
+test('C4: private template creates a new draft, versioned review work stays separate from approval and the queue accepts shortcuts', async ({ browser }) => {
+  test.setTimeout(90000);
+  const context = await browser.newContext();
+  try {
+    expect((await context.request.post(`${BASE}/api/v1/auth/e2e-token`, { data: { userId: 'mod-1' } })).status()).toBe(200);
+    const name = `Templates ${crypto.randomUUID()}`, templateName = `Vorlage ${crypto.randomUUID()}`;
+    const p = await context.request.post(`${BASE}/api/v1/content/pools`, { data: { commandId: crypto.randomUUID(), gameSlug: 'wissensduell', name } });
+    expect(p.status()).toBe(201); const pool = (await p.json()).data;
+    const q = await context.request.post(`${BASE}/api/v1/content/pools/${pool.id}/items`, { data: { commandId: crypto.randomUUID(), item: { title: 'Vorlagenfrage',
+      payload: { prompt: 'Frage aus Vorlage', category: 'Test', options: [{ id: 'a', text: 'Ja' }, { id: 'b', text: 'Nein' }], correctOptionId: 'a' } } } });
+    expect(q.status()).toBe(201); const original = (await q.json()).data;
+    const page = await context.newPage(); await page.goto(`${BASE}/inhalte`); await page.getByRole('button').filter({ hasText: name }).click();
+    await page.getByRole('button', { name: 'Vorlagenfrage · DRAFT · V1', exact: true }).click();
+    let editor = page.getByRole('region', { name: 'Frageneditor' }); await editor.getByText('Als private Vorlage speichern', { exact: true }).click();
+    await editor.getByLabel('Vorlagenname').fill(templateName); await editor.getByRole('button', { name: 'Vorlage speichern', exact: true }).click();
+    await expect(editor.getByText('Private Vorlage gespeichert. Neue Fragen daraus bleiben Entwürfe.', { exact: true })).toBeVisible();
+    await page.getByText('Fragenvorlagen', { exact: true }).click(); await page.getByRole('button', { name: 'Vorlagen laden', exact: true }).click();
+    const used = page.waitForResponse(r => r.url().includes('/api/v1/content/templates/') && r.url().endsWith('/use') && r.request().method() === 'POST');
+    await page.getByRole('button', { name: `Neuen Entwurf aus „${templateName}“ erstellen`, exact: true }).click();
+    const useResponse = await used; expect(useResponse.status()).toBe(201); const draft = (await useResponse.json()).data; expect(draft.id).not.toBe(original.id);
+    editor = page.getByRole('region', { name: 'Frageneditor' }); await expect(editor.getByRole('status')).toContainText('DRAFT');
+    await editor.getByText('Prüfaufgabe zu dieser Frage', { exact: true }).click(); await editor.getByRole('button', { name: 'Prüfaufgaben laden' }).click();
+    await editor.getByLabel('Prüfauftrag').fill('Antwort und Quelle prüfen'); await editor.getByRole('button', { name: 'Prüfaufgabe zuweisen' }).click();
+    await editor.getByRole('button', { name: 'Prüfung beginnen', exact: true }).click();
+    page.once('dialog', d => d.accept()); await editor.getByRole('button', { name: 'Prüfung abschließen', exact: true }).click();
+    await expect(editor.getByRole('status')).toContainText('DRAFT');
+    page.once('dialog', d => d.accept()); await editor.getByRole('button', { name: 'Zur Prüfung einreichen', exact: true }).click();
+    await page.getByRole('button', { name: 'Prüfungen & Inbox' }).click(); await page.getByRole('button', { name: 'Einzeln prüfen', exact: true }).click();
+    const queue = page.getByRole('region', { name: 'Einzelprüfung der Warteschlange' }); await expect(queue).toContainText(name);
+    await queue.focus(); page.once('dialog', d => d.accept()); await queue.press('a');
+    await expect(queue.getByText('Keine offenen Prüfungen.', { exact: true })).toBeVisible();
+    const checked = await context.request.get(`${BASE}/api/v1/content/items/${draft.id}`);
+    expect((await checked.json()).data).toMatchObject({ status: 'DRAFT', reviewState: 'APPROVED' });
+  } finally { await context.close(); }
+});

@@ -1,4 +1,4 @@
-import type { ContentItemView, ContentPoolView, ContentBatchSchema } from '@quiz/shared';
+import type { ContentItemView, ContentPoolView, ContentBatchSchema, ContentTemplateView } from '@quiz/shared';
 
 import type { z } from 'zod';
 
@@ -22,6 +22,13 @@ async function request<T>(path: string, method = 'GET', body?: unknown): Promise
   return json.data as T;
 }
 export const contentApi = {
+  templates: (gameSlug: string) => request<ContentTemplateView[]>(`/templates/catalog?gameSlug=${encodeURIComponent(gameSlug)}`),
+  saveTemplate: (gameSlug: string, name: string, item: unknown) => request('/templates', 'POST', { commandId: crypto.randomUUID(), gameSlug, name, item }),
+  useTemplate: (template: ContentTemplateView, pool: ContentPoolView) => request<ContentItemView>(`/templates/${encodeURIComponent(template.id)}/use`, 'POST', { commandId: crypto.randomUUID(), revision: template.revision, poolId: pool.id, poolRevision: pool.revision }),
+  archiveTemplate: (template: ContentTemplateView) => request(`/templates/${encodeURIComponent(template.id)}/archive`, 'POST', { commandId: crypto.randomUUID(), revision: template.revision }),
+  assignments: (itemId?: string) => request<ContentAssignmentView[]>(`/assignments${itemId ? `?itemId=${encodeURIComponent(itemId)}` : ''}`),
+  assignReview: (item: ContentItemView, assigneeId: string, note: string, assignmentRevision: number | null) => request('/assignments', 'POST', { commandId: crypto.randomUUID(), itemId: item.id, itemRevision: item.revision, assigneeId, note, assignmentRevision }),
+  advanceAssignment: (task: ContentAssignmentView, status: string) => request(`/assignments/${encodeURIComponent(task.id)}/status`, 'POST', { commandId: crypto.randomUUID(), revision: task.revision, status }),
   media: (id: string) => request<{ url: string; type: string }>(`/items/${encodeURIComponent(id)}/media`),
   batchPreview: (batch: z.infer<typeof ContentBatchSchema>) => request<BatchPreview>('/batch/preview', 'POST', batch),
   batchCommit: (batch: z.infer<typeof ContentBatchSchema>) => request<{ results: Array<{ id: string; status: string; error?: string }> }>('/batch/commit', 'POST', { commandId: crypto.randomUUID(), batch, confirmed: true }),
@@ -60,7 +67,9 @@ export const contentApi = {
   submitCorrection: (input: unknown) => request<{ reviewId: string }>('/corrections', 'POST', input),
 };
 export interface ImportPreviewRow { index: number; classification: string; targetId: string | null; targetRevision: number | null; title: string; errors: string[]; unknownTags: string[]; proposed: unknown; current: unknown }
-export interface ReviewView { id: string; kind: string; poolName: string; canDecide: boolean; proposed: unknown; createdAt: string }
+export interface ReviewView { id: string; kind: string; poolName: string; canDecide: boolean; proposed: unknown; current?: ContentItemView[]; createdAt: string }
 
 export interface BatchPreview { total: number; eligible: number; historicallyUsed: number; rows: Array<{ id: string; title: string; revision: number; uses: number; effect: string | null; error: string | null }> }
 export interface CommentView { id: string; actorId: string; message: string; status: string; createdAt: string }
+
+export interface ContentAssignmentView { id: string; itemId: string; poolId: string; assigneeId: string; assignedBy: string; itemRevision: number; currentRevision: number; revision: number; status: string; note: string; itemTitle: string; poolName: string; stale: boolean; canAdvance: boolean }

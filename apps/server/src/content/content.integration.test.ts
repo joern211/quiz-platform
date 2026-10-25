@@ -537,3 +537,72 @@ it('delivers media only for the active pinned question of both real engines and 
     } finally { host.disconnect(); viewer.disconnect(); cancelGeoTimer(room.id); }
   }
 });
+
+it('creates new DRAFT identities from system and private templates for both games, with receipts and ownership fences', async () => {
+  for (const [slug, value] of [['wissensduell', quiz], ['jeopardy', clue]] as const) {
+    const p = await pool(slug), catalog = await api(owner).get(`/templates/catalog?gameSlug=${slug}`);
+    expect(catalog.status).toBe(200); expect(catalog.body.data[0]).toMatchObject({ scope: 'SYSTEM', revision: 1 });
+    const created = await api(owner).post('/templates', { commandId: commandId(), gameSlug: slug, name: `Template ${slug}`, item: { ...value, difficulty: 'HARD' } });
+    expect(created.status).toBe(201);
+    const id = created.body.data.id;
+    expect((await api(other).get(`/templates/catalog?gameSlug=${slug}`)).body.data.map((t: { id: string }) => t.id)).not.toContain(id);
+    const intent = { commandId: commandId(), revision: 1, poolId: p.id, poolRevision: 1 };
+    const one = await api(owner).post(`/templates/${id}/use`, intent), retry = await api(owner).post(`/templates/${id}/use`, intent);
+    expect(one.status).toBe(201); expect(retry.body.data.id).toBe(one.body.data.id); expect(one.body.data).toMatchObject({ status: 'DRAFT', revision: 1, difficulty: 'HARD' });
+    const two = await api(owner).post(`/templates/${id}/use`, { ...intent, commandId: commandId() });
+    expect(two.body.data.id).not.toBe(one.body.data.id);
+    expect((await api(other).post(`/templates/${id}/use`, { ...intent, commandId: commandId() })).status).toBe(404);
+    const standard = await api(owner).post(`/templates/${catalog.body.data[0].id}/use`, { ...intent, commandId: commandId() });
+    expect(standard.status).toBe(201); expect(standard.body.data.status).toBe('DRAFT'); expect(standard.body.data.validation.length).toBeGreaterThan(0);
+    expect((await api(owner).post(`/templates/${id}/archive`, { commandId: commandId(), revision: 2 })).status).toBe(409);
+    expect((await api(owner).post(`/templates/${id}/archive`, { commandId: commandId(), revision: 1 })).status).toBe(200);
+    expect((await api(owner).post(`/templates/${id}/use`, { ...intent, commandId: commandId() })).status).toBe(404);
+    expect(await db.contentItem.count({ where: { poolId: p.id } })).toBe(3);
+  }
+});
+it('refuses concrete media IDs in reusable templates instead of silently dropping a private file', async () => {
+  const r = await api(owner).post('/templates', { commandId: commandId(), gameSlug: 'wissensduell', name: 'Do not lose media', item: { ...quiz, payload: { ...quiz.payload, mediaAssetId: randomUUID() } } });
+  expect(r.status).toBe(400); expect(r.body.error.code).toBe('INVALID_CONTENT');
+});
+it('assigns version-fenced review work only to current editors; completion never publishes or mutates content', async () => {
+  const p = await pool('wissensduell', 'SHARED', [otherId]), q = await item(p.id);
+  const intent = { commandId: commandId(), itemId: q.id, itemRevision: 1, assigneeId: otherId, note: 'Quelle prüfen', assignmentRevision: null };
+  expect((await api(other).post('/assignments', intent)).status).toBe(403);
+  const assigned = await api(owner).post('/assignments', intent), retried = await api(owner).post('/assignments', intent);
+  expect(assigned.status).toBe(201); expect(retried.body.data.id).toBe(assigned.body.data.id);
+  const id = assigned.body.data.id;
+  expect((await api(other).get('/assignments')).body.data).toEqual(expect.arrayContaining([expect.objectContaining({ id, canAdvance: true, stale: false })]));
+  expect((await api(owner).post(`/assignments/${id}/status`, { commandId: commandId(), revision: 1, status: 'IN_REVIEW' })).status).toBe(403);
+  expect((await api(other).post(`/assignments/${id}/status`, { commandId: commandId(), revision: 1, status: 'DONE' })).status).toBe(409);
+  expect((await api(other).post(`/assignments/${id}/status`, { commandId: commandId(), revision: 1, status: 'IN_REVIEW' })).status).toBe(200);
+  const done = { commandId: commandId(), revision: 2, status: 'DONE' };
+  expect((await api(other).post(`/assignments/${id}/status`, done)).status).toBe(200);
+  expect((await api(other).post(`/assignments/${id}/status`, done)).body.data.status).toBe('DONE');
+  expect(await db.contentItem.findUniqueOrThrow({ where: { id: q.id } })).toMatchObject({ status: 'DRAFT', reviewState: 'NOT_REVIEWED', revision: 1 });
+  expect(await db.contentRevision.count({ where: { itemId: q.id } })).toBe(1);
+  await api(owner).put(`/items/${q.id}`, { commandId: commandId(), revision: 1, item: { ...quiz, title: 'New version' } });
+  expect((await api(other).get('/assignments')).body.data.find((t: { id: string }) => t.id === id).stale).toBe(true);
+  expect((await api(owner).post('/assignments', { ...intent, commandId: commandId(), itemRevision: 2, assignmentRevision: 2 })).status).toBe(409);
+  expect((await api(owner).post('/assignments', { ...intent, commandId: commandId(), itemRevision: 2, assignmentRevision: 3 })).status).toBe(201);
+  await db.contentPool.update({ where: { id: p.id }, data: { scope: 'PRIVATE', editorIdsJson: '[]' } });
+  expect((await api(other).get('/assignments')).body.data).not.toEqual(expect.arrayContaining([expect.objectContaining({ id })]));
+  expect((await api(other).post(`/assignments/${id}/status`, { commandId: commandId(), revision: 4, status: 'IN_REVIEW' })).status).toBe(404);
+});
+it('hides public pending proposals and historical drafts from unrelated hosts, including old receipt replays', async () => {
+  const p = await pool('wissensduell', 'SHARED', [otherId]), q = await item(p.id);
+  const commentIntent = { commandId: commandId(), message: 'PREPUBLIC_INTERNAL_COMMENT' };
+  expect((await api(other).post(`/items/${q.id}/comments`, commentIntent)).status).toBe(201);
+  const editIntent = { commandId: commandId(), revision: 1, item: { ...quiz, title: 'PREPUBLIC_PRIVATE_DRAFT' } };
+  expect((await api(other).put(`/items/${q.id}`, editIntent)).status).toBe(200);
+  await ready(q.id, 2);
+  await db.contentPool.update({ where: { id: p.id }, data: { scope: 'PUBLIC', editorIdsJson: '[]' } });
+  await db.contentItem.update({ where: { id: q.id }, data: { reviewState: 'APPROVED' } });
+  const proposed = await api(owner).post(`/items/${q.id}/propose`, { commandId: commandId(), revision: 3,
+    item: { ...quiz, payload: { ...quiz.payload, prompt: 'PENDING_UNPUBLISHED_SECRET' }, source: 'Eigene Frage', license: 'Eigene Rechte' } });
+  expect(proposed.status).toBe(200);
+  const stranger = await api(other).get('/reviews'); expect(JSON.stringify(stranger.body)).not.toContain('PENDING_UNPUBLISHED_SECRET');
+  expect((await api(owner).get('/reviews')).body.data.find((r: { id: string }) => r.id === proposed.body.data.reviewId).current[0].payload.prompt).toBe(quiz.payload.prompt);
+  expect((await api(other).get(`/items/${q.id}/history`)).status).toBe(403);
+  expect((await api(other).post(`/items/${q.id}/comments`, commentIntent)).status).toBe(403);
+  expect((await api(other).put(`/items/${q.id}`, editIntent)).status).toBe(403);
+});

@@ -5,6 +5,8 @@ import { authApi } from '../lib/api';
 import { ContentApiError, contentApi } from '../lib/contentApi';
 import styles from './ContentPage.module.css';
 import { ContentImportTools, ContentReviewInbox } from '../components/ContentTools';
+import { ContentTemplates, SaveContentTemplate } from '../components/ContentTemplates';
+import { ContentReviewAssignments } from '../components/ContentReviewAssignments';
 import { ContentMedia } from '../components/ContentMedia';
 import { ContentMediaFields } from '../components/ContentMediaFields';
 import { ContentCollaboration } from '../components/ContentCollaboration';
@@ -124,13 +126,15 @@ export function ContentEditor({ initial, pool, onSaved, dirtyFlag, actorId }: { 
       {item && pool.canPropose && canWrite && <button disabled={busy || !valid || (pool.canEdit && dirty)} onClick={() => {
         if (window.confirm('Diesen Vorschlag zur Prüfung einreichen?')) void run(async () => (await contentApi.propose(item, draft)).item);
       }}>{pool.canEdit ? 'Zur Prüfung einreichen' : 'Änderung zur Prüfung einreichen'}</button>}
-      {item && <button disabled={dirty || busy} onClick={() => contentApi.history(item.id).then(setHistory).catch(e => setError(errorMessage(e)))}>Versionsverlauf</button>}
+      {item && (pool.canReadInternal ?? (pool.canEdit || pool.canPropose)) && <button disabled={dirty || busy} onClick={() => contentApi.history(item.id).then(setHistory).catch(e => setError(errorMessage(e)))}>Versionsverlauf</button>}
     </div>
     {item && <fieldset><legend>Vorschau der gespeicherten Version</legend><label>Perspektive<select value={previewRole} onChange={e => { setPreviewRole(e.target.value); setPreview(null); }}>{['PLAYER', 'VIEWER', 'HOST', 'TEAM'].map(r => <option key={r}>{r}</option>)}</select></label>
       <label>Auflösung<select value={String(reveal)} onChange={e => { setReveal(e.target.value === 'true'); setPreview(null); }}><option value="false">Vor Auflösung</option><option value="true">Nach Auflösung</option></select></label>
       <button disabled={dirty || busy} onClick={() => contentApi.preview(item.id, previewRole, reveal).then(setPreview).catch(e => setError(errorMessage(e)))}>Vorschau laden</button>
       {preview && <div className={styles.preview}>{Object.entries(preview).filter(([key]) => !['mediaUrl', 'mediaType'].includes(key)).map(([key, value]) => <p key={key}><strong>{{ prompt: 'Frage', question: 'Frage', category: 'Kategorie', answer: 'Lösung', correctOptionId: 'Richtige Antwort', explanation: 'Erklärung', options: 'Antwortmöglichkeiten', value: 'Punktwert' }[key] ?? key}:</strong> {Array.isArray(value) ? value.map(v => `${v.id}: ${v.text}`).join(' · ') : String(value)}</p>)}<ContentMedia mediaUrl={typeof preview.mediaUrl === 'string' ? preview.mediaUrl : undefined} mediaType={typeof preview.mediaType === 'string' ? preview.mediaType : undefined} onRefresh={() => { if (item) void contentApi.preview(item.id, previewRole, reveal).then(setPreview).catch(e => setError(errorMessage(e))); }} /></div>}
     </fieldset>}
+    <SaveContentTemplate gameSlug={pool.gameSlug} item={draft} disabled={busy} />
+    {item && actorId && <ContentReviewAssignments key={item.id} item={item} pool={pool} actorId={actorId} />}
     {item && <ContentCollaboration item={item} pool={pool} actorId={actorId} dirty={dirty || busy} onSaved={updated => { setItem(updated); onSaved(updated); }} />}
     {history.length > 0 && <section aria-label="Versionsverlauf"><h3>Versionen vergleichen</h3>{history.map(v => <details key={v.revision}><summary>Version {v.revision} · {v.kind} · {new Date(v.createdAt).toLocaleString()}</summary><pre className={styles.preview}>{JSON.stringify(v.snapshot, null, 2)}</pre>{pool.canEdit && item && <button disabled={dirty || busy} onClick={() => { if (window.confirm('Als neuen Entwurf übernehmen? Die Historie bleibt erhalten.')) void run(() => contentApi.restore(item, v.revision)); }}>Als neue Version wiederherstellen</button>}</details>)}</section>}
   </section>;
@@ -156,7 +160,8 @@ export function ContentPage() {
   const onSaved = (item: ContentItemView) => { setSelected(item); setItems(rows => [item, ...rows.filter(r => r.id !== item.id)]); };
   return <div className={styles.page}>
     <header className={styles.heading}><div><h1>Fragen und Pools</h1><p>Inhalte vorbereiten, prüfen und für deine Spiele freigeben.</p></div><Link to="/kategorien">Spiel vorbereiten →</Link></header>
-    {userId && <ContentReviewInbox onChanged={() => { if (pool) void load(pool.id); }} />}
+    {userId && <ContentReviewAssignments actorId={userId} />}
+    {userId && <ContentReviewInbox actorId={userId} onChanged={() => { if (pool) void load(pool.id); }} />}
     {error && <p className={styles.error} role="alert">{error} {!userId && <Link to="/moderator/anmelden?returnTo=%2Finhalte">Als Host anmelden</Link>}</p>}
     {loading ? <p role="status">Pools werden geladen …</p> : <div className={styles.layout}>
       <aside className={styles.panel}><h2>Deine Pools</h2><ul className={styles.list}>{pools.map(p => <li key={p.id}><button className={pool?.id === p.id ? styles.selected : ''} onClick={() => load(p.id)}>{p.name}<br /><small>{p.gameSlug} · {p.scope}</small></button></li>)}</ul>
@@ -173,6 +178,7 @@ export function ContentPage() {
           {!items.length && <p>Noch keine Fragen. Starte mit einer neuen Frage.</p>}
         </section>
         <ContentPoolSettings key={`${pool.id}:${pool.revision}`} pool={pool} onSaved={updated => { setPool(updated); setPools(rows => rows.map(p => p.id === updated.id ? updated : p)); void load(updated.id); }} />
+        <ContentTemplates key={`templates:${pool.id}`} pool={pool} mayChange={() => { if (!maySwitch()) return false; dirtyFlag.current = false; setEditing(false); return true; }} onCreated={q => { setItems(rows => [q, ...rows]); setSelected(q); setEditing(true); setEditorKey(v => v + 1); }} />
         <ContentBatchTools key={pool.id} pool={pool} items={items} pools={pools} onChanged={() => void load(pool.id)} mayChange={() => { if (!maySwitch()) return false; dirtyFlag.current = false; setEditing(false); return true; }} />
         <ContentImportTools key={pool.id} pool={pool} onChanged={() => void load(pool.id)} />
         {editing && <ContentEditor key={`${pool.id}:${editorKey}`} initial={selected} pool={pool} onSaved={onSaved} dirtyFlag={dirtyFlag} actorId={userId} />}

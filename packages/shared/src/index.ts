@@ -1776,7 +1776,7 @@ export interface ContentItemView {
 }
 export interface ContentPoolView {
   id: string; gameSlug: string; name: string; description: string; scope: string; ownerId: string | null;
-  revision: number; defaults: z.infer<typeof ContentDefaultsSchema>; canEdit: boolean; canPropose?: boolean; canManage?: boolean; editorIds?: string[];
+  revision: number; defaults: z.infer<typeof ContentDefaultsSchema>; canEdit: boolean; canPropose?: boolean; canManage?: boolean; canReadInternal?: boolean; canAssignReview?: boolean; editorIds?: string[];
 }
 
 export type ContentStatus = z.infer<typeof ContentStatusSchema>;
@@ -1791,3 +1791,7 @@ export const ContentBatchSchema = z.object({
     z.object({ kind: z.literal('MOVE'), targetPoolId: z.string().min(1).max(128), targetRevision: z.number().int().positive() }).strict(),
   ]),
 }).strict();
+
+export const ContentTemplateInputSchema = z.object({ name: z.string().trim().min(1).max(150), gameSlug: ContentGameSchema,
+  item: ContentItemInputSchema.refine(v => v.payload.mediaAssetId === undefined, 'Vorlagen enthalten Medienoptionen, keine konkrete Datei.') }).strict();
+export interface ContentTemplateView { id: string; name: string; gameSlug: string; scope: 'SYSTEM' | 'PRIVATE'; revision: number; item: z.infer<typeof ContentItemInputSchema> }
