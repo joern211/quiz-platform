@@ -18,7 +18,7 @@ import { socketIdentityMap } from '../http/middleware/auth.js';
 
 let dir: string, db: PrismaClient, previous: PrismaClient | undefined;
 let app: ReturnType<typeof createApp>, owner: string, other: string, admin: string;
-let otherId: string, origin: string;
+let ownerId: string, otherId: string, origin: string;
 const roomIds: string[] = [];
 const commandId = () => randomUUID();
 const quiz = { title: 'Test', payload: { prompt: 'PRIVATE_CONTENT_PROMPT', category: 'Test', options: [{ id: 'a', text: 'Eins' }, { id: 'b', text: 'Zwei' }], correctOptionId: 'b', explanation: 'SECRET_EXPLANATION', durationMs: 20000, points: 100, wrongPoints: 0 } };
@@ -42,7 +42,7 @@ beforeAll(async () => {
   dir = await mkdtemp(join(tmpdir(), 'quiz-content-')); const url = `file:${join(dir, 'test.db')}`; await createTestDatabase(url);
   db = new PrismaClient({ datasourceUrl: url }); previous = globalThis.__prisma; globalThis.__prisma = db; app = createApp();
   const users = await Promise.all(['HOST', 'HOST', 'ADMIN'].map(role => db.user.create({ data: { displayName: randomUUID(), role, passwordHash: 'not-used' } })));
-  otherId = users[1].id;
+  ownerId = users[0].id; otherId = users[1].id;
   [owner, other, admin] = await Promise.all(users.map(async user => createSessionCookie((await db.session.create({ data: { userId: user.id, expiresAt: new Date(Date.now() + 3600000) } })).id, config.sessionSecret)));
   for (const slug of ['wissensduell', 'jeopardy']) await db.gameDefinition.create({ data: { slug, name: slug, category: 'test', status: 'BETA' } });
   await new Promise<void>(resolve => app.httpServer.listen(0, '127.0.0.1', resolve));
@@ -346,4 +346,98 @@ describe('content HTTP/DB contracts', () => {
       expect((await request('/corrections/eligible', access)).status).toBe(404);
     } finally { host.disconnect(); cancelGeoTimer(room.id); }
   });
+});
+
+it('previews batch impact without writes and reports stale, locked and foreign items without overwriting historical content', async () => {
+  const p = await pool(), a = await item(p.id), b = await item(p.id), stale = await item(p.id);
+  await ready(a.id);
+  const roomResponse = await supertest(app.app).post('/api/v1/rooms').set('Cookie', owner).send({ gameSlug: 'wissensduell', roomName: 'Batch history', idempotencyKey: randomUUID(),
+    setupSnapshotJson: { contentSelection: { poolIds: [p.id], count: 1 } } });
+  expect(roomResponse.status).toBe(201);
+  const snapshot = await db.contentUse.findFirstOrThrow({ where: { itemId: a.id } });
+  const lock = await api(owner).post(`/items/${b.id}/lock`, { commandId: commandId(), revision: 1, locked: true });
+  expect(lock.status).toBe(200);
+  await api(owner).put(`/items/${stale.id}`, { commandId: commandId(), revision: 1, item: { ...quiz, title: 'Newer' } });
+  const foreign = await db.contentPool.create({ data: { name: 'PRIVATE_SECRET', gameSlug: 'wissensduell', ownerId: otherId } });
+  const hidden = await db.contentItem.create({ data: { poolId: foreign.id, gameSlug: 'wissensduell', payloadJson: JSON.stringify(quiz.payload), title: 'HIDDEN_SECRET' } });
+  const batch = { poolId: p.id, poolRevision: p.revision, items: [{ id: a.id, revision: 2 }, { id: b.id, revision: 2 }, { id: stale.id, revision: 1 }, { id: hidden.id, revision: 1 }], operation: { kind: 'DIFFICULTY', difficulty: 'HARD' } };
+  const preview = await api(owner).post('/batch/preview', batch);
+  expect(preview.status).toBe(200); expect(preview.body.data).toMatchObject({ total: 4, eligible: 1, historicallyUsed: 1 });
+  expect(JSON.stringify(preview.body)).not.toContain('HIDDEN_SECRET');
+  expect(await db.contentItem.findUniqueOrThrow({ where: { id: a.id } })).toMatchObject({ status: 'READY', revision: 2 });
+  expect((await api(owner).post('/batch/commit', { commandId: commandId(), batch, confirmed: false })).status).toBe(400);
+  const command = { commandId: commandId(), batch, confirmed: true };
+  const result = await api(owner).post('/batch/commit', command), retry = await api(owner).post('/batch/commit', command);
+  expect(result.status).toBe(200); expect(retry.body).toEqual(result.body);
+  expect(result.body.data.results.map((r: { error?: string; status: string }) => r.error ?? r.status)).toEqual(['UPDATED', 'CONTENT_LOCKED', 'REVISION_CONFLICT', 'RESOURCE_NOT_ACCESSIBLE']);
+  expect(await db.contentItem.findUniqueOrThrow({ where: { id: a.id } })).toMatchObject({ status: 'DRAFT', revision: 3, difficulty: 'HARD' });
+  expect(await db.contentUse.findUniqueOrThrow({ where: { id: snapshot.id } })).toEqual(snapshot);
+  const archived = await api(owner).post('/batch/commit', { commandId: commandId(), confirmed: true, batch: { ...batch, items: [{ id: a.id, revision: 3 }], operation: { kind: 'STATUS', status: 'ARCHIVED' } } });
+  expect(archived.body.data.results[0].item.status).toBe('ARCHIVED');
+  const trash = { ...batch, items: [{ id: a.id, revision: 4 }], operation: { kind: 'STATUS', status: 'TRASHED' } };
+  expect((await api(owner).post('/batch/preview', trash)).body.data.rows[0].effect).toBe('ARCHIVED');
+  expect((await api(owner).post('/batch/commit', { commandId: commandId(), confirmed: true, batch: trash })).body.data.results[0].item.status).toBe('ARCHIVED');
+});
+it('copies and moves batches as drafts with new copy identities and effective inheritance while preserving uses', async () => {
+  const tag = await db.contentTag.create({ data: { name: 'Batch tag', slug: `batch-${randomUUID()}` } });
+  const p = await pool(), target = await pool();
+  await db.contentPool.update({ where: { id: p.id }, data: { defaultsJson: JSON.stringify({ language: 'tr-TR', difficulty: 'EASY', tagIds: [tag.id] }) } });
+  const q = await item(p.id);
+  const batch = { poolId: p.id, poolRevision: 1, items: [{ id: q.id, revision: 1 }], operation: { kind: 'COPY', targetPoolId: target.id, targetRevision: 1 } };
+  const result = await api(owner).post('/batch/commit', { commandId: commandId(), confirmed: true, batch });
+  expect(result.status).toBe(200); const copy = result.body.data.results[0].item;
+  expect(copy).toMatchObject({ poolId: target.id, status: 'DRAFT', effective: { language: 'tr-TR', difficulty: 'EASY', tagIds: [tag.id] } });
+  expect(copy.id).not.toBe(q.id); expect((await db.contentItem.findUniqueOrThrow({ where: { id: copy.id } })).duplicatedFromId).toBe(q.id);
+  const moved = await api(owner).post('/batch/commit', { commandId: commandId(), confirmed: true, batch: { ...batch, operation: { ...batch.operation, kind: 'MOVE' } } });
+  expect(moved.body.data.results[0].item).toMatchObject({ id: q.id, poolId: target.id, status: 'DRAFT', revision: 2, effective: copy.effective });
+  expect(await db.contentRevision.count({ where: { itemId: q.id } })).toBe(2);
+});
+it('rechecks batch ownership, pool revisions and editor grants after preview', async () => {
+  const p = await pool('wissensduell', 'SHARED', [otherId]), q = await item(p.id);
+  const batch = { poolId: p.id, poolRevision: 1, items: [{ id: q.id, revision: 1 }], operation: { kind: 'TAGS', tagIds: [] } };
+  expect((await api(other).post('/batch/preview', batch)).status).toBe(200);
+  await db.contentPool.update({ where: { id: p.id }, data: { editorIdsJson: '[]', revision: { increment: 1 } } });
+  expect((await api(other).post('/batch/commit', { commandId: commandId(), confirmed: true, batch })).status).toBe(404);
+  expect((await api(owner).post('/batch/commit', { commandId: commandId(), confirmed: true, batch })).status).toBe(409);
+  expect((await db.contentItem.findUniqueOrThrow({ where: { id: q.id } })).revision).toBe(1);
+});
+it('shows only live authorized concurrent editors and expires presence without granting a write lock', async () => {
+  const p = await pool('wissensduell', 'SHARED', [otherId]), q = await item(p.id), a = randomUUID(), b = randomUUID();
+  const beat = (cookie: string, editorKey: string, active = true) => api(cookie).post(`/items/${q.id}/presence`, { editorKey, active });
+  expect((await beat(owner, a)).body.data).toEqual([]);
+  expect((await beat(other, b)).body.data).toEqual([expect.objectContaining({ id: ownerId })]);
+  const visible = await beat(owner, a); expect(visible.body.data).toEqual([expect.objectContaining({ id: otherId })]);
+  expect(JSON.stringify(visible.body)).not.toContain('sessionId'); expect(JSON.stringify(visible.body)).not.toContain(b);
+  expect((await api(other).put(`/items/${q.id}`, { commandId: commandId(), revision: 1, item: { ...quiz, title: 'Shared edit' } })).status).toBe(200);
+  await db.contentEditorPresence.updateMany({ where: { userId: otherId, itemId: q.id }, data: { lastSeenAt: new Date(Date.now() - 46000) } });
+  expect((await beat(owner, a)).body.data).toEqual([]);
+  await beat(other, b); await db.user.update({ where: { id: otherId }, data: { disabledAt: new Date() } });
+  expect((await beat(owner, a)).body.data).toEqual([]);
+  await db.user.update({ where: { id: otherId }, data: { disabledAt: null } });
+  await beat(owner, a, false); expect(await db.contentEditorPresence.count({ where: { itemId: q.id, userId: ownerId } })).toBe(0);
+  await db.contentPool.update({ where: { id: p.id }, data: { scope: 'PRIVATE', editorIdsJson: '[]' } });
+  expect((await beat(other, b)).status).toBe(404);
+});
+it('keeps internal comments, presence and historical usage private from readers of public pools', async () => {
+  const p = await pool(), q = await item(p.id); await ready(q.id);
+  const comment = await api(owner).post(`/items/${q.id}/comments`, { commandId: commandId(), message: 'INTERNAL_SECRET' });
+  expect(comment.status).toBe(201);
+  await db.contentPool.update({ where: { id: p.id }, data: { scope: 'PUBLIC' } });
+  expect((await api(other).get(`/items/${q.id}`)).status).toBe(200);
+  for (const path of [`/items/${q.id}/comments`, `/items/${q.id}/usage`]) {
+    const r = await api(other).get(path); expect(r.status).toBe(403); expect(JSON.stringify(r.body)).not.toContain('INTERNAL_SECRET');
+  }
+  expect((await api(other).post(`/items/${q.id}/presence`, { editorKey: randomUUID(), active: true })).status).toBe(403);
+  expect((await api(owner).get(`/items/${q.id}/comments`)).body.data[0].message).toBe('INTERNAL_SECRET');
+  expect((await api(owner).post(`/comments/${comment.body.data.id}/resolve`, { commandId: commandId(), status: 'RESOLVED' })).body.data.status).toBe('RESOLVED');
+});
+
+it('serializes actual simultaneous editor writes at the database and returns one explicit revision conflict', async () => {
+  const p = await pool('wissensduell', 'SHARED', [otherId]), q = await item(p.id);
+  const saves = await Promise.all([owner, other].map((cookie, i) => api(cookie).put(`/items/${q.id}`, {
+    commandId: commandId(), revision: 1, item: { ...quiz, title: `Concurrent ${i}` },
+  })));
+  expect(saves.map(r => r.status).sort()).toEqual([200, 409]);
+  expect(saves.find(r => r.status === 409)?.body.error.code).toBe('REVISION_CONFLICT');
+  expect(await db.contentRevision.count({ where: { itemId: q.id } })).toBe(2);
 });

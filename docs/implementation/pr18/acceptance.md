@@ -38,3 +38,16 @@ Punkt4 des autorisierten Fünf-Schritte-Plans bleibt in Arbeit.
 
 Siehe handoff.md und ../roadmap-execution/handoff.md. Alle Arbeit liegt auf
 feature/pr18-content-editor, gestapelt auf PR17. Push autorisiert; kein Merge.
+
+## Ergänzung: Zusammenarbeit und Sammelaktionen
+
+- Multi-Select/Impact/Bestätigung, Tags/Difficulty/Status/Move/Copy:
+  echte HTTP-/DB-Gegenproben für Revisionskonflikte, Locks, fremde IDs,
+  entzogene Grants, Receipt-Replay, neue Copy-IDs und erhaltene Snapshots.
+- Concurrent-Editor-Anzeige: echte Sessions,45s Ablauf, deaktivierte und
+  widerrufene Zugriffe. Zwei gleichzeitig schreibende Editoren ergeben
+  einen409-Konflikt ohne stilles Overwrite. Keine pessimistische Sperre.
+- UI für interne Kommentare, manuelle Sperren und historische Verwendung.
+  Öffentliche Leserechte liefern keine internen Editorial-/Raumdaten.
+- C3 ergänzt die Browserabnahme um echte zwei Tabs und Sammelarchivierung.
+  Diese neuen Funktionen ersetzen keine weiterhin offenen §6-Bereiche oben.

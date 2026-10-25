@@ -196,3 +196,38 @@ Die lokalen Folgeänderungen sind erhalten und jetzt geprüft:
 
 Nächster Teil: Sammelbearbeitung, Zusammenarbeit/Prüfwerkzeuge und danach
 vollständige Medienreferenzen. Punkt4 bleibt offen; Punkt5 unbegonnen.
+
+## Sechster Teil — Sammelaktionen / Zusammenarbeit
+
+9a03c4f: vollständige CI und E2E grün (Run 40220311085), Dateibaum identisch
+zum lokalen Wiederaufnahme-Commit 1d43145. Dieser Commit ist kein Paketabschluss.
+
+Neu implementiert:
+- Multi-Select bis100; Vorschau der Auswirkungen und historische Uses;
+  ausdrückliche Bestätigung; Status/Tags/Difficulty/Move/Copy über denselben
+  Revisions-/Status-/Rechtepfad wie Einzeländerungen. Ergebnis je Frage,
+  Teilfehler sichtbar; technische Fehler rollen die Transaktion zurück.
+  Copy erzeugt neue DRAFT-IDs, Move behält Identität/Historie; effektive
+  Pool-Vererbung wird materialisiert, nicht vom Ziel still verändert.
+- Concurrent-Editor-Anzeige mit Session-/Tab-gebundener DB-Presence,
+  Heartbeat und45s Ablauf. Keine Schreibsperre; CAS bleibt autoritativ.
+  Keine Session-IDs/Tokens im Response; deaktivierte/revokierte Accounts
+  und entzogene Shared-Grants werden aus der Anzeige entfernt.
+- Interne Kommentare, Erledigt/Ablehnen/Wiederöffnen, manuelle Locks und
+  Verwendungsnachweise jetzt in der Oberfläche. Fremde PUBLIC-Pool-Leser
+  erhalten keine internen Kommentare/Presence/Raumverwendung. Bestehende
+  reine GET-Lücke für öffentliche interne Kommentare geschlossen.
+- Content-Schreibtransaktionen nehmen die SQLite-Writerreservation VOR
+  dem Autorisierungs-Readset. Zwei echte parallele Editorwrites ergeben
+  genau einen Erfolg und einen REVISION_CONFLICT statt Read-Upgrade-Deadlock.
+- Receipt-Replay prüft auch Pools eingebetteter Review-/Batch-Items neu.
+- Browserfall C3: zwei Tabs, Presence, Autosave-Konflikt ohne Textverlust,
+  bewusste Konfliktauflösung, Kommentar und bestätigte Sammelarchivierung.
+  Alle23 Browserfälle bleiben aktiv. GitHub-Abnahme am neuen Head noch offen.
+
+Lokal: 459/459 Server (53 Dateien),109/109 Web (19 Dateien). Beide Builds,
+Typecheck und Lint0 Fehler/113 bestehende Warnungen sind ebenfalls grün.
+Content-Suite am endgültigen Produktstand25/25 inkl. simultaner HTTP-Writes.
+Offene Punkt4-Bereiche weiterhin u.a. Medien-Reader/Refs/READY/Delivery,
+BLIND_HOST, Templates/Presets/Progression, Playtest, Review-Assignments und
+Batch-Review. Punkt5 bleibt unbegonnen; kein Merge.

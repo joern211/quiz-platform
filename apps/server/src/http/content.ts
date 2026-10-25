@@ -1,7 +1,7 @@
 import { Router, type Request, type Response } from 'express';
 import { z } from 'zod';
 import { ContentItemInputSchema, CreateContentPoolSchema, ContentDefaultsSchema, ContentStatusSchema, CONTENT_TEMPLATES,
-  ContentGameSchema, validateContentPayload } from '@quiz/shared';
+  ContentGameSchema, ContentBatchSchema } from '@quiz/shared';
 import { prisma } from '../persistence/prisma.js';
 import { verifySession } from '../auth/session.js';
 import { config } from '../config/index.js';
@@ -11,6 +11,8 @@ import { requestPublicPool, proposeItemChange, decideContentReview, notifyConten
 import { CorrectionAccessSchema, CorrectionSubmitSchema, eligibleCorrectionContent, submitContentCorrection } from '../content/corrections.js';
 import { ContentError, contentActor, canReadPool, requirePool, poolView, itemView, validateTagIds, contentInputData,
   mutateContent, saveRevision, changeItem, auditContent, type ContentActor, type ContentDb } from '../content/core.js';
+
+import { setItemStatus, previewBatch, commitBatch, requireContributor } from '../content/operations.js';
 
 export const contentRouter: ReturnType<typeof Router> = Router();
 const command = z.object({ commandId: z.string().uuid() });
@@ -126,24 +128,8 @@ contentRouter.put('/items/:id', endpoint(async (req, res) => {
 }));
 contentRouter.post('/items/:id/status', endpoint(async (req, res) => {
   const input = revisionCommand.extend({ status: ContentStatusSchema }).strict().parse(req.body);
-  const data = await mutateContent(session(req), input.commandId, { action: 'STATUS', id: String(req.params.id), input }, async (db, actor) => {
-    const { item, pool } = await itemAccess(db, actor, String(req.params.id), true);
-    if (item.revision !== input.revision) throw new ContentError('REVISION_CONFLICT', 409);
-    if (item.lockState !== 'EDITABLE') throw new ContentError('CONTENT_LOCKED', 409);
-    if (item.status === input.status) return itemView(item, pool);
-    const allowed: Record<string, string[]> = { DRAFT: ['READY', 'ARCHIVED', 'TRASHED'], READY: ['DRAFT', 'DISABLED', 'ARCHIVED'], DISABLED: ['DRAFT', 'READY', 'ARCHIVED', 'TRASHED'], ARCHIVED: ['DRAFT', 'TRASHED'], TRASHED: ['DRAFT'] };
-    if (!allowed[item.status]?.includes(input.status)) throw new ContentError('INVALID_CONTENT_TRANSITION', 409);
-    if (input.status === 'READY') {
-      const validation = validateContentPayload(item.gameSlug, JSON.parse(item.payloadJson));
-      if (!validation.success) throw new ContentError('CONTENT_NOT_READY', 400, validation.error.issues);
-      if (['PUBLIC', 'SYSTEM'].includes(pool.scope) && (!item.source || !item.license || item.reviewState !== 'APPROVED')) throw new ContentError('PUBLIC_APPROVAL_REQUIRED', 403);
-      await validateTagIds(db, itemView(item, pool).effective.tagIds);
-    }
-    let status = input.status;
-    if (status === 'TRASHED' && await db.contentUse.count({ where: { itemId: item.id } })) status = 'ARCHIVED';
-    const updated = await db.contentItem.update({ where: { id: item.id, revision: input.revision }, data: { status, revision: { increment: 1 } } });
-    await saveRevision(db, updated, actor, 'STATUS', ['status']); return itemView(updated, pool);
-  }); res.json({ success: true, data });
+  const data = await mutateContent(session(req), input.commandId, { action: 'STATUS', id: String(req.params.id), input },
+    (db, actor) => setItemStatus(db, actor, String(req.params.id), input.revision, input.status)); res.json({ success: true, data });
 }));
 contentRouter.get('/items/:id/history', endpoint(async (req, res) => {
   const actor = await contentActor(prisma, session(req)); const { item } = await itemAccess(prisma, actor, String(req.params.id));
@@ -275,7 +261,7 @@ contentRouter.post('/inbox/:id/read', endpoint(async (req, res) => {
   }); res.json({ success: true, data });
 }));
 contentRouter.get('/items/:id/comments', endpoint(async (req, res) => {
-  const actor = await contentActor(prisma, session(req)); await itemAccess(prisma, actor, String(req.params.id));
+  const actor = await contentActor(prisma, session(req)); const { pool } = await itemAccess(prisma, actor, String(req.params.id)); requireContributor(pool, actor);
   res.json({ success: true, data: await prisma.contentComment.findMany({ where: { itemId: String(req.params.id) }, orderBy: { createdAt: 'asc' } }) });
 }));
 contentRouter.post('/items/:id/comments', endpoint(async (req, res) => {
@@ -291,7 +277,7 @@ contentRouter.post('/comments/:id/resolve', endpoint(async (req, res) => {
   const input = command.extend({ status: z.enum(['OPEN', 'RESOLVED', 'REJECTED']) }).strict().parse(req.body);
   const data = await mutateContent(session(req), input.commandId, { action: 'COMMENT_RESOLVE', id: req.params.id, input }, async (db, actor) => {
     const comment = await db.contentComment.findUnique({ where: { id: String(req.params.id) } }); if (!comment) throw new ContentError('RESOURCE_NOT_ACCESSIBLE', 404);
-    const { pool } = await itemAccess(db, actor, comment.itemId);
+    const { pool } = await itemAccess(db, actor, comment.itemId); requireContributor(pool, actor);
     if (actor.role !== 'ADMIN' && pool.ownerId !== actor.userId && comment.actorId !== actor.userId) throw new ContentError('NOT_AUTHORIZED', 403);
     return db.contentComment.update({ where: { id: comment.id }, data: { status: input.status, resolvedAt: input.status === 'OPEN' ? null : new Date() } });
   }); res.json({ success: true, data });
@@ -321,4 +307,40 @@ contentRouter.get('/pools/:id/quality', endpoint(async (req, res) => {
   res.json({ success: true, data: { counts, warnings, duplicateCount, health: !counts.READY ? 'NICHT_SPIELBEREIT' : warnings.some(w => w.state === 'PROBLEMATIC') ? 'FEHLER' : warnings.length || duplicateCount ? 'HINWEISE' : 'OK',
     difficulty: Object.fromEntries(['VERY_EASY', 'EASY', 'MEDIUM', 'HARD', 'VERY_HARD'].map(d => [d, rows.filter(r => r.effective.difficulty === d).length])),
     openComments: await prisma.contentComment.count({ where: { itemId: { in: rows.map(r => r.id) }, status: 'OPEN' } }) } });
+}));
+
+contentRouter.post('/batch/preview', endpoint(async (req, res) => {
+  const actor = await contentActor(prisma, session(req)), input = ContentBatchSchema.parse(req.body);
+  res.json({ success: true, data: await previewBatch(prisma, actor, input) });
+}));
+contentRouter.post('/batch/commit', endpoint(async (req, res) => {
+  const input = command.extend({ batch: ContentBatchSchema, confirmed: z.literal(true) }).strict().parse(req.body);
+  const data = await mutateContent(session(req), input.commandId, { action: 'BATCH', input }, (db, actor) => commitBatch(db, actor, input.batch));
+  res.json({ success: true, data });
+}));
+contentRouter.get('/items/:id/usage', endpoint(async (req, res) => {
+  const actor = await contentActor(prisma, session(req)), { item, pool } = await itemAccess(prisma, actor, String(req.params.id)); requireContributor(pool, actor);
+  const uses = await prisma.contentUse.findMany({ where: { itemId: item.id }, orderBy: { createdAt: 'desc' }, take: 100 });
+  const rooms = await prisma.room.findMany({ where: { id: { in: uses.map(u => u.roomId) } }, select: { id: true, roomName: true, status: true } });
+  res.json({ success: true, data: { pool: { id: pool.id, name: pool.name }, total: await prisma.contentUse.count({ where: { itemId: item.id } }),
+    uses: uses.map(u => ({ runIndex: u.runIndex, itemRevision: u.itemRevision, createdAt: u.createdAt, room: rooms.find(r => r.id === u.roomId) ?? null })) } });
+}));
+
+contentRouter.post('/items/:id/presence', endpoint(async (req, res) => {
+  const input = z.object({ editorKey: z.string().uuid(), active: z.boolean() }).strict().parse(req.body);
+  const data = await prisma.$transaction(async db => {
+    await db.$executeRaw`UPDATE sessions SET id = id WHERE 0`;
+    const actor = await contentActor(db, session(req)), { item, pool } = await itemAccess(db, actor, String(req.params.id)); requireContributor(pool, actor);
+    const key = { itemId: item.id, sessionId: actor.sessionId, editorKey: input.editorKey };
+    if (input.active) await db.contentEditorPresence.upsert({ where: { itemId_sessionId_editorKey: key },
+      create: { ...key, userId: actor.userId }, update: { lastSeenAt: new Date() } });
+    else await db.contentEditorPresence.deleteMany({ where: key });
+    const cutoff = new Date(Date.now() - 45000);
+    await db.contentEditorPresence.deleteMany({ where: { lastSeenAt: { lt: cutoff } } });
+    const rows = await db.contentEditorPresence.findMany({ where: { itemId: item.id, lastSeenAt: { gte: cutoff } } });
+    const liveSessions = await db.session.findMany({ where: { id: { in: rows.map(r => r.sessionId) }, revokedAt: null, expiresAt: { gt: new Date() }, user: { disabledAt: null } }, include: { user: true } });
+    const userIds = [...new Set(rows.filter(r => liveSessions.some(s => s.id === r.sessionId) && !(r.sessionId === actor.sessionId && r.editorKey === input.editorKey)).map(r => r.userId))];
+    const contributors = userIds.filter(id => { try { requireContributor(pool, { ...actor, userId: id, role: liveSessions.find(s => s.userId === id)?.user.role ?? '' }); return true; } catch { return false; } });
+    return db.user.findMany({ where: { id: { in: contributors } }, select: { id: true, displayName: true } });
+  }); res.json({ success: true, data });
 }));

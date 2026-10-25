@@ -90,3 +90,44 @@ test('C2: import preview, draft release and ADMIN-only public review through the
     await expect(page.getByText('wissensduell · PUBLIC · Version 3', { exact: true })).toBeVisible();
   } finally { await Promise.allSettled([hostContext.close(), adminContext.close()]); }
 });
+
+test('C3: concurrent editors preserve conflicts; confirmed batch action and internal comments work in the UI', async ({ browser }) => {
+  test.setTimeout(90000);
+  const context = await browser.newContext();
+  try {
+    expect((await context.request.post(`${BASE}/api/v1/auth/e2e-token`, { data: { userId: 'mod-1' } })).status()).toBe(200);
+    const name = `Collaboration ${crypto.randomUUID()}`;
+    const created = await context.request.post(`${BASE}/api/v1/content/pools`, { data: { commandId: crypto.randomUUID(), gameSlug: 'wissensduell', name } });
+    expect(created.status()).toBe(201); const pool = (await created.json()).data;
+    const question = await context.request.post(`${BASE}/api/v1/content/pools/${pool.id}/items`, { data: { commandId: crypto.randomUUID(), item: { title: 'Gemeinsame Frage',
+      payload: { prompt: 'Ursprüngliche Frage', category: 'Test', options: [{ id: 'a', text: 'Ja' }, { id: 'b', text: 'Nein' }], correctOptionId: 'a' } } } });
+    expect(question.status()).toBe(201);
+    const first = await context.newPage(), second = await context.newPage();
+    for (const page of [first, second]) {
+      await page.goto(`${BASE}/inhalte`); await page.getByRole('button').filter({ hasText: name }).click();
+      await page.getByRole('button', { name: 'Gemeinsame Frage · DRAFT · V1', exact: true }).click();
+    }
+    const editor2 = second.getByRole('region', { name: 'Frageneditor' }), editor1 = first.getByRole('region', { name: 'Frageneditor' });
+    await expect(editor2.getByText(/Gerade ebenfalls geöffnet/)).toBeVisible();
+    await editor2.getByLabel('Frage', { exact: true }).fill('Änderung vom zweiten Tab');
+    await expect(editor2.getByRole('status')).toContainText('Version 2');
+    await editor1.getByLabel('Frage', { exact: true }).fill('Lokaler Entwurf bleibt erhalten');
+    await expect(editor1.getByRole('alert')).toContainText('inzwischen geändert');
+    await expect(editor1.getByLabel('Frage', { exact: true })).toHaveValue('Lokaler Entwurf bleibt erhalten');
+    await editor1.getByRole('button', { name: 'Aktuelle Version vergleichen' }).click();
+    await expect(editor1.getByRole('region', { name: 'Bearbeitungskonflikt' })).toContainText('Änderung vom zweiten Tab');
+    first.once('dialog', d => d.accept()); await editor1.getByRole('button', { name: 'Aktuelle Fassung übernehmen' }).click();
+    await expect(editor1.getByLabel('Frage', { exact: true })).toHaveValue('Änderung vom zweiten Tab');
+    await editor1.getByText('Zusammenarbeit und Verwendung', { exact: true }).click();
+    await editor1.getByLabel('Neuer interner Kommentar').fill('Bitte Quelle nachtragen.');
+    await editor1.getByRole('button', { name: 'Kommentar senden' }).click();
+    await expect(editor1.getByText('Bitte Quelle nachtragen.', { exact: true })).toBeVisible();
+    await first.getByText('Sammelbearbeitung', { exact: true }).click();
+    const batch = first.locator('details').filter({ has: first.locator('summary', { hasText: /^Sammelbearbeitung$/ }) });
+    await batch.getByRole('checkbox').check(); await batch.getByRole('button', { name: 'Auswirkungen prüfen' }).click();
+    await expect(batch.getByRole('region', { name: 'Auswirkungen der Sammelaktion' })).toContainText('ARCHIVED');
+    first.once('dialog', d => d.accept()); await batch.getByRole('button', { name: 'Sammelaktion bestätigen' }).click();
+    await expect(batch.getByRole('status')).toContainText('1 erfolgreich, 0 fehlgeschlagen');
+    await expect(first.getByRole('button', { name: 'Gemeinsame Frage · ARCHIVED · V3', exact: true })).toBeVisible();
+  } finally { await context.close(); }
+});

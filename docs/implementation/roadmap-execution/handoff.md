@@ -155,3 +155,12 @@ Stand und exakte Fortsetzung: ../pr17/handoff.md. Punkte 4–5 weiterhin offen.
 PR17 Ready for Review, kein Merge. Punkt 4 folgt auf eigener gestapelter
 Branch; Einzelstand und offene Master-Anforderungen: ../pr18/handoff.md.
 Punkt 5 bleibt offen.
+
+
+## Punkt4 — Wiederaufnahme gesichert / Zusammenarbeit ergänzt
+
+9a03c4f: vollständige CI/E2E grün (Run40220311085). Lokaler Folgeteil:
+Sammelbearbeitung mit Impact/Bestätigung/Teilresultaten, Concurrent-Editor-
+Anzeige, interne Kommentare/Locks/Usage-UI, PUBLIC-Privacy-Fix und echte
+konkurrierende Editorwrites. Details/Nachweise in ../pr18/handoff.md.
+Weiterhin kein Abschluss von Punkt4, kein Beginn von Punkt5, kein Merge.

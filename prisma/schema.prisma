@@ -828,3 +828,16 @@ model RoomInvite {
   @@index([roomId])
   @@map("room_invites")
 }
+
+// Ephemeral editor presence. A lost tab expires; this is not a write lock.
+model ContentEditorPresence {
+  id String @id @default(uuid())
+  itemId String
+  sessionId String
+  editorKey String
+  userId String
+  lastSeenAt DateTime @default(now())
+  @@unique([itemId, sessionId, editorKey])
+  @@index([itemId, lastSeenAt])
+  @@map("content_editor_presence")
+}

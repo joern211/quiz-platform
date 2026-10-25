@@ -1764,3 +1764,16 @@ export interface ContentPoolView {
   id: string; gameSlug: string; name: string; description: string; scope: string; ownerId: string | null;
   revision: number; defaults: z.infer<typeof ContentDefaultsSchema>; canEdit: boolean; canPropose?: boolean; canManage?: boolean; editorIds?: string[];
 }
+
+export type ContentStatus = z.infer<typeof ContentStatusSchema>;
+export const ContentBatchSchema = z.object({
+  poolId: z.string().min(1).max(128), poolRevision: z.number().int().positive(),
+  items: z.array(z.object({ id: z.string().min(1).max(128), revision: z.number().int().positive() }).strict()).min(1).max(100),
+  operation: z.discriminatedUnion('kind', [
+    z.object({ kind: z.literal('STATUS'), status: ContentStatusSchema }).strict(),
+    z.object({ kind: z.literal('TAGS'), tagIds: z.array(z.string().uuid()).max(30).nullable() }).strict(),
+    z.object({ kind: z.literal('DIFFICULTY'), difficulty: ContentDifficultySchema.nullable() }).strict(),
+    z.object({ kind: z.literal('COPY'), targetPoolId: z.string().min(1).max(128), targetRevision: z.number().int().positive() }).strict(),
+    z.object({ kind: z.literal('MOVE'), targetPoolId: z.string().min(1).max(128), targetRevision: z.number().int().positive() }).strict(),
+  ]),
+}).strict();

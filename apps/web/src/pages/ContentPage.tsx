@@ -5,6 +5,8 @@ import { authApi } from '../lib/api';
 import { ContentApiError, contentApi } from '../lib/contentApi';
 import styles from './ContentPage.module.css';
 import { ContentImportTools, ContentReviewInbox } from '../components/ContentTools';
+import { ContentCollaboration } from '../components/ContentCollaboration';
+import { ContentBatchTools } from '../components/ContentBatchTools';
 import { ContentPoolSettings } from '../components/ContentPoolSettings';
 
 type Draft = { title: string; payload: Record<string, unknown>; language: string | null; difficulty: string | null; tagIds: string[] | null; source: string; sourceUrl: string; license: string };
@@ -126,6 +128,7 @@ export function ContentEditor({ initial, pool, onSaved, dirtyFlag, actorId }: { 
       <button disabled={dirty || busy} onClick={() => contentApi.preview(item.id, previewRole, reveal).then(setPreview).catch(e => setError(errorMessage(e)))}>Vorschau laden</button>
       {preview && <div className={styles.preview}>{Object.entries(preview).map(([key, value]) => <p key={key}><strong>{{ prompt: 'Frage', question: 'Frage', category: 'Kategorie', answer: 'Lösung', correctOptionId: 'Richtige Antwort', explanation: 'Erklärung', options: 'Antwortmöglichkeiten', value: 'Punktwert' }[key] ?? key}:</strong> {Array.isArray(value) ? value.map(v => `${v.id}: ${v.text}`).join(' · ') : String(value)}</p>)}</div>}
     </fieldset>}
+    {item && <ContentCollaboration item={item} pool={pool} actorId={actorId} dirty={dirty || busy} onSaved={updated => { setItem(updated); onSaved(updated); }} />}
     {history.length > 0 && <section aria-label="Versionsverlauf"><h3>Versionen vergleichen</h3>{history.map(v => <details key={v.revision}><summary>Version {v.revision} · {v.kind} · {new Date(v.createdAt).toLocaleString()}</summary><pre className={styles.preview}>{JSON.stringify(v.snapshot, null, 2)}</pre>{pool.canEdit && item && <button disabled={dirty || busy} onClick={() => { if (window.confirm('Als neuen Entwurf übernehmen? Die Historie bleibt erhalten.')) void run(() => contentApi.restore(item, v.revision)); }}>Als neue Version wiederherstellen</button>}</details>)}</section>}
   </section>;
 }
@@ -167,6 +170,7 @@ export function ContentPage() {
           {!items.length && <p>Noch keine Fragen. Starte mit einer neuen Frage.</p>}
         </section>
         <ContentPoolSettings key={`${pool.id}:${pool.revision}`} pool={pool} onSaved={updated => { setPool(updated); setPools(rows => rows.map(p => p.id === updated.id ? updated : p)); void load(updated.id); }} />
+        <ContentBatchTools key={pool.id} pool={pool} items={items} pools={pools} onChanged={() => void load(pool.id)} mayChange={() => { if (!maySwitch()) return false; dirtyFlag.current = false; setEditing(false); return true; }} />
         <ContentImportTools key={pool.id} pool={pool} onChanged={() => void load(pool.id)} />
         {editing && <ContentEditor key={`${pool.id}:${editorKey}`} initial={selected} pool={pool} onSaved={onSaved} dirtyFlag={dirtyFlag} actorId={userId} />}
       </> : <section className={styles.panel}><h2>Ein guter Spieleabend beginnt mit guten Fragen</h2><p>Erstelle einen Pool für Wissensduell oder Jeopardy. Neue Fragen bleiben Entwürfe, bis du sie ausdrücklich freigibst.</p></section>}</div>

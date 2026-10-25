@@ -1,4 +1,6 @@
-import type { ContentItemView, ContentPoolView } from '@quiz/shared';
+import type { ContentItemView, ContentPoolView, ContentBatchSchema } from '@quiz/shared';
+
+import type { z } from 'zod';
 
 export class ContentApiError extends Error {
   constructor(public code: string, message: string, public details?: unknown) { super(message); }
@@ -20,6 +22,14 @@ async function request<T>(path: string, method = 'GET', body?: unknown): Promise
   return json.data as T;
 }
 export const contentApi = {
+  batchPreview: (batch: z.infer<typeof ContentBatchSchema>) => request<BatchPreview>('/batch/preview', 'POST', batch),
+  batchCommit: (batch: z.infer<typeof ContentBatchSchema>) => request<{ results: Array<{ id: string; status: string; error?: string }> }>('/batch/commit', 'POST', { commandId: crypto.randomUUID(), batch, confirmed: true }),
+  presence: (id: string, editorKey: string, active: boolean) => request<Array<{ id: string; displayName: string }>>(`/items/${encodeURIComponent(id)}/presence`, 'POST', { editorKey, active }),
+  comments: (id: string) => request<CommentView[]>(`/items/${encodeURIComponent(id)}/comments`),
+  comment: (id: string, message: string) => request(`/items/${encodeURIComponent(id)}/comments`, 'POST', { commandId: crypto.randomUUID(), message }),
+  resolveComment: (id: string, status: string) => request(`/comments/${encodeURIComponent(id)}/resolve`, 'POST', { commandId: crypto.randomUUID(), status }),
+  lock: (item: ContentItemView, locked: boolean) => request<ContentItemView>(`/items/${encodeURIComponent(item.id)}/lock`, 'POST', { commandId: crypto.randomUUID(), revision: item.revision, locked }),
+  usage: (id: string) => request<{ total: number; uses: Array<{ runIndex: number; itemRevision: number; createdAt: string; room: { id: string; roomName: string; status: string } | null }> }>(`/items/${encodeURIComponent(id)}/usage`),
   pools: (gameSlug?: string) => request<ContentPoolView[]>(`/pools${gameSlug ? `?gameSlug=${encodeURIComponent(gameSlug)}` : ''}`),
   pool: (id: string) => request<{ pool: ContentPoolView; items: ContentItemView[] }>(`/pools/${encodeURIComponent(id)}`),
   createPool: (gameSlug: string, name: string) => request<ContentPoolView>('/pools', 'POST', { commandId: crypto.randomUUID(), gameSlug, name }),
@@ -50,3 +60,6 @@ export const contentApi = {
 };
 export interface ImportPreviewRow { index: number; classification: string; targetId: string | null; targetRevision: number | null; title: string; errors: string[]; unknownTags: string[]; proposed: unknown; current: unknown }
 export interface ReviewView { id: string; kind: string; poolName: string; canDecide: boolean; proposed: unknown; createdAt: string }
+
+export interface BatchPreview { total: number; eligible: number; historicallyUsed: number; rows: Array<{ id: string; title: string; revision: number; uses: number; effect: string | null; error: string | null }> }
+export interface CommentView { id: string; actorId: string; message: string; status: string; createdAt: string }

@@ -19,3 +19,6 @@
 .options { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: .75rem; }
 .meta { color: var(--muted); font-size: .9rem; margin-block: .4rem; }
 @media (max-width: 760px) { .layout, .options { grid-template-columns: 1fr; } .page { padding-top: 1rem; } }
+
+.panel .check { display: flex; align-items: center; gap: .75rem; }
+.panel .check input { width: 24px; min-height: 24px; flex: 0 0 24px; }

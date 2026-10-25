@@ -72,6 +72,10 @@ export function contentInputData(input: unknown) {
 export async function mutateContent<T>(sessionId: string | null, commandId: string, intent: unknown, write: (tx: ContentDb, actor: ContentActor) => Promise<T>): Promise<T> {
   const intentHash = createHash('sha256').update(JSON.stringify(intent)).digest('hex');
   return prisma.$transaction(async tx => {
+    // Reserve the SQLite writer before the authorization read set. Two
+    // concurrent editors must serialize at the DB, then compare revisions;
+    // upgrading competing read transactions can otherwise deadlock.
+    await tx.$executeRaw`UPDATE sessions SET id = id WHERE 0`;
     const actor = await contentActor(tx, sessionId);
     // SQLite obtains the writer reservation before any authorization/read set.
     const lock = await tx.session.updateMany({ where: { id: actor.sessionId, revokedAt: null, expiresAt: { gt: new Date() } }, data: { lastActiveAt: new Date() } });
@@ -82,6 +86,11 @@ export async function mutateContent<T>(sessionId: string | null, commandId: stri
       const result = JSON.parse(receipt.responseJson);
       if (result?.poolId) await requirePool(tx, String(result.poolId), actor);
       else if (result?.gameSlug && result?.id) await requirePool(tx, String(result.id), actor);
+      // Compound results (review/batch) may contain items from other pools.
+      // Re-check those grants as well before replaying a stored response.
+      for (const item of [result?.item, ...(Array.isArray(result?.results) ? result.results.map((r: { item?: { poolId?: string } }) => r.item) : [])]) {
+        if (item?.poolId) await requirePool(tx, String(item.poolId), actor);
+      }
       return result as T;
     }
     const result = await write(tx, actor);
