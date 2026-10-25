@@ -5,6 +5,7 @@ import { authApi } from '../lib/api';
 import { ContentApiError, contentApi } from '../lib/contentApi';
 import styles from './ContentPage.module.css';
 import { ContentImportTools, ContentReviewInbox } from '../components/ContentTools';
+import { ContentPoolSettings } from '../components/ContentPoolSettings';
 
 type Draft = { title: string; payload: Record<string, unknown>; language: string | null; difficulty: string | null; tagIds: string[] | null; source: string; sourceUrl: string; license: string };
 function fromItem(item: ContentItemView): Draft { return { title: item.title, payload: item.payload, language: item.language, difficulty: item.difficulty, tagIds: item.tagIds, source: item.source, sourceUrl: item.sourceUrl, license: item.license }; }
@@ -13,11 +14,13 @@ const errorMessage = (error: unknown) => error instanceof ContentApiError && err
   ? 'Jemand hat diese Frage inzwischen geändert. Dein Entwurf bleibt erhalten. Lade die aktuelle Version und vergleiche die Änderungen.'
   : error instanceof Error ? error.message : 'Speichern fehlgeschlagen.';
 
-export function ContentEditor({ initial, pool, onSaved, dirtyFlag }: { initial: ContentItemView | null; pool: ContentPoolView; onSaved: (item: ContentItemView) => void; dirtyFlag?: MutableRefObject<boolean> }) {
+export function ContentEditor({ initial, pool, onSaved, dirtyFlag, actorId }: { initial: ContentItemView | null; pool: ContentPoolView; onSaved: (item: ContentItemView) => void; dirtyFlag?: MutableRefObject<boolean>; actorId?: string }) {
   const [draft, setDraft] = useState<Draft>(() => initial ? fromItem(initial) : newDraft(pool.gameSlug));
   const [item, setItem] = useState(initial), [status, setStatus] = useState(initial ? 'Gespeichert' : 'Ungespeichert');
   const [error, setError] = useState(''), [paused, setPaused] = useState(false), [busy, setBusy] = useState(false);
-  const [mode, setMode] = useState(() => localStorage.getItem('qp_content_editor_mode') ?? 'QUICK');
+  const modeKey = `qp_content_editor_mode:${actorId ?? pool.ownerId ?? 'anonymous'}`;
+  const [mode, setMode] = useState(() => localStorage.getItem(modeKey) ?? 'QUICK');
+  const [tags, setTags] = useState<Awaited<ReturnType<typeof contentApi.tags>>>([]), [tagError, setTagError] = useState('');
   const [history, setHistory] = useState<Awaited<ReturnType<typeof contentApi.history>>>([]), [preview, setPreview] = useState<Record<string, unknown> | null>(null);
   const [previewRole, setPreviewRole] = useState('PLAYER'), [reveal, setReveal] = useState(false);
   const saved = useRef(initial ? JSON.stringify(fromItem(initial)) : ''), alive = useRef(true), writing = useRef(false);
@@ -28,6 +31,9 @@ export function ContentEditor({ initial, pool, onSaved, dirtyFlag }: { initial: 
   const validation = validateContentPayload(pool.gameSlug, draft.payload);
   const valid = validation.success;
   useEffect(() => { alive.current = true; return () => { alive.current = false; }; }, []);
+  useEffect(() => { if (mode !== 'ADVANCED') return; let current = true;
+    contentApi.tags().then(data => { if (current) { setTags(data); setTagError(''); } }, () => { if (current) setTagError('Tags konnten nicht geladen werden.'); });
+    return () => { current = false; }; }, [mode]);
   useEffect(() => {
     const guard = (e: BeforeUnloadEvent) => { if (JSON.stringify(draftRef.current) !== saved.current) { e.preventDefault(); e.returnValue = ''; } };
     window.addEventListener('beforeunload', guard); return () => window.removeEventListener('beforeunload', guard);
@@ -62,8 +68,8 @@ export function ContentEditor({ initial, pool, onSaved, dirtyFlag }: { initial: 
   return <section className={styles.panel} aria-label="Frageneditor">
     <h2>{item ? 'Frage bearbeiten' : 'Neue Frage'}</h2>
     <p className={styles.status} role="status">{status} · {item?.status ?? 'DRAFT'}{item ? ` · Version ${item.revision}` : ''}</p>
-    {!pool.canEdit && <p>Dieser Pool ist schreibgeschützt. Erstelle eine private Kopie, um Inhalte zu ändern.</p>}
-    <div className={styles.actions}><button onClick={() => { const next = mode === 'QUICK' ? 'ADVANCED' : 'QUICK'; setMode(next); localStorage.setItem('qp_content_editor_mode', next); }}>{mode === 'QUICK' ? 'Erweiterte Optionen' : 'Einfache Ansicht'}</button></div>
+    {!pool.canEdit && <p>{pool.canPropose ? 'Änderungen an veröffentlichten Fragen werden vom Admin geprüft.' : 'Dieser Pool ist schreibgeschützt. Erstelle eine private Kopie, um Inhalte zu ändern.'}</p>}
+    <div className={styles.actions}><button onClick={() => { const next = mode === 'QUICK' ? 'ADVANCED' : 'QUICK'; setMode(next); localStorage.setItem(modeKey, next); }}>{mode === 'QUICK' ? 'Erweiterte Optionen' : 'Einfache Ansicht'}</button></div>
     {error && <div className={styles.error} role="alert">{error}</div>}
     {paused && <div className={styles.actions}>
       <button onClick={() => setPaused(false)}>Speichern erneut versuchen</button>
@@ -85,6 +91,9 @@ export function ContentEditor({ initial, pool, onSaved, dirtyFlag }: { initial: 
       {pool.gameSlug === 'wissensduell' && <>{input('Erklärung', 'explanation', true)}<label>Punkte<input disabled={!canWrite} type="number" min={0} value={Number(draft.payload.points)} onChange={e => field('points', Number(e.target.value))} /></label><label>Dauer in Sekunden<input disabled={!canWrite} type="number" min={1} value={Number(draft.payload.durationMs) / 1000} onChange={e => field('durationMs', Number(e.target.value) * 1000)} /></label></>}
       <label>Sprache<select disabled={!canWrite} value={draft.language ?? ''} onChange={e => patch({ language: e.target.value || null })}><option value="">Pool-Standard ({pool.defaults.language})</option>{['de-DE', 'en-US', 'tr-TR'].map(l => <option key={l}>{l}</option>)}</select></label>
       <label>Schwierigkeit<select disabled={!canWrite} value={draft.difficulty ?? ''} onChange={e => patch({ difficulty: e.target.value || null })}><option value="">Pool-Standard ({pool.defaults.difficulty ?? 'nicht gesetzt'})</option>{['VERY_EASY', 'EASY', 'MEDIUM', 'HARD', 'VERY_HARD'].map(l => <option key={l}>{l}</option>)}</select></label>
+      {tagError && <p>{tagError}</p>}
+      <label>Tags {draft.tagIds === null ? '(vom Pool übernommen)' : '(eigene Auswahl)'}<select aria-label="Fragen-Tags" multiple disabled={!canWrite} value={draft.tagIds ?? pool.defaults.tagIds} onChange={e => patch({ tagIds: Array.from(e.target.selectedOptions, o => o.value) })}>{tags.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}</select></label>
+      <button disabled={!canWrite || draft.tagIds === null} onClick={() => patch({ tagIds: null })}>Pool-Tags übernehmen</button>
       <label>Quelle<input disabled={!canWrite} value={draft.source} onChange={e => patch({ source: e.target.value })} /></label>
       <label>Quellen-URL<input disabled={!canWrite} type="url" value={draft.sourceUrl} onChange={e => patch({ sourceUrl: e.target.value })} /></label>
       <label>Lizenz / Nutzungserlaubnis<input disabled={!canWrite} value={draft.license} onChange={e => patch({ license: e.target.value })} /></label>
@@ -138,8 +147,9 @@ export function ContentPage() {
           <ul className={styles.list}>{items.filter(q => `${q.title} ${JSON.stringify(q.payload)}`.toLocaleLowerCase().includes(query.toLocaleLowerCase())).map(q => <li key={q.id}><button onClick={() => open(q)}>{q.title || String(q.payload.prompt ?? q.payload.question ?? 'Unbenannter Entwurf')} · {q.status} · V{q.revision}</button></li>)}</ul>
           {!items.length && <p>Noch keine Fragen. Starte mit einer neuen Frage.</p>}
         </section>
+        <ContentPoolSettings key={`${pool.id}:${pool.revision}`} pool={pool} onSaved={updated => { setPool(updated); setPools(rows => rows.map(p => p.id === updated.id ? updated : p)); void load(updated.id); }} />
         <ContentImportTools key={pool.id} pool={pool} onChanged={() => void load(pool.id)} />
-        {editing && <ContentEditor key={`${pool.id}:${editorKey}`} initial={selected} pool={pool} onSaved={onSaved} dirtyFlag={dirtyFlag} />}
+        {editing && <ContentEditor key={`${pool.id}:${editorKey}`} initial={selected} pool={pool} onSaved={onSaved} dirtyFlag={dirtyFlag} actorId={userId} />}
       </> : <section className={styles.panel}><h2>Ein guter Spieleabend beginnt mit guten Fragen</h2><p>Erstelle einen Pool für Wissensduell oder Jeopardy. Neue Fragen bleiben Entwürfe, bis du sie ausdrücklich freigibst.</p></section>}</div>
     </div>}
   </div>;

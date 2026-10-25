@@ -62,9 +62,11 @@ it('renders Jeopardy-specific fields and read-only public content', () => {
   expect(screen.getByLabelText('Punktwert')).toBeDisabled();
   expect(screen.queryByRole('button', { name: 'Für Spiele freigeben' })).not.toBeInTheDocument();
 });
-it('enables pool creation using the real nested auth/me user envelope', async () => {
-  vi.stubGlobal('fetch', vi.fn(async (path: string) => ({ ok: true, headers: new Headers({ 'Content-Type': 'application/json' }),
-    json: async () => ({ success: true, data: path.endsWith('/auth/me') ? { user: { id: 'host-id', role: 'HOST', displayName: 'Host' } } : [] }) })));
+it('enables pool creation using the real session endpoint and its nested user envelope', async () => {
+  const fetch = vi.fn(async (path: string) => ({ ok: path === '/api/v1/auth/session' || path === '/api/v1/content/pools', headers: new Headers({ 'Content-Type': 'application/json' }),
+    json: async () => ({ success: true, data: path === '/api/v1/auth/session' ? { user: { id: 'host-id', role: 'HOST', displayName: 'Host' } } : [] }) }));
+  vi.stubGlobal('fetch', fetch);
   render(<MemoryRouter><ContentPage /></MemoryRouter>);
   await waitFor(() => expect(screen.getByRole('button', { name: 'Pool erstellen' })).toBeEnabled());
+  expect(fetch).toHaveBeenCalledWith('/api/v1/auth/session', expect.objectContaining({ credentials: 'include' }));
 });

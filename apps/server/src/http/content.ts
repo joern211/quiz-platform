@@ -65,9 +65,14 @@ contentRouter.get('/pools/:id', endpoint(async (req, res) => {
     (!query || `${i.title} ${JSON.stringify(i.payload)}`.toLocaleLowerCase().includes(query)));
   res.json({ success: true, data: { pool: poolView(pool, actor), items } });
 }));
+contentRouter.get('/pools/:id/editors', endpoint(async (req, res) => {
+  const actor = await contentActor(prisma, session(req)), pool = await requirePool(prisma, String(req.params.id), actor);
+  if (actor.role !== 'ADMIN' && pool.ownerId !== actor.userId) throw new ContentError('OWNERSHIP_REQUIRED', 403);
+  res.json({ success: true, data: await prisma.user.findMany({ where: { id: { in: JSON.parse(pool.editorIdsJson) as string[] } }, select: { id: true, displayName: true } }) });
+}));
 contentRouter.put('/pools/:id', endpoint(async (req, res) => {
   const input = revisionCommand.extend({ name: z.string().trim().min(1).max(150), description: z.string().max(2000), defaults: ContentDefaultsSchema,
-    scope: z.enum(['PRIVATE', 'SHARED']), editorIds: z.array(z.string().uuid()).max(30) }).strict().parse(req.body);
+    scope: z.enum(['PRIVATE', 'SHARED']), editorIds: z.array(z.string().min(1).max(128)).max(30) }).strict().parse(req.body);
   const data = await mutateContent(session(req), input.commandId, { action: 'EDIT_POOL', id: String(req.params.id), input }, async (db, actor) => {
     const pool = await requirePool(db, String(req.params.id), actor, true);
     if (pool.ownerId !== actor.userId && actor.role !== 'ADMIN') throw new ContentError('OWNERSHIP_REQUIRED', 403);
@@ -175,10 +180,25 @@ contentRouter.get('/items/:id/preview', endpoint(async (req, res) => {
 contentRouter.get('/tags', endpoint(async (req, res) => {
   await contentActor(prisma, session(req)); res.json({ success: true, data: await prisma.contentTag.findMany({ orderBy: { name: 'asc' } }) });
 }));
+contentRouter.get('/editors/search', endpoint(async (req, res) => {
+  await contentActor(prisma, session(req)); const query = z.string().trim().min(3).max(100).parse(req.query.q);
+  res.json({ success: true, data: await prisma.user.findMany({ where: { disabledAt: null, role: { in: ['HOST', 'ADMIN'] },
+    OR: [{ displayName: { contains: query } }, { email: query }] }, select: { id: true, displayName: true }, take: 10 }) });
+}));
+contentRouter.put('/tags/:id/aliases', endpoint(async (req, res) => {
+  const input = command.extend({ aliases: z.array(z.string().trim().regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/).max(80)).max(20) }).strict().parse(req.body);
+  const data = await mutateContent(session(req), input.commandId, { action: 'TAG_ALIASES', id: req.params.id, input }, async (db, actor) => {
+    if (actor.role !== 'ADMIN') throw new ContentError('NOT_AUTHORIZED', 403);
+    const all = await db.contentTag.findMany(), tag = all.find(t => t.id === req.params.id); if (!tag) throw new ContentError('RESOURCE_NOT_ACCESSIBLE', 404);
+    if (new Set(input.aliases).size !== input.aliases.length || input.aliases.some(alias => all.some(t => t.id !== tag.id && (t.slug === alias || (JSON.parse(t.aliasesJson) as string[]).includes(alias))))) throw new ContentError('TAG_ALIAS_CONFLICT', 409);
+    const updated = await db.contentTag.update({ where: { id: tag.id }, data: { aliasesJson: JSON.stringify(input.aliases) } }); await auditContent(db, actor, 'CONTENT_TAG_ALIASES', tag.id, { aliases: input.aliases }); return updated;
+  }); res.json({ success: true, data });
+}));
 contentRouter.post('/tags', endpoint(async (req, res) => {
   const input = command.extend({ name: z.string().trim().min(1).max(80), slug: z.string().regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/).max(80) }).strict().parse(req.body);
   const data = await mutateContent(session(req), input.commandId, { action: 'TAG_CREATE', input }, async (db, actor) => {
     const existing = await db.contentTag.findUnique({ where: { slug: input.slug } }); if (existing) return existing;
+    if ((await db.contentTag.findMany()).some(t => (JSON.parse(t.aliasesJson) as string[]).includes(input.slug))) throw new ContentError('TAG_ALIAS_CONFLICT', 409);
     const tag = await db.contentTag.create({ data: { name: input.name, slug: input.slug } }); await auditContent(db, actor, 'CONTENT_TAG_CREATE', tag.id, {}); return tag;
   }); res.status(201).json({ success: true, data });
 }));

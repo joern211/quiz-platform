@@ -34,7 +34,8 @@ export async function requirePool(db: ContentDb, id: string, actor: ContentActor
 export function poolView(pool: ContentPool, actor: ContentActor): ContentPoolView {
   return { id: pool.id, name: pool.name, description: pool.description, gameSlug: pool.gameSlug, ownerId: pool.ownerId,
     scope: pool.scope, revision: pool.revision, defaults: ContentDefaultsSchema.parse(JSON.parse(pool.defaultsJson)), canEdit: canEditPool(pool, actor) && pool.status === 'ACTIVE',
-    canPropose: pool.status === 'ACTIVE' && (pool.ownerId === actor.userId || actor.role === 'ADMIN') };
+    canPropose: pool.status === 'ACTIVE' && (pool.ownerId === actor.userId || actor.role === 'ADMIN'),
+    canManage: pool.status === 'ACTIVE' && canEditPool(pool, actor) && (pool.ownerId === actor.userId || actor.role === 'ADMIN'), editorIds: editors(pool) };
 }
 export function itemView(item: ContentItem, pool: ContentPool): ContentItemView {
   const defaults = ContentDefaultsSchema.parse(JSON.parse(pool.defaultsJson));
@@ -101,7 +102,7 @@ export async function changeItem(db: ContentDb, actor: ContentActor, id: string,
   return itemView(updated, pool);
 }
 
-export interface PinnedContent { id: string; poolId: string; revision: number; gameSlug: string; payload: Record<string, unknown>; language: string; difficulty: string | null; tagIds: string[] }
+export interface PinnedContent { id: string; poolId: string; poolRevision: number; revision: number; gameSlug: string; payload: Record<string, unknown>; language: string; difficulty: string | null; tagIds: string[] }
 /** Called inside room creation; the browser supplies only selection intent, never trusted snapshots. */
 export async function selectRoomContent(db: ContentDb, actor: ContentActor, gameSlug: string, raw: unknown, roomId?: string): Promise<PinnedContent[]> {
   const selection = ContentSelectionSchema.parse(raw);
@@ -111,7 +112,7 @@ export async function selectRoomContent(db: ContentDb, actor: ContentActor, game
   const rows = await db.contentItem.findMany({ where: { poolId: { in: selection.poolIds }, status: 'READY' }, orderBy: { id: 'asc' } });
   let items = rows.map(row => {
     const view = itemView(row, pools.find(p => p.id === row.poolId)!);
-    return { id: row.id, poolId: row.poolId, revision: row.revision, gameSlug, payload: view.payload, ...view.effective };
+    return { id: row.id, poolId: row.poolId, poolRevision: pools.find(p => p.id === row.poolId)!.revision, revision: row.revision, gameSlug, payload: view.payload, ...view.effective };
   }).filter(q => q.language === selection.language && (!selection.difficulty || q.difficulty === selection.difficulty) && selection.tagIds.every(id => q.tagIds.includes(id)));
   const prior = roomId ? new Set((await db.contentUse.findMany({ where: { roomId }, select: { itemId: true } })).map(q => q.itemId)) : new Set<string>();
   if (selection.mode === 'MANUAL') {

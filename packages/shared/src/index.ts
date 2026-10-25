@@ -1728,7 +1728,7 @@ export const ContentDefaultsSchema = z.object({
 export const CreateContentPoolSchema = z.object({
   commandId: z.string().uuid(), gameSlug: ContentGameSchema, name: z.string().trim().min(1).max(150),
   description: z.string().max(2000).default(''), scope: z.enum(['PRIVATE', 'SHARED']).default('PRIVATE'),
-  defaults: ContentDefaultsSchema.default({}), editorIds: z.array(z.string().uuid()).max(30).default([]),
+  defaults: ContentDefaultsSchema.default({}), editorIds: z.array(z.string().min(1).max(128)).max(30).default([]),
 }).strict();
 export const ContentItemInputSchema = z.object({
   title: z.string().trim().max(200).default(''), payload: z.record(z.unknown()),
@@ -1760,5 +1760,5 @@ export interface ContentItemView {
 }
 export interface ContentPoolView {
   id: string; gameSlug: string; name: string; description: string; scope: string; ownerId: string | null;
-  revision: number; defaults: z.infer<typeof ContentDefaultsSchema>; canEdit: boolean; canPropose?: boolean;
+  revision: number; defaults: z.infer<typeof ContentDefaultsSchema>; canEdit: boolean; canPropose?: boolean; canManage?: boolean; editorIds?: string[];
 }

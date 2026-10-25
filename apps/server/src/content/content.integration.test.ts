@@ -55,6 +55,8 @@ afterAll(async () => { for (const id of roomIds) cancelGeoTimer(id); if (app) aw
 
 describe('content HTTP/DB contracts', () => {
   it('requires live sessions and hides other private pools, items and revisions', async () => {
+    const currentSession = await supertest(app.app).get('/api/v1/auth/session').set('Cookie', owner);
+    expect(currentSession.status).toBe(200); expect(currentSession.body.data.user.role).toBe('HOST');
     const p = await pool(), q = await item(p.id);
     expect((await supertest(app.app).get('/api/v1/content/pools')).status).toBe(401);
     for (const path of [`/pools/${p.id}`, `/items/${q.id}`, `/items/${q.id}/history`, `/items/${q.id}/preview`]) {
@@ -243,5 +245,28 @@ describe('content HTTP/DB contracts', () => {
       expect((await db.room.findUniqueOrThrow({ where: { id: roomId } })).runIndex).toBe(2);
       expect(await db.contentUse.count({ where: { roomId } })).toBe(2);
     } finally { host.disconnect(); }
+  });
+  it('inherits pool standards, checks shared-editor ownership and revokes removed collaborators immediately', async () => {
+    const p = await pool(), q = await item(p.id);
+    const tag = (await api(owner).post('/tags', { commandId: commandId(), name: 'Science', slug: 'science' })).body.data;
+    const update = { commandId: commandId(), revision: 1, name: 'Shared pool', description: '', scope: 'SHARED', editorIds: [otherId],
+      defaults: { language: 'en-US', difficulty: 'HARD', tagIds: [tag.id] } };
+    expect((await api(owner).put(`/pools/${p.id}`, update)).status).toBe(200);
+    expect((await api(other).get(`/items/${q.id}`)).body.data.effective).toEqual({ language: 'en-US', difficulty: 'HARD', tagIds: [tag.id] });
+    expect((await api(other).put(`/pools/${p.id}`, { ...update, commandId: commandId(), revision: 2 })).status).toBe(403);
+    expect((await api(owner).put(`/pools/${p.id}`, { ...update, commandId: commandId(), revision: 2, scope: 'PRIVATE', editorIds: [] })).status).toBe(200);
+    expect((await api(other).get(`/items/${q.id}`)).status).toBe(404);
+  });
+  it('canonicalizes aliases only after explicit ADMIN assignment and fences preview changes to tags', async () => {
+    const p = await pool(), tag = (await api(owner).post('/tags', { commandId: commandId(), name: 'Physics', slug: 'physics' })).body.data;
+    expect((await api(owner).put(`/tags/${tag.id}/aliases`, { commandId: commandId(), aliases: ['physik'] })).status).toBe(403);
+    expect((await api(admin).put(`/tags/${tag.id}/aliases`, { commandId: commandId(), aliases: ['physik'] })).status).toBe(200);
+    const upload = Buffer.from(JSON.stringify({ schemaVersion: 1, gameSlug: 'wissensduell', items: [{ ...quiz, tags: ['physik'] }] })).toString('base64');
+    const preview = await api(owner).post(`/pools/${p.id}/import/preview`, { format: 'JSON', fileBase64: upload });
+    expect(preview.body.data.rows[0].unknownTags).toEqual([]);
+    const done = await api(owner).post('/imports/commit', { commandId: commandId(), importId: preview.body.data.importId, decisions: [{ index: 0, action: 'IMPORT_NEW' }], tagDecisions: [] });
+    expect(done.status).toBe(200);
+    expect(JSON.parse((await db.contentItem.findFirstOrThrow({ where: { poolId: p.id } })).tagIdsJson!)).toEqual([tag.id]);
+    expect((await api(owner).post('/tags', { commandId: commandId(), name: 'Conflicting', slug: 'physik' })).status).toBe(409);
   });
 });

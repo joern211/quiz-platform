@@ -31,6 +31,10 @@ export const contentApi = {
   markRead: (id: string) => request(`/inbox/${encodeURIComponent(id)}/read`, 'POST', { commandId: crypto.randomUUID() }),
   quality: (id: string) => request<{ health: string; counts: Record<string, number>; warnings: Array<{ kind: string }>; duplicateCount: number }>(`/pools/${encodeURIComponent(id)}/quality`),
   tags: () => request<Array<{ id: string; name: string; slug: string }>>('/tags'),
+  createTag: (name: string, slug: string) => request<{ id: string; name: string; slug: string }>('/tags', 'POST', { commandId: crypto.randomUUID(), name, slug }),
+  findEditors: (q: string) => request<Array<{ id: string; displayName: string }>>(`/editors/search?q=${encodeURIComponent(q)}`),
+  poolEditors: (id: string) => request<Array<{ id: string; displayName: string }>>(`/pools/${encodeURIComponent(id)}/editors`),
+  updatePool: (pool: ContentPoolView, values: unknown) => request<ContentPoolView>(`/pools/${encodeURIComponent(pool.id)}`, 'PUT', { commandId: crypto.randomUUID(), revision: pool.revision, ...(values as object) }),
 };
 export interface ImportPreviewRow { index: number; classification: string; targetId: string | null; targetRevision: number | null; title: string; errors: string[]; unknownTags: string[]; proposed: unknown; current: unknown }
 export interface ReviewView { id: string; kind: string; poolName: string; canDecide: boolean; proposed: unknown; createdAt: string }

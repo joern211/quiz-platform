@@ -72,7 +72,7 @@ export const authApi = {
     apiFetch<void>('/auth/logout', { method: 'POST' }),
 
   me: () =>
-    apiFetch<{ user: { id: string; displayName: string; role: string } }>('/auth/me'),
+    apiFetch<{ user: { id: string; displayName: string; role: string } }>('/auth/session'),
 };
 
 // ── Catalog ───────────────────────────────────────────────────

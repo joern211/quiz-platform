@@ -106,7 +106,8 @@ export async function previewContentImport(db: ContentDb, actor: ContentActor, p
       targetId: target?.id ?? null, targetRevision: target?.revision ?? null, errors, unknownTags: row.tagNames.filter(name => !tagMap.has(name)), title: row.input.title,
       proposed: row.input, current: target ? itemView(target, pool) : null };
   });
-  return { rows: previews, targetHash: contentHash({ revision: pool.revision, items: existing.map(i => [i.id, i.revision]).sort() }) };
+  return { rows: previews, targetHash: contentHash({ revision: pool.revision, items: existing.map(i => [i.id, i.revision]).sort(),
+    tags: tags.map(t => [t.id, t.slug, t.name, t.aliasesJson]).sort() }) };
 }
 export const ImportCommitSchema = z.object({ commandId: z.string().uuid(), importId: z.string().uuid(),
   decisions: z.array(z.object({ index: z.number().int().min(0).max(MAX_ROWS - 1), action: z.enum(['SKIP', 'IMPORT_NEW', 'UPDATE_EXISTING', 'IMPORT_DRAFT']) }).strict()).max(MAX_ROWS),

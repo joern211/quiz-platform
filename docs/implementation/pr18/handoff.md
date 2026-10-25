@@ -106,3 +106,28 @@ Concurrent-Editor-Anzeige, vollständige Korrektur-/Reviewzuweisungs-/Bulk-/
 Playtest-Funktionen und weitere Master-§6-Details. Medienreferenzen und
 Legacy-Migration auf vollständigen Erhalt weiter prüfen. Kein Abschluss
 von Punkt4; Punkt5 noch nicht begonnen.
+
+## Dritter Teil — Pool-Einstellungen / Auth-Routenvertrag
+
+Run 40199727713 am b44c7dc: komplette CI grün, 20 bestehende E2E grün,
+C1/C2 nicht grün. Traces aus /tmp/quiz-pr18-e2e2 zeigen zusätzlich zum
+Envelope den bisher ungenutzten falschen Clientpfad /auth/me. Der reale
+Server hat /auth/session. Clientpfad korrigiert; Webtest prüft jetzt URL
+UND Envelope, HTTP-Test bestätigt reale /auth/session-Antwort. C2 hatte
+Import, DRAFT, READY und Public-Einreichung bereits komplett geschafft.
+Kein Pflichtfall entfernt; T1 diesmal ohne Flake grün.
+
+Pool-Standards/Sprache/Difficulty/Tags und explizite Shared-Editor-Verwaltung
+sind jetzt auch in der UI vorhanden; nur Eigentümer/Admin darf Zugriffe
+ändern. Suche liefert nur IDs/Anzeigenamen, keine E-Mail-Liste. Historische
+Legacy-Account-IDs dürfen zugewiesen werden. Globale Tags können explizit
+erstellt werden; Aliases verwaltet nur ADMIN, Slug-/Alias-Kollisionen werden
+verweigert. Importvorschauen pinnen auch die Tagzuordnung; spätere globale
+Tagänderung erfordert neue Preview. Item-Tags zeigen inherited/local und
+können auf Pool-Defaults zurückgesetzt werden. Editor-Modus pro Hostkonto.
+PinnedContent speichert zusätzlich die Pool-Revision.
+
+Gezielte Content-Suite 16/16, Web103/103, beide Builds und Typecheck grün,
+Lint 0 Fehler / 113 Warnungen. Voller Serverlauf zuletzt am vorherigen
+Produktstand 445/445; neuer kompletter CI/E2E-Lauf nach Push noch offen.
+Weitere Punkt4-Lücken wie oben bleiben bestehen; kein Paketabschluss.
