@@ -63,6 +63,9 @@ export function registerRoomCore(io: Server, socket: Socket) {
     if (!participationId || !roomId || participationId.startsWith('viewer:')) return;
     const start = performance.now();
     socket.timeout(3000).emit('room:probe', (error: Error | null) => {
+      // An in-flight probe can finish after disconnect, room switch or
+      // replacement. Do not enqueue stale writes against a released identity.
+      if (!socket.connected || socket.data.roomId !== roomId || socket.data.participationId !== participationId) return;
       const ms = error ? 3000 : Math.max(0, Math.round(performance.now() - start));
       void prisma.participation.updateMany({ where: { id: participationId, roomId, connectionId: socket.id, connected: true }, data: { lastRoundTripMs: ms } }).catch(() => undefined);
     });

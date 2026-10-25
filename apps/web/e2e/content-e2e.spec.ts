@@ -112,7 +112,9 @@ test('C3: concurrent editors preserve conflicts; confirmed batch action and inte
     const first = await context.newPage(), second = await context.newPage();
     for (const page of [first, second]) {
       await page.goto(`${BASE}/inhalte`); await page.getByRole('button').filter({ hasText: name }).click();
+      const registered = page.waitForResponse(response => response.url().endsWith('/presence') && response.request().postDataJSON()?.active === true && response.status() === 200);
       await page.getByRole('button', { name: 'Gemeinsame Frage · DRAFT · V1', exact: true }).click();
+      await registered;
     }
     const editor2 = second.getByRole('region', { name: 'Frageneditor' }), editor1 = first.getByRole('region', { name: 'Frageneditor' });
     await expect(editor2.getByText(/Gerade ebenfalls geöffnet/)).toBeVisible();

@@ -330,3 +330,25 @@ Progression, Spiel-Presets/Room-Templates und BLIND_HOST über alle Lese- und
 Recovery-Pfade; außerdem weitere Master-§6-Detailabnahmen. Vorhandene Audio-
 Headerprüfung ist weiterhin kein vollständiger Decoder/Normalizer. Punkt5
 noch nicht begonnen. Kein Merge, Push weiterhin autorisiert.
+
+## Neunter Teil — Testisolation und verspätete Präsenzantworten
+
+787a92f: CI im zweiten Versuch grün; E2E23/24, C3 scheiterte am
+Anwesenheitshinweis. C4 (Vorlagen/Aufgaben/Review) bestanden. Der erste
+CI-Versuch hatte zwei Datenbank-/Socket-Timeouts in der älteren P14-Suite.
+
+- P14 erhält eine eigene frisch migrierte und gesäte Testdatenbank. Die
+  echten Datenbank-/Socket-Rennen und alle23 bestehenden Assertions bleiben.
+  Beim Abbau werden Spieltimer gestoppt und Disconnect-Identitäten abgewartet.
+- Eine verspätete room:probe-Antwort schreibt nach Disconnect oder Wechsel
+  von Raum/Teilnehmer nicht mehr. Drei gezielte Gegenproben decken aktive
+  Identität, Disconnect und Identitätswechsel ab. DB-Identitätszaun bleibt.
+- C3 wartet beim Öffnen jedes Editors auf dessen erfolgreiche
+  Anwesenheitsregistrierung, bevor der nächste Tab startet. So hängt der
+  Hinweis nicht vom15-Sekunden-Heartbeat bei5-Sekunden-Assertion ab.
+  Keine Assertions entfernt, keine pauschalen Retries/Timeout-Erhöhungen.
+
+Gezielt26/26 Tests, beide Builds/Typecheck und Lint0 Fehler/113 Warnungen
+grün. Vollständige Server-Suite und exakte GitHub-Prüfung folgen.
+Playtest ist der nächste Teil; sein lokaler Entwurf gehört noch nicht
+zu diesem gesicherten Commit. Paket4 offen, Paket5 unbegonnen, kein Merge.
