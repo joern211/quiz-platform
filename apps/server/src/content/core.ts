@@ -33,7 +33,8 @@ export async function requirePool(db: ContentDb, id: string, actor: ContentActor
 }
 export function poolView(pool: ContentPool, actor: ContentActor): ContentPoolView {
   return { id: pool.id, name: pool.name, description: pool.description, gameSlug: pool.gameSlug, ownerId: pool.ownerId,
-    scope: pool.scope, revision: pool.revision, defaults: ContentDefaultsSchema.parse(JSON.parse(pool.defaultsJson)), canEdit: canEditPool(pool, actor) && pool.status === 'ACTIVE' };
+    scope: pool.scope, revision: pool.revision, defaults: ContentDefaultsSchema.parse(JSON.parse(pool.defaultsJson)), canEdit: canEditPool(pool, actor) && pool.status === 'ACTIVE',
+    canPropose: pool.status === 'ACTIVE' && (pool.ownerId === actor.userId || actor.role === 'ADMIN') };
 }
 export function itemView(item: ContentItem, pool: ContentPool): ContentItemView {
   const defaults = ContentDefaultsSchema.parse(JSON.parse(pool.defaultsJson));
@@ -102,7 +103,7 @@ export async function changeItem(db: ContentDb, actor: ContentActor, id: string,
 
 export interface PinnedContent { id: string; poolId: string; revision: number; gameSlug: string; payload: Record<string, unknown>; language: string; difficulty: string | null; tagIds: string[] }
 /** Called inside room creation; the browser supplies only selection intent, never trusted snapshots. */
-export async function selectRoomContent(db: ContentDb, actor: ContentActor, gameSlug: string, raw: unknown): Promise<PinnedContent[]> {
+export async function selectRoomContent(db: ContentDb, actor: ContentActor, gameSlug: string, raw: unknown, roomId?: string): Promise<PinnedContent[]> {
   const selection = ContentSelectionSchema.parse(raw);
   if (new Set(selection.poolIds).size !== selection.poolIds.length) throw new ContentError('DUPLICATE_POOL');
   const pools = await Promise.all(selection.poolIds.map(id => requirePool(db, id, actor)));
@@ -112,10 +113,16 @@ export async function selectRoomContent(db: ContentDb, actor: ContentActor, game
     const view = itemView(row, pools.find(p => p.id === row.poolId)!);
     return { id: row.id, poolId: row.poolId, revision: row.revision, gameSlug, payload: view.payload, ...view.effective };
   }).filter(q => q.language === selection.language && (!selection.difficulty || q.difficulty === selection.difficulty) && selection.tagIds.every(id => q.tagIds.includes(id)));
+  const prior = roomId ? new Set((await db.contentUse.findMany({ where: { roomId }, select: { itemId: true } })).map(q => q.itemId)) : new Set<string>();
   if (selection.mode === 'MANUAL') {
     if (!selection.itemIds.length || new Set(selection.itemIds).size !== selection.itemIds.length) throw new ContentError('INVALID_CONTENT_SELECTION');
-    items = selection.itemIds.map(id => { const found = items.find(q => q.id === id); if (!found) throw new ContentError('CONTENT_NOT_READY'); return found; });
-  } else items = shuffleServer(items).slice(0, selection.count);
+    items = selection.itemIds.map(id => { const found = items.find(q => q.id === id); if (!found || selection.repeatRule === 'NO_REPEAT_IN_ROOM' && prior.has(id)) throw new ContentError('CONTENT_NOT_READY'); return found; });
+  } else {
+    if (selection.repeatRule === 'NO_REPEAT_IN_ROOM') items = items.filter(q => !prior.has(q.id));
+    items = selection.repeatRule === 'PREFER_UNSEEN'
+      ? [...shuffleServer(items.filter(q => !prior.has(q.id))), ...shuffleServer(items.filter(q => prior.has(q.id)))].slice(0, selection.count)
+      : shuffleServer(items).slice(0, selection.count);
+  }
   if (!items.length || (selection.mode === 'RANDOM' && items.length < selection.count)) throw new ContentError('CONTENT_NOT_READY');
   for (const q of items) {
     const valid = validateContentPayload(gameSlug, q.payload);

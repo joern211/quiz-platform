@@ -58,3 +58,51 @@ Lokal keine Browser installiert; Browserabnahme via GitHub Actions.
 GitHub-Push ist autorisiert, kein erneutes Nachfragen. GitHub-API-Objekte
 verwenden, Datei-Baum-SHA vergleichen, Ref nur Fast-Forward mit expected_sha.
 Aktuelle Prüf-Logs unter /tmp/quiz-content-*.log.
+
+## Zweiter gesicherter Teil — Import / Review / Repeat
+
+Erster Remote-Stand e43afd9 mit Run 40198146513: komplette CI grün,
+Browserabnahme nicht grün. C1 fand einen echten Auth-Envelope-Fehler:
+authApi.me war flach typisiert, Server liefert data.user. Dadurch blieb
+Pool-Erstellung deaktiviert. Typ und Consumer korrigiert; neuer Webtest
+verifiziert das echte verschachtelte Envelope. T1 war im ersten Versuch
+nach Rematch ohne Panel, im Retry grün; bleibt weiter Pflichtfall.
+Traces/Error-Contexts tatsächlich aus GitHub geladen und gelesen
+(/tmp/quiz-pr18-e2e). Kein Test entfernt oder fachlich abgeschwächt.
+
+Neu umgesetzt:
+- JSON/CSV/XLSX-Export und -Import mit serverseitig persistierter Vorschau,
+  5MB/500-Zeilen-Grenzen, XLSX-Expansion-Grenze, keine Formeln/komplexen
+  Zellen, CSV-Formelschutz. Preview NEW/EXACT/SIMILAR/CONFLICT/INVALID,
+  Vorschlag/Originalvergleich, explizite Skip/Import/Update/DRAFT-Entscheide,
+  Tag create/map/ignore (UI derzeit create/ignore), Preview-/Revisionsfence,
+  Wiederholungsschutz, keine stille READY-Freigabe. Exporte ohne Sessions/
+  Tokens/Storage-Pfade. ExcelJS4.4 Dokument-Workbook direkt geladen (keine
+  unnötigen Streaming-Reader-Abhängigkeiten im VM/Produktionspfad).
+- Public-Pool-Einreichung mit Quellen-/Lizenz-/READY-Gate, Poolsperre,
+  finaler ADMIN-Entscheidung. Gameplay-Änderung als persistierter Vorschlag,
+  alte veröffentlichte Fassung bleibt bis Freigabe nutzbar. Metadaten-PATCH
+  durch Owner ohne Gameplayänderung, ansonsten konservativ Admin-Reapproval.
+  Historische Revisionen bleiben unverändert.
+- Inbox/Review-UI, interne Kommentar- und Lock-Endpunkte sowie konkrete
+  Quality-Counts/Gründe ohne erfundenen 0–100-Score. Öffentliche Drafts
+  sind für fremde Hosts auch bei Direktzugriff/Export verborgen.
+- NO_REPEAT_IN_ROOM nutzt echte ContentUse-Historie bei Rematch;
+  PREFER_UNSEEN priorisiert ungesehene Fragen; ALLOW_REPEATS darf die
+  Historie wiederverwenden. Erschöpfung rollt Rematch vollständig zurück.
+  Socket meldet dafür fachlichen Content-Fehler, kein unbekanntes Outcome.
+
+Nachweise am lokalen Folgestand: 445/445 Servertests (52 Dateien),
+103/103 Webtests (16 Dateien), Typecheck und beide Builds grün, Lint
+0 Fehler / 113 bestehende Warnungen. Content-Suite 14 echte Fälle inkl.
+XLSX-Roundtrip/Formelablehnung, Import-Stale/Dedup/Tags, Admin-Reapproval,
+Originalhistorie und echter Socket-Rematch. Cleanup wartet auf echte
+Disconnect-Handler. C1 bleibt aktiv; C2 ergänzt Browser-Import bis zur
+ADMIN-Freigabe. Ganze CI/E2E am neuen Remote-Head noch offen.
+
+Weiter offen in Punkt4: BLIND_HOST, feste Counts/Filter je Pool,
+Progression/Presets/weitere Templates, Tags-/Sharing-/Pooldefaults-UI,
+Concurrent-Editor-Anzeige, vollständige Korrektur-/Reviewzuweisungs-/Bulk-/
+Playtest-Funktionen und weitere Master-§6-Details. Medienreferenzen und
+Legacy-Migration auf vollständigen Erhalt weiter prüfen. Kein Abschluss
+von Punkt4; Punkt5 noch nicht begonnen.

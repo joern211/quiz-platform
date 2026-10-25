@@ -183,6 +183,62 @@ model ContentMutationReceipt {
   @@map("content_mutation_receipts")
 }
 
+model ContentImportDraft {
+  id String @id @default(uuid())
+  poolId String
+  actorId String
+  rowsJson String
+  previewJson String
+  targetHash String
+  consumedAt DateTime?
+  createdAt DateTime @default(now())
+  expiresAt DateTime
+  @@index([actorId, expiresAt])
+  @@map("content_import_drafts")
+}
+
+model ContentReview {
+  id String @id @default(uuid())
+  poolId String
+  itemId String?
+  actorId String
+  baseRevision Int
+  kind String
+  proposedJson String
+  status String @default("IN_REVIEW")
+  reviewerId String?
+  reason String @default("")
+  createdAt DateTime @default(now())
+  resolvedAt DateTime?
+  @@index([poolId, status])
+  @@map("content_reviews")
+}
+
+model ContentNotification {
+  id String @id @default(uuid())
+  userId String
+  kind String
+  poolId String
+  itemId String?
+  message String
+  readAt DateTime?
+  createdAt DateTime @default(now())
+  @@index([userId, readAt])
+  @@map("content_notifications")
+}
+
+model ContentComment {
+  id String @id @default(uuid())
+  itemId String
+  actorId String
+  message String
+  status String @default("OPEN")
+  createdAt DateTime @default(now())
+  resolvedAt DateTime?
+  @@index([itemId, status])
+  @@map("content_comments")
+}
+
 model QuestionPack {
   id          String   @id @default(uuid())
   gameSlug    String

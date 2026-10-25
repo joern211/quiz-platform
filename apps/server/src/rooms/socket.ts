@@ -10,6 +10,7 @@ import { getGameHandler } from '../games/registry.js';
 import { mutateRoom, RoomError, roomView, roomPolicy, assertRoomLive, audit, feed, type RoomActor } from './core.js';
 import { normalizeRole } from '@quiz/shared';
 import { logger } from '../observability/logger.js';
+import { ContentError } from '../content/core.js';
 
 export async function socketRoomActor(socket: Socket): Promise<{ roomId: string; actor: RoomActor }> {
   const identity = socketIdentityMap.get(socket.id);
@@ -97,7 +98,7 @@ export function registerRoomCore(io: Server, socket: Socket) {
               return { success: true };
             }
             return { success: true, ...await mutateRoom(roomId, actor, data.operation) };
-          } catch (e) { if (e instanceof RoomError) return { success: false, error: e.code }; throw e; }
+          } catch (e) { if (e instanceof RoomError || e instanceof ContentError) return { success: false, error: e.code }; throw e; }
         }, toResponse: d => d,
       });
       const result = response.success ? response.data : response;

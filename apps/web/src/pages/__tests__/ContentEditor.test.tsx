@@ -2,10 +2,11 @@ import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, expect, it, vi } from 'vitest';
 import type { ContentItemView, ContentPoolView } from '@quiz/shared';
-import { ContentEditor } from '../ContentPage';
+import { ContentEditor, ContentPage } from '../ContentPage';
+import { MemoryRouter } from 'react-router-dom';
 import { ContentApiError, contentApi } from '../../lib/contentApi';
 
-afterEach(() => { vi.restoreAllMocks(); localStorage.clear(); });
+afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); localStorage.clear(); });
 const pool: ContentPoolView = { id: 'p', gameSlug: 'wissensduell', name: 'Pool', description: '', scope: 'PRIVATE', ownerId: 'u', revision: 1,
   defaults: { language: 'de-DE', difficulty: null, tagIds: [] }, canEdit: true };
 const item: ContentItemView = { id: 'q', poolId: 'p', gameSlug: 'wissensduell', revision: 1, status: 'DRAFT', title: 'Original',
@@ -60,4 +61,10 @@ it('renders Jeopardy-specific fields and read-only public content', () => {
   expect(screen.getByLabelText('Lösung')).toBeDisabled();
   expect(screen.getByLabelText('Punktwert')).toBeDisabled();
   expect(screen.queryByRole('button', { name: 'Für Spiele freigeben' })).not.toBeInTheDocument();
+});
+it('enables pool creation using the real nested auth/me user envelope', async () => {
+  vi.stubGlobal('fetch', vi.fn(async (path: string) => ({ ok: true, headers: new Headers({ 'Content-Type': 'application/json' }),
+    json: async () => ({ success: true, data: path.endsWith('/auth/me') ? { user: { id: 'host-id', role: 'HOST', displayName: 'Host' } } : [] }) })));
+  render(<MemoryRouter><ContentPage /></MemoryRouter>);
+  await waitFor(() => expect(screen.getByRole('button', { name: 'Pool erstellen' })).toBeEnabled());
 });

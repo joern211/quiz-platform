@@ -77,6 +77,7 @@ const PR14_MIGRATIONS = [
   '20261024180000_game_domain_events',
   '20261025010000_results_history',
   '20261025130000_content_core',
+  '20261025140000_content_import_review',
 ];
 
 const SESSION_SECRET = 'ci-test-secret-at-least-32-chars-long';

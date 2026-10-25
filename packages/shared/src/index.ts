@@ -1760,5 +1760,5 @@ export interface ContentItemView {
 }
 export interface ContentPoolView {
   id: string; gameSlug: string; name: string; description: string; scope: string; ownerId: string | null;
-  revision: number; defaults: z.infer<typeof ContentDefaultsSchema>; canEdit: boolean;
+  revision: number; defaults: z.infer<typeof ContentDefaultsSchema>; canEdit: boolean; canPropose?: boolean;
 }

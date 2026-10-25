@@ -355,9 +355,19 @@ export async function mutateRoom(roomId: string, actor: RoomActor, op: RoomOpera
           setupSnapshotJson = source?.setupSnapshotJson ?? '{}';
           contentSource = { roomId: source?.id ?? '', runIndex: source?.runIndex ?? 0 };
         }
-        const content = await tx.contentUse.findMany({ where: contentSource });
-        for (const item of content) await tx.contentUse.create({ data: { roomId, runIndex: room.runIndex + 1, itemId: item.itemId,
-          itemRevision: item.itemRevision, position: item.position, snapshotJson: item.snapshotJson } });
+        const contentSetup: Record<string, unknown> = JSON.parse(setupSnapshotJson);
+        if (contentSetup.contentSelection) {
+          const { selectRoomContent, contentActor, applyPinnedContent } = await import('../content/core.js');
+          const definition = await tx.gameDefinition.findUniqueOrThrow({ where: { id: gameDefinitionId } });
+          const selected = await selectRoomContent(tx, await contentActor(tx, actor.sessionId ?? null), definition.slug, contentSetup.contentSelection, roomId);
+          setupSnapshotJson = JSON.stringify(applyPinnedContent(contentSetup, definition.slug, selected));
+          for (const [position, item] of selected.entries()) await tx.contentUse.create({ data: { roomId, runIndex: room.runIndex + 1,
+            itemId: item.id, itemRevision: item.revision, position, snapshotJson: JSON.stringify(item) } });
+        } else {
+          const content = await tx.contentUse.findMany({ where: contentSource });
+          for (const item of content) await tx.contentUse.create({ data: { roomId, runIndex: room.runIndex + 1, itemId: item.itemId,
+            itemRevision: item.itemRevision, position: item.position, snapshotJson: item.snapshotJson } });
+        }
         await tx.roomGameState.deleteMany({ where: { roomId } });
         await tx.participation.updateMany({ where: { roomId }, data: { score: 0, ready: false } });
         await tx.roomTeam.updateMany({ where: { roomId }, data: { score: 0 } });

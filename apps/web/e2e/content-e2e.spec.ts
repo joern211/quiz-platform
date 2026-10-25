@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+test.use({ actionTimeout: 15000 });
 
 const BASE = process.env.E2E_BASE_URL ?? 'http://localhost:5173';
 test('C1: edit, autosave, explicit release and real pool-based setup for two games', async ({ browser }) => {
@@ -46,4 +47,46 @@ test('C1: edit, autosave, explicit release and real pool-based setup for two gam
       expect(await info.text()).not.toContain('CONTENT_BROWSER_SECRET');
     }
   } finally { await context.close(); }
+});
+
+test('C2: import preview, draft release and ADMIN-only public review through the UI', async ({ browser }) => {
+  test.setTimeout(90000);
+  const hostContext = await browser.newContext(), adminContext = await browser.newContext();
+  try {
+    expect((await hostContext.request.post(`${BASE}/api/v1/auth/e2e-token`, { data: { userId: 'mod-1' } })).status()).toBe(200);
+    expect((await adminContext.request.post(`${BASE}/api/v1/auth/e2e-token`, { data: { userId: 'admin-1' } })).status()).toBe(200);
+    const name = `Review ${crypto.randomUUID()}`;
+    const created = await hostContext.request.post(`${BASE}/api/v1/content/pools`, { data: { commandId: crypto.randomUUID(), gameSlug: 'wissensduell', name } });
+    expect(created.status()).toBe(201);
+    const page = await hostContext.newPage(), admin = await adminContext.newPage();
+    await page.goto(`${BASE}/inhalte`);
+    await page.getByRole('button').filter({ hasText: name }).click();
+    await page.getByText('Import, Export und Qualität', { exact: true }).click();
+    const file = { schemaVersion: 1, gameSlug: 'wissensduell', items: [{ title: 'Importierte Browserfrage',
+      payload: { prompt: 'Importfrage?', category: 'Test', options: [{ id: 'a', text: 'Ja' }, { id: 'b', text: 'Nein' }], correctOptionId: 'a', explanation: '', durationMs: 20000, points: 100, wrongPoints: 0 },
+      source: 'Eigenes Material', license: 'Eigene Nutzungsrechte', tags: ['browser-test-tag'] }] };
+    await page.getByLabel('Importdatei').setInputFiles({ name: 'content.json', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify(file)) });
+    await expect(page.getByRole('region', { name: 'Importvorschau' })).toBeVisible();
+    await page.getByLabel('Unbekannter Tag „browser-test-tag“').selectOption('IGNORE');
+    page.once('dialog', d => d.accept());
+    await page.getByRole('button', { name: 'Import bestätigen' }).click();
+    await expect(page.getByText('1 Fragen als Entwurf übernommen.', { exact: true })).toBeVisible();
+    await page.getByRole('button').filter({ hasText: 'Importierte Browserfrage · DRAFT' }).click();
+    const editor = page.getByRole('region', { name: 'Frageneditor' });
+    page.once('dialog', d => d.accept());
+    await editor.getByRole('button', { name: 'Für Spiele freigeben' }).click();
+    await expect(editor.getByRole('status')).toContainText('READY');
+    page.once('dialog', d => d.accept());
+    await page.getByRole('button', { name: 'Öffentliche Freigabe beantragen' }).click();
+    await expect(page.getByText('Zur Admin-Prüfung eingereicht. Der Pool ist bis zur Entscheidung gesperrt.', { exact: true })).toBeVisible();
+    await page.getByRole('button', { name: 'Prüfungen & Inbox' }).click();
+    const hostReview = page.getByRole('article').filter({ has: page.getByRole('heading', { name, exact: true }) });
+    await expect(hostReview).toBeVisible(); await expect(hostReview.getByRole('button', { name: 'Freigeben', exact: true })).toHaveCount(0);
+    await admin.goto(`${BASE}/inhalte`); await admin.getByRole('button', { name: 'Prüfungen & Inbox' }).click();
+    const adminReview = admin.getByRole('article').filter({ has: admin.getByRole('heading', { name, exact: true }) });
+    admin.once('dialog', d => d.accept()); await adminReview.getByRole('button', { name: 'Freigeben', exact: true }).click();
+    await expect(adminReview).toHaveCount(0);
+    await page.reload(); await page.getByRole('button').filter({ hasText: name }).click();
+    await expect(page.getByText('wissensduell · PUBLIC · Version 3', { exact: true })).toBeVisible();
+  } finally { await Promise.allSettled([hostContext.close(), adminContext.close()]); }
 });

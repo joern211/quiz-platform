@@ -6,6 +6,8 @@ import { prisma } from '../persistence/prisma.js';
 import { verifySession } from '../auth/session.js';
 import { config } from '../config/index.js';
 import { logger } from '../observability/logger.js';
+import { parseContentImport, previewContentImport, commitContentImport, ImportCommitSchema, exportContent } from '../content/importExport.js';
+import { requestPublicPool, proposeItemChange, decideContentReview, notifyContent } from '../content/review.js';
 import { ContentError, contentActor, canReadPool, requirePool, poolView, itemView, validateTagIds, contentInputData,
   mutateContent, saveRevision, changeItem, auditContent, type ContentActor, type ContentDb } from '../content/core.js';
 
@@ -29,6 +31,7 @@ async function itemAccess(db: ContentDb, actor: ContentActor, id: string, edit =
   const item = await db.contentItem.findUnique({ where: { id } });
   if (!item) throw new ContentError('RESOURCE_NOT_ACCESSIBLE', 404);
   const pool = await requirePool(db, item.poolId, actor, edit);
+  if (['PUBLIC', 'SYSTEM'].includes(pool.scope) && actor.role !== 'ADMIN' && pool.ownerId !== actor.userId && item.status !== 'READY') throw new ContentError('RESOURCE_NOT_ACCESSIBLE', 404);
   return { item, pool };
 }
 contentRouter.get('/templates', endpoint(async (req, res) => {
@@ -36,7 +39,7 @@ contentRouter.get('/templates', endpoint(async (req, res) => {
 }));
 contentRouter.get('/pools', endpoint(async (req, res) => {
   const actor = await contentActor(prisma, session(req));
-  const pools = await prisma.contentPool.findMany({ where: { status: 'ACTIVE', ...(req.query.gameSlug ? { gameSlug: ContentGameSchema.parse(req.query.gameSlug) } : {}) }, orderBy: { updatedAt: 'desc' } });
+  const pools = await prisma.contentPool.findMany({ where: { status: { in: ['ACTIVE', 'LOCKED_REVIEW'] }, ...(req.query.gameSlug ? { gameSlug: ContentGameSchema.parse(req.query.gameSlug) } : {}) }, orderBy: { updatedAt: 'desc' } });
   res.json({ success: true, data: pools.filter(p => canReadPool(p, actor)).map(p => poolView(p, actor)) });
 }));
 contentRouter.post('/pools', endpoint(async (req, res) => {
@@ -53,7 +56,8 @@ contentRouter.post('/pools', endpoint(async (req, res) => {
 }));
 contentRouter.get('/pools/:id', endpoint(async (req, res) => {
   const actor = await contentActor(prisma, session(req)); const pool = await requirePool(prisma, String(req.params.id), actor);
-  const rows = await prisma.contentItem.findMany({ where: { poolId: pool.id }, orderBy: { updatedAt: 'desc' } });
+  const rows = await prisma.contentItem.findMany({ where: { poolId: pool.id,
+    ...(['PUBLIC', 'SYSTEM'].includes(pool.scope) && actor.role !== 'ADMIN' && pool.ownerId !== actor.userId ? { status: 'READY' } : {}) }, orderBy: { updatedAt: 'desc' } });
   const query = String(req.query.q ?? '').toLocaleLowerCase();
   const items = rows.map(i => itemView(i, pool)).filter(i => (!req.query.status || i.status === req.query.status) &&
     (!req.query.difficulty || i.effective.difficulty === req.query.difficulty) &&
@@ -82,7 +86,7 @@ contentRouter.post('/pools/:id/fork', endpoint(async (req, res) => {
     const source = await requirePool(db, String(req.params.id), actor);
     const pool = await db.contentPool.create({ data: { name: `${source.name} (Kopie)`, description: source.description, ownerId: actor.userId,
       gameSlug: source.gameSlug, scope: 'PRIVATE', defaultsJson: source.defaultsJson, forkedFromPoolId: source.id } });
-    const items = await db.contentItem.findMany({ where: { poolId: source.id, status: { not: 'TRASHED' } } });
+    const items = await db.contentItem.findMany({ where: { poolId: source.id, status: ['PUBLIC', 'SYSTEM'].includes(source.scope) && actor.role !== 'ADMIN' && source.ownerId !== actor.userId ? 'READY' : { not: 'TRASHED' } } });
     for (const old of items) {
       const item = await db.contentItem.create({ data: { ...contentInputData(contentInputDataToView(JSON.stringify(old))), gameSlug: old.gameSlug,
         poolId: pool.id, duplicatedFromId: old.id } });
@@ -177,4 +181,117 @@ contentRouter.post('/tags', endpoint(async (req, res) => {
     const existing = await db.contentTag.findUnique({ where: { slug: input.slug } }); if (existing) return existing;
     const tag = await db.contentTag.create({ data: { name: input.name, slug: input.slug } }); await auditContent(db, actor, 'CONTENT_TAG_CREATE', tag.id, {}); return tag;
   }); res.status(201).json({ success: true, data });
+}));
+
+contentRouter.post('/pools/:id/import/preview', endpoint(async (req, res) => {
+  const actor = await contentActor(prisma, session(req));
+  const pool = await requirePool(prisma, String(req.params.id), actor, true);
+  const input = z.object({ format: z.enum(['JSON', 'CSV', 'XLSX']), fileBase64: z.string().max(7 * 1024 * 1024) }).strict().parse(req.body);
+  const rows = await parseContentImport(input.format, Buffer.from(input.fileBase64, 'base64'), pool.gameSlug);
+  const result = await prisma.$transaction(async db => {
+    const liveActor = await contentActor(db, session(req));
+    const preview = await previewContentImport(db, liveActor, pool.id, rows);
+    const draft = await db.contentImportDraft.create({ data: { poolId: pool.id, actorId: liveActor.userId, rowsJson: JSON.stringify(rows),
+      previewJson: JSON.stringify(preview.rows), targetHash: preview.targetHash, expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000) } });
+    return { importId: draft.id, rows: preview.rows };
+  }); res.json({ success: true, data: result });
+}));
+contentRouter.post('/imports/commit', endpoint(async (req, res) => {
+  const input = ImportCommitSchema.parse(req.body);
+  const data = await mutateContent(session(req), input.commandId, { action: 'IMPORT', input }, (db, actor) => commitContentImport(db, actor, input));
+  res.json({ success: true, data });
+}));
+contentRouter.get('/pools/:id/export', endpoint(async (req, res) => {
+  const actor = await contentActor(prisma, session(req)), format = z.enum(['JSON', 'CSV', 'XLSX']).parse(req.query.format ?? 'JSON');
+  const buffer = await exportContent(prisma, actor, String(req.params.id), format);
+  res.setHeader('Content-Disposition', `attachment; filename="quiz-content.${format.toLocaleLowerCase()}"`);
+  res.type(format === 'XLSX' ? 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' : format === 'CSV' ? 'text/csv' : 'application/json'); res.send(buffer);
+}));
+
+contentRouter.post('/pools/:id/submit-public', endpoint(async (req, res) => {
+  const input = revisionCommand.strict().parse(req.body);
+  const data = await mutateContent(session(req), input.commandId, { action: 'PUBLIC_SUBMIT', id: req.params.id, input },
+    (db, actor) => requestPublicPool(db, actor, String(req.params.id), input.revision));
+  res.json({ success: true, data });
+}));
+contentRouter.post('/items/:id/propose', endpoint(async (req, res) => {
+  const input = revisionCommand.extend({ item: ContentItemInputSchema }).strict().parse(req.body);
+  const data = await mutateContent(session(req), input.commandId, { action: 'PROPOSE', id: req.params.id, input },
+    (db, actor) => proposeItemChange(db, actor, String(req.params.id), input.revision, input.item));
+  res.json({ success: true, data });
+}));
+contentRouter.get('/reviews', endpoint(async (req, res) => {
+  const actor = await contentActor(prisma, session(req));
+  const all = await prisma.contentReview.findMany({ where: { status: 'IN_REVIEW' }, orderBy: { createdAt: 'asc' } });
+  const visible = [];
+  for (const row of all) {
+    const pool = await prisma.contentPool.findUnique({ where: { id: row.poolId } });
+    if (!pool || !canReadPool(pool, actor)) continue;
+    const canDecide = actor.role === 'ADMIN' || (pool.ownerId === actor.userId && row.kind !== 'PUBLIC_POOL' && !['PUBLIC', 'SYSTEM'].includes(pool.scope));
+    visible.push({ ...row, proposed: JSON.parse(row.proposedJson), poolName: pool.name, canDecide });
+  } res.json({ success: true, data: visible });
+}));
+contentRouter.post('/reviews/:id/decide', endpoint(async (req, res) => {
+  const input = command.extend({ approve: z.boolean(), reason: z.string().trim().max(2000) }).strict().refine(v => v.approve || v.reason.length > 0, 'Ablehnungsgrund erforderlich.').parse(req.body);
+  const data = await mutateContent(session(req), input.commandId, { action: 'REVIEW_DECIDE', id: req.params.id, input },
+    (db, actor) => decideContentReview(db, actor, String(req.params.id), input.approve, input.reason));
+  res.json({ success: true, data });
+}));
+contentRouter.get('/inbox', endpoint(async (req, res) => {
+  const actor = await contentActor(prisma, session(req));
+  res.json({ success: true, data: await prisma.contentNotification.findMany({ where: { userId: actor.userId }, orderBy: { createdAt: 'desc' }, take: 100 }) });
+}));
+contentRouter.post('/inbox/:id/read', endpoint(async (req, res) => {
+  const input = command.strict().parse(req.body);
+  const data = await mutateContent(session(req), input.commandId, { action: 'INBOX_READ', id: req.params.id }, async (db, actor) => {
+    const row = await db.contentNotification.updateMany({ where: { id: String(req.params.id), userId: actor.userId, readAt: null }, data: { readAt: new Date() } }); return { updated: row.count };
+  }); res.json({ success: true, data });
+}));
+contentRouter.get('/items/:id/comments', endpoint(async (req, res) => {
+  const actor = await contentActor(prisma, session(req)); await itemAccess(prisma, actor, String(req.params.id));
+  res.json({ success: true, data: await prisma.contentComment.findMany({ where: { itemId: String(req.params.id) }, orderBy: { createdAt: 'asc' } }) });
+}));
+contentRouter.post('/items/:id/comments', endpoint(async (req, res) => {
+  const input = command.extend({ message: z.string().trim().min(1).max(2000) }).strict().parse(req.body);
+  const data = await mutateContent(session(req), input.commandId, { action: 'COMMENT', id: req.params.id, input }, async (db, actor) => {
+    const { item, pool } = await itemAccess(db, actor, String(req.params.id));
+    if (actor.role !== 'ADMIN' && pool.ownerId !== actor.userId && !(pool.scope === 'SHARED' && (JSON.parse(pool.editorIdsJson) as string[]).includes(actor.userId))) throw new ContentError('NOT_AUTHORIZED', 403);
+    const comment = await db.contentComment.create({ data: { itemId: item.id, actorId: actor.userId, message: input.message } });
+    await notifyContent(db, pool.ownerId, pool.id, 'REVIEW_COMMENT', 'Neuer interner Prüfkommentar.', item.id); return comment;
+  }); res.status(201).json({ success: true, data });
+}));
+contentRouter.post('/comments/:id/resolve', endpoint(async (req, res) => {
+  const input = command.extend({ status: z.enum(['OPEN', 'RESOLVED', 'REJECTED']) }).strict().parse(req.body);
+  const data = await mutateContent(session(req), input.commandId, { action: 'COMMENT_RESOLVE', id: req.params.id, input }, async (db, actor) => {
+    const comment = await db.contentComment.findUnique({ where: { id: String(req.params.id) } }); if (!comment) throw new ContentError('RESOURCE_NOT_ACCESSIBLE', 404);
+    const { pool } = await itemAccess(db, actor, comment.itemId);
+    if (actor.role !== 'ADMIN' && pool.ownerId !== actor.userId && comment.actorId !== actor.userId) throw new ContentError('NOT_AUTHORIZED', 403);
+    return db.contentComment.update({ where: { id: comment.id }, data: { status: input.status, resolvedAt: input.status === 'OPEN' ? null : new Date() } });
+  }); res.json({ success: true, data });
+}));
+contentRouter.post('/items/:id/lock', endpoint(async (req, res) => {
+  const input = revisionCommand.extend({ locked: z.boolean() }).strict().parse(req.body);
+  const data = await mutateContent(session(req), input.commandId, { action: 'LOCK', id: req.params.id, input }, async (db, actor) => {
+    const { item, pool } = await itemAccess(db, actor, String(req.params.id), true);
+    if (actor.role !== 'ADMIN' && pool.ownerId !== actor.userId) throw new ContentError('OWNERSHIP_REQUIRED', 403);
+    if (item.revision !== input.revision) throw new ContentError('REVISION_CONFLICT', 409);
+    if (!['EDITABLE', 'LOCKED_MANUAL'].includes(item.lockState)) throw new ContentError('CONTENT_LOCKED', 409);
+    const updated = await db.contentItem.update({ where: { id: item.id, revision: input.revision }, data: { lockState: input.locked ? 'LOCKED_MANUAL' : 'EDITABLE', revision: { increment: 1 } } });
+    await saveRevision(db, updated, actor, 'LOCK', ['lockState']); return itemView(updated, pool);
+  }); res.json({ success: true, data });
+}));
+contentRouter.get('/pools/:id/quality', endpoint(async (req, res) => {
+  const actor = await contentActor(prisma, session(req)), pool = await requirePool(prisma, String(req.params.id), actor);
+  if (actor.role !== 'ADMIN' && pool.ownerId !== actor.userId && !poolView(pool, actor).canEdit) throw new ContentError('NOT_AUTHORIZED', 403);
+  const rows = (await prisma.contentItem.findMany({ where: { poolId: pool.id } })).map(i => itemView(i, pool));
+  const counts = Object.fromEntries(['DRAFT', 'READY', 'DISABLED', 'ARCHIVED', 'TRASHED'].map(s => [s, rows.filter(r => r.status === s).length]));
+  const warnings = rows.filter(r => r.status !== 'TRASHED').flatMap(r => [
+    ...(r.validation.length ? [{ itemId: r.id, kind: 'INVALID_CONTENT', state: 'PROBLEMATIC' }] : []),
+    ...(!r.effective.tagIds.length ? [{ itemId: r.id, kind: 'MISSING_TAGS', state: 'CHECK' }] : []),
+    ...(!r.source ? [{ itemId: r.id, kind: 'MISSING_SOURCE', state: 'CHECK' }] : []),
+  ]);
+  const duplicateCount = rows.length - new Set(rows.map(r => JSON.stringify(r.payload))).size;
+  res.json({ success: true, data: { counts, warnings, duplicateCount, health: !counts.READY ? 'NICHT_SPIELBEREIT' : warnings.some(w => w.state === 'PROBLEMATIC') ? 'FEHLER' : warnings.length || duplicateCount ? 'HINWEISE' : 'OK',
+    difficulty: Object.fromEntries(['VERY_EASY', 'EASY', 'MEDIUM', 'HARD', 'VERY_HARD'].map(d => [d, rows.filter(r => r.effective.difficulty === d).length])),
+    openComments: await prisma.contentComment.count({ where: { itemId: { in: rows.map(r => r.id) }, status: 'OPEN' } }) } });
 }));
