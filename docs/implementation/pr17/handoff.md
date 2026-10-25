@@ -156,3 +156,14 @@ Web94/94 (14 Dateien), Web-Typecheck/Build, Lint0 Fehler/113 Warnungen und
 diff-check grün. Neuen Head pushen und vollständige CI/E2E erneut abnehmen.
 Punkt 3 bleibt in Abnahme; Punkte 4–5 nicht begonnen. Alle Änderungen sind
 weiterhin auf feature/pr17-results-recovery, PR17 Draft, kein Merge.
+
+## Run 40147322240 am Head 782e8db
+
+CI: 431/431 Server- und 94/94 Webtests, Typecheck/Lint/Build grün.
+E2E: 19/20 grün, T1 mit vollem Result-/Amendment-/Rematch-/Close-Ablauf
+im ersten Versuch erfolgreich; der Socket-Lifetime-Fix ist damit im echten
+Browser belegt. Einziger Fehler ist ein weiterer zu breiter G4-4-Locator:
+name Ergebnis trifft sowohl H1 Ergebnis als auch H2 Ergebnis prüfen. Die
+Assertion prüft nun genau H1 mit exact=true. Keine Prüfung wurde entfernt.
+Playwright --list lädt alle 20 aktiven Fälle. Neuen Test-/Doku-Head pushen
+und dessen vollständige CI/E2E abnehmen; danach erst Punkt 3 abschließen.
