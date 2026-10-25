@@ -8,6 +8,7 @@ import { config } from '../config/index.js';
 import { logger } from '../observability/logger.js';
 import { parseContentImport, previewContentImport, commitContentImport, ImportCommitSchema, exportContent } from '../content/importExport.js';
 import { requestPublicPool, proposeItemChange, decideContentReview, notifyContent } from '../content/review.js';
+import { CorrectionAccessSchema, CorrectionSubmitSchema, eligibleCorrectionContent, submitContentCorrection } from '../content/corrections.js';
 import { ContentError, contentActor, canReadPool, requirePool, poolView, itemView, validateTagIds, contentInputData,
   mutateContent, saveRevision, changeItem, auditContent, type ContentActor, type ContentDb } from '../content/core.js';
 
@@ -36,6 +37,12 @@ async function itemAccess(db: ContentDb, actor: ContentActor, id: string, edit =
 }
 contentRouter.get('/templates', endpoint(async (req, res) => {
   await contentActor(prisma, session(req)); res.json({ success: true, data: CONTENT_TEMPLATES });
+}));
+contentRouter.post('/corrections/eligible', endpoint(async (req, res) => {
+  res.json({ success: true, data: await eligibleCorrectionContent(prisma, CorrectionAccessSchema.strict().parse(req.body)) });
+}));
+contentRouter.post('/corrections', endpoint(async (req, res) => {
+  res.status(201).json({ success: true, data: await submitContentCorrection(CorrectionSubmitSchema.parse(req.body)) });
 }));
 contentRouter.get('/pools', endpoint(async (req, res) => {
   const actor = await contentActor(prisma, session(req));

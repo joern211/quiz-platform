@@ -67,7 +67,7 @@ export async function decideContentReview(db: ContentDb, actor: ContentActor, re
       await saveRevision(db, updated, actor, 'PUBLIC_APPROVAL', ['reviewState']);
     }
     await db.contentPool.update({ where: { id: pool.id, revision: review.baseRevision }, data: { ...(approve ? { scope: 'PUBLIC', editorIdsJson: '[]' } : {}), status: 'ACTIVE', revision: { increment: 1 } } });
-  } else {
+  } else if (review.kind !== 'CORRECTION' || approve) {
     const item = await db.contentItem.findFirst({ where: { id: review.itemId!, poolId: pool.id } });
     if (!item || item.revision !== review.baseRevision) throw new ContentError('REVISION_CONFLICT', 409);
     const proposed = review.kind === 'CORRECTION' ? (() => {

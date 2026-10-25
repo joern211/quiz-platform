@@ -47,6 +47,20 @@ it('does not overwrite text typed while the previous save is in flight', async (
   expect(save).toHaveBeenLastCalledWith('q', 2, expect.objectContaining({ payload: expect.objectContaining({ prompt: 'Frage? A B' }) }));
   expect(screen.getByLabelText('Frage')).toHaveValue('Frage? A B');
 });
+it('resolves a conflict only against the explicitly reviewed latest revision', async () => {
+  vi.spyOn(window, 'confirm').mockReturnValue(true);
+  const save = vi.spyOn(contentApi, 'save').mockRejectedValueOnce(new ContentApiError('REVISION_CONFLICT', 'conflict'))
+    .mockImplementation(async (_id, _revision, draft) => ({ ...item, ...(draft as object), revision: 3 }));
+  vi.spyOn(contentApi, 'pool').mockResolvedValue({ pool, items: [{ ...item, revision: 2, title: 'Fremde Änderung' }] });
+  render(<ContentEditor initial={item} pool={pool} onSaved={vi.fn()} />);
+  await userEvent.type(screen.getByLabelText('Frage'), ' Mein Text');
+  await screen.findByRole('alert', {}, { timeout: 2500 });
+  await userEvent.click(screen.getByRole('button', { name: 'Aktuelle Version vergleichen' }));
+  expect(await screen.findByRole('region', { name: 'Bearbeitungskonflikt' })).toHaveTextContent('Fremde Änderung');
+  await userEvent.click(screen.getByRole('button', { name: 'Meinen Entwurf als neue Version speichern' }));
+  await waitFor(() => expect(save).toHaveBeenLastCalledWith('q', 2, expect.objectContaining({ payload: expect.objectContaining({ prompt: 'Frage? Mein Text' }) })));
+  await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent('Version 3'));
+});
 it('retains advanced values across quick-mode switches', async () => {
   render(<ContentEditor initial={item} pool={pool} onSaved={vi.fn()} />);
   await userEvent.click(screen.getByRole('button', { name: 'Erweiterte Optionen' }));

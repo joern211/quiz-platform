@@ -64,10 +64,25 @@ export async function persistRoundResult(tx: Prisma.TransactionClient, args: { r
   else if (slug === 'wer-ist-das') {
     const decoded = z.object({ rounds: z.array(z.object({ id: z.string() })) }).parse(setup);
     ctx.contentRefs = decoded.rounds[ctx.roundIndex] ? [decoded.rounds[ctx.roundIndex].id] : [];
-  } else ctx.contentRefs = [key];
+  } else {
+    ctx.contentRefs = [key];
+    const [board, category, value] = key.replace(/^field:/, '').split('-').map(Number);
+    const decoded = z.object({ board1: z.object({ categories: z.array(z.object({ clues: z.array(z.object({ value: z.number(), contentId: z.string().optional() }).passthrough()) }).passthrough()) }).passthrough(),
+      board2: z.object({ categories: z.array(z.object({ clues: z.array(z.object({ value: z.number(), contentId: z.string().optional() }).passthrough()) }).passthrough()) }).passthrough().optional() }).safeParse(setup);
+    if (decoded.success) {
+      const item = (board === 1 ? decoded.data.board1 : decoded.data.board2)?.categories[category]?.clues.find(q => q.value === value);
+      if (item?.contentId) ctx.contentRefs.push(item.contentId);
+    }
+  }
   const { getGameEngineContract } = await import('./engineContract.js');
   const result = getGameEngineContract(slug)!.buildRoundResult(ctx);
-  await tx.roundResultRecord.create({ data: { roomId: args.roomId, runIndex: room.runIndex, roundKey: key, stateVersion: args.stateVersion, dataJson: JSON.stringify(result) } });
+  const publicState = z.object({ roundStates: z.record(z.object({ revealed: z.boolean() })).optional(),
+    openFields: z.record(z.object({ answered: z.boolean() })).optional(), lastResolvedFieldKey: z.string().optional() }).safeParse(state);
+  const actuallyRevealed = publicState.success && (slug === 'wissensduell' ? publicState.data.roundStates?.[ctx.roundIndex]?.revealed === true
+    : slug === 'jeopardy' && publicState.data.lastResolvedFieldKey === key.replace(/^field:/, '')
+      && !Object.hasOwn(publicState.data.openFields ?? {}, key.replace(/^field:/, '')));
+  await tx.roundResultRecord.create({ data: { roomId: args.roomId, runIndex: room.runIndex, roundKey: key, stateVersion: args.stateVersion,
+    dataJson: JSON.stringify({ ...result, publicContentIds: actuallyRevealed ? result.contentRefs : [] }) } });
 }
 
 /** Initial immutable result, committed with GAME_END. Repeated end commands never create a second result. */

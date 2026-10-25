@@ -131,3 +131,48 @@ Gezielte Content-Suite 16/16, Web103/103, beide Builds und Typecheck grün,
 Lint 0 Fehler / 113 Warnungen. Voller Serverlauf zuletzt am vorherigen
 Produktstand 445/445; neuer kompletter CI/E2E-Lauf nach Push noch offen.
 Weitere Punkt4-Lücken wie oben bleiben bestehen; kein Paketabschluss.
+
+## Vierter Teil — Auswahlfilter / Spieler-Korrekturen / Konfliktauflösung
+
+Run 40200438987 am 5099662: vollständige CI grün, C2 und alle 20 bestehenden
+E2E grün. C1 blieb am exakten Label-Locator Spiel hängen. Der Trace
+(/tmp/quiz-pr18-e2e3) zeigt /auth/session 200, volle neue Seite und aktivierte
+Pool-Erstellung. Das verschachtelte Select hat jetzt ein explizites
+aria-label Spiel; der Prüfablauf selbst bleibt unverändert.
+
+- Auswahl-UI in beiden Setups für Sprache, Difficulty, Kategorie, Tags,
+  Repeat-Regeln und feste Counts je Pool. Der Server prüft exakt alle
+  Pool-Keys/Counts und verfügbare READY-Inhalte; kein stilles Auffüllen.
+- Gast-Korrekturen über echte Teilnehmer-ID + Rejoin-Token, Raum-/Partie-
+  Bindung und explizite persistierte Public-Release-Evidenz. Keine künftigen
+  Fragen aus dem gesnapshotteten Pool, keine abgebrochenen/geskippten oder
+  ungeprüften Legacy-Runden. Ergebnisansicht lädt Fragen erst beim Öffnen
+  des Meldeformulars. Submit ist receipted; Owner/Admin prüft anschließend.
+  Ursprüngliche Snapshots/Ergebnisse bleiben unverändert. Abgelaufene/
+  geschlossene Räume und fremde Tokens sind gesperrt.
+- EngineRoundResultSchema akzeptiert publicContentIds additiv/optional.
+  Die Evidenz wird im selben Write wie die echte Auflösung gespeichert.
+  Historische Ergebnisse werden nicht nachträglich als öffentlich erfunden.
+  Jeopardy speichert zusätzlich zu seinen Feldkoordinaten echte Content-IDs.
+  Reale Socket-Buzz-/Judge-/Reveal- und HTTP-Tests belegen beide Consumer.
+- Versionskonflikt-UI hat jetzt Compare, aktuelle Fassung übernehmen und
+  bewusst eigenen Entwurf auf Basis der angezeigten aktuellen Revision
+  speichern. Weitere fremde Änderungen bleiben per CAS geschützt.
+- HTTP-Content-Client hält Command-IDs über ungewisse Netzwerkfehler stabil;
+  erst bestätigter Erfolg beendet die Absicht. Neue absichtliche Erstellung
+  danach bekommt eine neue ID. Zusätzlicher Webtest prüft das Wire-Payload.
+
+Abnahme lokal: 449/449 Server (52 Dateien), 106/106 Web (18 Dateien), beide
+Builds/Typecheck grün, Lint0 Fehler/113 bestehende Warnungen. Browserliste
+enthält weiterhin alle 22 aktiven Fälle. Vollständige GitHub-CI/E2E am
+folgenden Remote-Head noch ausstehend. Kein Paketabschluss behauptet.
+
+Rest Punkt4: BLIND_HOST (nicht auswählbar, bis Informationsrechte vollständig
+integriert sind), Progression/Presets/Host-Templates/Room-Templates,
+Concurrent-Editor-Anzeige, Bulk/Playtest, Review-Zuweisungen/weitere UI für
+Kommentare/Locks/Verwendungsnachweise und weitere Master-§6-Details.
+Medienreferenzen benötigen insbesondere noch einen verlustfreien neuen
+Content-Reader und Delivery-/READY-Prüfung; die Legacy-Tabellen wurden nie
+verändert, aber das neue Modell ist hier noch nicht vollständig. Punkt5
+(Audio/Voice/Kamera/Display) bleibt unbegonnen. Weiter regelmäßig sichern;
+kein Merge. Keine Push-Rückfrage erforderlich.

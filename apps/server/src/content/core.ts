@@ -113,18 +113,31 @@ export async function selectRoomContent(db: ContentDb, actor: ContentActor, game
   let items = rows.map(row => {
     const view = itemView(row, pools.find(p => p.id === row.poolId)!);
     return { id: row.id, poolId: row.poolId, poolRevision: pools.find(p => p.id === row.poolId)!.revision, revision: row.revision, gameSlug, payload: view.payload, ...view.effective };
-  }).filter(q => q.language === selection.language && (!selection.difficulty || q.difficulty === selection.difficulty) && selection.tagIds.every(id => q.tagIds.includes(id)));
+  }).filter(q => q.language === selection.language && (!selection.difficulty || q.difficulty === selection.difficulty) && selection.tagIds.every(id => q.tagIds.includes(id))
+    && (!selection.category || String(q.payload.category).trim().toLocaleLowerCase() === selection.category.toLocaleLowerCase()));
   const prior = roomId ? new Set((await db.contentUse.findMany({ where: { roomId }, select: { itemId: true } })).map(q => q.itemId)) : new Set<string>();
+  let expectedCount = selection.count;
   if (selection.mode === 'MANUAL') {
+    if (selection.poolCounts) throw new ContentError('INVALID_CONTENT_SELECTION');
     if (!selection.itemIds.length || new Set(selection.itemIds).size !== selection.itemIds.length) throw new ContentError('INVALID_CONTENT_SELECTION');
     items = selection.itemIds.map(id => { const found = items.find(q => q.id === id); if (!found || selection.repeatRule === 'NO_REPEAT_IN_ROOM' && prior.has(id)) throw new ContentError('CONTENT_NOT_READY'); return found; });
   } else {
     if (selection.repeatRule === 'NO_REPEAT_IN_ROOM') items = items.filter(q => !prior.has(q.id));
-    items = selection.repeatRule === 'PREFER_UNSEEN'
-      ? [...shuffleServer(items.filter(q => !prior.has(q.id))), ...shuffleServer(items.filter(q => prior.has(q.id)))].slice(0, selection.count)
-      : shuffleServer(items).slice(0, selection.count);
+    const pick = (candidates: PinnedContent[], count: number) => {
+      if (candidates.length < count) throw new ContentError('CONTENT_NOT_READY');
+      return selection.repeatRule === 'PREFER_UNSEEN'
+        ? [...shuffleServer(candidates.filter(q => !prior.has(q.id))), ...shuffleServer(candidates.filter(q => prior.has(q.id)))].slice(0, count)
+        : shuffleServer(candidates).slice(0, count);
+    };
+    if (selection.poolCounts) {
+      const counts = selection.poolCounts;
+      if (Object.keys(counts).length !== selection.poolIds.length || !selection.poolIds.every(id => Object.hasOwn(counts, id))) throw new ContentError('INVALID_CONTENT_SELECTION');
+      expectedCount = Object.values(counts).reduce((sum, count) => sum + count, 0);
+      if (expectedCount < 1 || expectedCount > 100) throw new ContentError('INVALID_CONTENT_SELECTION');
+      items = selection.poolIds.flatMap(id => pick(items.filter(q => q.poolId === id), counts[id]));
+    } else items = pick(items, selection.count);
   }
-  if (!items.length || (selection.mode === 'RANDOM' && items.length < selection.count)) throw new ContentError('CONTENT_NOT_READY');
+  if (!items.length || (selection.mode === 'RANDOM' && items.length < expectedCount)) throw new ContentError('CONTENT_NOT_READY');
   for (const q of items) {
     const valid = validateContentPayload(gameSlug, q.payload);
     if (!valid.success) throw new ContentError('CONTENT_NOT_READY');

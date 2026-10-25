@@ -1,4 +1,4 @@
-import { ContentPoolPicker } from '../components/ContentPoolPicker';
+import { ContentPoolPicker, DEFAULT_CONTENT_OPTIONS, contentSelectionPayload } from '../components/ContentPoolPicker';
 // ============================================================
 // Moderator Setup Page
 // ============================================================
@@ -10,6 +10,7 @@ import styles from './ModeratorSetupPage.module.css';
 
 export function ModeratorSetupPage() {
   const [contentPools, setContentPools] = useState<string[]>([]);
+  const [contentOptions, setContentOptions] = useState(DEFAULT_CONTENT_OPTIONS);
   const { gameSlug } = useParams<{ gameSlug: string }>();
   const navigate = useNavigate();
   const [roomName, setRoomName] = useState('');
@@ -59,7 +60,7 @@ export function ModeratorSetupPage() {
             questionCount,
             timerDuration,
             selectedQuestionIds: selectedQuestions,
-            ...(contentPools.length ? { contentSelection: { poolIds: contentPools, count: questionCount } } : {}),
+            ...(contentPools.length ? { contentSelection: contentSelectionPayload(contentPools, questionCount, contentOptions) } : {}),
           }),
         }),
       });
@@ -140,7 +141,7 @@ export function ModeratorSetupPage() {
 
         <Card padding="lg">
           <h2>Spieloptionen</h2>
-          {(gameSlug === 'wissensduell' || gameSlug === 'geo') && <ContentPoolPicker gameSlug="wissensduell" selected={contentPools} onChange={setContentPools} />}
+          {(gameSlug === 'wissensduell' || gameSlug === 'geo') && <ContentPoolPicker gameSlug="wissensduell" selected={contentPools} onChange={setContentPools} options={contentOptions} onOptionsChange={setContentOptions} />}
           
           <div className={styles.form}>
             <div className={styles.inputGroup}>

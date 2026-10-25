@@ -1741,6 +1741,8 @@ export const ContentSelectionSchema = z.object({
   poolIds: z.array(z.string().min(1).max(128)).min(1).max(20), count: z.number().int().min(1).max(100).default(10),
   language: ContentLanguageSchema.default('de-DE'), difficulty: ContentDifficultySchema.optional(),
   tagIds: z.array(z.string().uuid()).max(30).default([]),
+  category: z.string().trim().min(1).max(100).optional(),
+  poolCounts: z.record(z.number().int().min(0).max(100)).optional(),
   mode: z.enum(['RANDOM', 'MANUAL']).default('RANDOM'), itemIds: z.array(z.string().min(1).max(128)).max(100).default([]),
   repeatRule: z.enum(['NO_REPEAT_IN_ROOM', 'ALLOW_REPEATS', 'PREFER_UNSEEN']).default('NO_REPEAT_IN_ROOM'),
   visibility: z.literal('HOST_PREVIEW').default('HOST_PREVIEW'),

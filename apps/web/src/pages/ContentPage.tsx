@@ -18,6 +18,7 @@ export function ContentEditor({ initial, pool, onSaved, dirtyFlag, actorId }: { 
   const [draft, setDraft] = useState<Draft>(() => initial ? fromItem(initial) : newDraft(pool.gameSlug));
   const [item, setItem] = useState(initial), [status, setStatus] = useState(initial ? 'Gespeichert' : 'Ungespeichert');
   const [error, setError] = useState(''), [paused, setPaused] = useState(false), [busy, setBusy] = useState(false);
+  const [conflictCurrent, setConflictCurrent] = useState<ContentItemView | null>(null);
   const modeKey = `qp_content_editor_mode:${actorId ?? pool.ownerId ?? 'anonymous'}`;
   const [mode, setMode] = useState(() => localStorage.getItem(modeKey) ?? 'QUICK');
   const [tags, setTags] = useState<Awaited<ReturnType<typeof contentApi.tags>>>([]), [tagError, setTagError] = useState('');
@@ -57,7 +58,7 @@ export function ContentEditor({ initial, pool, onSaved, dirtyFlag, actorId }: { 
   const field = (key: string, value: unknown) => patch({ payload: { ...draft.payload, [key]: value } });
   const run = async (action: () => Promise<ContentItemView>) => {
     if (writing.current) return; writing.current = true; setBusy(true); setError('');
-    try { const result = await action(); if (alive.current) { setItem(result); setDraft(fromItem(result)); saved.current = JSON.stringify(fromItem(result)); setStatus('Gespeichert'); setPaused(false); onSaved(result); } }
+    try { const result = await action(); if (alive.current) { setItem(result); setDraft(fromItem(result)); saved.current = JSON.stringify(fromItem(result)); setStatus('Gespeichert'); setPaused(false); setConflictCurrent(null); onSaved(result); } }
     catch (e) { if (alive.current) { setError(errorMessage(e)); setStatus('Fehler'); } }
     finally { writing.current = false; if (alive.current) setBusy(false); }
   };
@@ -76,10 +77,22 @@ export function ContentEditor({ initial, pool, onSaved, dirtyFlag, actorId }: { 
       <button onClick={async () => {
         if (!item) return;
         try { const current = (await contentApi.pool(pool.id)).items.find(q => q.id === item.id); if (current) {
-          setHistory([{ revision: current.revision, kind: 'AKTUELL', createdAt: current.updatedAt, changedFields: [], snapshot: fromItem(current) }]);
+          setConflictCurrent(current);
         } } catch (e) { setError(errorMessage(e)); }
       }}>Aktuelle Version vergleichen</button>
     </div>}
+    {conflictCurrent && <section aria-label="Bearbeitungskonflikt"><h3>Dein Entwurf und Version {conflictCurrent.revision}</h3>
+      <details open><summary>Aktuelle gespeicherte Fassung</summary><pre className={styles.preview}>{JSON.stringify(fromItem(conflictCurrent), null, 2)}</pre></details>
+      <details><summary>Dein lokaler Entwurf</summary><pre className={styles.preview}>{JSON.stringify(draft, null, 2)}</pre></details>
+      <div className={styles.actions}><button disabled={busy} onClick={() => {
+        if (!window.confirm('Deinen lokalen Entwurf verwerfen und die aktuelle gespeicherte Fassung übernehmen?')) return;
+        setItem(conflictCurrent); setDraft(fromItem(conflictCurrent)); saved.current = JSON.stringify(fromItem(conflictCurrent));
+        setPaused(false); setError(''); setStatus('Gespeichert'); onSaved(conflictCurrent); setConflictCurrent(null);
+      }}>Aktuelle Fassung übernehmen</button>
+      <button disabled={busy || !pool.canEdit} onClick={() => {
+        if (window.confirm('Deinen Entwurf als neue Version auf Basis der angezeigten aktuellen Fassung speichern?')) void run(() => contentApi.save(conflictCurrent.id, conflictCurrent.revision, draftRef.current));
+      }}>Meinen Entwurf als neue Version speichern</button></div>
+    </section>}
     <label>Interner Titel<input disabled={!canWrite} value={draft.title} onChange={e => patch({ title: e.target.value })} /></label>
     {input('Kategorie', 'category')}
     {pool.gameSlug === 'wissensduell' ? <>
@@ -125,7 +138,13 @@ export function ContentPage() {
   const generation = useRef(0);
   const dirtyFlag = useRef(false);
   const maySwitch = () => !dirtyFlag.current || window.confirm('Ungespeicherte Änderungen verwerfen?');
-  useEffect(() => { let current = true; Promise.all([contentApi.pools(), authApi.me()]).then(([data, me]) => { if (current) { setPools(data); setUserId(me.data?.user.id ?? ''); setLoading(false); } }, e => { if (current) { setError(errorMessage(e)); setLoading(false); } }); return () => { current = false; }; }, []);
+  useEffect(() => { let current = true;
+    Promise.all([contentApi.pools(), authApi.me()]).then(([data, me]) => {
+      if (!me.success || !me.data?.user?.id) throw new Error('Anmeldung konnte nicht bestätigt werden. Bitte erneut anmelden.');
+      if (current) { setPools(data); setUserId(me.data.user.id); setLoading(false); }
+    }).catch(e => { if (current) { setError(errorMessage(e)); setLoading(false); } });
+    return () => { current = false; };
+  }, []);
   const load = async (id: string) => { if (!maySwitch()) return; const gen = ++generation.current; setError(''); try { const data = await contentApi.pool(id); if (gen !== generation.current) return; dirtyFlag.current = false; setPool(data.pool); setItems(data.items); setEditing(false); setSelected(null); } catch (e) { if (gen === generation.current) setError(errorMessage(e)); } };
   const open = (item: ContentItemView | null) => { if (!maySwitch()) return; setSelected(item); setEditing(true); setEditorKey(v => v + 1); };
   const onSaved = (item: ContentItemView) => { setSelected(item); setItems(rows => [item, ...rows.filter(r => r.id !== item.id)]); };
@@ -136,7 +155,7 @@ export function ContentPage() {
     {loading ? <p role="status">Pools werden geladen …</p> : <div className={styles.layout}>
       <aside className={styles.panel}><h2>Deine Pools</h2><ul className={styles.list}>{pools.map(p => <li key={p.id}><button className={pool?.id === p.id ? styles.selected : ''} onClick={() => load(p.id)}>{p.name}<br /><small>{p.gameSlug} · {p.scope}</small></button></li>)}</ul>
         <form onSubmit={async e => { e.preventDefault(); try { const p = await contentApi.createPool(slug, name); setPools(rows => [p, ...rows]); setName(''); await load(p.id); } catch (err) { setError(errorMessage(err)); } }}>
-          <h3>Neuer privater Pool</h3><label>Spiel<select value={slug} onChange={e => setSlug(e.target.value)}><option value="wissensduell">Wissensduell</option><option value="jeopardy">Jeopardy</option></select></label>
+          <h3>Neuer privater Pool</h3><label>Spiel<select aria-label="Spiel" value={slug} onChange={e => setSlug(e.target.value)}><option value="wissensduell">Wissensduell</option><option value="jeopardy">Jeopardy</option></select></label>
           <label>Poolname<input required maxLength={150} value={name} onChange={e => setName(e.target.value)} /></label><button disabled={!userId}>Pool erstellen</button>
         </form>
       </aside>

@@ -3,11 +3,20 @@ import type { ContentItemView, ContentPoolView } from '@quiz/shared';
 export class ContentApiError extends Error {
   constructor(public code: string, message: string, public details?: unknown) { super(message); }
 }
+const pendingIntents = new Map<string, string>();
 async function request<T>(path: string, method = 'GET', body?: unknown): Promise<T> {
+  let intentKey: string | undefined, payload = body;
+  if (body && typeof body === 'object' && 'commandId' in body && typeof body.commandId === 'string') {
+    const values = { ...body } as Record<string, unknown>; delete values.commandId;
+    intentKey = `${method}:${path}:${JSON.stringify(values)}`;
+    const commandId = pendingIntents.get(intentKey) ?? body.commandId;
+    pendingIntents.set(intentKey, commandId); payload = { ...values, commandId };
+  }
   const res = await fetch(`/api/v1/content${path}`, { method, credentials: 'include', headers: { 'Content-Type': 'application/json' },
-    ...(body === undefined ? {} : { body: JSON.stringify(body) }) });
+    ...(payload === undefined ? {} : { body: JSON.stringify(payload) }) });
   const json = await res.json();
   if (!res.ok || !json.success) throw new ContentApiError(json.error?.code ?? 'HTTP_ERROR', json.error?.message ?? 'Inhalte konnten nicht geladen werden.', json.error?.details);
+  if (intentKey) pendingIntents.delete(intentKey);
   return json.data as T;
 }
 export const contentApi = {
@@ -35,6 +44,9 @@ export const contentApi = {
   findEditors: (q: string) => request<Array<{ id: string; displayName: string }>>(`/editors/search?q=${encodeURIComponent(q)}`),
   poolEditors: (id: string) => request<Array<{ id: string; displayName: string }>>(`/pools/${encodeURIComponent(id)}/editors`),
   updatePool: (pool: ContentPoolView, values: unknown) => request<ContentPoolView>(`/pools/${encodeURIComponent(pool.id)}`, 'PUT', { commandId: crypto.randomUUID(), revision: pool.revision, ...(values as object) }),
+  correctionContent: (input: { roomCode: string; participantId: string; rejoinToken: string; runIndex: number }) =>
+    request<Array<{ itemId: string; revision: number; runIndex: number; payload: Record<string, unknown> }>>('/corrections/eligible', 'POST', input),
+  submitCorrection: (input: unknown) => request<{ reviewId: string }>('/corrections', 'POST', input),
 };
 export interface ImportPreviewRow { index: number; classification: string; targetId: string | null; targetRevision: number | null; title: string; errors: string[]; unknownTags: string[]; proposed: unknown; current: unknown }
 export interface ReviewView { id: string; kind: string; poolName: string; canDecide: boolean; proposed: unknown; createdAt: string }

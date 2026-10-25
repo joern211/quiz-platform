@@ -10,7 +10,7 @@ import { createTestDatabase } from '../test-helpers.js';
 import { createSessionCookie } from '../auth/session.js';
 import { config } from '../config/index.js';
 import { createApp } from '../app.js';
-import { cancelGeoTimer } from '../games/geo/index.js';
+import { cancelGeoTimer, handleGeoGame } from '../games/geo/index.js';
 import { connectGameClient, gameAck } from '../test-socket-harness.js';
 import { exportContent, parseContentImport } from './importExport.js';
 import { contentActor } from './core.js';
@@ -130,11 +130,22 @@ describe('content HTTP/DB contracts', () => {
         if (gameSlug === 'jeopardy') {
           const opened = await gameAck(host, 'jeopardy:field:open', { boardIndex: 1, categoryIndex: 0, value: 100, commandId: randomUUID() });
           expect(opened.success, JSON.stringify(opened)).toBe(true);
+          const openedState = await db.roomGameState.findUniqueOrThrow({ where: { roomId: room.id } }); expect(openedState.stateJson).toContain('CLUE_QUESTION');
+          const player = await db.participation.findFirstOrThrow({ where: { roomId: room.id, role: 'PLAYER', displayName: 'Alice' } });
+          const socket = await connectGameClient(origin);
+          try {
+            await gameAck(socket, 'room:subscribe', { roomCode: room.code, rejoinToken: player.rejoinToken });
+            expect((await gameAck(socket, 'jeopardy:buzz', { commandId: randomUUID() })).success).toBe(true);
+            expect((await gameAck(host, 'jeopardy:judge', { correct: true, commandId: randomUUID() })).success).toBe(true);
+            const eligible = await supertest(app.app).post('/api/v1/content/corrections/eligible').send({ roomCode: room.code, participantId: player.id, rejoinToken: player.rejoinToken, runIndex: 1 });
+            expect(eligible.body.data[0].itemId).toBe(q.id);
+          } finally { socket.disconnect(); }
         }
       } finally { host.disconnect(); }
       const state = await db.roomGameState.findUniqueOrThrow({ where: { roomId: room.id } });
       expect(state.stateJson).not.toContain('NEW_PROMPT');
-      expect(state.stateJson).toContain(gameSlug === 'wissensduell' ? 'PRIVATE_CONTENT_PROMPT' : 'CLUE_QUESTION');
+      if (gameSlug === 'wissensduell') expect(state.stateJson).toContain('PRIVATE_CONTENT_PROMPT');
+      else expect(room.setupSnapshotJson).toContain('CLUE_QUESTION');
       const pin = await db.contentUse.findFirstOrThrow({ where: { roomId: room.id } });
       await expect(db.contentUse.update({ where: { id: pin.id }, data: { snapshotJson: '{}' } })).rejects.toThrow();
       const archived = await api(owner).post(`/items/${q.id}/status`, { commandId: commandId(), revision: 3, status: 'TRASHED' });
@@ -268,5 +279,58 @@ describe('content HTTP/DB contracts', () => {
     expect(done.status).toBe(200);
     expect(JSON.parse((await db.contentItem.findFirstOrThrow({ where: { poolId: p.id } })).tagIdsJson!)).toEqual([tag.id]);
     expect((await api(owner).post('/tags', { commandId: commandId(), name: 'Conflicting', slug: 'physik' })).status).toBe(409);
+  });
+  it('materializes exact counts per pool with language/difficulty/category/tag filters and pinned defaults', async () => {
+    const p1 = await pool(), p2 = await pool();
+    const tag = (await api(owner).post('/tags', { commandId: commandId(), name: 'Filtered', slug: 'filtered' })).body.data;
+    for (const p of [p1, p2]) expect((await api(owner).put(`/pools/${p.id}`, { commandId: commandId(), revision: 1, name: p.name, description: '', scope: 'PRIVATE', editorIds: [],
+      defaults: { language: 'en-US', difficulty: 'HARD', tagIds: [tag.id] } })).status).toBe(200);
+    for (const [p, prompt] of [[p1, 'A'], [p1, 'B'], [p2, 'C']] as const) { const q = await item(p.id, { ...quiz, payload: { ...quiz.payload, prompt } }); await ready(q.id); }
+    const selection = { poolIds: [p1.id, p2.id], poolCounts: { [p1.id]: 2, [p2.id]: 1 }, count: 100,
+      language: 'en-US', difficulty: 'HARD', category: 'test', tagIds: [tag.id] };
+    const create = (contentSelection: object) => supertest(app.app).post('/api/v1/rooms').set('Cookie', owner).send({ gameSlug: 'wissensduell', roomName: 'Filtered pools', idempotencyKey: randomUUID(), setupSnapshotJson: { contentSelection } });
+    const created = await create(selection); expect(created.status, JSON.stringify(created.body)).toBe(201);
+    const refs = await db.contentUse.findMany({ where: { roomId: created.body.data.roomId } });
+    expect(refs.filter(r => JSON.parse(r.snapshotJson).poolId === p1.id)).toHaveLength(2);
+    expect(refs.filter(r => JSON.parse(r.snapshotJson).poolId === p2.id)).toHaveLength(1);
+    expect(refs.every(r => JSON.parse(r.snapshotJson).poolRevision === 2)).toBe(true);
+    expect((await create({ ...selection, language: 'de-DE' })).status).toBe(400);
+    expect((await create({ ...selection, poolCounts: { [p1.id]: 2 } })).status).toBe(400);
+  });
+  it('accepts guest corrections only for explicitly revealed content and keeps proposals separate from originals', async () => {
+    const p = await pool(), q = await item(p.id); await ready(q.id);
+    const future = await item(p.id, { ...quiz, payload: { ...quiz.payload, prompt: 'FUTURE_UNREVEALED_SECRET' } }); await ready(future.id);
+    const created = await supertest(app.app).post('/api/v1/rooms').set('Cookie', owner).send({ gameSlug: 'wissensduell', roomName: 'Corrections', idempotencyKey: randomUUID(),
+      setupSnapshotJson: { contentSelection: { poolIds: [p.id], mode: 'MANUAL', itemIds: [q.id, future.id], count: 2 } } });
+    const room = await db.room.findUniqueOrThrow({ where: { id: created.body.data.roomId } }); roomIds.push(room.id);
+    const players = await Promise.all(['C Alice', 'C Bob'].map(name => db.participation.create({ data: { roomId: room.id, displayName: name, normalizedName: name.toLowerCase(),
+      role: 'PLAYER', connected: true, ready: true, rejoinToken: randomUUID() } })));
+    const access = { roomCode: room.code, participantId: players[0].id, rejoinToken: players[0].rejoinToken, runIndex: 1 };
+    const request = (path: string, body: object) => supertest(app.app).post(`/api/v1/content${path}`).send(body);
+    expect((await request('/corrections/eligible', access)).body.data).toEqual([]);
+    const proposal = { ...access, commandId: randomUUID(), itemId: q.id, field: 'prompt', currentValue: quiz.payload.prompt, proposedValue: 'Korrigierte Frage', comment: 'Tippfehler' };
+    expect((await request('/corrections', proposal)).status).toBe(403);
+    expect((await request('/corrections/eligible', { ...access, rejoinToken: randomUUID() })).status).toBe(401);
+    const host = await connectGameClient(origin, owner);
+    try {
+      await gameAck(host, 'room:subscribe', { roomCode: room.code });
+      expect((await gameAck(host, 'game:start', { roomCode: room.code, commandId: randomUUID() })).success).toBe(true);
+      cancelGeoTimer(room.id); await handleGeoGame.startRound(app.io, room.code);
+      expect((await request('/corrections/eligible', access)).body.data).toEqual([]);
+      expect((await gameAck(host, 'geo:reveal', { roomCode: room.code, commandId: randomUUID() })).success).toBe(true);
+      const eligible = await request('/corrections/eligible', access); expect(eligible.body.data).toHaveLength(1); expect(eligible.body.data[0].itemId).toBe(q.id);
+      expect(JSON.stringify(eligible.body)).not.toContain('FUTURE_UNREVEALED_SECRET');
+      const submitted = await request('/corrections', proposal); expect(submitted.status).toBe(201);
+      expect((await request('/corrections', proposal)).body.data.reviewId).toBe(submitted.body.data.reviewId);
+      expect((await db.contentItem.findUniqueOrThrow({ where: { id: q.id } })).payloadJson).toContain('PRIVATE_CONTENT_PROMPT');
+      const accepted = await api(owner).post(`/reviews/${submitted.body.data.reviewId}/decide`, { commandId: commandId(), approve: true, reason: 'Geprüft' });
+      expect(accepted.status, JSON.stringify(accepted.body)).toBe(200);
+      expect((await db.contentItem.findUniqueOrThrow({ where: { id: q.id } })).payloadJson).toContain('Korrigierte Frage');
+      expect((await db.contentUse.findFirstOrThrow({ where: { roomId: room.id } })).snapshotJson).toContain('PRIVATE_CONTENT_PROMPT');
+      const staleProposal = await request('/corrections', { ...proposal, commandId: randomUUID() });
+      expect((await api(owner).post(`/reviews/${staleProposal.body.data.reviewId}/decide`, { commandId: commandId(), approve: false, reason: 'Bereits korrigiert' })).status).toBe(200);
+      await db.room.update({ where: { id: room.id }, data: { expiresAt: new Date(Date.now() - 1000) } });
+      expect((await request('/corrections/eligible', access)).status).toBe(404);
+    } finally { host.disconnect(); cancelGeoTimer(room.id); }
   });
 });

@@ -5,7 +5,7 @@
 import { useState, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { z } from 'zod';
-import { ContentPoolPicker } from '../components/ContentPoolPicker';
+import { ContentPoolPicker, DEFAULT_CONTENT_OPTIONS, contentSelectionPayload } from '../components/ContentPoolPicker';
 import { Card, Button, Input } from '@quiz/ui';
 import styles from './JeopardySetupPage.module.css';
 
@@ -51,6 +51,7 @@ export type JeopardyValidationError = {
 
 export function JeopardySetupPage() {
   const [contentPools, setContentPools] = useState<string[]>([]);
+  const [contentOptions, setContentOptions] = useState(DEFAULT_CONTENT_OPTIONS);
   const [poolQuestionCount, setPoolQuestionCount] = useState(5);
   const navigate = useNavigate();
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -206,7 +207,7 @@ export function JeopardySetupPage() {
           allowViewers: true,
           isPublic: true,
           idempotencyKey: idempotencyRef.current,
-          setupSnapshotJson: contentPools.length ? { contentSelection: { poolIds: contentPools, count: poolQuestionCount } } : { board1: engineBoard1, board2: engineBoard2 },
+          setupSnapshotJson: contentPools.length ? { contentSelection: contentSelectionPayload(contentPools, poolQuestionCount, contentOptions) } : { board1: engineBoard1, board2: engineBoard2 },
         }),
       });
 
@@ -231,7 +232,7 @@ export function JeopardySetupPage() {
   return (
     <div className={styles.page}>
       <h1 className={styles.title}>Jeopardy einrichten</h1>
-      <ContentPoolPicker gameSlug="jeopardy" selected={contentPools} onChange={setContentPools} />
+      <ContentPoolPicker gameSlug="jeopardy" selected={contentPools} onChange={setContentPools} options={contentOptions} onOptionsChange={setContentOptions} />
       {contentPools.length > 0 && <label>Fragen aus Pools <input aria-label="Fragen aus Pools" type="number" min={1} max={30} value={poolQuestionCount} onChange={e => setPoolQuestionCount(Number(e.target.value))} /></label>}
 
       {/* Validation errors */}
