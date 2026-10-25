@@ -1,0 +1,4 @@
+.media { margin-block: 1rem; }
+.media img { max-width: 100%; max-height: 420px; height: auto; object-fit: contain; border-radius: var(--radius); }
+.media audio { width: 100%; }
+.media button { min-height: 44px; padding: .5rem .8rem; background: var(--surface); color: var(--fg); border: 1px solid var(--border); border-radius: var(--radius); cursor: pointer; }

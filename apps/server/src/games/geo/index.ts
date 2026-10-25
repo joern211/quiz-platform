@@ -3,6 +3,7 @@
 // ============================================================
 
 import { Server, Socket } from 'socket.io';
+import { roomContentMediaUrl } from '../../content/media.js';
 import { readPinnedContent } from '../../content/core.js';
 import { prisma } from '../../persistence/prisma.js';
 import { resolveCanonicalSlug, slugWithLegacy, type CoreTimer, type SubmissionRecord, type CoreRoundTransition } from '@quiz/shared';
@@ -51,6 +52,7 @@ interface GeoRoundState {
 }
 
 interface GeoGameState {
+  contentRunIndex?: number;
   tieStrategy?: 'ALLOW_TIE';
   lastRoundTransition?: CoreRoundTransition;
   phase: string;
@@ -239,6 +241,7 @@ export const handleGeoGame = {
 
     // Create initial game state
     const gameState: GeoGameState = {
+      contentRunIndex: (await prisma.room.findUniqueOrThrow({ where: { id: room.id }, select: { runIndex: true } })).runIndex,
       tieStrategy: await loadInitialTieStrategy(room.id, 'wissensduell'),
       phase: initialPhase,
       currentRoundIndex: 0,
@@ -413,6 +416,8 @@ export const handleGeoGame = {
         prompt: question.prompt,
         category: question.category,
         imageUrl: question.imageUrl || undefined,
+        mediaType: question.mediaType,
+        mediaUrl: roomContentMediaUrl(roomRecord.id, state.contentRunIndex, question.id, question.mediaAssetId),
         options: options.map((o: any) => ({ 
           id: o.id, 
           label: o.label || o.id, 

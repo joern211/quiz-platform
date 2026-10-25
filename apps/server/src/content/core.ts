@@ -3,6 +3,7 @@ import type { ContentItem, ContentPool, Prisma } from '@prisma/client';
 import { ContentDefaultsSchema, ContentItemInputSchema, ContentSelectionSchema, validateContentPayload,
   type ContentItemView, type ContentPoolView } from '@quiz/shared';
 import { prisma } from '../persistence/prisma.js';
+import { validateContentMedia, recordContentMediaReference } from './media.js';
 import { shuffleServer } from '../games/core/roundFlow.js';
 
 export class ContentError extends Error {
@@ -61,6 +62,7 @@ export async function auditContent(db: ContentDb, actor: ContentActor, action: s
 export async function saveRevision(db: ContentDb, item: ContentItem, actor: ContentActor, kind: string, changedFields: string[]) {
   await db.contentRevision.create({ data: { itemId: item.id, revision: item.revision, actorId: actor.userId, kind,
     changedFieldsJson: JSON.stringify(changedFields), snapshotJson: JSON.stringify(item) } });
+  await recordContentMediaReference(db, actor, item);
   await auditContent(db, actor, `CONTENT_${kind}`, item.id, { revision: item.revision, changedFields });
 }
 export function contentInputData(input: unknown) {
@@ -105,6 +107,7 @@ export async function changeItem(db: ContentDb, actor: ContentActor, id: string,
   if (item.revision !== revision) throw new ContentError('REVISION_CONFLICT', 409, { currentRevision: item.revision });
   if (item.lockState !== 'EDITABLE') throw new ContentError('CONTENT_LOCKED', 409);
   const value = ContentItemInputSchema.parse(input); await validateTagIds(db, value.tagIds ?? []);
+  await validateContentMedia(db, actor, value.payload);
   const data = contentInputData(value);
   const fields = Object.entries(data).filter(([k, v]) => item[k as keyof ContentItem] !== v).map(([k]) => k);
   if (!fields.length && !restore) return itemView(item, pool);
@@ -153,6 +156,7 @@ export async function selectRoomContent(db: ContentDb, actor: ContentActor, game
   for (const q of items) {
     const valid = validateContentPayload(gameSlug, q.payload);
     if (!valid.success) throw new ContentError('CONTENT_NOT_READY');
+    await validateContentMedia(db, actor, valid.data, true, ['PUBLIC', 'SYSTEM'].includes(pools.find(p => p.id === q.poolId)!.scope));
     q.payload = valid.data;
   }
   return items;

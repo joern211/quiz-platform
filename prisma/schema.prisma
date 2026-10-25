@@ -128,6 +128,7 @@ model ContentItem {
   updatedAt DateTime @updatedAt
   revisions ContentRevision[]
   uses ContentUse[]
+  mediaReferences ContentMediaReference[]
   @@index([poolId, status])
   @@map("content_items")
 }
@@ -651,6 +652,8 @@ model MediaAsset {
   @@index([sha256])
   @@index([assetKey])
 
+  contentReferences ContentMediaReference[]
+
   // Note: GeoQuestion holds the forward relation via mediaAssetId
 
   @@map("media_assets")
@@ -840,4 +843,18 @@ model ContentEditorPresence {
   @@unique([itemId, sessionId, editorKey])
   @@index([itemId, lastSeenAt])
   @@map("content_editor_presence")
+}
+
+model ContentMediaReference {
+  id String @id @default(uuid())
+  itemId String
+  item ContentItem @relation(fields: [itemId], references: [id], onDelete: Restrict)
+  itemRevision Int
+  assetId String
+  asset MediaAsset @relation(fields: [assetId], references: [id], onDelete: Restrict)
+  authorizedBy String?
+  createdAt DateTime @default(now())
+  @@unique([itemId, itemRevision, assetId])
+  @@index([assetId])
+  @@map("content_media_references")
 }

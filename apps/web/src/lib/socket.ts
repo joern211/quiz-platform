@@ -78,7 +78,7 @@ export interface GeoResyncResponse {
   roundIndex?: number;
   totalQuestions?: number;
   question?: {
-    id: string; prompt: string; category: string;
+    id: string; prompt: string; category: string; mediaUrl?: string; mediaType?: string;
     options: Array<{ id: string; label: string; text: string; imageUrl?: string }>;
     correctOptionId?: string;
   } | null;
@@ -124,6 +124,7 @@ export type ServerToClientEvents = {
       category: string;
       options: Array<{ id: string; label: string; text: string; imageUrl?: string }>;
       imageUrl?: string;
+      mediaUrl?: string; mediaType?: string;
     };
     timerMs: number;
     timerEndMs: number;
@@ -144,7 +145,7 @@ export type ServerToClientEvents = {
   'geo:joker:risk:result': (data: { roundIndex: number; active: boolean }) => void;
   // ── Jeopardy ────────────────────────────────────────────────
   'jeopardy:init': (data: { boardNumber: 1 | 2; categories: Array<{ name: string; clueCount: number }>; values: number[]; scores: Record<string, number>; playerNames?: Record<string, string> }) => void;
-  'jeopardy:field:open': (data: { categoryIndex: number; value: number; question: string; mediaType?: string; mediaAssetId?: string }) => void;
+  'jeopardy:field:open': (data: { categoryIndex: number; value: number; question: string; mediaType?: string; mediaAssetId?: string; mediaUrl?: string }) => void;
   'jeopardy:answer:secret': (data: { answer: string }) => void; // Moderator only
   'jeopardy:reveal': (data: { answer: string; correct: boolean; playerId: string; playerName: string; fieldValue: number; delta: number; scores: Record<string, number> }) => void;
   'jeopardy:steal:open': (data: { categoryIndex: number; value: number; scores?: Record<string, number>; excludedPlayerId?: string; excludedPlayerIds?: string[] }) => void;
@@ -218,7 +219,7 @@ export interface JeopardyResyncResponse {
   phase?: 'PAUSED' | 'INTRO' | 'SELECTING' | 'BUZZ_OPEN' | 'BUZZ_LOCKED' | 'STEAL_OPEN' | 'STEAL_LOCKED' | 'FIELD_DONE' | 'BOARD_COMPLETE' | 'GAME_END';
   scores?: Array<{ playerId: string; playerName: string; score: number }>;
   playerNames?: Record<string, string>;
-  currentField?: { categoryIndex: number; value: number; question: string; answer?: string; buzzWinnerId?: string | null; buzzWinnerName?: string | null; firstResponderId?: string } | null;
+  currentField?: { mediaUrl?: string; mediaType?: string; categoryIndex: number; value: number; question: string; answer?: string; buzzWinnerId?: string | null; buzzWinnerName?: string | null; firstResponderId?: string } | null;
   playedFields?: string[];
   board1Categories?: Array<{ name: string; clueCount: number }>;
   board2Categories?: Array<{ name: string; clueCount: number }>;

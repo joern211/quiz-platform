@@ -5,6 +5,8 @@ import { authApi } from '../lib/api';
 import { ContentApiError, contentApi } from '../lib/contentApi';
 import styles from './ContentPage.module.css';
 import { ContentImportTools, ContentReviewInbox } from '../components/ContentTools';
+import { ContentMedia } from '../components/ContentMedia';
+import { ContentMediaFields } from '../components/ContentMediaFields';
 import { ContentCollaboration } from '../components/ContentCollaboration';
 import { ContentBatchTools } from '../components/ContentBatchTools';
 import { ContentPoolSettings } from '../components/ContentPoolSettings';
@@ -65,8 +67,8 @@ export function ContentEditor({ initial, pool, onSaved, dirtyFlag, actorId }: { 
     finally { writing.current = false; if (alive.current) setBusy(false); }
   };
   const input = (label: string, key: string, multiline = false) => <label>{label}{multiline
-    ? <textarea disabled={!canWrite || busy && !item} value={String(draft.payload[key] ?? '')} onChange={e => field(key, e.target.value)} />
-    : <input disabled={!canWrite || busy && !item} value={String(draft.payload[key] ?? '')} onChange={e => field(key, e.target.value)} />}</label>;
+    ? <textarea aria-label={label} disabled={!canWrite || busy && !item} value={String(draft.payload[key] ?? '')} onChange={e => field(key, e.target.value)} />
+    : <input aria-label={label} disabled={!canWrite || busy && !item} value={String(draft.payload[key] ?? '')} onChange={e => field(key, e.target.value)} />}</label>;
   const options = (draft.payload.options ?? []) as Array<{ id: string; text: string }>;
   return <section className={styles.panel} aria-label="Frageneditor">
     <h2>{item ? 'Frage bearbeiten' : 'Neue Frage'}</h2>
@@ -111,6 +113,7 @@ export function ContentEditor({ initial, pool, onSaved, dirtyFlag, actorId }: { 
       <button disabled={!canWrite || draft.tagIds === null} onClick={() => patch({ tagIds: null })}>Pool-Tags übernehmen</button>
       <label>Quelle<input disabled={!canWrite} value={draft.source} onChange={e => patch({ source: e.target.value })} /></label>
       <label>Quellen-URL<input disabled={!canWrite} type="url" value={draft.sourceUrl} onChange={e => patch({ sourceUrl: e.target.value })} /></label>
+      <ContentMediaFields item={item} payload={draft.payload} disabled={!canWrite} onChange={values => { setDraft(v => ({ ...v, payload: { ...v.payload, ...values } })); setStatus('Ungespeichert'); setPreview(null); }} />
       <label>Lizenz / Nutzungserlaubnis<input disabled={!canWrite} value={draft.license} onChange={e => patch({ license: e.target.value })} /></label>
     </>}
     {!valid && <ul className={styles.meta} aria-label="Offene Pflichtfelder">{validation.error.issues.map((e, i) => <li key={i}>{e.path.join('.')}: {e.message}</li>)}</ul>}
@@ -126,7 +129,7 @@ export function ContentEditor({ initial, pool, onSaved, dirtyFlag, actorId }: { 
     {item && <fieldset><legend>Vorschau der gespeicherten Version</legend><label>Perspektive<select value={previewRole} onChange={e => { setPreviewRole(e.target.value); setPreview(null); }}>{['PLAYER', 'VIEWER', 'HOST', 'TEAM'].map(r => <option key={r}>{r}</option>)}</select></label>
       <label>Auflösung<select value={String(reveal)} onChange={e => { setReveal(e.target.value === 'true'); setPreview(null); }}><option value="false">Vor Auflösung</option><option value="true">Nach Auflösung</option></select></label>
       <button disabled={dirty || busy} onClick={() => contentApi.preview(item.id, previewRole, reveal).then(setPreview).catch(e => setError(errorMessage(e)))}>Vorschau laden</button>
-      {preview && <div className={styles.preview}>{Object.entries(preview).map(([key, value]) => <p key={key}><strong>{{ prompt: 'Frage', question: 'Frage', category: 'Kategorie', answer: 'Lösung', correctOptionId: 'Richtige Antwort', explanation: 'Erklärung', options: 'Antwortmöglichkeiten', value: 'Punktwert' }[key] ?? key}:</strong> {Array.isArray(value) ? value.map(v => `${v.id}: ${v.text}`).join(' · ') : String(value)}</p>)}</div>}
+      {preview && <div className={styles.preview}>{Object.entries(preview).filter(([key]) => !['mediaUrl', 'mediaType'].includes(key)).map(([key, value]) => <p key={key}><strong>{{ prompt: 'Frage', question: 'Frage', category: 'Kategorie', answer: 'Lösung', correctOptionId: 'Richtige Antwort', explanation: 'Erklärung', options: 'Antwortmöglichkeiten', value: 'Punktwert' }[key] ?? key}:</strong> {Array.isArray(value) ? value.map(v => `${v.id}: ${v.text}`).join(' · ') : String(value)}</p>)}<ContentMedia mediaUrl={typeof preview.mediaUrl === 'string' ? preview.mediaUrl : undefined} mediaType={typeof preview.mediaType === 'string' ? preview.mediaType : undefined} onRefresh={() => { if (item) void contentApi.preview(item.id, previewRole, reveal).then(setPreview).catch(e => setError(errorMessage(e))); }} /></div>}
     </fieldset>}
     {item && <ContentCollaboration item={item} pool={pool} actorId={actorId} dirty={dirty || busy} onSaved={updated => { setItem(updated); onSaved(updated); }} />}
     {history.length > 0 && <section aria-label="Versionsverlauf"><h3>Versionen vergleichen</h3>{history.map(v => <details key={v.revision}><summary>Version {v.revision} · {v.kind} · {new Date(v.createdAt).toLocaleString()}</summary><pre className={styles.preview}>{JSON.stringify(v.snapshot, null, 2)}</pre>{pool.canEdit && item && <button disabled={dirty || busy} onClick={() => { if (window.confirm('Als neuen Entwurf übernehmen? Die Historie bleibt erhalten.')) void run(() => contentApi.restore(item, v.revision)); }}>Als neue Version wiederherstellen</button>}</details>)}</section>}

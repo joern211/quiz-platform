@@ -100,6 +100,7 @@ export interface JeopardyInitEvent {
 
 /** A field on the board is now selectable. */
 export interface JeopardyFieldOpenEvent {
+  mediaUrl?: string;
   categoryIndex: number; // 0-based within current board (0–5)
   value: number;
   question: string;        // the clue (not the answer)

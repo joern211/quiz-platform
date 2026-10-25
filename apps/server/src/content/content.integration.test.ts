@@ -1,5 +1,8 @@
 import { beforeAll, afterAll, describe, it, expect, vi } from 'vitest';
 import { PrismaClient } from '@prisma/client';
+import sharp from 'sharp';
+import { z } from 'zod';
+import { contentMediaUrl } from './media.js';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -20,6 +23,7 @@ let dir: string, db: PrismaClient, previous: PrismaClient | undefined;
 let app: ReturnType<typeof createApp>, owner: string, other: string, admin: string;
 let ownerId: string, otherId: string, origin: string;
 const roomIds: string[] = [];
+const mediaFiles: string[] = [];
 const commandId = () => randomUUID();
 const quiz = { title: 'Test', payload: { prompt: 'PRIVATE_CONTENT_PROMPT', category: 'Test', options: [{ id: 'a', text: 'Eins' }, { id: 'b', text: 'Zwei' }], correctOptionId: 'b', explanation: 'SECRET_EXPLANATION', durationMs: 20000, points: 100, wrongPoints: 0 } };
 const clue = { title: 'Clue', payload: { question: 'CLUE_QUESTION', answer: 'SECRET_CLUE_ANSWER', category: 'Test', value: 100 } };
@@ -51,6 +55,7 @@ beforeAll(async () => {
 });
 afterAll(async () => { for (const id of roomIds) cancelGeoTimer(id); if (app) await new Promise<void>(resolve => app.io.close(() => resolve()));
   await vi.waitFor(() => expect([...socketIdentityMap.values()].filter(v => roomIds.includes(v.roomId ?? ''))).toHaveLength(0), { timeout: 10000 });
+  for (const path of mediaFiles) await rm(path, { force: true });
   await db?.$disconnect(); globalThis.__prisma = previous; if (dir) await rm(dir, { recursive: true, force: true }); });
 
 describe('content HTTP/DB contracts', () => {
@@ -440,4 +445,95 @@ it('serializes actual simultaneous editor writes at the database and returns one
   expect(saves.map(r => r.status).sort()).toEqual([200, 409]);
   expect(saves.find(r => r.status === 409)?.body.error.code).toBe('REVISION_CONFLICT');
   expect(await db.contentRevision.count({ where: { itemId: q.id } })).toBe(2);
+});
+
+async function uploadContentImage(cookie: string) {
+  const bytes = await sharp({ create: { width: 8, height: 8, channels: 3, background: { r: Math.floor(Math.random() * 256), g: Math.floor(Math.random() * 256), b: Math.floor(Math.random() * 256) } } }).png().toBuffer();
+  const response = await supertest(app.app).post('/api/v1/media').set('Cookie', cookie).attach('file', bytes, { filename: 'content.png', contentType: 'image/png' });
+  expect(response.status).toBe(201); const asset = await db.mediaAsset.findUniqueOrThrow({ where: { id: response.body.data.id } }); mediaFiles.push(asset.storagePath); return asset;
+}
+const ownRights = { source: 'Eigenes Material', sourceUrl: '', author: 'Test', license: 'Eigene Rechte', ownMaterial: true, recognizablePerson: false, consent: false };
+it('authorizes private media through normalized references, requires rights/READY and protects historical asset rows', async () => {
+  const asset = await uploadContentImage(owner), p = await pool('wissensduell', 'SHARED', [otherId]);
+  const q = await item(p.id, { ...quiz, payload: { ...quiz.payload, mediaAssetId: asset.id, mediaType: 'image' } });
+  expect((await api(owner).post(`/items/${q.id}/status`, { commandId: commandId(), revision: 1, status: 'READY' })).status).toBe(400);
+  const save = await api(owner).put(`/items/${q.id}`, { commandId: commandId(), revision: 1, item: { ...quiz, payload: { ...quiz.payload,
+    mediaAssetId: asset.id, mediaType: 'image', mediaRights: { ...ownRights, recognizablePerson: true, consent: false } } } });
+  expect(save.status).toBe(200);
+  expect((await api(owner).post(`/items/${q.id}/status`, { commandId: commandId(), revision: 2, status: 'READY' })).status).toBe(400);
+  await api(owner).put(`/items/${q.id}`, { commandId: commandId(), revision: 2, item: { ...quiz, payload: { ...quiz.payload, mediaAssetId: asset.id, mediaType: 'image', mediaRights: ownRights } } });
+  await ready(q.id, 3);
+  expect((await supertest(app.app).get(`/api/v1/media/${asset.id}`)).status).toBe(403);
+  const rolePreview = await api(other).get(`/items/${q.id}/preview?role=VIEWER`);
+  expect(rolePreview.body.data.correctOptionId).toBeUndefined();
+  expect((await supertest(app.app).get(rolePreview.body.data.mediaUrl).set('Cookie', other)).status).toBe(200);
+  const preview = await api(other).get(`/items/${q.id}/media`); expect(preview.status).toBe(200);
+  expect(JSON.stringify(preview.body)).not.toContain(asset.storagePath);
+  expect((await supertest(app.app).get(preview.body.data.url).set('Cookie', other)).status).toBe(200);
+  expect((await supertest(app.app).get(preview.body.data.url)).status).toBe(403);
+  await db.contentPool.update({ where: { id: p.id }, data: { scope: 'PRIVATE', editorIdsJson: '[]' } });
+  expect((await supertest(app.app).get(preview.body.data.url).set('Cookie', other)).status).toBe(403);
+  const foreignPool = await db.contentPool.create({ data: { name: 'Unsafe old draft', gameSlug: 'wissensduell', ownerId: otherId } });
+  const unsafe = await db.contentItem.create({ data: { poolId: foreignPool.id, gameSlug: 'wissensduell', payloadJson: JSON.stringify({ ...quiz.payload, mediaAssetId: asset.id, mediaType: 'image', mediaRights: ownRights }) } });
+  expect((await api(other).get(`/items/${unsafe.id}/media`)).status).toBe(400);
+  expect((await api(other).post(`/pools/${foreignPool.id}/items`, { commandId: commandId(), item: { ...quiz, payload: { ...quiz.payload, mediaAssetId: asset.id, mediaType: 'image', mediaRights: ownRights } } })).status).toBe(400);
+  const signed = contentMediaUrl(asset.id, { kind: 'EDITOR', itemId: unsafe.id, revision: 1 });
+  expect((await supertest(app.app).get(signed).set('Cookie', other)).status).toBe(403);
+  const own = await api(owner).get(`/items/${q.id}/media`); expect(own.status).toBe(200);
+  await db.mediaAsset.update({ where: { id: asset.id }, data: { processStatus: 'BLOCKED' } });
+  expect((await supertest(app.app).get(own.body.data.url).set('Cookie', owner)).status).toBe(403);
+  await db.mediaAsset.update({ where: { id: asset.id }, data: { processStatus: 'READY' } });
+  const ref = await db.contentMediaReference.findFirstOrThrow({ where: { itemId: q.id } });
+  await expect(db.contentMediaReference.update({ where: { id: ref.id }, data: { itemRevision: 100 } })).rejects.toThrow();
+  await expect(db.mediaAsset.delete({ where: { id: asset.id } })).rejects.toThrow();
+});
+it('preserves media IDs and structured rights in JSON, CSV and XLSX without exporting private storage data', async () => {
+  const asset = await uploadContentImage(owner), p = await pool(), q = await item(p.id, { ...quiz, payload: { ...quiz.payload, mediaAssetId: asset.id, mediaType: 'image', mediaRights: ownRights } });
+  const actor = await contentActor(db, owner.split('=')[1].split('.')[0]);
+  for (const format of ['JSON', 'CSV', 'XLSX'] as const) {
+    const bytes = await exportContent(db, actor, p.id, format), rows = await parseContentImport(format, bytes, 'wissensduell');
+    expect(rows[0].input.payload).toMatchObject({ mediaAssetId: asset.id, mediaType: 'image', mediaRights: ownRights });
+    expect(bytes.toString('utf8')).not.toContain(asset.storagePath);
+  }
+  expect(await db.contentMediaReference.count({ where: { itemId: q.id, assetId: asset.id } })).toBe(1);
+});
+it('delivers media only for the active pinned question of both real engines and fences room/run/asset/rejoin', async () => {
+  for (const [gameSlug, value] of [['wissensduell', quiz], ['jeopardy', clue]] as const) {
+    const first = await uploadContentImage(owner), future = await uploadContentImage(owner), p = await pool(gameSlug);
+    const a = await item(p.id, { ...value, payload: { ...value.payload, mediaAssetId: first.id, mediaType: 'image', mediaRights: ownRights } }); await ready(a.id);
+    const b = await item(p.id, { ...value, payload: { ...value.payload, ...(gameSlug === 'jeopardy' ? { value: 200 } : { prompt: 'Future secret question' }), mediaAssetId: future.id, mediaType: 'image', mediaRights: ownRights } }); await ready(b.id);
+    const created = await supertest(app.app).post('/api/v1/rooms').set('Cookie', owner).send({ gameSlug, roomName: 'Media runtime', idempotencyKey: randomUUID(),
+      setupSnapshotJson: { contentSelection: { poolIds: [p.id], mode: 'MANUAL', itemIds: [a.id, b.id], count: 2 } } });
+    expect(created.status).toBe(201); const room = await db.room.findUniqueOrThrow({ where: { id: created.body.data.roomId } }); roomIds.push(room.id);
+    for (const name of ['Media Alice', 'Media Bob']) await db.participation.create({ data: { roomId: room.id, displayName: name, normalizedName: name.toLowerCase(), role: 'PLAYER', ready: true, connected: true, rejoinToken: randomUUID() } });
+    const host = await connectGameClient(origin, owner), viewer = await connectGameClient(origin);
+    try {
+      await gameAck(host, 'room:subscribe', { roomCode: room.code }); await gameAck(viewer, 'room:subscribe', { roomCode: room.code });
+      await db.mediaAsset.update({ where: { id: first.id }, data: { processStatus: 'FAILED' } });
+      expect((await gameAck(host, 'game:start', { roomCode: room.code, commandId: randomUUID() })).success).toBe(false);
+      await db.mediaAsset.update({ where: { id: first.id }, data: { processStatus: 'READY' } });
+      expect((await gameAck(host, 'game:start', { roomCode: room.code, commandId: randomUUID() })).success).toBe(true);
+      const nextUrl = contentMediaUrl(future.id, { kind: 'ROOM', roomId: room.id, runIndex: 1, itemId: b.id });
+      expect((await supertest(app.app).get(nextUrl)).status).toBe(403);
+      const event = new Promise<{ question?: { mediaUrl?: string }; mediaUrl?: string }>(resolve => host.once(gameSlug === 'wissensduell' ? 'geo:question' : 'jeopardy:field:open', resolve));
+      if (gameSlug === 'wissensduell') { cancelGeoTimer(room.id); await handleGeoGame.startRound(app.io, room.code); }
+      else expect((await gameAck(host, 'jeopardy:field:open', { boardIndex: 1, categoryIndex: 0, value: 100, commandId: randomUUID() })).success).toBe(true);
+      const message = await event, url = gameSlug === 'wissensduell' ? message.question?.mediaUrl : message.mediaUrl;
+      expect(url).toBeTruthy(); expect((await supertest(app.app).get(url!)).status).toBe(200);
+      expect((await supertest(app.app).get(nextUrl)).status).toBe(403);
+      expect((await supertest(app.app).get(url!.replace(first.id, future.id))).status).toBe(403);
+      const projected = await gameAck(viewer, gameSlug === 'wissensduell' ? 'geo:resync' : 'jeopardy:resync', {});
+      const current = gameSlug === 'wissensduell' ? projected.question : projected.currentField;
+      expect((await supertest(app.app).get(z.object({ mediaUrl: z.string() }).parse(current).mediaUrl)).status).toBe(200);
+      expect(JSON.stringify(projected)).not.toContain('mediaRights'); expect(JSON.stringify(projected)).not.toContain(future.id);
+      await api(owner).put(`/items/${a.id}`, { commandId: commandId(), revision: 2, item: { ...value, payload: { ...value.payload, mediaAssetId: future.id, mediaType: 'image', mediaRights: ownRights } } });
+      expect((await supertest(app.app).get(url!)).status).toBe(200);
+      const afterReload = await gameAck(host, gameSlug === 'wissensduell' ? 'geo:resync' : 'jeopardy:resync', {});
+      expect(z.object({ mediaUrl: z.string() }).parse(gameSlug === 'wissensduell' ? afterReload.question : afterReload.currentField).mediaUrl).toContain(first.id);
+      await db.room.update({ where: { id: room.id }, data: { runIndex: 2 } });
+      expect((await supertest(app.app).get(url!)).status).toBe(403);
+      await db.room.update({ where: { id: room.id }, data: { runIndex: 1, lifecycle: 'CLOSED' } });
+      expect((await supertest(app.app).get(url!)).status).toBe(403);
+    } finally { host.disconnect(); viewer.disconnect(); cancelGeoTimer(room.id); }
+  }
 });

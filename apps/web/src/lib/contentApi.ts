@@ -22,6 +22,7 @@ async function request<T>(path: string, method = 'GET', body?: unknown): Promise
   return json.data as T;
 }
 export const contentApi = {
+  media: (id: string) => request<{ url: string; type: string }>(`/items/${encodeURIComponent(id)}/media`),
   batchPreview: (batch: z.infer<typeof ContentBatchSchema>) => request<BatchPreview>('/batch/preview', 'POST', batch),
   batchCommit: (batch: z.infer<typeof ContentBatchSchema>) => request<{ results: Array<{ id: string; status: string; error?: string }> }>('/batch/commit', 'POST', { commandId: crypto.randomUUID(), batch, confirmed: true }),
   presence: (id: string, editorKey: string, active: boolean) => request<Array<{ id: string; displayName: string }>>(`/items/${encodeURIComponent(id)}/presence`, 'POST', { editorKey, active }),

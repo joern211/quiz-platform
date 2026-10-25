@@ -22,6 +22,7 @@ export interface JeopardyFieldOpenPayload {
   question: string;
   mediaType?: string;
   mediaAssetId?: string;
+  mediaUrl?: string;
 }
 
 export interface JeopardyBuzzWonPayload {
@@ -97,6 +98,7 @@ export interface JeopardyGameState {
     categoryIndex: number;
     value: number;
     question: string;
+    mediaType?: string; mediaUrl?: string;
   } | null;
   buzzWinner: JeopardyBuzzWonPayload | null;
   reveal: JeopardyRevealPayload | null;
@@ -111,6 +113,7 @@ export interface JeopardyGameState {
 // ── Hook ───────────────────────────────────────────────────────
 
 export function useJeopardy(roomCode: string, role: PlayerRole) {
+  const refreshRef = useRef<() => void>(() => {});
   const socketRef = useRef<ReturnType<typeof getSocket> | null>(null);
   const rejoinToken = getSessionData().rejoinToken;
 
@@ -168,7 +171,7 @@ export function useJeopardy(roomCode: string, role: PlayerRole) {
               scores,
               playerNames,
               phase: res.phase!,
-              currentField: res.currentField ? { categoryIndex: res.currentField.categoryIndex, value: res.currentField.value, question: res.currentField.question } : null,
+              currentField: res.currentField ? { categoryIndex: res.currentField.categoryIndex, value: res.currentField.value, question: res.currentField.question, mediaType: res.currentField.mediaType, mediaUrl: res.currentField.mediaUrl } : null,
               buzzWinner: res.buzzWinnerId ? { playerId: res.buzzWinnerId, playerName: playerNames[res.buzzWinnerId] ?? '' } : null,
               stealWinner: res.stealWinnerId ? { playerId: res.stealWinnerId, playerName: playerNames[res.stealWinnerId] ?? '' } : null,
               stealExcludedId: res.currentField?.firstResponderId ?? null,
@@ -179,6 +182,7 @@ export function useJeopardy(roomCode: string, role: PlayerRole) {
           });
     };
 
+    refreshRef.current = refresh;
     const subscribe = () => {
       setConnected(true);
       socket.emit(
@@ -245,7 +249,7 @@ export function useJeopardy(roomCode: string, role: PlayerRole) {
         currentField: {
           categoryIndex: data.categoryIndex,
           value: data.value,
-          question: data.question,
+          question: data.question, mediaType: data.mediaType, mediaUrl: data.mediaUrl,
         },
         buzzWinner: null,
         reveal: null,
@@ -364,6 +368,7 @@ export function useJeopardy(roomCode: string, role: PlayerRole) {
     });
 
     return () => {
+      refreshRef.current = () => {};
       socket.off('game:core:changed', refresh);
       socket.off('game:pause', refresh);
       socket.off('game:resume', refresh);
@@ -475,6 +480,7 @@ export function useJeopardy(roomCode: string, role: PlayerRole) {
   const clearError = useCallback(() => setError(null), []);
 
   return {
+    refreshMedia: () => refreshRef.current(),
     connected,
     gameState,
     secretAnswer,

@@ -2,6 +2,7 @@ import type * as ExcelTypes from 'exceljs';
 import { createRequire } from 'node:module';
 import { Readable } from 'node:stream';
 import { createHash } from 'node:crypto';
+import { validateContentMedia } from './media.js';
 import { z } from 'zod';
 import { ContentItemInputSchema, validateContentPayload } from '@quiz/shared';
 import { ContentError, contentInputData, itemView, requirePool, validateTagIds, saveRevision, auditContent,
@@ -11,7 +12,7 @@ const MAX_ROWS = 500, MAX_BYTES = 5 * 1024 * 1024;
 // ExcelJS is CommonJS; use Node's loader consistently in production and in
 // isolated VM tests (some transitive packages also load native ESM).
 const Workbook = createRequire(import.meta.url)('exceljs/lib/doc/workbook.js') as typeof ExcelTypes.Workbook;
-const columns = ['id', 'revision', 'title', 'prompt', 'question', 'answer', 'category', 'options', 'correctOptionId', 'explanation', 'points', 'wrongPoints', 'durationMs', 'value', 'language', 'difficulty', 'tags', 'source', 'sourceUrl', 'license'];
+const columns = ['id', 'revision', 'title', 'prompt', 'question', 'answer', 'category', 'options', 'correctOptionId', 'explanation', 'points', 'wrongPoints', 'durationMs', 'value', 'mediaAssetId', 'mediaType', 'mediaRights', 'language', 'difficulty', 'tags', 'source', 'sourceUrl', 'license'];
 export type ImportRow = { externalId: string | null; input: z.infer<typeof ContentItemInputSchema>; tagNames: string[]; parseIssues: string[] };
 export interface ImportPreviewRow { index: number; classification: 'NEW' | 'EXACT' | 'SIMILAR' | 'CONFLICT' | 'INVALID'; targetId: string | null; targetRevision: number | null; errors: string[]; unknownTags: string[]; title: string; proposed: unknown; current: unknown }
 export function canonicalContent(value: unknown): string {
@@ -77,7 +78,8 @@ export async function parseContentImport(format: 'JSON' | 'CSV' | 'XLSX', data: 
       prompt: String(raw.prompt ?? ''), category: String(raw.category ?? ''), options: parseJsonField('options', []), correctOptionId: String(raw.correctOptionId ?? ''),
       explanation: String(raw.explanation ?? ''), points: number('points', 100), wrongPoints: number('wrongPoints', 0), durationMs: number('durationMs', 20000),
     } : { question: String(raw.question ?? ''), answer: String(raw.answer ?? ''), category: String(raw.category ?? ''), value: number('value', 100) };
-    const candidates = { title: String(raw.title ?? ''), payload, language: raw.language || null, difficulty: raw.difficulty || null, tagIds: null,
+    const media = { ...(raw.mediaAssetId ? { mediaAssetId: String(raw.mediaAssetId) } : {}), ...(raw.mediaType ? { mediaType: String(raw.mediaType) } : {}), ...(raw.mediaRights ? { mediaRights: parseJsonField('mediaRights', {}) } : {}) };
+    const candidates = { title: String(raw.title ?? ''), payload: { ...media, ...payload }, language: raw.language || null, difficulty: raw.difficulty || null, tagIds: null,
       source: String(raw.source ?? ''), sourceUrl: String(raw.sourceUrl ?? ''), license: String(raw.license ?? '') };
     const parsed = ContentItemInputSchema.safeParse(candidates);
     if (!parsed.success) issues.push(...parsed.error.issues.map(e => `${e.path.join('.')}: ${e.message}`));
@@ -106,6 +108,7 @@ export async function previewContentImport(db: ContentDb, actor: ContentActor, p
       targetId: target?.id ?? null, targetRevision: target?.revision ?? null, errors, unknownTags: row.tagNames.filter(name => !tagMap.has(name)), title: row.input.title,
       proposed: row.input, current: target ? itemView(target, pool) : null };
   });
+  for (const row of previews) { try { await validateContentMedia(db, actor, rows[row.index].input.payload); } catch (e) { if (!(e instanceof ContentError)) throw e; row.errors.push(e.code); row.classification = 'INVALID'; } }
   return { rows: previews, targetHash: contentHash({ revision: pool.revision, items: existing.map(i => [i.id, i.revision]).sort(),
     tags: tags.map(t => [t.id, t.slug, t.name, t.aliasesJson]).sort() }) };
 }
@@ -138,6 +141,7 @@ export async function commitContentImport(db: ContentDb, actor: ContentActor, in
     const row = rows[decision.index], preview = fresh.rows[decision.index];
     if (decision.action === 'SKIP') { results.push({ index: decision.index, status: 'SKIPPED' }); continue; }
     if (preview.errors.length && decision.action !== 'IMPORT_DRAFT') throw new ContentError('INVALID_ITEM_MUST_STAY_DRAFT');
+    await validateContentMedia(db, actor, row.input.payload);
     const itemInput = { ...row.input, tagIds: [...new Set(row.tagNames.map(name => tagMap.get(name)).filter((id): id is string => !!id))] };
     if (decision.action === 'UPDATE_EXISTING') {
       if (!preview.targetId || preview.targetRevision === null || touched.has(preview.targetId)) throw new ContentError('IMPORT_CONFLICT');
@@ -168,7 +172,7 @@ export async function exportContent(db: ContentDb, actor: ContentActor, poolId: 
   const workbook = new Workbook(), sheet = workbook.addWorksheet('Content');
   sheet.addRow(columns);
   for (const row of rows) {
-    const flat: Record<string, unknown> = { ...row, ...row.payload, options: row.payload.options ? JSON.stringify(row.payload.options) : '', tags: JSON.stringify(row.tags) };
+    const flat: Record<string, unknown> = { ...row, ...row.payload, options: row.payload.options ? JSON.stringify(row.payload.options) : '', mediaRights: row.payload.mediaRights ? JSON.stringify(row.payload.mediaRights) : '', tags: JSON.stringify(row.tags) };
     sheet.addRow(columns.map(key => flat[key] ?? ''));
   }
   sheet.getRow(1).font = { bold: true }; sheet.columns.forEach(c => { c.width = 24; }); sheet.views = [{ state: 'frozen', ySplit: 1 }];

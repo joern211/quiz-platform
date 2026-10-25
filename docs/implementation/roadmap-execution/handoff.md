@@ -164,3 +164,12 @@ Sammelbearbeitung mit Impact/Bestätigung/Teilresultaten, Concurrent-Editor-
 Anzeige, interne Kommentare/Locks/Usage-UI, PUBLIC-Privacy-Fix und echte
 konkurrierende Editorwrites. Details/Nachweise in ../pr18/handoff.md.
 Weiterhin kein Abschluss von Punkt4, kein Beginn von Punkt5, kein Merge.
+
+## Punkt4 — Content-Medien weitergeführt
+
+c125c13 ist gesichert; CI grün,22/23 E2E grün. C3-Trace hat einen konkreten
+Beschriftungsfehler geladener Textareas gezeigt; explizite Labels korrigiert.
+Lokaler Folgeteil bindet Medienrefs/Rechte an Editor/Import/READY/Preflight
+und reale Wissensduell-/Jeopardy-Delivery, mit Kontextsignaturen, geschützter
+Historie und additiver Legacy-Migration.463/463 Server,112/112 Web lokal grün.
+Details und ehrliche Restgrenzen stehen im PR18-Handoff. Punkt4 bleibt offen.

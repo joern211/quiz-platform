@@ -1,3 +1,4 @@
+import { validateContentMedia } from './media.js';
 import { z } from 'zod';
 import { ContentItemInputSchema, validateContentPayload } from '@quiz/shared';
 import { ContentError, contentInputData, itemView, requirePool, validateTagIds, saveRevision, auditContent,
@@ -14,7 +15,10 @@ export async function requestPublicPool(db: ContentDb, actor: ContentActor, pool
   if (!['PRIVATE', 'SHARED'].includes(pool.scope)) throw new ContentError('SCOPE_VIOLATION');
   const items = await db.contentItem.findMany({ where: { poolId, status: { notIn: ['ARCHIVED', 'TRASHED', 'DISABLED'] } } });
   if (!items.length) throw new ContentError('CONTENT_NOT_READY');
-  for (const item of items) if (item.status !== 'READY' || !item.source || !item.license || !validateContentPayload(item.gameSlug, JSON.parse(item.payloadJson)).success) throw new ContentError('PUBLIC_REQUIREMENTS_MISSING');
+  for (const item of items) {
+    if (item.status !== 'READY' || !item.source || !item.license || !validateContentPayload(item.gameSlug, JSON.parse(item.payloadJson)).success) throw new ContentError('PUBLIC_REQUIREMENTS_MISSING');
+    await validateContentMedia(db, actor, JSON.parse(item.payloadJson), true, true);
+  }
   await db.contentPool.update({ where: { id: poolId, revision }, data: { status: 'LOCKED_REVIEW', revision: { increment: 1 } } });
   const proposal = await db.contentReview.create({ data: { poolId, actorId: actor.userId, baseRevision: revision + 1, kind: 'PUBLIC_POOL', proposedJson: JSON.stringify(items.map(i => ({ id: i.id, revision: i.revision }))) } });
   for (const admin of await db.user.findMany({ where: { role: 'ADMIN', disabledAt: null } })) await notifyContent(db, admin.id, poolId, 'PUBLIC_REVIEW', 'Ein Fragenpool wartet auf öffentliche Freigabe.');
@@ -30,6 +34,7 @@ export async function proposeItemChange(db: ContentDb, actor: ContentActor, item
   const input = ContentItemInputSchema.parse(raw); await validateTagIds(db, input.tagIds ?? []);
   const validation = validateContentPayload(item.gameSlug, input.payload);
   if (!validation.success) throw new ContentError('CONTENT_NOT_READY', 400, validation.error.issues);
+  await validateContentMedia(db, actor, validation.data);
   const data = contentInputData(input), publicContent = ['PUBLIC', 'SYSTEM'].includes(pool.scope);
   if (publicContent && (!input.source || !input.license)) throw new ContentError('PUBLIC_REQUIREMENTS_MISSING');
   const currentRaw: unknown = JSON.parse(item.payloadJson), currentParsed = validateContentPayload(item.gameSlug, currentRaw);
@@ -64,6 +69,7 @@ export async function decideContentReview(db: ContentDb, actor: ContentActor, re
     if (approve) for (const ref of expected) {
       const item = await db.contentItem.findFirst({ where: { id: ref.id, poolId: pool.id, revision: ref.revision, status: 'READY' } });
       if (!item || !item.source || !item.license || !validateContentPayload(item.gameSlug, JSON.parse(item.payloadJson)).success) throw new ContentError('CONTENT_NOT_READY');
+      await validateContentMedia(db, actor, JSON.parse(item.payloadJson), true, true);
       const updated = await db.contentItem.update({ where: { id: item.id, revision: item.revision }, data: { reviewState: 'APPROVED', revision: { increment: 1 } } });
       await saveRevision(db, updated, actor, 'PUBLIC_APPROVAL', ['reviewState']);
     }
@@ -81,6 +87,7 @@ export async function decideContentReview(db: ContentDb, actor: ContentActor, re
       difficulty: proposed.difficulty, tagIds: proposed.tagIds, source: proposed.source, sourceUrl: proposed.sourceUrl, license: proposed.license })) : {};
     if (approve && !validateContentPayload(item.gameSlug, JSON.parse(data.payloadJson!)).success) throw new ContentError('CONTENT_NOT_READY');
     if (approve && publicReview && (!data.source || !data.license)) throw new ContentError('PUBLIC_REQUIREMENTS_MISSING');
+    if (approve) await validateContentMedia(db, actor, JSON.parse(data.payloadJson!), true, publicReview);
     const updated = await db.contentItem.update({ where: { id: item.id, revision: review.baseRevision }, data: { ...data, lockState: 'EDITABLE',
       reviewState: publicReview ? 'APPROVED' : approve ? 'APPROVED' : 'CHANGES_REQUESTED',
       ...(approve ? { status: publicReview ? 'READY' : 'DRAFT' } : {}), revision: { increment: 1 } } });

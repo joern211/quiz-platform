@@ -1,3 +1,4 @@
+import { ContentMedia } from '../components/ContentMedia';
 import { RecoveryControl } from '../components/RecoveryControl';
 // ============================================================
 // Moderator Game Page (Geo Quiz)
@@ -215,6 +216,7 @@ export function ModeratorGamePage() {
       <Card padding="lg" className={styles.questionCard}>
         <p className={styles.category}>{question.category}</p>
         <h2 className={styles.prompt}>{question.prompt}</h2>
+        <ContentMedia mediaUrl={question.mediaUrl} mediaType={question.mediaType} onRefresh={() => socketRef.current?.emit('geo:resync', {}, res => { if (res.success && res.question) setQuestion(res.question); })} />
         
         {!recoveryError && !revealed && !timerPaused && <Timer endsAt={endsAt} size="lg" />}
         

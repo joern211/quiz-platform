@@ -12,6 +12,7 @@ import { CorrectionAccessSchema, CorrectionSubmitSchema, eligibleCorrectionConte
 import { ContentError, contentActor, canReadPool, requirePool, poolView, itemView, validateTagIds, contentInputData,
   mutateContent, saveRevision, changeItem, auditContent, type ContentActor, type ContentDb } from '../content/core.js';
 
+import { contentMediaUrl, validateContentMedia } from '../content/media.js';
 import { setItemStatus, previewBatch, commitBatch, requireContributor } from '../content/operations.js';
 
 export const contentRouter: ReturnType<typeof Router> = Router();
@@ -23,7 +24,7 @@ function endpoint(action: (req: Request, res: Response) => Promise<unknown>) {
     res.setHeader('Cache-Control', 'no-store');
     try { await action(req, res); } catch (error) {
       if (error instanceof z.ZodError) { res.status(400).json({ success: false, error: { code: 'INVALID_CONTENT', message: 'Eingaben prüfen.', details: error.issues.map(e => ({ path: e.path.join('.'), message: e.message })) } }); return; }
-      if (error instanceof ContentError) { res.status(error.status).json({ success: false, error: { code: error.code, message: error.code, details: error.details } }); return; }
+      if (error instanceof ContentError) { const messages: Record<string, string> = { MEDIA_NOT_ACCESSIBLE: 'Dieses Medium ist nicht verfügbar oder für dich nicht freigegeben.', MEDIA_NOT_READY: 'Das Medium ist noch nicht spielbereit. Bitte Datei und Verarbeitung prüfen.', MEDIA_RIGHTS_REQUIRED: 'Bitte Medienquelle, Nutzungsrechte und gegebenenfalls Einwilligung ergänzen.' }; res.status(error.status).json({ success: false, error: { code: error.code, message: messages[error.code] ?? error.code, details: error.details } }); return; }
       // ORM exception messages may contain complete payloads/answers.
       logger.error('Content request failed', { method: req.method, errorType: error instanceof Error ? error.name : 'Unknown' });
       res.status(500).json({ success: false, error: { code: 'INTERNAL_ERROR', message: 'Inhalte konnten nicht verarbeitet werden.' } });
@@ -113,6 +114,7 @@ contentRouter.post('/pools/:id/items', endpoint(async (req, res) => {
   const input = command.extend({ item: ContentItemInputSchema }).strict().parse(req.body);
   const data = await mutateContent(session(req), input.commandId, { action: 'CREATE_ITEM', id: String(req.params.id), input }, async (db, actor) => {
     const pool = await requirePool(db, String(req.params.id), actor, true); await validateTagIds(db, input.item.tagIds ?? []);
+    await validateContentMedia(db, actor, input.item.payload);
     const item = await db.contentItem.create({ data: { ...contentInputData(input.item), poolId: pool.id, gameSlug: pool.gameSlug } });
     await saveRevision(db, item, actor, 'CREATE', Object.keys(input.item)); return itemView(item, pool);
   }); res.status(201).json({ success: true, data });
@@ -168,7 +170,10 @@ contentRouter.get('/items/:id/preview', endpoint(async (req, res) => {
   const visible = item.gameSlug === 'wissensduell' ? { prompt: payload.prompt, category: payload.category, options: payload.options,
     ...((reveal || role === 'HOST') ? { correctOptionId: payload.correctOptionId, explanation: payload.explanation } : {}) }
     : { question: payload.question, category: payload.category, value: payload.value, ...((reveal || role === 'HOST') ? { answer: payload.answer } : {}) };
-  res.json({ success: true, data: visible });
+  if (typeof payload.mediaAssetId === 'string') await validateContentMedia(prisma, actor, payload);
+  const media = typeof payload.mediaAssetId === 'string' ? { mediaType: payload.mediaType,
+    mediaUrl: contentMediaUrl(payload.mediaAssetId, { kind: 'EDITOR', itemId: item.id, revision: item.revision }) } : {};
+  res.json({ success: true, data: { ...visible, ...media } });
 }));
 contentRouter.get('/tags', endpoint(async (req, res) => {
   await contentActor(prisma, session(req)); res.json({ success: true, data: await prisma.contentTag.findMany({ orderBy: { name: 'asc' } }) });
@@ -343,4 +348,13 @@ contentRouter.post('/items/:id/presence', endpoint(async (req, res) => {
     const contributors = userIds.filter(id => { try { requireContributor(pool, { ...actor, userId: id, role: liveSessions.find(s => s.userId === id)?.user.role ?? '' }); return true; } catch { return false; } });
     return db.user.findMany({ where: { id: { in: contributors } }, select: { id: true, displayName: true } });
   }); res.json({ success: true, data });
+}));
+
+contentRouter.get('/items/:id/media', endpoint(async (req, res) => {
+  const actor = await contentActor(prisma, session(req)), { item, pool } = await itemAccess(prisma, actor, String(req.params.id));
+  const payload = JSON.parse(item.payloadJson); await validateContentMedia(prisma, actor, payload);
+  const asset = typeof payload.mediaAssetId === 'string' ? await prisma.mediaAsset.findUnique({ where: { id: payload.mediaAssetId } }) : null;
+  if (!asset || asset.processStatus !== 'READY') throw new ContentError('MEDIA_NOT_READY');
+  if (['PUBLIC', 'SYSTEM'].includes(pool.scope) && actor.role !== 'ADMIN' && pool.ownerId !== actor.userId && item.reviewState !== 'APPROVED') throw new ContentError('RESOURCE_NOT_ACCESSIBLE', 404);
+  res.json({ success: true, data: { url: contentMediaUrl(asset.id, { kind: 'EDITOR', itemId: item.id, revision: item.revision }), type: asset.type } });
 }));

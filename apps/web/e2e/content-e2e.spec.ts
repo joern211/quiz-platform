@@ -20,6 +20,11 @@ test('C1: edit, autosave, explicit release and real pool-based setup for two gam
       await editor.getByLabel('Frage', { exact: true }).fill('CONTENT_BROWSER_FRAGE');
       if (gameSlug === 'wissensduell') for (let i = 1; i <= 4; i++) await editor.getByLabel(`Antwort ${i}`, { exact: true }).fill(`Option ${i}`);
       else await editor.getByLabel('Lösung', { exact: true }).fill('CONTENT_BROWSER_SECRET');
+      if (await editor.getByRole('button', { name: 'Erweiterte Optionen' }).count()) await editor.getByRole('button', { name: 'Erweiterte Optionen' }).click();
+      const uploaded = page.waitForResponse(r => r.url().endsWith('/api/v1/media') && r.request().method() === 'POST');
+      await editor.getByLabel('Medium hochladen').setInputFiles({ name: 'question.png', mimeType: 'image/png', buffer: Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAACXBIWXMAAAPoAAAD6AG1e1JrAAAAEUlEQVR4nGNgZGJmZGJmgFAAAK4AGQw8f7AAAAAASUVORK5CYII=', 'base64') });
+      expect((await uploaded).ok()).toBe(true);
+      await editor.getByRole('checkbox', { name: 'Eigenes Material', exact: true }).check();
       await editor.getByRole('button', { name: 'Entwurf speichern' }).click();
       await expect(editor.getByRole('status')).toContainText('Gespeichert');
       await editor.getByLabel('Interner Titel').fill('Gespeicherte Frage');
@@ -29,9 +34,11 @@ test('C1: edit, autosave, explicit release and real pool-based setup for two gam
       page.once('dialog', d => d.accept());
       await editor.getByRole('button', { name: 'Für Spiele freigeben' }).click();
       await expect(editor.getByRole('status')).toContainText('READY');
+      await editor.getByRole('button', { name: 'Gespeichertes Medium anzeigen' }).click();
+      await expect(editor.getByRole('group', { name: 'Bild oder Audio' }).getByRole('img', { name: 'Bild zur Frage' })).toHaveJSProperty('naturalWidth', 2);
       await editor.getByRole('button', { name: 'Vorschau laden' }).click();
       await expect(editor.getByText('CONTENT_BROWSER_FRAGE', { exact: false })).toBeVisible();
-      expect(await editor.locator('fieldset').textContent()).not.toContain('CONTENT_BROWSER_SECRET');
+      expect(await editor.getByRole('group', { name: 'Vorschau der gespeicherten Version' }).textContent()).not.toContain('CONTENT_BROWSER_SECRET');
       await editor.getByRole('button', { name: 'Versionsverlauf' }).click();
       await expect(editor.getByRole('region', { name: 'Versionsverlauf' })).toBeVisible();
       await page.goto(`${BASE}/moderator/vorbereitung/${gameSlug}`);

@@ -1,3 +1,4 @@
+import { pinnedContentMediaReady } from '../content/media.js';
 import { createHash, randomUUID } from 'node:crypto';
 import argon2 from 'argon2';
 import type { Prisma, Room } from '@prisma/client';
@@ -155,6 +156,7 @@ export async function roomPreflight(roomId: string, overrideReady = false, db: P
       if (ids.length !== setup.rounds.length || ids.some(id => !media.some(m => m.id === id && m.processStatus === 'READY'))) blockers.push('MEDIA_NOT_READY');
     }
   } else if (slug === 'jeopardy' && !setup.board1) blockers.push('CONTENT_NOT_READY');
+  if (!await pinnedContentMediaReady(db, roomId, room.runIndex)) blockers.push('MEDIA_NOT_READY');
   return { status: blockers.length ? 'BLOCKED' : warnings.length ? 'WARNINGS' : 'READY_TO_START', blockers, warnings };
 }
 

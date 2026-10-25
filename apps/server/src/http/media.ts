@@ -26,6 +26,7 @@
 //     die Host-Vorschau läuft über die host-audience-Signed-URL von /:id.
 // ============================================================
 
+import { canDeliverContentMedia } from '../content/media.js';
 import { Router } from 'express';
 import type { Request } from 'express';
 import multer from 'multer';
@@ -619,8 +620,8 @@ async function isReleasedGameImage(assetId: string): Promise<boolean> {
 async function loadValidSession(req: Request): Promise<{ userId: string } | null> {
   const sessionId = verifySession(req, config.sessionSecret);
   if (!sessionId) return null;
-  const session = await prisma.session.findUnique({ where: { id: sessionId } });
-  if (!session || session.revokedAt || session.expiresAt < new Date()) return null;
+  const session = await prisma.session.findFirst({ where: { id: sessionId, revokedAt: null, expiresAt: { gt: new Date() }, user: { disabledAt: null } } });
+  if (!session) return null;
   return { userId: session.userId };
 }
 
@@ -636,18 +637,21 @@ mediaRouter.get('/:id', async (req, res) => {
       return res.status(404).json({ success: false, error: { code: 'FILE_MISSING', message: 'Datei nicht gefunden.' } });
     }
 
+    if (asset.processStatus !== 'READY') return res.status(403).json({ success: false, error: { code: 'MEDIA_NOT_READY', message: 'Medium nicht verfügbar.' } });
     const isPublic = asset.visibility === 'PUBLIC' || asset.visibility === 'SYSTEM';
     let allowed = false;
 
     if (isPublic) {
       allowed = true;
     } else {
-      const exp = req.query.exp as string | undefined;
-      const sig = req.query.sig as string | undefined;
+      const exp = typeof req.query.exp === 'string' ? req.query.exp : undefined;
+      const sig = typeof req.query.sig === 'string' ? req.query.sig : undefined;
       const gameOk = verifySignedAccess({ assetId: asset.id, audience: 'game', exp, sig });
       const hostSigOk = verifySignedAccess({ assetId: asset.id, audience: 'host', exp, sig });
 
-      if (gameOk) {
+      if (typeof req.query.ctx === 'string') {
+        allowed = await canDeliverContentMedia(prisma, asset.id, { ctx: req.query.ctx, exp, sig }, verifySession(req, config.sessionSecret));
+      } else if (gameOk) {
         // Freigegebenes Spielbild: die Signatur ALLEIN genügt nicht — das
         // Asset muss tatsächlich als Spielbild in einem Raumsnapshot
         // referenziert sein (C: kein Original, kein fremdes Rundenbild).

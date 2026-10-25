@@ -3,6 +3,7 @@
 // Server-authoritative game flow
 // ============================================================
 
+import { roomContentMediaUrl } from '../../content/media.js';
 import { Server, Socket } from 'socket.io';
 import { prisma } from '../../persistence/prisma.js';
 import { finishRunningGame, saveGameStateIfRevision, upsertGameState } from '../core/state.js';
@@ -101,6 +102,7 @@ export const handleJeopardyGame = {
 
     // Build initial state
     let state = createJeopardyGameState(1, playerIds, playerNames);
+    state.contentRunIndex = (await prisma.room.findUniqueOrThrow({ where: { id: room.id }, select: { runIndex: true } })).runIndex;
     state.tieStrategy = await loadInitialTieStrategy(room.id, 'jeopardy');
     state.boardCount = boardCount;
 
@@ -238,7 +240,7 @@ export const handleJeopardyGame = {
     if (!category) return { success: false, error: 'CATEGORY_NOT_FOUND' };
     const clue = category.clues.find(
       (c) => c.value === data.value
-    ) as { value: number; question: string; answer: string; mediaType?: string; mediaAssetId?: string };
+    ) as { value: number; question: string; answer: string; mediaType?: string; mediaAssetId?: string; contentId?: string };
     if (!clue) return { success: false, error: 'CLUE_NOT_FOUND' };
 
     // Update state
@@ -255,7 +257,7 @@ export const handleJeopardyGame = {
           categoryIndex: data.categoryIndex,
           value: data.value,
           question: clue.question,
-          answer: clue.answer,
+          answer: clue.answer, mediaAssetId: clue.mediaAssetId, mediaType: clue.mediaType, contentId: clue.contentId,
         },
       },
       phase: JEOPARDY_PHASES.BUZZ_OPEN,
@@ -276,6 +278,7 @@ export const handleJeopardyGame = {
       question: clue.question,
       mediaType: clue.mediaType,
       mediaAssetId: clue.mediaAssetId,
+      mediaUrl: roomContentMediaUrl(roomId, state.contentRunIndex, clue.contentId, clue.mediaAssetId),
     };
     io.to(roomChannel(roomId)).emit('jeopardy:field:open', fieldOpenEvent);
 

@@ -1,6 +1,7 @@
 import type { ContentPool } from '@prisma/client';
 import { z } from 'zod';
 import { ContentBatchSchema, ContentItemInputSchema, type ContentStatus, validateContentPayload } from '@quiz/shared';
+import { validateContentMedia } from './media.js';
 import { ContentError, requirePool, itemView, validateTagIds, saveRevision, changeItem, contentInputData,
   type ContentDb, type ContentActor } from './core.js';
 
@@ -23,6 +24,7 @@ export async function setItemStatus(db: ContentDb, actor: ContentActor, id: stri
     if (!validation.success) throw new ContentError('CONTENT_NOT_READY', 400, validation.error.issues);
     if (['PUBLIC', 'SYSTEM'].includes(pool.scope) && (!item.source || !item.license || item.reviewState !== 'APPROVED')) throw new ContentError('PUBLIC_APPROVAL_REQUIRED', 403);
     await validateTagIds(db, itemView(item, pool).effective.tagIds);
+    await validateContentMedia(db, actor, validation.data, true, ['PUBLIC', 'SYSTEM'].includes(pool.scope));
   }
   const status = requested === 'TRASHED' && await db.contentUse.count({ where: { itemId: id } }) ? 'ARCHIVED' : requested;
   if (preview) return { ...itemView(item, pool), status };

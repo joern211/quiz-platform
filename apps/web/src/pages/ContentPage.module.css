@@ -22,3 +22,4 @@
 
 .panel .check { display: flex; align-items: center; gap: .75rem; }
 .panel .check input { width: 24px; min-height: 24px; flex: 0 0 24px; }
+.panel input[type="checkbox"] { width: 24px; min-height: 24px; }

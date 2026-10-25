@@ -1,3 +1,4 @@
+import { roomContentMediaUrl } from '../../content/media.js';
 import type { GameRole } from '../core/access.js';
 import { visibleValue } from '../core/visibility.js';
 import { rankScores } from '../core/roundFlow.js';
@@ -6,7 +7,7 @@ import type { JeopardyGameState } from './state.js';
 
 /** Explicit allowlist: saved submissions, future answers and pause snapshots never leave the server. */
 export function projectJeopardyForClient(state: JeopardyGameState, setupInput: unknown, role: GameRole,
-  participants: ReadonlyArray<{ id: string; displayName: string }>) {
+  participants: ReadonlyArray<{ id: string; displayName: string }>, roomId?: string) {
   const setup = JeopardySetupSchema.partial().parse(setupInput);
   const scores = Object.entries(state.scores).map(([playerId, score]) => ({ playerId,
     playerName: participants.find(p => p.id === playerId)?.displayName ?? state.playerNames[playerId] ?? playerId, score }));
@@ -17,6 +18,7 @@ export function projectJeopardyForClient(state: JeopardyGameState, setupInput: u
   const currentField = fd ? {
     categoryIndex: fd.categoryIndex, value: fd.value, question: fd.question,
     mediaType: clue?.mediaType, mediaAssetId: clue?.mediaAssetId,
+    mediaUrl: roomId ? roomContentMediaUrl(roomId, state.contentRunIndex, typeof clue?.contentId === 'string' ? clue.contentId : undefined, clue?.mediaAssetId) : undefined,
     buzzWinnerId: state.buzzWinner, buzzWinnerName: state.buzzWinner ? state.playerNames[state.buzzWinner] : null,
     firstResponderId: state.currentField?.firstResponderId, phase: state.phase,
     ...(secret !== undefined ? { answer: secret } : {}),

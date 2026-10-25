@@ -1,3 +1,4 @@
+import { ContentMedia } from '../ContentMedia';
 // ============================================================
 // Jeopardy Question Component
 // Shows the current question/clue and buzzer state
@@ -12,6 +13,9 @@ export interface JeopardyQuestionProps {
   categoryIndex: number;
   value: number;
   question: string;
+  mediaUrl?: string;
+  mediaType?: string;
+  onMediaRefresh?: () => void;
   /** The current game phase */
   phase:
     | 'PAUSED'
@@ -64,6 +68,7 @@ export function JeopardyQuestion({
   categoryIndex,
   value,
   question,
+  mediaUrl, mediaType, onMediaRefresh,
   phase,
   buzzWinner,
   stealWinner,
@@ -112,6 +117,8 @@ export function JeopardyQuestion({
       <blockquote className={styles.question}>
         <p>{question}</p>
       </blockquote>
+
+      <ContentMedia mediaUrl={mediaUrl} mediaType={mediaType} onRefresh={onMediaRefresh} />
 
       {/* Buzzer (main round) */}
       {showBuzzControls && isBuzzOpen && !reveal && (

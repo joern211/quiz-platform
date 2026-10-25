@@ -148,7 +148,7 @@ export function getGameEngineContract(inputSlug: string): ServerGameEngineContra
         return { ...projectGeoStateForClient(context.state as GeoState, context.actor), stateVersion: context.stateVersion };
       if (checkGameInvariants(slug, context.state).length) throw new Error('STATE_INVARIANT_FAILED');
       const projected = slug === 'wissensduell' ? projectGeoStateForClient(context.state as GeoState, context.actor)
-        : slug === 'jeopardy' ? projectJeopardyForClient(context.state as JeopardyGameState, context.setup, context.actor.role, context.participants)
+        : slug === 'jeopardy' ? projectJeopardyForClient(context.state as JeopardyGameState, context.setup, context.actor.role, context.participants, context.actor.roomId)
         : projectWerIstDas(context.state as WerIstDasState, WerIstDasSetupSchema.parse(context.setup), context.actor.role, context.actor.participationId);
       return { ...projected, stateVersion: context.stateVersion };
     },

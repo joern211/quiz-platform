@@ -51,3 +51,19 @@ feature/pr18-content-editor, gestapelt auf PR17. Push autorisiert; kein Merge.
   Öffentliche Leserechte liefern keine internen Editorial-/Raumdaten.
 - C3 ergänzt die Browserabnahme um echte zwei Tabs und Sammelarchivierung.
   Diese neuen Funktionen ersetzen keine weiterhin offenen §6-Bereiche oben.
+
+## Ergänzung: Medienreferenzen und tatsächliche Delivery
+
+Bild-/Audiorefs und strukturierte Rechte sind im Schema, Editor,
+JSON/CSV/XLSX und bei READY/Selection/Preflight verbunden. DB-Referenzen
+sind historisch geschützt. Echte HTTP-/Socket-Gegenproben für beide Engines
+prüfen aktive/future Medien, Asset-/Run-/Room-Signaturfences, Zugriffsentzug,
+ungeprüfte alte Drafts und identische gepinnte Medien nach Editoränderung.
+Eine echte Altbestandsmigration erhält Medien in neuer DRAFT-Revision;
+Originalrevision, Optionsdaten, Benutzeränderungen und private Eigentums-
+grenzen bleiben erhalten. C1 deckt echten Upload/Vorschau in beiden Editoren ab.
+
+Die oben genannte offene Medienintegration ist damit für diesen beschriebenen
+Pfad implementiert. Vollständige Audio-Decodierung/Normalisierung und weitere
+Legacy-Optionsfelder/erweiterte Medienmodelle werden damit nicht als DONE
+behauptet. Laufzeitdaten/History bekommen keine rückwirkende Secretfreigabe.

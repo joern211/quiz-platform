@@ -1,3 +1,4 @@
+import { roomContentMediaUrl } from '../../content/media.js';
 import type { Server, Socket } from 'socket.io';
 import { prisma } from '../../persistence/prisma.js';
 import { logger } from '../../observability/logger.js';
@@ -23,6 +24,7 @@ type GeoRound = {
 };
 
 export type GeoState = {
+  contentRunIndex?: number;
   phase: string;
   currentRoundIndex: number;
   questions: Array<{ correctOptionId: string; explanation?: string }>;
@@ -66,7 +68,8 @@ export function projectGeoStateForClient(state: GeoState, actor: GameActor) {
     totalQuestions: state.questions.length,
     question: round?.question ? {
       id: round.question.id, prompt: round.question.prompt, category: round.question.category,
-      mediaType: round.question.mediaType, mediaAssetId: round.question.mediaAssetId, imageUrl: round.question.imageUrl,
+      mediaType: round.question.mediaType, mediaAssetId: round.question.mediaAssetId,
+      mediaUrl: roomContentMediaUrl(actor.roomId, state.contentRunIndex, round.question.id, round.question.mediaAssetId), imageUrl: round.question.imageUrl,
       options: round.question.options.map(option => ({ id: option.id, text: option.text,
         ...(option.label !== undefined ? { label: option.label } : {}), ...(option.imageUrl !== undefined ? { imageUrl: option.imageUrl } : {}) })),
       ...((revealed || actor.role === 'HOST') ? { correctOptionId: visibleValue(audience,

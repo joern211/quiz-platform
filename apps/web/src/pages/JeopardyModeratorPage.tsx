@@ -21,7 +21,7 @@ export function JeopardyModeratorPage() {
   const roomCode = code ?? '';
   const core = useGameCore(roomCode);
   const navigate = useNavigate();
-  const { connected, gameState, secretAnswer, error, clearError, actions } =
+  const { refreshMedia, connected, gameState, secretAnswer, error, clearError, actions } =
     useJeopardy(roomCode, 'HOST');
 
   // Redirect to lobby if game not started
@@ -153,6 +153,7 @@ export function JeopardyModeratorPage() {
                 categoryIndex={gameState.currentField!.categoryIndex}
                 value={gameState.currentField!.value}
                 question={gameState.currentField!.question}
+                onMediaRefresh={refreshMedia} mediaUrl={gameState.currentField!.mediaUrl} mediaType={gameState.currentField!.mediaType}
                 phase={gameState.phase}
                 buzzWinner={gameState.buzzWinner}
                 stealWinner={gameState.stealWinner}

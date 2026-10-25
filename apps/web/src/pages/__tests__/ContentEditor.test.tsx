@@ -17,7 +17,7 @@ it('autosaves after inactivity as DRAFT and never implicitly releases content', 
   const save = vi.spyOn(contentApi, 'save').mockImplementation(async (_id, _rev, draft) => ({ ...item, ...(draft as object), revision: 2 }));
   const release = vi.spyOn(contentApi, 'status');
   render(<ContentEditor initial={item} pool={pool} onSaved={vi.fn()} />);
-  await userEvent.type(screen.getByLabelText('Frage'), ' Neu');
+  await userEvent.type(screen.getByRole('textbox', { name: /^Frage$/ }), ' Neu');
   expect(screen.getByRole('status')).toHaveTextContent('Ungespeichert');
   await waitFor(() => expect(save).toHaveBeenCalledTimes(1), { timeout: 2500 });
   expect(save).toHaveBeenCalledWith('q', 1, expect.objectContaining({ payload: expect.objectContaining({ prompt: 'Frage? Neu' }) }));

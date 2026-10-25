@@ -231,3 +231,59 @@ Content-Suite am endgültigen Produktstand25/25 inkl. simultaner HTTP-Writes.
 Offene Punkt4-Bereiche weiterhin u.a. Medien-Reader/Refs/READY/Delivery,
 BLIND_HOST, Templates/Presets/Progression, Playtest, Review-Assignments und
 Batch-Review. Punkt5 bleibt unbegonnen; kein Merge.
+
+## Siebter Teil — Content-Medien / geschützte Auslieferung
+
+c125c13: CI grün,22/23 Browserfälle grün (Run40221081025). Der neue C3
+scheiterte auch im Retry am exakten Namen eines bereits gefüllten Textareas.
+Artefakte tatsächlich geladen (/tmp/quiz-batch-e2e); der Trace enthält
+Frage-Label plus initialen Textarea-Inhalt. Input-/Textarea-Felder haben
+jetzt explizite aria-labels. Keine fachliche Assertion/Teststrecke entfernt.
+
+Neu implementiert:
+- Bild-/Audioreferenz und strukturierte Medienquelle/URL/Autor/Lizenz/eigenes
+  Material/Personeneinwilligung im gemeinsamen Schema, Editor und in allen
+  Import-/Exportformaten. Privater Multipart-Upload über den echten Medien-
+  Endpunkt; Austausch übernimmt alte Rechte nicht still. Neue Referenz ergibt
+  DRAFT; READY/Public-Review/Selection/Preflight prüfen Medium, Datei, Typ,
+  Verarbeitungsstatus und Rechte. Gesperrte Assets werden nicht ausgeliefert.
+- Normalisierte, revisionsgebundene ContentMediaReference mit FKs und
+  Unveränderlichkeit. Eine beliebige ID in einem alten Draft ist KEINE
+  Zugriffsfreigabe. Nur eigene/öffentliche Assets oder zuvor autorisiert
+  referenzierte Inhalte eines lesbaren Pools dürfen neu verbunden werden.
+  Fork/Copy/Import/Restore gehen durch dieselbe Referenzprüfung.
+- Kontextsignierte kurzlebige URLs: Editor benötigt zusätzlich eine aktive
+  berechtigte Session und aktuelle Itemrevision; Spielzugriff ist an Raum,
+  Partie, konkret gepinnte Frage und aktuell geöffnete Phase gebunden.
+  Kein Ausliefern künftiger Medien nur wegen ID oder gültiger Signatur.
+- Beide echten Engines geben nur aktuelle Medien weiter; Reload/Resync
+  erzeugt URLs aus dem persistierten Zustand. Spätere Pool-/Assetreferenz-
+  Änderungen beeinflussen die aktive Partie nicht. Alle drei Rollen zeigen
+  Bilder/manuell startbares Audio, mit neutralem Fehler und erneuter
+  Anforderung. Keine Signed-URLs in historischen ContentUses gespeichert.
+- Cleanup schützt neue Referenzen sowie alte Geo-Medien; historische
+  Referenzen verhindern Asset-Löschung. Bestehende WID-Original-/Composite-
+  Policy bleibt erhalten. Auch alte host-Signaturen verlangen jetzt einen
+  nicht deaktivierten Account.
+- Additive echte Bestandsmigration: unangetastete ungenutzte Legacykopien
+  erhalten fehlende Medien in NEUER DRAFT-Revision. Alte Revisionen und
+  bereits bearbeitete Kopien bleiben unverändert. Fremde private Legacy-
+  Asset-IDs erhalten keine automatische Freigabe. Originaltabellen bleiben.
+- C1 ergänzt echten Upload/Rechte/Vorschau für beide Spiele. C3 bleibt aktiv.
+
+Nachweise: vollständige lokale Server-Suite463/463 (54 Dateien), Web112/112
+(20 Dateien), gezielte Media-/Content-/Migrationstests; beide Builds,
+Typecheck und Lint0 Fehler/113 bestehende Warnungen sind grün. Nach den
+letzten Delivery-/Preview-/Session-Korrekturen53/53 gezielte Tests plus
+28/28 finale Content-Tests und112/112 Webtests grün. GitHub CI/E2E am
+folgenden Head noch offen.
+
+Kein pauschaler Abschluss des Content-/Media-Cores: der vorhandene Audio-
+Uploader prüft bisher Header, nicht vollständig Decoder/Normalisierung.
+Erweiterte Legacy-Optionsfelder bleiben ggf. sichtbar als invalider DRAFT
+und werden nicht still gestrichen. Keine historischen Ergebnisse bekommen
+nachträglich private Medien freigegeben. Erweiterte Assets/Übersetzungen/
+Statistik/Retention gehören weiterhin zu ihren vorgesehenen Cores.
+Offen in Punkt4: BLIND_HOST, Progression/Presets/Templates, Playtest,
+Review-Assignments/Batch-Review sowie weitere verbindliche §6-Details.
+Punkt5 (Voice/Kamera/Display/Audio-Systeme) bleibt unbegonnen; kein Merge.

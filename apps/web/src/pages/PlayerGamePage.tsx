@@ -1,3 +1,4 @@
+import { ContentMedia } from '../components/ContentMedia';
 // ============================================================
 // Player Game Page (Geo Quiz)
 // ============================================================
@@ -224,6 +225,7 @@ export function PlayerGamePage() {
       <Card padding="lg" className={styles.questionCard} role="region" aria-label="Aktuelle Frage">
         <p className={styles.category}>{question.category}</p>
         <h2 className={styles.prompt}>{question.prompt}</h2>
+        <ContentMedia mediaUrl={question.mediaUrl} mediaType={question.mediaType} onRefresh={() => socketRef.current?.emit('geo:resync', {}, res => { if (res.success && res.question) setQuestion(res.question); })} />
         
         <div className={styles.timer}>
           {!revealed && phase === 'INPUT_OPEN' && <Timer endsAt={endsAt} size="lg" />}

@@ -1701,23 +1701,37 @@ export const ContentStatusSchema = z.enum(['DRAFT', 'READY', 'DISABLED', 'ARCHIV
 export const ContentDifficultySchema = z.enum(['VERY_EASY', 'EASY', 'MEDIUM', 'HARD', 'VERY_HARD']);
 export const ContentLanguageSchema = z.enum(['de-DE', 'en-US', 'tr-TR']);
 const text = z.string().trim().min(1).max(10000);
+export const ContentMediaRightsSchema = z.object({
+  source: z.string().max(2000).default(''), sourceUrl: z.string().url().max(2000).or(z.literal('')).default(''),
+  author: z.string().max(500).default(''), license: z.string().max(500).default(''), ownMaterial: z.boolean().default(false),
+  recognizablePerson: z.boolean().default(false), consent: z.boolean().default(false),
+}).strict();
+const contentMediaFields = { mediaAssetId: z.string().uuid().optional(), mediaType: z.enum(['image', 'audio']).optional(), mediaRights: ContentMediaRightsSchema.optional() };
+function contentMediaIssues(q: { mediaAssetId?: string; mediaType?: string; mediaRights?: z.infer<typeof ContentMediaRightsSchema> }, ctx: z.RefinementCtx) {
+  if (!q.mediaAssetId && !q.mediaType) return;
+  if (!q.mediaAssetId || !q.mediaType) ctx.addIssue({ code: 'custom', path: ['mediaAssetId'], message: 'Medium und Medientyp gemeinsam angeben.' });
+  const r = q.mediaRights;
+  if (!r || (!r.ownMaterial && ((!r.source.trim() && !r.sourceUrl.trim()) || !r.license.trim())) || r.recognizablePerson && !r.consent)
+    ctx.addIssue({ code: 'custom', path: ['mediaRights'], message: 'Eigene Rechte oder Quelle und Nutzungserlaubnis sowie gegebenenfalls Einwilligung bestätigen.' });
+}
 export const QuizContentSchema = z.object({
-  prompt: text, category: z.string().trim().min(1).max(100),
+  ...contentMediaFields, prompt: text, category: z.string().trim().min(1).max(100),
   options: z.array(z.object({ id: z.string().min(1).max(40), text }).strict()).min(2).max(6),
   correctOptionId: z.string().min(1).max(40), explanation: z.string().max(10000).default(''),
   points: z.number().int().min(0).max(100000).default(100),
   wrongPoints: z.number().int().min(-100000).max(0).default(0),
   durationMs: z.number().int().min(1000).max(3600000).default(20000),
 }).strict().superRefine((q, ctx) => {
+  contentMediaIssues(q, ctx);
   if (new Set(q.options.map(o => o.id)).size !== q.options.length || !q.options.some(o => o.id === q.correctOptionId))
     ctx.addIssue({ code: 'custom', path: ['correctOptionId'], message: 'Eindeutige Optionen und eine gültige richtige Antwort erforderlich.' });
   if (new Set(q.options.map(o => o.text.toLocaleLowerCase().trim())).size !== q.options.length)
     ctx.addIssue({ code: 'custom', path: ['options'], message: 'Antwortoptionen dürfen nicht doppelt sein.' });
 });
 export const JeopardyItemSchema = z.object({
-  question: text, answer: text, category: z.string().trim().min(1).max(100),
+  ...contentMediaFields, question: text, answer: text, category: z.string().trim().min(1).max(100),
   value: z.number().int().min(1).max(100000),
-}).strict();
+}).strict().superRefine(contentMediaIssues);
 export function validateContentPayload(gameSlug: string, payload: unknown) {
   return (gameSlug === 'wissensduell' ? QuizContentSchema : JeopardyItemSchema).safeParse(payload);
 }
