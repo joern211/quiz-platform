@@ -26,7 +26,7 @@ beforeAll(async () => {
 afterAll(async () => {
   for (const id of rooms) cancelGeoTimer(id); for (const s of sockets) s.disconnect();
   await new Promise<void>(resolve => app.io.close(() => app.httpServer.close(() => resolve())));
-  await vi.waitFor(() => expect([...socketIdentityMap.values()].filter(i => i.roomId && rooms.includes(i.roomId))).toHaveLength(0));
+  await vi.waitFor(() => expect([...socketIdentityMap.values()].filter(i => i.roomId && rooms.includes(i.roomId))).toHaveLength(0), { timeout: 10000 });
   await db.room.deleteMany({ where: { id: { in: rooms } } }); await db.questionPack.delete({ where: { id: packId } }); await db.user.delete({ where: { id: hostId } }); await db.$disconnect(); globalThis.__prisma = undefined;
 });
 async function start(slug: 'jeopardy' | 'wissensduell' = 'jeopardy', team = false) {
@@ -102,6 +102,10 @@ it('keeps original results and ledger immutable, uses compensating events and is
   expect((await command(r, { type: 'ADJUST', participantId: player.id, delta: 10, reason: 'Falscher Weg' }, 4)).success).toBe(false);
   expect((await gameAck(r.host, 'room:command', { roomCode: r.code, commandId: randomUUID(), protocolVersion: 1, operation: { type: 'REMATCH' } })).success).toBe(true);
   const before = await db.room.findUniqueOrThrow({ where: { id: r.room.id } }); expect(before.runIndex).toBe(2);
+  await db.room.update({ where: { id: r.room.id }, data: { status: 'ENDED' } });
+  expect((await gameAck(r.host, 'room:command', { roomCode: r.code, commandId: randomUUID(), protocolVersion: 1, operation: { type: 'REMATCH', runIndex: 1 } })).success).toBe(false);
+  await db.room.update({ where: { id: r.room.id }, data: { status: 'LOBBY' } });
+
   expect((await command(r, { type: 'AMEND', participantId: player.id, delta: 20, reason: 'Spätere dokumentierte Korrektur' }, 4)).success).toBe(true);
   expect((await db.participation.findUniqueOrThrow({ where: { id: player.id } })).score).toBe(0);
   expect((await db.room.findUniqueOrThrow({ where: { id: r.room.id } })).revision).toBe(before.revision);

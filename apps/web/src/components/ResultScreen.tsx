@@ -91,7 +91,7 @@ export function ResultScreen({ roomCode, role }: { roomCode: string; role: Playe
       {room?.history.length ? <label>Frühere Partie <select value={runIndex ?? ''} onChange={e => { setRevision(null); setRunIndex(e.target.value ? Number(e.target.value) : null); }} disabled={pending}><option value="">Aktuelle Partie</option>{room.history.map(h => <option key={h.runIndex} value={h.runIndex}>Partie {h.runIndex}</option>)}</select></label> : null}
       {room?.isOwner && result.resultStatus === 'FINALIZED' && result.runIndex === room.runIndex && !revision && <Button disabled={pending} onClick={() => {
         if (busy.current) return; busy.current = true; setPending(true);
-        emitCommand(getSocket(), 'room:command', { roomCode, operation: { type: 'REMATCH' } }, `${roomCode}:rematch:${result.runIndex}`, response => { busy.current = false; setPending(false); if (!response.success) setError('Revanche konnte nicht vorbereitet werden.'); });
+        emitCommand(getSocket(), 'room:command', { roomCode, operation: { type: 'REMATCH', runIndex: result.runIndex } }, `${roomCode}:rematch:${result.runIndex}`, response => { busy.current = false; setPending(false); if (!response.success) setError('Revanche konnte nicht vorbereitet werden.'); });
       }}>Revanche vorbereiten</Button>}
     </>}
     <Link to="/"><Button variant="ghost">Startseite</Button></Link>

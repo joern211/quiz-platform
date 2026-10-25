@@ -169,7 +169,7 @@ async function setTeam(tx: Prisma.TransactionClient, room: Room, participantId: 
 function shuffled<T>(values: T[]): T[] {
   return shuffleServer(values);
 }
-export interface RoomActor { participantId: string; userId: string | null; sessionId?: string; canManage: boolean; permissions: Set<GamePermission> }
+export interface RoomActor { connectionId?: string; participantId: string; userId: string | null; sessionId?: string; canManage: boolean; permissions: Set<GamePermission> }
 
 /** All room edits serialize on the room row and fence their receipt owner. */
 export async function mutateRoom(roomId: string, actor: RoomActor, op: RoomOperation): Promise<Record<string, unknown>> {
@@ -337,6 +337,7 @@ export async function mutateRoom(roomId: string, actor: RoomActor, op: RoomOpera
       case 'MESSAGE': break;
       case 'LOBBY': case 'REMATCH': case 'SWITCH_GAME': {
         if (room.status !== 'ENDED') throw new RoomError('GAME_NOT_ENDED');
+        if (op.type === 'REMATCH' && op.runIndex !== undefined && op.runIndex !== room.runIndex) throw new RoomError('STATE_CONFLICT');
         await tx.roomRun.upsert({ where: { roomId_runIndex: { roomId, runIndex: room.runIndex } }, update: {}, create: {
           roomId, runIndex: room.runIndex, gameDefinitionId: room.gameDefinitionId, engineVersion: room.gameState?.engineVersion,
           configSnapshotJson: room.gameConfigSnapshotJson, stateJson: room.gameState?.stateJson, scoresJson: JSON.stringify(room.participations.map(p => ({ id: p.id, displayName: p.displayName, score: p.score, teamId: p.teamId }))), teamsJson: JSON.stringify(room.teams),

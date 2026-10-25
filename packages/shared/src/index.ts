@@ -1629,7 +1629,7 @@ export const RoomOperationSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('INVITE'), role: z.enum(['PLAYER', 'VIEWER']) }),
   z.object({ type: z.literal('MESSAGE'), message: z.string().trim().min(1).max(300) }),
   z.object({ type: z.literal('LOBBY') }),
-  z.object({ type: z.literal('REMATCH') }),
+  z.object({ type: z.literal('REMATCH'), runIndex: z.number().int().positive().optional() }),
   z.object({ type: z.literal('SWITCH_GAME'), gameSlug: z.string(), sourceRoomId: z.string().optional() }),
   z.object({ type: z.literal('CLOSE') }),
   z.object({ type: z.literal('EMERGENCY'), action: z.enum(['ABORT_ROUND', 'RESTART_ROUND', 'SKIP_ROUND', 'ABORT_GAME']), points: z.enum(['KEEP_POINTS', 'ROLLBACK_ROUND_POINTS']) }),

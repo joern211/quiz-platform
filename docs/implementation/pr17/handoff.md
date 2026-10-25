@@ -92,3 +92,17 @@ korrekte Player-/Viewer-Ergebnisrouten und Refresh nach Reconnect. Gezielte
 Ergebnissuite 8/8, Typecheck und Web89 grün. Geo-Browserassertion verwendet
 die jetzt einheitliche deutsche Einheit Punkte statt pts; die Prüfung eines
 numerischen Ergebnisses bleibt erhalten. Folgeänderung pushen/CI abnehmen.
+
+## Nachprüfung aktiver Geräte / verspäteter Rematch
+
+Nächste Folgeänderung prüft connectionId zusätzlich innerhalb von Result-/
+Recovery-Transaktionen. Finale Team-Caches müssen mit der gespeicherten
+Ledger-Auswertung übereinstimmen. Neue Rematch-UI sendet die erwartete
+runIndex; eine verspätete Absicht kann keine neuere beendete Partie resetten.
+RoomOperation bleibt für alte Clients additiv kompatibel. 34/34 gezielte
+Result-/Room-Sockettests, Web89, Typecheck/Build/Lint grün (113 Warnungen).
+Ein erster gezielter Lauf hatte ausschließlich im afterAll den Standard-
+1s-Wait überschritten: alle 34 Testfälle bestanden, aber sechs echte
+Disconnect-Handler waren noch in Arbeit. Der Cleanup wartet nun wie die
+bestehende Runtime-Suite bis 10s auf den tatsächlichen leeren Identity-Bestand;
+keine fachliche Assertion/kein Pflichtfall ist entfernt. Folgeprüfung grün.

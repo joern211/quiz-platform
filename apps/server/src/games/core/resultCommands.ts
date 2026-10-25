@@ -18,7 +18,7 @@ async function assertResultPermission(tx: Prisma.TransactionClient, roomId: stri
   const room = await tx.room.findUniqueOrThrow({ where: { id: roomId } });
   if (!actor.userId || !actor.sessionId || room.status === 'ARCHIVED') throw new CoreRuleError('FORBIDDEN');
   const session = await tx.session.findFirst({ where: { id: actor.sessionId, userId: actor.userId, revokedAt: null, expiresAt: { gt: new Date() }, user: { disabledAt: null } } });
-  const member = await tx.participation.findFirst({ where: { roomId, id: actor.participantId, connected: true, admission: 'ACTIVE', kickedAt: null, bannedAt: null, leftAt: null } });
+  const member = await tx.participation.findFirst({ where: { roomId, id: actor.participantId, connectionId: actor.connectionId ?? '', connected: true, admission: 'ACTIVE', kickedAt: null, bannedAt: null, leftAt: null } });
   if (!session || !member) throw new CoreRuleError('FORBIDDEN');
   const owner = room.hostUserId === actor.userId;
   const grants = owner || roomPolicy(room).coHostEnabled ? await tx.roomPermissionGrant.findMany({ where: { roomId, userId: actor.userId, revokedAt: null } }) : [];
@@ -57,6 +57,10 @@ export async function mutateResult(roomId: string, actor: RoomActor, command: Re
         if (room.status !== 'ENDED' || state?.phase !== 'GAME_END' || summary.result.participants.some(p => state.scores?.[p.participantId] !== p.score)) throw new CoreRuleError('RESULT_REVIEW_REQUIRED');
         const players = await tx.participation.findMany({ where: { roomId, id: { in: summary.result.participants.map(p => p.participantId) } } });
         if (summary.result.participants.some(p => players.find(player => player.id === p.participantId)?.score !== p.score)) throw new CoreRuleError('RESULT_REVIEW_REQUIRED');
+      }
+      if (room.runIndex === command.runIndex && summary.scoring === 'TEAM_SCORE') {
+        const teams = await tx.roomTeam.findMany({ where: { roomId } });
+        if (summary.teams.some(t => teams.find(team => team.id === t.id)?.score !== t.score)) throw new CoreRuleError('RESULT_REVIEW_REQUIRED');
       }
       status = 'FINALIZED';
     } else {

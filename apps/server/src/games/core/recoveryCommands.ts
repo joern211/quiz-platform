@@ -32,7 +32,8 @@ export function registerRecoveryCommands(io: Server, socket: Socket) {
             await assertCommandMutation(tx, roomId);
             const live = await tx.room.findUniqueOrThrow({ where: { id: roomId }, include: { gameDefinition: true, gameState: true } });
             const session = actor.sessionId ? await tx.session.findFirst({ where: { id: actor.sessionId, userId: actor.userId!, revokedAt: null, expiresAt: { gt: new Date() }, user: { disabledAt: null } } }) : null;
-            if (!session || live.hostUserId !== actor.userId) throw new CoreRuleError('FORBIDDEN');
+            const member = await tx.participation.findFirst({ where: { roomId, id: actor.participantId, connectionId: actor.connectionId ?? '', connected: true, admission: 'ACTIVE', kickedAt: null, bannedAt: null, leftAt: null } });
+            if (!session || !member || live.hostUserId !== actor.userId) throw new CoreRuleError('FORBIDDEN');
             const revoked = await tx.roomPermissionGrant.findFirst({ where: { roomId, userId: actor.userId!, permission: 'GAME_PAUSE', direction: 'REVOKE', revokedAt: null } });
             if (revoked) throw new CoreRuleError('FORBIDDEN');
             const row = live.gameState, slug = resolveCanonicalSlug(live.gameDefinition.slug) ?? live.gameDefinition.slug;

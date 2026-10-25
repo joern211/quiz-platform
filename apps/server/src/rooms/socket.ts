@@ -27,7 +27,7 @@ export async function socketRoomActor(socket: Socket): Promise<{ roomId: string;
   }
   const role = userId === room.hostUserId ? 'HOST' : identity.role === 'HOST' ? 'VIEWER' : normalizeRole(identity.role) ?? 'VIEWER';
   const permissions = await loadEffectivePermissions(room.id, role, userId === room.hostUserId || roomPolicy(room).coHostEnabled ? userId : null);
-  return { roomId: room.id, actor: { participantId: identity.participationId ?? '', userId, sessionId: user?.sessionId, permissions, canManage: permissions.has('PLAYER_MANAGE') || permissions.has('TEAM_MANAGE') || userId === room.hostUserId } };
+  return { roomId: room.id, actor: { connectionId: socket.id, participantId: identity.participationId ?? '', userId, sessionId: user?.sessionId, permissions, canManage: permissions.has('PLAYER_MANAGE') || permissions.has('TEAM_MANAGE') || userId === room.hostUserId } };
 }
 
 export function revokeParticipantSockets(io: Server, roomId: string, ids: string[], event = 'session:replaced') {
