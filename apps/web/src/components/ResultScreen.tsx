@@ -4,7 +4,7 @@ import { PublicResultViewSchema, type PublicResultView, type ResultOperation, ty
 import { Card, Button } from '@quiz/ui';
 import { connectSocket, emitCommand, getSocket, type PlayerRole } from '../lib/socket';
 import { getSession } from '../lib/sessionStore';
-import styles from '../pages/ModeratorResultPage.module.css';
+import styles from './ResultScreen.module.css';
 
 export function ResultScreen({ roomCode, role }: { roomCode: string; role: PlayerRole }) {
   const navigate = useNavigate();
@@ -60,7 +60,7 @@ export function ResultScreen({ roomCode, role }: { roomCode: string; role: Playe
   };
   if (loading && !result) return <p>Lädt …</p>;
   return <div className={styles.page}>
-    <h1 className={styles.title}>Ergebnis</h1><p>{result?.game.name ?? 'Spiel'} · Raum {roomCode}{result && ` · Partie ${result.runIndex}`}</p>
+    <h1 className={styles.title}>{role === 'HOST' ? 'Ergebnis' : 'Spiel beendet'}</h1><p>{result?.game.name ?? 'Spiel'} · Raum {roomCode}{result && ` · Partie ${result.runIndex}`}</p>
     {error && <div role="alert"><p>{error}</p><Button onClick={() => void refresh()}>Erneut laden</Button></div>}
     {result && <>
       <p role="status">{revision ? `Historische Version ${revision}` : result.resultStatus === 'FINALIZED' ? 'Verbindlich bestätigt' : result.resultStatus === 'RESULT_REVIEW' ? 'In Ergebnisprüfung' : result.resultStatus === 'GAME_END' ? 'Spiel beendet · noch nicht bestätigt' : 'Historisches Ergebnis ohne Finalisierungsnachweis'}</p>
@@ -70,25 +70,25 @@ export function ResultScreen({ roomCode, role }: { roomCode: string; role: Playe
       <Card padding="lg"><h2>{result.scoring === 'TEAM_SCORE' ? 'Persönliche Beiträge' : 'Rangliste'}</h2>
         <ol>{result.scores.map(p => <li key={p.participationId} value={p.rank}>{p.displayName}: {p.score} Punkte</li>)}</ol>
       </Card>
-      {result.versions.length > 1 && <label>Ergebnisversion <select value={revision ?? ''} onChange={e => setRevision(e.target.value ? Number(e.target.value) : null)} disabled={pending}>
+      {result.versions.length > 1 && <label>Ergebnisversion <select aria-label="Ergebnisversion" value={revision ?? ''} onChange={e => setRevision(e.target.value ? Number(e.target.value) : null)} disabled={pending}>
         <option value="">Aktuelle Version</option>{result.versions.map(v => <option key={v.revision} value={v.revision}>Version {v.revision} · {v.kind === 'RESULT_AMENDMENT' ? 'Nachträgliche Korrektur' : v.kind === 'FINALIZE' ? 'Bestätigt' : v.kind === 'GAME_ENDED' ? 'Ursprüngliches Ergebnis' : 'Ergebnisprüfung'}</option>)}
       </select></label>}
       {canManage && <Card padding="lg"><h2>Ergebnis prüfen</h2>
         {result.resultStatus === 'GAME_END' && <Button disabled={pending} onClick={() => execute({ type: 'REVIEW' })}>Ergebnisprüfung beginnen</Button>}
         {result.resultStatus === 'RESULT_REVIEW' && <Button disabled={pending || result.requiresReview} onClick={() => execute({ type: 'FINALIZE' })}>Ergebnis verbindlich bestätigen</Button>}
-        {['RESULT_REVIEW', 'FINALIZED'].includes(result.resultStatus ?? '') && <form onSubmit={event => {
+        {['RESULT_REVIEW', 'FINALIZED'].includes(result.resultStatus ?? '') && <form className={styles.correctionForm} onSubmit={event => {
           event.preventDefault(); const value = Number(delta);
           if (!result.scores.some(p => p.participationId === participantId) || !Number.isSafeInteger(value) || value === 0 || Math.abs(value) > 1000000 || !reason.trim()) return;
           execute({ type: result.resultStatus === 'FINALIZED' ? 'AMEND' : 'ADJUST', participantId, delta: value, reason: reason.trim() });
         }}>
           <h3>{result.resultStatus === 'FINALIZED' ? 'Nachträgliche Korrektur mit neuer Version' : 'Punkte korrigieren'}</h3>
-          <label>Teilnehmer <select required value={participantId} disabled={pending} onChange={e => setParticipantId(e.target.value)}><option value="">Auswählen</option>{result.scores.map(p => <option key={p.participationId} value={p.participationId}>{p.displayName}</option>)}</select></label>
-          <label>Punkteänderung <input type="number" required min={-1000000} max={1000000} step={1} value={delta} disabled={pending} onChange={e => setDelta(e.target.value)} /></label>
-          <label>Grund <input required maxLength={500} value={reason} disabled={pending} onChange={e => setReason(e.target.value)} /></label>
+          <label>Teilnehmer <select aria-label="Teilnehmer" required value={participantId} disabled={pending} onChange={e => setParticipantId(e.target.value)}><option value="">Auswählen</option>{result.scores.map(p => <option key={p.participationId} value={p.participationId}>{p.displayName}</option>)}</select></label>
+          <label>Punkteänderung <input aria-label="Punkteänderung" type="number" required min={-1000000} max={1000000} step={1} value={delta} disabled={pending} onChange={e => setDelta(e.target.value)} /></label>
+          <label>Grund <input aria-label="Grund" required maxLength={500} value={reason} disabled={pending} onChange={e => setReason(e.target.value)} /></label>
           <Button type="submit" disabled={pending || result.requiresReview}>Korrektur speichern</Button>
         </form>}
       </Card>}
-      {room?.history.length ? <label>Frühere Partie <select value={runIndex ?? ''} onChange={e => { setRevision(null); setRunIndex(e.target.value ? Number(e.target.value) : null); }} disabled={pending}><option value="">Aktuelle Partie</option>{room.history.map(h => <option key={h.runIndex} value={h.runIndex}>Partie {h.runIndex}</option>)}</select></label> : null}
+      {room?.history.length ? <label>Frühere Partie <select aria-label="Frühere Partie" value={runIndex ?? ''} onChange={e => { setRevision(null); setRunIndex(e.target.value ? Number(e.target.value) : null); }} disabled={pending}><option value="">Aktuelle Partie</option>{room.history.map(h => <option key={h.runIndex} value={h.runIndex}>Partie {h.runIndex}</option>)}</select></label> : null}
       {room?.isOwner && result.resultStatus === 'FINALIZED' && result.runIndex === room.runIndex && !revision && <Button disabled={pending} onClick={() => {
         if (busy.current) return; busy.current = true; setPending(true);
         emitCommand(getSocket(), 'room:command', { roomCode, operation: { type: 'REMATCH', runIndex: result.runIndex } }, `${roomCode}:rematch:${result.runIndex}`, response => { busy.current = false; setPending(false); if (!response.success) setError('Revanche konnte nicht vorbereitet werden.'); });

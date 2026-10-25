@@ -106,3 +106,20 @@ Ein erster gezielter Lauf hatte ausschließlich im afterAll den Standard-
 Disconnect-Handler waren noch in Arbeit. Der Cleanup wartet nun wie die
 bestehende Runtime-Suite bis 10s auf den tatsächlichen leeren Identity-Bestand;
 keine fachliche Assertion/kein Pflichtfall ist entfernt. Folgeprüfung grün.
+
+## Browser-Abnahme c3e7142 — Korrektur erforderlich
+
+Run 40145355091: komplette CI grün (Server431/Web89), E2E 18/20 grün.
+G4-4 fand die erwartete Abschlussüberschrift nicht; T1 fand die Teilnehmer-
+Auswahl nicht über den exakten zugänglichen Namen. Retry änderte daran nichts.
+Browsertrace und Screenshots wurden heruntergeladen und tatsächlich geprüft.
+Die Team-Korrekturform war vorhanden. Explizite aria-labels beheben die
+Auswahlbeschriftung. Ergebnisansicht und globales RoomPanel hatten beide
+room:subscribe ausgeführt; jetzt ist die Ergebnisseite alleiniger Besitzer
+und das Panel liest nach deren Snapshot. Player/Viewer erhalten wieder die
+Überschrift Spiel beendet; keine Siegerbehauptung für abgebrochene Partien.
+Die neue Ergebnis-CSS macht Ranglisten, Formfelder und Abstände lesbar.
+Zwei zusätzliche Webtests prüfen genau eine Raumaufnahme neben dem Panel
+und die Abnahme nach StrictMode-Effektwiederholung. Web91, Typecheck, Build,
+Lint0 Fehler/113 Warnungen und diff-check grün. Neuen Head pushen und die
+vollständige CI/E2E erneut prüfen. Punkt 3 bleibt bis dahin in Abnahme.

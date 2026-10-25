@@ -1,12 +1,14 @@
+import { StrictMode } from 'react';
+import { RoomPanel } from './RoomPanel';
 import { act, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import { beforeEach, expect, it, vi } from 'vitest';
 import { ResultScreen } from './ResultScreen';
-const transport = vi.hoisted(() => ({ handlers: new Map<string, () => void>(), command: vi.fn(), permissions: [] as string[] }));
+const transport = vi.hoisted(() => ({ handlers: new Map<string, () => void>(), command: vi.fn(), subscriptions: vi.fn(), permissions: [] as string[] }));
 vi.mock('../lib/socket', () => ({
   getSocket: () => ({ connected: true, emit: (event: string, _payload: unknown, callback: (result: unknown) => void) => {
-    if (event === 'room:subscribe') callback({ success: true });
+    if (event === 'room:subscribe') { transport.subscriptions(); callback({ success: true }); }
     if (event === 'room:core:read') callback({ success: true, view: { permissions: transport.permissions, history: [], isOwner: false, runIndex: 1 } });
   }, on: (event: string, handler: () => void) => transport.handlers.set(event, handler), off: (event: string) => transport.handlers.delete(event) }),
   connectSocket: vi.fn(), emitCommand: transport.command,
@@ -15,7 +17,7 @@ vi.mock('../lib/sessionStore', () => ({ getSession: () => ({ roomCode: '123-456'
 const data = { roomCode: '123-456', roomName: 'Result', status: 'ENDED', runPhase: 'GAME_END', runIndex: 1, resultRevision: 1, resultStatus: 'GAME_END',
   game: { slug: 'jeopardy', name: 'Jeopardy' }, scores: [{ rank: 1, participationId: 'a', displayName: 'Alice', role: 'PLAYER', score: 100 }, { rank: 1, participationId: 'b', displayName: 'Bob', role: 'PLAYER', score: 100 }], endedAt: new Date().toISOString() };
 function mount() { return render(<MemoryRouter><ResultScreen roomCode="123-456" role="HOST" /></MemoryRouter>); }
-beforeEach(() => { transport.handlers.clear(); transport.command.mockReset(); transport.permissions = [];
+beforeEach(() => { transport.handlers.clear(); transport.command.mockReset(); transport.subscriptions.mockReset(); transport.permissions = [];
   vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, json: async () => ({ success: true, data }) })); });
 it('shows tied authoritative ranks, supplies protected-read proof and hides management without permission', async () => {
   mount(); expect(await screen.findByText('Alice: 100 Punkte')).toBeInTheDocument();
@@ -40,4 +42,15 @@ it('shows a failed authoritative fetch instead of silently displaying an old res
   sessionStorage.setItem('result_123-456', JSON.stringify({ scores: [{ displayName: 'Stale answer' }] }));
   vi.mocked(fetch).mockResolvedValue({ ok: false, json: async () => ({ success: false, error: { message: 'Nicht verfügbar' } }) } as Response);
   mount(); expect(await screen.findByText('Nicht verfügbar')).toBeInTheDocument(); expect(screen.queryByText('Stale answer')).not.toBeInTheDocument();
+});
+
+it('keeps one room admission owner with the shared panel mounted on a result route', async () => {
+  render(<MemoryRouter initialEntries={['/raum/123-456/ergebnis']}><ResultScreen roomCode="123-456" role="PLAYER" /><RoomPanel /></MemoryRouter>);
+  expect(await screen.findByRole('heading', { name: 'Spiel beendet' })).toBeInTheDocument();
+  expect(transport.subscriptions).toHaveBeenCalledTimes(1);
+});
+it('settles the authoritative result after StrictMode effect replay', async () => {
+  render(<StrictMode><MemoryRouter><ResultScreen roomCode="123-456" role="PLAYER" /></MemoryRouter></StrictMode>);
+  expect(await screen.findByText('Alice: 100 Punkte')).toBeInTheDocument();
+  expect(screen.queryByText('Lädt …')).not.toBeInTheDocument();
 });
