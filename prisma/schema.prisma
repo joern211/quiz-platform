@@ -657,6 +657,10 @@ model MediaAsset {
   @@index([sha256])
   @@index([assetKey])
 
+  processingSources MediaProcessingJob[]
+  variantOriginals MediaAssetVariant[] @relation("VariantOriginal")
+  variantOutputs MediaAssetVariant[] @relation("VariantOutput")
+  variantKind String @default("WEB")
   contentReferences ContentMediaReference[]
 
   // Note: GeoQuestion holds the forward relation via mediaAssetId
@@ -988,4 +992,35 @@ model DisplaySession {
   createdAt DateTime @default(now())
   @@index([roomId])
   @@map("display_sessions")
+}
+
+model MediaProcessingJob {
+  id String @id @default(uuid())
+  ownerId String
+  commandId String
+  inputHash String
+  originalId String
+  original MediaAsset @relation(fields: [originalId], references: [id], onDelete: Restrict)
+  outputId String?
+  status String @default("QUEUED")
+  attempts Int @default(0)
+  leaseToken String?
+  leaseUntil DateTime?
+  errorCode String?
+  retryable Boolean @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  @@unique([ownerId, commandId])
+  @@index([status, leaseUntil])
+  @@map("media_processing_jobs")
+}
+model MediaAssetVariant {
+  id String @id @default(uuid())
+  originalId String
+  original MediaAsset @relation("VariantOriginal", fields: [originalId], references: [id], onDelete: Restrict)
+  assetId String
+  asset MediaAsset @relation("VariantOutput", fields: [assetId], references: [id], onDelete: Restrict)
+  kind String
+  @@unique([originalId, kind])
+  @@map("media_asset_variants")
 }

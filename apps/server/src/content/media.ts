@@ -42,7 +42,7 @@ export async function validateReadyMedia(db: ContentDb, payload: Record<string, 
   if (payload.mediaAssetId === undefined && payload.mediaType === undefined) return;
   if (typeof payload.mediaAssetId !== 'string') throw new ContentError('MEDIA_NOT_READY');
   const asset = await db.mediaAsset.findUnique({ where: { id: payload.mediaAssetId } });
-  if (!asset || asset.processStatus !== 'READY' || !['image', 'audio'].includes(asset.type) || asset.type !== payload.mediaType) throw new ContentError('MEDIA_NOT_READY');
+  if (!asset || asset.variantKind === 'ORIGINAL' || asset.processStatus !== 'READY' || !['image', 'audio'].includes(asset.type) || asset.type !== payload.mediaType) throw new ContentError('MEDIA_NOT_READY');
   try { await access(asset.storagePath); } catch { throw new ContentError('MEDIA_NOT_READY'); }
   const rights = ContentMediaRightsSchema.safeParse(payload.mediaRights);
   if (!rights.success || (!rights.data.ownMaterial && ((!rights.data.source.trim() && !rights.data.sourceUrl.trim()) || !rights.data.license.trim()))

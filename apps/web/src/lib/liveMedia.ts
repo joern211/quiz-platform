@@ -3,10 +3,12 @@ type Entry = { pc: RTCPeerConnection; route: LiveMediaRoute; candidates: RTCIceC
 /** One unidirectional connection per authorized route. Camera and team voice never share a connection. */
 export class LiveMediaTransport {
   private peers = new Map<string, Entry>();
+  private qualityMode: 'AUTO' | 'DATA_SAVER' | 'HIGH_QUALITY' = 'AUTO';
+  private hidden = false;
   private tracks: Partial<Record<'audio' | 'video', MediaStream>> = {};
   
   constructor(private send: (signal: LiveMediaSignal) => void, private remote: (id: string, stream: MediaStream | null, route: LiveMediaRoute) => void, private failure: (message: string) => void) {}
-  setStream(kind: 'audio' | 'video', stream?: MediaStream) { this.tracks[kind] = stream; for (const entry of this.peers.values()) if (entry.route.kind === kind) for (const sender of entry.pc.getSenders()) if (sender.track?.kind === kind) void sender.replaceTrack(stream?.getTracks()[0] ?? null).catch(() => this.failure('Gerätewechsel fehlgeschlagen. Bitte Medien neu verbinden.')); }
+  setStream(kind: 'audio' | 'video', stream?: MediaStream) { this.tracks[kind] = stream; for (const entry of this.peers.values()) if (entry.route.kind === kind) for (const sender of entry.pc.getSenders()) if (sender.track?.kind === kind) void sender.replaceTrack(stream?.getTracks()[0] ?? null).catch(() => { if (!entry.closed) this.failure('Gerätewechsel fehlgeschlagen. Bitte Medien neu verbinden.'); }); }
   private closeRoute(id: string) { const entry = this.peers.get(id); if (!entry) return; entry.closed = true; entry.pc.close(); this.peers.delete(id); this.remote(id, null, entry.route); }
   update(snapshot: LiveMediaSnapshot) {
     const ids = new Set(snapshot.routes.map(route => route.id));
@@ -25,6 +27,7 @@ export class LiveMediaTransport {
         this.enqueue(entry, async () => { await pc.setLocalDescription(await pc.createOffer()); if (!entry.closed && pc.localDescription) this.send({ routeId: route.id, description: { type: 'offer', sdp: pc.localDescription.sdp } }); });
       }
     }
+    void this.quality(this.qualityMode, this.hidden);
   }
   private enqueue(entry: Entry, run: () => Promise<void>) { entry.queue = entry.queue.then(async () => { if (!entry.closed) await run(); }).catch(() => { if (!entry.closed) this.failure('Medienverbindung unterbrochen. Bitte Medien neu verbinden.'); }); }
   signal(signal: LiveMediaSignal) {
@@ -43,6 +46,7 @@ export class LiveMediaTransport {
     });
   }
   async quality(mode: 'AUTO' | 'DATA_SAVER' | 'HIGH_QUALITY', hidden: boolean) {
+    this.qualityMode = mode; this.hidden = hidden;
     for (const entry of this.peers.values()) for (const sender of entry.pc.getSenders()) {
       if (sender.track?.kind !== 'video') continue;
       try { const parameters = sender.getParameters(); if (!parameters.encodings?.length) continue;

@@ -1,21 +1,13 @@
+import { readMediaPreferences, saveMediaPreferences, defaultFilters } from '../lib/mediaPreferences';
 import { useEffect, useRef, useState } from 'react';
 import styles from './MediaDeviceCheck.module.css';
 
 type Kind = 'audio' | 'video';
-type Preferences = { audioDevice: string; videoDevice: string; echoCancellation: boolean; noiseSuppression: boolean; autoGainControl: boolean };
-const defaults: Preferences = { audioDevice: '', videoDevice: '', echoCancellation: true, noiseSuppression: true, autoGainControl: true };
-const storageKey = 'qp:media-devices:v1';
-function readPreferences(): Preferences {
-  try {
-    const saved = JSON.parse(localStorage.getItem(storageKey) ?? '{}');
-    return Object.fromEntries(Object.entries(defaults).map(([key, value]) => [key, typeof saved?.[key] === typeof value ? saved[key] : value])) as Preferences;
-  } catch { return defaults; }
-}
 const stop = (stream?: MediaStream) => stream?.getTracks().forEach(track => track.stop());
 
 /** Local preview only. Permission and capture always follow an explicit click. */
 export function MediaDeviceCheck({ microphone = true }: { microphone?: boolean }) {
-  const [preferences, setPreferences] = useState(readPreferences);
+  const [preferences, setPreferences] = useState(readMediaPreferences);
   const [devices, setDevices] = useState<MediaDeviceInfo[]>([]);
   const [active, setActive] = useState({ audio: false, video: false });
   const [pending, setPending] = useState({ audio: false, video: false });
@@ -40,7 +32,7 @@ export function MediaDeviceCheck({ microphone = true }: { microphone?: boolean }
       meterCleanup.current(); speakerGeneration.value++; speakerCleanup.current();
     };
   }, []);
-  useEffect(() => { try { localStorage.setItem(storageKey, JSON.stringify(preferences)); } catch { /* Preview works without storage. */ } }, [preferences]);
+  useEffect(() => saveMediaPreferences(preferences), [preferences]);
   useEffect(() => {
     const refresh = async () => {
       try { const found = await navigator.mediaDevices?.enumerateDevices(); if (alive.current && found) setDevices(found); } catch { /* No permission required to join. */ }
@@ -117,7 +109,7 @@ export function MediaDeviceCheck({ microphone = true }: { microphone?: boolean }
     <p>Lokaler Test: Bild und Ton werden nicht in den Raum übertragen. Beim Verlassen endet die Vorschau.</p>
     {!supported && <p role="status">Gerätetest hier nicht verfügbar. Du kannst trotzdem beitreten.</p>}
     {(microphone ? ['audio', 'video'] as const : ['video'] as const).map(kind => <div key={kind} className={styles.device}>
-      <label>{kind === 'audio' ? 'Mikrofon' : 'Kamera'}<select aria-label={kind === 'audio' ? 'Mikrofongerät' : 'Kameragerät'} value={kind === 'audio' ? preferences.audioDevice : preferences.videoDevice} onChange={event => { disable(kind); setPreferences(old => ({ ...old, [kind === 'audio' ? 'audioDevice' : 'videoDevice']: event.target.value })); }}>
+      <label>{kind === 'audio' ? 'Mikrofon' : 'Kamera'}<select aria-label={kind === 'audio' ? 'Mikrofongerät' : 'Kameragerät'} value={kind === 'audio' ? preferences.audioDevice : preferences.videoDevice} onChange={event => { disable(kind); setPreferences(old => kind === 'audio' ? ({ ...old, audioDevice: event.target.value, ...(old.filtersByDevice[event.target.value] ?? defaultFilters) }) : ({ ...old, videoDevice: event.target.value })); }}>
         <option value="">Standardgerät</option>
         {devices.filter(device => device.kind === (kind === 'audio' ? 'audioinput' : 'videoinput') && device.deviceId).map((device, index) => <option key={device.deviceId} value={device.deviceId}>{device.label || `Gerät ${index + 1}`}</option>)}
       </select></label>
@@ -127,7 +119,7 @@ export function MediaDeviceCheck({ microphone = true }: { microphone?: boolean }
       {messages[kind] && <p role="status">{messages[kind]}</p>}
     </div>)}
     <video ref={video} autoPlay playsInline muted hidden={!active.video} className={styles.preview} aria-label="Lokale Kameravorschau" />
-    {microphone && <fieldset><legend>Mikrofonfilter</legend>{(['echoCancellation', 'noiseSuppression', 'autoGainControl'] as const).map((key, index) => <label key={key} className={styles.check}><input type="checkbox" checked={preferences[key]} onChange={event => { disable('audio'); setPreferences(old => ({ ...old, [key]: event.target.checked })); }} />{['Echounterdrückung', 'Rauschunterdrückung', 'Automatische Verstärkung'][index]}</label>)}<p>Änderungen gelten beim nächsten lokalen Test.</p></fieldset>}
+    {microphone && <fieldset><legend>Mikrofonfilter</legend>{(['echoCancellation', 'noiseSuppression', 'autoGainControl'] as const).map((key, index) => <label key={key} className={styles.check}><input type="checkbox" checked={preferences[key]} onChange={event => { disable('audio'); setPreferences(old => { const next = { ...old, [key]: event.target.checked }; return { ...next, filtersByDevice: { ...old.filtersByDevice, [old.audioDevice]: { echoCancellation: next.echoCancellation, noiseSuppression: next.noiseSuppression, autoGainControl: next.autoGainControl } } }; }); }} />{['Echounterdrückung', 'Rauschunterdrückung', 'Automatische Verstärkung'][index]}</label>)}<p>Änderungen gelten beim nächsten lokalen Test.</p></fieldset>}
     <button type="button" onClick={() => void speakerTest()}>Standardlautsprecher testen</button>
     {messages.speaker && <p role="status">{messages.speaker}</p>}
   </details>;

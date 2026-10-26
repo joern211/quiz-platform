@@ -184,3 +184,43 @@ Lokale Abnahme des kombinierten Live-/DISPLAY-Stands:513/513 Serverfälle
 Typecheck grün; Lint0 Fehler/113 bestehende Warnungen.34 Browserfälle aktiv;
 GitHub-Abnahme am neuen Remote-Head folgt. Keine offene lokale Produktarbeit
 wird durch eine frühere CI-Prüfung als bereits browsergeprüft bezeichnet.
+
+## Persistente Jobs, Varianten und restliche Gerätefunktionen lokal ergänzt
+
+Live-/DISPLAY-Zwischenstand lokal b9ec43d (Tree ad483a9). create_tree wurde
+von Auto-Review zurückgewiesen: frühere Freigabe gelte nur für die beiden alten
+Commits, nicht für die neue Implementierung. Kein zweiter Uploadversuch oder
+Ausweichweg. Die autorisierte lokale Arbeit wurde weitergeführt.
+
+Neue additive Job-/Variantentabellen und ORIGINAL-Markierung. Beide Content-
+Editoren nutzen /media/jobs, Polling, fragegebundene Wiederaufnahme/Retry und
+Abort bei Wechsel. Multipart-Intent bleibt bei einem ungewissen Netzwerk-Retry
+identisch. Worker startet im Produktionsserver, übernimmt abgelaufene Leases
+per CAS, persistiert unveränderte Originale plus atomare geschützte Varianten,
+trennt retryfähige Decoderfehler von REJECTED, und bereinigt alte unreferenzierte
+Stagingbytes. Originale dürfen nie als Spielmedium ausgeliefert werden. Der
+bestehende synchrone Legacy-/WID-Uploadpfad behält seine Decoder-/Dedupe-Semantik.
+
+Live-Gerätewechsel, gerätebezogene Filter, unterstützte Lautsprecherauswahl mit
+Standardfallback, Quality-Persistenz über neue Routen, Host-Mute-Capture-Abbruch
+und PTT-Release weiter abgesichert. Optionale automatische TEAM-/PTT-Regeln
+werden von echten Wissensduell- und Jeopardy-Zuständen abgeleitet; Pause hält
+Beschränkungen, Ende kehrt zu MAIN zurück. Neue Frage-/Feldereignisse warten
+auf die aktualisierte Medienprojektion.
+
+Sechs Job-Integrationsfälle, zehn Live-/DISPLAY-Fälle, Transport-/Capture-/
+Preference-/Intent-Tests. Vollständige Server-Suite521/521 (61 Dateien) grün;
+Web147/147 (31 Dateien) grün. Nach letzten Audit-/UI-Nachträgen gezielte Jobsuite
+6/6 erneut grün. Finalen Build/Typecheck/Lint nach Sicherung prüfen. C1/M1 sind
+auf die echte Jobkette umgestellt; M4/M5 ergänzen die34 Browserfälle. Diese neuen
+Browserwege wurden noch NICHT ausgeführt. Paket5-Abschluss bleibt ausdrücklich
+bis zur CI-/Browserabnahme am gepushten Head offen. Matrix: acceptance.md.
+
+Nächster Schritt: ausdrückliche Pushfreigabe für b9ec43d und den Folgecommit
+nach https://github.com/joern211/quiz-platform.git, feature/pr19-media-voice,
+einholen. Danach Remote d60f078 abgleichen, alle neuen Dateien gegenüber lokal
+5135371 übertragen, Tree vergleichen, Remote-Commit mit Eltern d60f078 erzeugen
+und Ref nur Fast-Forward mit expected_sha setzen. Vollständige CI/E2E abnehmen,
+eventuelle Fehler beheben, PR19-Body um finalen Scope/Nachweise neu schreiben.
+Keine eigenständigen Merges und keine früheren CI-Ergebnisse für neuen Code
+als gültig darstellen.

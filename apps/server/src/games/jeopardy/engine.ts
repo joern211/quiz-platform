@@ -1,3 +1,4 @@
+import { refreshLiveMedia } from '../../media/live.js';
 // ============================================================
 // Jeopardy Game Engine (Phase 4)
 // Server-authoritative game flow
@@ -270,6 +271,8 @@ export const handleJeopardyGame = {
       state.buzzer = await openRoundBuzzerForRoom(tx, roomId, Object.keys(state.scores));
       await saveGameStateIfRevision(tx, { gameSlug: 'jeopardy', roomId, expectedRevision: gameStateData.revision, state, phase: state.phase });
     });
+
+    await refreshLiveMedia(io);
 
     // Emit question to ALL (no answer — P0-07 fix: using io.to broadcasts to the correct room channel)
     const fieldOpenEvent: JeopardyFieldOpenEvent = {

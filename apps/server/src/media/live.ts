@@ -1,3 +1,4 @@
+import { coreLifecyclePhase } from '../games/core/lifecycle.js';
 import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import type { Server, Socket } from 'socket.io';
@@ -21,7 +22,7 @@ function iceServers(): LiveMediaSnapshot['iceServers'] {
   catch { return []; }
 }
 const refreshers = new WeakMap<Server, () => Promise<void>>();
-export function refreshLiveMedia(io: Server) { void refreshers.get(io)?.().catch(error => logger.error('Live media refresh failed', { error })); }
+export function refreshLiveMedia(io: Server) { return refreshers.get(io)?.().catch(error => logger.error('Live media refresh failed', { error })) ?? Promise.resolve(); }
 const publicMember = (m: Member): LiveMediaMember => ({ id: m.id, name: m.name, role: m.role, teamId: m.teamId, hostMuted: m.hostMuted, cameraHidden: m.cameraHidden, mic: m.mic, camera: m.camera });
 export function liveMediaAllowed(from: LiveMediaMember, to: LiveMediaMember, kind: 'audio' | 'video', policy: LiveMediaPolicy, listenerTeam: string | null = null): boolean {
   if (from.id === to.id || ['VIEWER', 'DISPLAY'].includes(from.role)) return false;
@@ -66,9 +67,16 @@ export function setupLiveMedia(io: Server) {
     const byRoom = new Map<string, { policy: LiveMediaPolicy; revision: number }>();
     for (const m of valid) {
       if (byRoom.has(m.roomId)) continue;
-      const room = await prisma.room.findUniqueOrThrow({ where: { id: m.roomId } });
+      const room = await prisma.room.findUniqueOrThrow({ where: { id: m.roomId }, include: { gameDefinition: true, gameState: true } });
       const record = await prisma.roomMediaControl.findUnique({ where: { roomId: m.roomId } });
-      byRoom.set(m.roomId, { policy: LiveMediaPolicySchema.parse({ camerasEnabled: room.cameraEnabled, ...JSON.parse(record?.policyJson ?? '{}') }), revision: record?.revision ?? 1 });
+      const policy = LiveMediaPolicySchema.parse({ camerasEnabled: room.cameraEnabled, ...JSON.parse(record?.policyJson ?? '{}') });
+      if ((policy.autoTeamDuringRound || policy.autoPttDuringRound) && room.gameState) {
+        let activeRound = false;
+        try { let state = JSON.parse(room.gameState.stateJson); if (state.phase === 'PAUSED') state = state._roomPause ?? (state.roundStates?.[state.currentRoundIndex] && !state.roundStates[state.currentRoundIndex].revealed ? { ...state, phase: 'INPUT_OPEN' } : state); activeRound = ['ROUND_ACTIVE', 'ROUND_RESOLUTION'].includes(coreLifecyclePhase(room.gameDefinition.slug, state)); } catch { policy.voiceEnabled = false; }
+        if (policy.autoTeamDuringRound) policy.channel = activeRound ? 'TEAM' : 'MAIN';
+        if (policy.autoPttDuringRound && activeRound) policy.forcePushToTalk = true;
+      }
+      byRoom.set(m.roomId, { policy, revision: record?.revision ?? 1 });
     }
     for (const m of valid) {
       const policy = byRoom.get(m.roomId)!.policy;

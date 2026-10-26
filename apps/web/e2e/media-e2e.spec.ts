@@ -21,8 +21,8 @@ test('M1: upload real audio in both editors, play normalized output on a guest d
       await page.goto(`${BASE}/inhalte`); await page.getByLabel('Spiel', { exact: true }).selectOption(gameSlug); await page.getByRole('button').filter({ hasText: name }).click(); await page.getByRole('button', { name: 'Audiofrage · DRAFT · V1', exact: true }).click();
       const editor = page.getByRole('region', { name: 'Frageneditor' });
       if (await editor.getByRole('button', { name: 'Erweiterte Optionen' }).count()) await editor.getByRole('button', { name: 'Erweiterte Optionen' }).click();
-      const uploaded = page.waitForResponse(r => r.url().endsWith('/api/v1/media') && r.request().method() === 'POST'); await editor.getByLabel('Medium hochladen').setInputFiles({ name: 'quiet.wav', mimeType: 'audio/wav', buffer: wav() });
-      const response = await uploaded; expect(response.ok()).toBe(true); expect((await response.json()).data.mimeType).toBe('audio/mpeg');
+      const uploaded = page.waitForResponse(r => r.url().endsWith('/api/v1/media/jobs') && r.request().method() === 'POST'); await editor.getByLabel('Medium hochladen').setInputFiles({ name: 'quiet.wav', mimeType: 'audio/wav', buffer: wav() });
+      const response = await uploaded; expect(response.ok()).toBe(true); expect(response.status()).toBe(202); expect((await response.json()).data.status).toMatch(/QUEUED|PROCESSING|READY/);
       await editor.getByRole('checkbox', { name: 'Eigenes Material', exact: true }).check(); await expect(editor.getByRole('status')).toContainText('Gespeichert');
       await editor.getByRole('button', { name: 'Gespeichertes Medium anzeigen', exact: true }).click(); const preview = editor.locator('audio'); await expect.poll(() => preview.evaluate((element: HTMLAudioElement) => element.readyState)).toBeGreaterThanOrEqual(1);
       const privateUrl = await preview.getAttribute('src'); expect((await guest.request.get(`${BASE}${privateUrl}`)).status()).toBe(403);

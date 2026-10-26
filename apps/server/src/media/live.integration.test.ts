@@ -19,15 +19,15 @@ const clients: Socket[] = [], views = new Map<string, LiveMediaSnapshot>();
 beforeAll(async () => {
   dir = await mkdtemp(join(tmpdir(), 'quiz-live-')); const url = `file:${join(dir, 'db.sqlite')}`; await createTestDatabase(url);
   db = new PrismaClient({ datasourceUrl: url }); previous = globalThis.__prisma; globalThis.__prisma = db; app = createApp();
-  await db.gameDefinition.create({ data: { slug: 'wissensduell', name: 'Quiz', category: 'test', status: 'BETA' } });
+  for (const slug of ['wissensduell', 'jeopardy']) await db.gameDefinition.create({ data: { slug, name: slug, category: 'test', status: 'BETA' } });
   await new Promise<void>(resolve => app.httpServer.listen(0, '127.0.0.1', resolve)); const address = app.httpServer.address(); if (!address || typeof address === 'string') throw Error('NO_PORT'); origin = `http://127.0.0.1:${address.port}`;
 });
 afterAll(async () => { const ids = clients.map(s => s.id).filter(Boolean); for (const socket of clients) socket.disconnect(); await new Promise<void>(resolve => app.io.close(() => resolve())); await vi.waitFor(() => expect(ids.some(id => socketIdentityMap.has(id!))).toBe(false)); await db.$disconnect(); globalThis.__prisma = previous; await rm(dir, { recursive: true, force: true }); });
 async function socket(cookie?: string) { const client = await connectGameClient(origin, cookie); clients.push(client); client.on('media:snapshot', (s: LiveMediaSnapshot) => views.set(client.id!, s)); return client; }
-async function fixture() {
+async function fixture(slug = 'wissensduell') {
   const user = await db.user.create({ data: { role: 'HOST', displayName: randomUUID(), passwordHash: 'unused' } });
   const session = await db.session.create({ data: { userId: user.id, expiresAt: new Date(Date.now() + 3600000) } }); const cookie = createSessionCookie(session.id, config.sessionSecret);
-  const game = await db.gameDefinition.findUniqueOrThrow({ where: { slug: 'wissensduell' } });
+  const game = await db.gameDefinition.findUniqueOrThrow({ where: { slug } });
   const room = await db.room.create({ data: { code: String(Math.floor(Math.random() * 900000) + 100000).replace(/(\d{3})(\d{3})/, '$1-$2'), roomName: 'Media', gameDefinitionId: game.id, hostUserId: user.id, status: 'LOBBY', runPhase: 'OPEN', cameraEnabled: true, viewerRequiresPin: false } });
   const host = await socket(cookie); expect((await gameAck(host, 'room:subscribe', { roomCode: room.code })).success).toBe(true);
   async function player(teamId?: string) { const p = await db.participation.create({ data: { roomId: room.id, role: 'PLAYER', teamId, displayName: randomUUID(), normalizedName: randomUUID(), rejoinToken: randomUUID(), connected: true, ready: true } }); const client = await socket(); expect((await gameAck(client, 'room:subscribe', { roomCode: room.code, rejoinToken: p.rejoinToken })).success).toBe(true); return { client, p }; }
@@ -136,5 +136,27 @@ it('projects an actual started quiz to DISPLAY without answers, statistics or pl
     cancelGeoTimer(f.room.id); await handleGeoGame.startRound(app.io, f.room.code);
     const projection = await gameAck(display, 'geo:resync'); expect(projection.success).toBe(true); expect(JSON.stringify(projection)).toContain('DISPLAY_PUBLIC_PROMPT'); expect(JSON.stringify(projection)).not.toMatch(/correctOptionId|answerStats|DISPLAY_SECRET/);
     const core = await gameAck(display, 'game:core:read'); expect(core.success).toBe(true); expect((core.projection as { availableActions: unknown[] }).availableActions).toEqual([]);
+  } finally { cancelGeoTimer(f.room.id); }
+});
+
+it.each(['wissensduell', 'jeopardy'])('derives optional TEAM/PTT phase rules from a real started %s engine, including pause', async slug => {
+  const f = await fixture(slug); await f.player(); await f.player();
+  let setup: object = { board1: { categories: [{ name: 'Media', clues: [{ value: 100, question: 'Media question', answer: 'Media secret' }] }] } };
+  if (slug === 'wissensduell') {
+    const pack = await db.questionPack.create({ data: { gameSlug: slug, title: 'Media rules' } });
+    const q = await db.geoQuestion.create({ data: { packId: pack.id, prompt: 'Media question', category: 'Test', options: JSON.stringify([{ id: 'a', text: 'A' }, { id: 'b', text: 'B' }]), correctOptionId: 'a', durationMs: 60000 } }); setup = { selectedQuestionIds: [q.id], questionCount: 1 };
+  }
+  await db.room.update({ where: { id: f.room.id }, data: { setupSnapshotJson: JSON.stringify(setup) } });
+  await f.control({ policy: { autoTeamDuringRound: true, autoPttDuringRound: true } });
+  expect((await gameAck(f.host, 'game:start', { roomCode: f.room.code, commandId: randomUUID() })).success).toBe(true);
+  try {
+    if (slug === 'wissensduell') { cancelGeoTimer(f.room.id); await handleGeoGame.startRound(app.io, f.room.code); }
+    else expect((await gameAck(f.host, 'jeopardy:field:open', { boardIndex: 1, categoryIndex: 0, value: 100, commandId: randomUUID() })).success).toBe(true);
+    await vi.waitFor(() => expect(views.get(f.host.id!)!.policy).toMatchObject({ channel: 'TEAM', forcePushToTalk: true }));
+    expect((await gameAck(f.host, 'game:pause', { roomCode: f.room.code, commandId: randomUUID() })).success).toBe(true);
+    await self(f.host); expect(views.get(f.host.id!)!.policy).toMatchObject({ channel: 'TEAM', forcePushToTalk: true });
+    expect((await gameAck(f.host, 'game:resume', { roomCode: f.room.code, commandId: randomUUID() })).success).toBe(true);
+    expect((await gameAck(f.host, 'game:end', { roomCode: f.room.code, commandId: randomUUID() })).success).toBe(true);
+    await self(f.host); expect(views.get(f.host.id!)!.policy).toMatchObject({ channel: 'MAIN', forcePushToTalk: false });
   } finally { cancelGeoTimer(f.room.id); }
 });

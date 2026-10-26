@@ -21,7 +21,7 @@ test('C1: edit, autosave, explicit release and real pool-based setup for two gam
       if (gameSlug === 'wissensduell') for (let i = 1; i <= 4; i++) await editor.getByLabel(`Antwort ${i}`, { exact: true }).fill(`Option ${i}`);
       else await editor.getByLabel('Lösung', { exact: true }).fill('CONTENT_BROWSER_SECRET');
       if (await editor.getByRole('button', { name: 'Erweiterte Optionen' }).count()) await editor.getByRole('button', { name: 'Erweiterte Optionen' }).click();
-      const uploaded = page.waitForResponse(r => r.url().endsWith('/api/v1/media') && r.request().method() === 'POST');
+      const uploaded = page.waitForResponse(r => r.url().endsWith('/api/v1/media/jobs') && r.request().method() === 'POST');
       await editor.getByLabel('Medium hochladen').setInputFiles({ name: 'question.png', mimeType: 'image/png', buffer: Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAACXBIWXMAAAPoAAAD6AG1e1JrAAAAEUlEQVR4nGNgZGJmZGJmgFAAAK4AGQw8f7AAAAAASUVORK5CYII=', 'base64') });
       expect((await uploaded).ok()).toBe(true);
       await editor.getByRole('checkbox', { name: 'Eigenes Material', exact: true }).check();

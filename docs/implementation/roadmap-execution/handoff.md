@@ -256,3 +256,14 @@ Session/Broadcast. Acht DB-/Socket-Gegenproben, drei Transporttests; M4/M5
 prüfen tatsächliche Übertragung und zwei Displays. Vorher511 Server/142 Web
 lokal grün; vollständige Folgeabnahme mit513 Server/34 E2E noch ausstehend.
 Details in ../pr19/handoff.md. Medienjobs/Varianten bleiben offen; kein Merge.
+
+## Paket5 — lokale Implementierung ergänzt, finale Browserabnahme blockiert
+
+Lokal b9ec43d plus Folgecommit: Live-WebRTC/MAIN/TEAM/Mute/PTT/Kamera, eigener
+DISPLAY-Pfad, persistente Medienjobs mit Original-/Variantenverwaltung und
+Geräte-/Filterwechsel.521 Servertests und147 Webtests grün. Genaue Grenzen und
+finaler Prüfumfang in ../pr19/acceptance.md.34 Browserfälle vorbereitet; deren
+Abnahme bleibt offen. Auto-Review hat neue GitHub-Übertragung blockiert, da die
+letzte ausdrückliche Pushfreigabe nur auf frühere Commits bezogen wurde. Kein
+Workaround. Erneute konkrete Pushfreigabe als nächster Schritt erforderlich.
+Letzter Remote-Head bleibt d60f078. Paket5 nicht als abgeschlossen melden.
