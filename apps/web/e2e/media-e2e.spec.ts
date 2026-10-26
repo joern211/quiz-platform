@@ -23,7 +23,7 @@ test('M1: upload real audio in both editors, play normalized output on a guest d
       if (await editor.getByRole('button', { name: 'Erweiterte Optionen' }).count()) await editor.getByRole('button', { name: 'Erweiterte Optionen' }).click();
       const uploaded = page.waitForResponse(r => r.url().endsWith('/api/v1/media') && r.request().method() === 'POST'); await editor.getByLabel('Medium hochladen').setInputFiles({ name: 'quiet.wav', mimeType: 'audio/wav', buffer: wav() });
       const response = await uploaded; expect(response.ok()).toBe(true); expect((await response.json()).data.mimeType).toBe('audio/mpeg');
-      await editor.getByRole('checkbox', { name: 'Eigenes Material', exact: true }).check(); await editor.getByRole('button', { name: 'Entwurf speichern', exact: true }).click(); await expect(editor.getByRole('status')).toContainText('Gespeichert');
+      await editor.getByRole('checkbox', { name: 'Eigenes Material', exact: true }).check(); await expect(editor.getByRole('status')).toContainText('Gespeichert');
       await editor.getByRole('button', { name: 'Gespeichertes Medium anzeigen', exact: true }).click(); const preview = editor.locator('audio'); await expect.poll(() => preview.evaluate((element: HTMLAudioElement) => element.readyState)).toBeGreaterThanOrEqual(1);
       const privateUrl = await preview.getAttribute('src'); expect((await guest.request.get(`${BASE}${privateUrl}`)).status()).toBe(403);
       await editor.getByRole('button', { name: 'Playtest starten', exact: true }).click(); const share = await editor.getByLabel('Testlink für andere Geräte').inputValue(); await player.goto(share);
