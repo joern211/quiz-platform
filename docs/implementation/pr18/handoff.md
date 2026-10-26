@@ -428,3 +428,11 @@ BLIND_HOST über alle Lese-/Recovery-/Info-Pfade sowie restliche Master-§6-
 Detailabnahmen. Adaptive Difficulty ist laut Master später vorgesehen.
 Vollständige Audio-Decodierung/Normalisierung bleibt offen; Paket5 unbegonnen.
 Kein Merge. Nächster Schritt nach diesem Checkpoint: Spiel-/Room-Vorlagen.
+
+
+4a5958c: GitHub-CI vollständig grün (482 Server/123 Web), Browser24/26.
+C1 hat einen mehrdeutigen alten Textselektor (Textarea plus Vorschau) gezeigt;
+C6 einen impliziten Select-Labelnamen, der Optionstexte enthält. Vorschau-
+Assertion auf die tatsächliche Vorschau begrenzt und Select explizit
+beschriftet. Keine Tests/Assertions entfernt, keine Timeouts/Retry erhöht.
+Neuer Browserlauf nach dem Korrekturcommit erforderlich.

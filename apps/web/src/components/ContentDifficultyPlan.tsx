@@ -16,7 +16,7 @@ export function ContentDifficultyPlan({ gameSlug, count, plan, onChange }: { gam
     else try { sequence = contentDifficultySequence(parsed.data, count); } catch { invalid = `Die Bereiche müssen genau die Fragen 1 bis ${count} abdecken.`; }
   }
   return <section className={styles.panel} aria-label="Schwierigkeitsverlauf"><h3>Schwierigkeitsverlauf</h3>
-    <label>Schwierigkeitsvorlage<select value={selected} onChange={e => { setChoice(e.target.value);
+    <label>Schwierigkeitsvorlage<select aria-label="Schwierigkeitsvorlage" value={selected} onChange={e => { setChoice(e.target.value);
       if (!e.target.value) onChange(undefined);
       else if (e.target.value === 'distribution') onChange({ kind: 'DISTRIBUTION', percentages: { VERY_EASY: 20, EASY: 20, MEDIUM: 20, HARD: 20, VERY_HARD: 20 } });
       else if (e.target.value === 'ranges') onChange({ kind: 'RANGES', ranges: [{ from: 1, to: count, difficulty: 'MEDIUM' }] });

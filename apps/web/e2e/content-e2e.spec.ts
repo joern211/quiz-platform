@@ -37,7 +37,7 @@ test('C1: edit, autosave, explicit release and real pool-based setup for two gam
       await editor.getByRole('button', { name: 'Gespeichertes Medium anzeigen' }).click();
       await expect(editor.getByRole('group', { name: 'Bild oder Audio' }).getByRole('img', { name: 'Bild zur Frage' })).toHaveJSProperty('naturalWidth', 2);
       await editor.getByRole('button', { name: 'Vorschau laden' }).click();
-      await expect(editor.getByText('CONTENT_BROWSER_FRAGE', { exact: false })).toBeVisible();
+      await expect(editor.getByRole('group', { name: 'Vorschau der gespeicherten Version' }).getByText('CONTENT_BROWSER_FRAGE', { exact: false })).toBeVisible();
       expect(await editor.getByRole('group', { name: 'Vorschau der gespeicherten Version' }).textContent()).not.toContain('CONTENT_BROWSER_SECRET');
       await editor.getByRole('button', { name: 'Versionsverlauf' }).click();
       await expect(editor.getByRole('region', { name: 'Versionsverlauf' })).toBeVisible();
