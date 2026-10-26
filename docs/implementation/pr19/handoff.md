@@ -103,3 +103,22 @@ Das ist ausdrücklich lokale Vorbereitung, kein Live-Transport und keine
 serverseitige Voice-/Kamerafreigabe. MAIN/TEAM, Host-Mute/PTT, Gerätemanagement
 während eines Live-Spiels, DISPLAY und persistente Assetjobs bleiben offen.
 Kein Merge; Folgeänderungen weiterhin auf feature/pr19-media-voice sichern.
+
+## Lokaler Sicherungspunkt / blockierte Übertragung
+
+Produktcommit c17ea05 ist lokal vollständig gesichert, Working Tree danach
+sauber.139 Webtests grün; gezielte sechs Capture-Gegenproben nach letzter
+Cleanup-Korrektur erneut grün. Beide Builds und vollständiger Typecheck grün;
+Lint0 Fehler/113 bestehende Warnungen.32 E2E-Fälle erfolgreich enumeriert,
+M2/M3 noch NICHT ausgeführt.505 Server-/133 Webtests und30 E2E am unveränderten
+Remote0934183 sind bestätigt; diese E2E-Abnahme gilt NICHT für c17ea05.
+
+create_tree für Upload auf joern211/quiz-platform wurde durch die automatische
+Freigabeprüfung zurückgewiesen: keine anerkannte ausdrückliche Autorisierung
+für dieses neue Payload/Ziel im sichtbaren Transcript. Kein anderer Uploadweg
+versucht. Vor Wiederholung Nutzerfreigabe für alle neuen lokalen Commits auf
+feature/pr19-media-voice → https://github.com/joern211/quiz-platform.git einholen.
+Nach Freigabe Remote-Head0934183 erneut abgleichen, lokalen Baum hochladen,
+Commitobjekt mit Remote-Elterncommit erzeugen, Tree-SHA vergleichen und Ref
+nur Fast-Forward mit expected_sha aktualisieren. Danach PR19 aktualisieren und
+vollständige GitHub-CI/E2E am neuen Head abnehmen. Kein Merge.
