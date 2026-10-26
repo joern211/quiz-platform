@@ -14,9 +14,9 @@ import { buildSignedMediaUrl } from './signedUrl.js';
 const run = promisify(execFile);
 let dir: string, db: PrismaClient, previous: PrismaClient | undefined, app: ReturnType<typeof createApp>, cookie: string, source: string;
 const owned = new Set<string>();
-const originalAudioConfig = { ...config.audioProcessing }, originalSize = config.maxFileSizes.audio;
+const originalAudioConfig = { ...config.audioProcessing }, originalSize = config.maxFileSizes.audio, originalUploads = config.storagePaths.uploads;
 beforeAll(async () => {
-  dir = await mkdtemp(join(tmpdir(), 'quiz-audio-')); const url = `file:${join(dir, 'test.db')}`; await createTestDatabase(url);
+  dir = await mkdtemp(join(tmpdir(), 'quiz-audio-')); config.storagePaths.uploads = join(dir, 'uploads'); const url = `file:${join(dir, 'test.db')}`; await createTestDatabase(url);
   db = new PrismaClient({ datasourceUrl: url }); previous = globalThis.__prisma; globalThis.__prisma = db; app = createApp();
   cookie = (await seedTestUserWithDb(db, 'audio-host', 'Audio', 'audio@test.local')).cookie;
   source = join(dir, 'quiet.wav'); await run('ffmpeg', ['-v', 'error', '-f', 'lavfi', '-i', 'sine=frequency=440:sample_rate=48000:duration=2', '-af', 'volume=0.02', '-metadata', 'title=AUDIO_PRIVATE_TITLE', source]);
@@ -25,7 +25,7 @@ afterEach(() => { Object.assign(config.audioProcessing, originalAudioConfig); co
 afterAll(async () => {
   for (const row of await db.mediaAsset.findMany()) if (row.uploadedBy === 'audio-host') await rm(row.storagePath, { force: true });
   for (const path of owned) await rm(path, { force: true });
-  await db.$disconnect(); globalThis.__prisma = previous; await rm(dir, { recursive: true, force: true });
+  await db.$disconnect(); globalThis.__prisma = previous; config.storagePaths.uploads = originalUploads; await rm(dir, { recursive: true, force: true });
 });
 const upload = (buffer: Buffer, filename = 'untrusted.exe', contentType = 'image/png') => supertest(app.app).post('/api/v1/media').set('Cookie', cookie).attach('file', buffer, { filename, contentType });
 async function uploadFiles() { const path = config.storagePaths.uploads; try { return (await readdir(path)).filter(f => /^[a-f0-9]{32}\./.test(f)).sort(); } catch { return []; } }

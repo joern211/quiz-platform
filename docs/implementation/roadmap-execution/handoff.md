@@ -246,3 +246,13 @@ als nächster Teil implementiert: unabhängige ausdrückliche Permissions,
 Vorschau/Pegel/Testton, Gerätefallback, Filter und sichere Capture-Bereinigung.
 139 Webtests lokal grün, M2/M3 erhöhen Browserabnahme auf32. Live-Übertragung,
 MAIN/TEAM/Host-Mute/PTT und DISPLAY bleiben offen. Details in pr19/handoff.md.
+
+## Paket5 — Live-Transport und DISPLAY weitergeführt
+
+Basis remote d60f078: vollständigeCI505 Server/139 Web/32 E2E grün.
+Lokal folgen echte WebRTC-Verbindungen mit MAIN/TEAM, getrennter Kamera,
+persistenter Hostmoderation, PTT und Live-Gerätewechsel sowie eigener DISPLAY-
+Session/Broadcast. Acht DB-/Socket-Gegenproben, drei Transporttests; M4/M5
+prüfen tatsächliche Übertragung und zwei Displays. Vorher511 Server/142 Web
+lokal grün; vollständige Folgeabnahme mit513 Server/34 E2E noch ausstehend.
+Details in ../pr19/handoff.md. Medienjobs/Varianten bleiben offen; kein Merge.

@@ -380,6 +380,9 @@ model Room {
   gameEvents         GameDomainEvent[]
   gameResults        GameResultRecord[]
   roundResults       RoundResultRecord[]
+  displaySessions DisplaySession[]
+  mediaControl RoomMediaControl?
+  mediaParticipantControls ParticipantMediaControl[]
   viewerSessions     ViewerSession[]
   chatMessages       ChatMessage[]
   scoreEvents        ScoreEvent[]
@@ -956,4 +959,33 @@ model SetupBlueprint {
 
   @@index([ownerId, kind, status])
   @@map("setup_blueprints")
+}
+
+model RoomMediaControl {
+  roomId String @id
+  room Room @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  revision Int @default(1)
+  policyJson String @default("{}")
+  @@map("room_media_controls")
+}
+model ParticipantMediaControl {
+  id String @id @default(uuid())
+  roomId String
+  room Room @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  participantId String
+  hostMuted Boolean @default(false)
+  cameraHidden Boolean @default(false)
+  @@unique([roomId, participantId])
+  @@map("participant_media_controls")
+}
+
+model DisplaySession {
+  id String @id @default(uuid())
+  roomId String
+  room Room @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  connected Boolean @default(true)
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+  @@index([roomId])
+  @@map("display_sessions")
 }

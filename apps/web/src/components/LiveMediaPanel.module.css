@@ -1,0 +1,13 @@
+.panel { margin: var(--space-4); padding: var(--space-4); border: 1px solid var(--border); border-radius: var(--radius-md, 8px); color: var(--fg); }
+.panel h2 { font-size: 1.2rem; }
+.controls { display: flex; gap: var(--space-3); flex-wrap: wrap; align-items: center; }
+.panel button, .panel select { min-height: 44px; padding: var(--space-2); border: 1px solid var(--border); border-radius: var(--radius-sm, 4px); color: var(--fg); background: var(--bg); }
+.panel button { cursor: pointer; touch-action: none; }
+.panel button:disabled { opacity: .5; cursor: default; }
+.panel label { display: flex; gap: var(--space-2); align-items: center; min-height: 44px; }
+.panel fieldset { border: 1px solid var(--border); margin-block: var(--space-3); }
+.tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: var(--space-3); margin-block: var(--space-3); }
+.tile { margin: 0; }
+.video { width: 100%; aspect-ratio: 16 / 9; object-fit: contain; }
+.audio { width: 100%; height: 48px; }
+.member { padding: var(--space-2); background: var(--surface, var(--bg)); border: 1px solid var(--border); }

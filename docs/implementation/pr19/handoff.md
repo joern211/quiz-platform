@@ -122,3 +122,65 @@ Nach Freigabe Remote-Head0934183 erneut abgleichen, lokalen Baum hochladen,
 Commitobjekt mit Remote-Elterncommit erzeugen, Tree-SHA vergleichen und Ref
 nur Fast-Forward mit expected_sha aktualisieren. Danach PR19 aktualisieren und
 vollständige GitHub-CI/E2E am neuen Head abnehmen. Kein Merge.
+
+## Paket5 — Live-WebRTC-Zwischenstand
+
+Die frühere Pushsperre ist aufgehoben. Nutzerfreigabe26.10.; Remote d60f078
+entspricht lokal5135371 exakt (Tree b12f7e2). Run40295048052 vollständig grün:
+505 Server-/139 Webtests,32 Browserfälle; M2/M3 ohne Retry. Git-Note am lokalen
+Head hält die API-Commitabbildung fest. Nächster Remote-Elterncommit d60f078.
+
+Neu implementiert: serverseitig ausgegebene, widerrufbare unidirektionale
+Audio-/Videorouten und echte WebRTC-Verbindungen. Consent gilt nur für den
+aktuellen Raum/Socket. Aktuelle DB-Mitgliedschaft, Session, Admission, Team,
+Host-Mute und Kamerafreigabe werden bei jeder Signalisierung erneut geprüft.
+Viewer sind receive-only und erhalten nie TEAM-Audio. Nichtspielende Hosts
+können einen Teamkanal moderieren; Spieler können keine fremden Teams wählen.
+SDP darf exakt den erlaubten Medientyp in der erlaubten Richtung enthalten,
+keinen zusätzlichen Video-/Datenkanal. Raumänderungen und periodische Prüfung
+widerrufen Routen. Peerzustand/Consent sind flüchtig; Moderationssperren und
+Raumpolicy sind additiv migriert und persistent/CAS-geschützt.
+
+Persistentes Panel über Spielrouten: ausdrückliche separate Mic-/Camera-
+Freigabe, Empfang nach Klick, Live-Gerätewechsel mit replaceTrack, PTT per
+Touch/Leertaste mit Blur-/Visibility-Release, Sprecheranzeige, Viewer-MAIN-
+Schalter, Host-Mute/Mute-All, Kameraverbergen und Bandbreitenwahl. Keine
+Aufzeichnung/Screen-Sharing. Wiederverbinden verleiht keine neuen Kanalrechte.
+RTC_ICE_SERVERS konfiguriert eigene STUN/TURN-Server; ohne Relay ist keine
+universelle NAT-Erreichbarkeit versprochen. Kein neuer Drittanbieterdefault.
+
+Sechs neue echte DB-/Socket-Fälle und drei Transport-Gegenproben;142 Webtests
+grün. M4 ist als33. Browserfall vorbereitet und muss tatsächliche Audio-/Video-
+Übertragung sowie Mute-/Team-/Kamerawiderruf beweisen. Vollständige CI/E2E am
+Folge-Head noch ausstehend. DISPLAY und persistente Assetjobs/Varianten bleiben
+als nächste Teile offen; Paket5 keinesfalls abgeschlossen melden.
+
+## DISPLAY-Zugang ergänzt
+
+Eigene persistente DISPLAY-Sitzungen, befristete raumgebundene HMAC-Links
+(12 Stunden, Token im Fragment), mehrere Displays ohne Player-/Viewer-Slot.
+Nur berechtigte Raumverwaltung erzeugt Links. Read-only gilt selbst mit
+Hostcookie: Permission-Core und Raum-/Configbefehle bleiben gesperrt; keine
+Umwandlung eines Display-Sockets durch room:subscribe. Ablauf/Disconnect/Close
+entziehen die Sitzung. Eigene Großbildroute /raum/:code/broadcast verwendet
+bestehende öffentliche Projektionen für Quiz/Jeopardy/WID, Scores/Timer und
+die freigegebenen Kameras über den Live-Transport. Kein lokaler SessionStore-
+Rollenwechsel zu HOST oder PLAYER. Großbildansicht besitzt keinen RoomPanel.
+
+Zwei zusätzliche echte DB-/Socket-Fälle belegen Kapazitätsfreiheit, fremde/
+manipulierte Links, Ownercookie ohne Rechte und echte laufende Quizfrage ohne
+Lösung/Statistiken. M5 ergänzt Broadcast auf zwei Geräten und Reload. Insgesamt
+34 Browserfälle aktiv. Vollständige Abnahme am neuen GitHub-Head steht aus.
+
+Audio-Testisolation: die14 HTTP-/Decoder-Fälle erhalten einen eigenen temporären
+Uploadordner. Der bisherige gemeinsame Ordner konnte noch Uploads anderer
+Suiten enthalten; alle Orphan-/Timeout-Assertions bleiben unverändert. Danach
+vollständige511 Server-/142 Webtests grün (vor DISPLAY-Ergänzung). Der folgende
+vollständige Lauf umfasst513 Serverfälle. Persistente Assetjobs/Varianten sind
+weiterhin offen; Paket5 noch nicht abgeschlossen.
+
+Lokale Abnahme des kombinierten Live-/DISPLAY-Stands:513/513 Serverfälle
+(60 Dateien),142/142 Webtests (28 Dateien), beide Builds und vollständiger
+Typecheck grün; Lint0 Fehler/113 bestehende Warnungen.34 Browserfälle aktiv;
+GitHub-Abnahme am neuen Remote-Head folgt. Keine offene lokale Produktarbeit
+wird durch eine frühere CI-Prüfung als bereits browsergeprüft bezeichnet.

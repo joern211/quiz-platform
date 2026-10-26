@@ -9,7 +9,7 @@ import { prisma } from '../../persistence/prisma.js';
 import { logger } from '../../observability/logger.js';
 import { roomChannel } from '../../sockets/channel.js';
 
-export type Role = 'HOST' | 'PLAYER' | 'VIEWER';
+export type Role = 'HOST' | 'PLAYER' | 'VIEWER' | 'DISPLAY';
 
 /** Room run phases used for phase-based authorization */
 export type RunPhase =
@@ -145,6 +145,7 @@ export function checkRole(identity: SocketIdentity, requiredRole: Role): AuthChe
     HOST: 3,
     PLAYER: 2,
     VIEWER: 1,
+    DISPLAY: 0,
   };
 
   const hasLevel = roleHierarchy[identity.role] ?? 0;

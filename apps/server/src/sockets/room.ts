@@ -52,6 +52,7 @@ export async function handleRoomSubscription(
   data: { roomCode: string; rejoinToken?: string; pin?: string; moderatorToken?: string; inviteToken?: string },
   callback?: RoomAcknowledgement
 ) {
+  if (socket.data.role === 'DISPLAY') { callback?.({ success: false, error: 'DISPLAY_READ_ONLY' }); return; }
   const room = await prisma.room.findUnique({ where: { code: data.roomCode }, select: { id: true } });
   if (!room) { callback?.({ success: false, error: 'ROOM_NOT_FOUND' }); return; }
   return serializeRoom(room.id, () => subscribeInRoom(io, socket, data, callback));
@@ -507,6 +508,7 @@ export const handleRoomEvents = {
     callback?: RoomAcknowledgement
   ) {
     const identity = socket.data as { roomId?: string; role?: string };
+    if (identity.role === 'DISPLAY') { callback?.({ success: false, error: 'ROLE_REQUIRED' }); return; }
     if (!identity.roomId || !identity.role || !socket.rooms.has(roomChannel(identity.roomId))) {
       callback?.({ success: false, error: 'NOT_IN_ROOM' });
       return;

@@ -19,7 +19,7 @@ async function loadContext(socket: Socket) {
   let state: unknown = null;
   try { if (room.gameState) state = JSON.parse(room.gameState.stateJson); }
   catch { /* The invariant gate freezes malformed JSON before a mutation or projection. */ }
-  const informationRole: CoreActionContext['informationRole'] = self?.role === 'HOST' && actor.userId === room.hostUserId ? 'HOST' : self?.role === 'PLAYER' ? 'PLAYER' : 'VIEWER';
+  const informationRole: CoreActionContext['informationRole'] = socket.data.role === 'DISPLAY' ? 'DISPLAY' : self?.role === 'HOST' && actor.userId === room.hostUserId ? 'HOST' : self?.role === 'PLAYER' ? 'PLAYER' : 'VIEWER';
   const buzzerController = await isBuzzerController(room, actor.userId);
   const context: CoreActionContext = { gameSlug: room.gameDefinition.slug, roomStatus: room.status, state,
     informationRole, participantId: self?.id ?? null, active: !!self && self.admission === 'ACTIVE' && !self.leftAt && !self.kickedAt && !self.bannedAt,

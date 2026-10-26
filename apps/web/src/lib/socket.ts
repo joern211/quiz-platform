@@ -1,3 +1,4 @@
+import type { LiveMediaSnapshot, LiveMediaSignal, LiveMediaPolicy } from '@quiz/shared';
 // ============================================================
 // Typed Socket.IO Client - v0.3.0
 // All socket events go through here with full TypeScript typing.
@@ -95,6 +96,9 @@ export interface GeoResyncResponse {
 }
 
 export type ServerToClientEvents = {
+  'media:snapshot': (data: LiveMediaSnapshot) => void;
+  'media:signal': (data: LiveMediaSignal) => void;
+  'media:closed': () => void;
   'game:result:changed': () => void;
   'game:core:changed': () => void;
   'room:probe': (ack: () => void) => void;
@@ -172,6 +176,13 @@ export interface CommandEnvelopeFields {
 }
 
 export type ClientToServerEvents = {
+  'media:display-link': (data: object, ack: (r: { success: boolean; error?: string; data?: { path: string } }) => void) => void;
+  'room:display:subscribe': (data: { roomCode: string; token: string }, ack: (r: { success: boolean; error?: string; data?: { sessionType: 'DISPLAY'; gameSlug: string; roomName: string } }) => void) => void;
+  'media:join': (data: object, ack: (r: { success: boolean; error?: string }) => void) => void;
+  'media:leave': (data: object, ack?: (r: { success: boolean; error?: string }) => void) => void;
+  'media:self': (data: { mic: boolean; camera: boolean; talking: boolean; teamListen: string | null }, ack: (r: { success: boolean; error?: string }) => void) => void;
+  'media:control': (data: { expectedRevision: number; policy?: Partial<LiveMediaPolicy>; targetId?: string; hostMuted?: boolean; cameraHidden?: boolean; muteAll?: boolean }, ack: (r: { success: boolean; error?: string }) => void) => void;
+  'media:signal': (data: LiveMediaSignal, ack?: (r: { success: boolean; error?: string }) => void) => void;
   'game:result:read': (data: import('zod').z.infer<typeof import('@quiz/shared').ResultReadSchema>, ack: (res: { success: boolean; data?: unknown; error?: string }) => void) => void;
   'game:buzzer:override': (data: { participantId: string; reason?: string; gameStateVersion: number; runIndex: number } & CommandEnvelopeFields, ack: (res: { success: boolean; error?: string }) => void) => void;
   'weristdas:buzzer:open': (data: Record<string, never> & CommandEnvelopeFields, ack: (res: { success: boolean; error?: string }) => void) => void;
