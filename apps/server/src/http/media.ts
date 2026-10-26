@@ -29,12 +29,13 @@ import { activeBlindHost, assertBlindEditorialAccess } from '../content/blindHos
 
 import { canDeliverContentMedia } from '../content/media.js';
 import { Router } from 'express';
-import type { Request } from 'express';
+import type { Request, RequestHandler } from 'express';
 import multer from 'multer';
 import path from 'path';
 import crypto from 'crypto';
 import fs from 'fs/promises';
 import sharp from 'sharp';
+import { audioInputFormat, normalizeAudio, AudioProcessingError } from '../media/audio.js';
 import { z } from 'zod';
 import { prisma } from '../persistence/prisma.js';
 import { verifySession } from '../auth/session.js';
@@ -77,7 +78,14 @@ const storage = multer.diskStorage({
   },
 });
 
-const upload = multer({ storage, limits: { fileSize: config.maxFileSizes.image } });
+const upload = multer({ storage, limits: { fileSize: Math.min(config.maxFileSizes.upload, Math.max(config.maxFileSizes.image, config.maxFileSizes.audio)) } });
+const receiveUpload: RequestHandler = (req, res, next) => {
+  upload.single('file')(req, res, error => {
+    if (!error) return next();
+    if (error instanceof multer.MulterError) return void res.status(error.code === 'LIMIT_FILE_SIZE' ? 413 : 400).json({ success: false, error: { code: error.code === 'LIMIT_FILE_SIZE' ? 'MEDIA_TOO_LARGE' : 'VALIDATION', message: error.code === 'LIMIT_FILE_SIZE' ? 'Datei überschreitet das Upload-Limit.' : 'Bitte genau eine Datei hochladen.' } });
+    next(error);
+  });
+};
 
 /** Erkennt Prisma-Unique-Konflikte (P2002) robust an code/message. */
 function isUniqueConflict(error: unknown): boolean {
@@ -99,28 +107,19 @@ interface ProcessedMedia {
   mimeType?: string;
   width?: number;
   height?: number;
-}
-
-function detectAudioMime(buf: Buffer): string | null {
-  if (buf.length < 12) return null;
-  if (buf[0] === 0x49 && buf[1] === 0x44 && buf[2] === 0x33) return 'audio/mpeg'; // ID3 (MP3)
-  if (buf[0] === 0xFF && (buf[1] & 0xE6) === 0xE2) return 'audio/mpeg'; // MP3 frame sync
-  if (buf[0] === 0x52 && buf[1] === 0x49 && buf[2] === 0x46 && buf[3] === 0x46) return 'audio/wav'; // RIFF (WAV)
-  if (buf.slice(4, 8).toString('ascii') === 'ftyp') return 'audio/mp4'; // M4A/AAC
-  if (buf.slice(0, 4).toString('ascii') === 'OggS') return 'audio/ogg';
-  return null;
+  duration?: number;
 }
 
 /**
  * Prüft den tatsächlichen Content. Bilder: decodieren via sharp, EXIF/Metadaten-
- * Strip, als WebP normalisieren. Audio: Magic-Bytes prüfen, Content unverändert.
+ * Strip, als WebP normalisieren. Audio: vollständig decodieren und normalisieren.
  * Das Format/MIME kommt aus dem Content, nie aus der Client-Assertion.
  */
 async function processUploaded(filePath: string, fileSize: number): Promise<ProcessedMedia> {
   const rejected = (message: string): ProcessedMedia => ({ ok: false, error: { code: 'MEDIA_REJECTED', message } });
   try {
     const buf = await fs.readFile(filePath);
-    if (fileSize > config.maxFileSizes.image) return rejected('Datei ist zu groß.');
+    if (fileSize > config.maxFileSizes.upload) return rejected('Datei ist zu groß.');
 
     // Erst: Bild? sharp meldet bei nicht-Bildern einen Fehler.
     let imageMeta: { width?: number; height?: number; format?: string } | null = null;
@@ -133,6 +132,7 @@ async function processUploaded(filePath: string, fileSize: number): Promise<Proc
     }
 
     if (imageMeta) {
+      if (fileSize > config.maxFileSizes.image) return rejected('Bilddatei ist zu groß.');
       const { width, height, format } = imageMeta;
       if (width! > config.maxFileSizes.imageDimension || height! > config.maxFileSizes.imageDimension) {
         return rejected(`Bild ist zu groß (max. ${config.maxFileSizes.imageDimension}px).`);
@@ -148,13 +148,16 @@ async function processUploaded(filePath: string, fileSize: number): Promise<Proc
     }
 
     // Kein Bild → Audio?
-    const audioMime = detectAudioMime(buf);
-    if (audioMime) {
-      return { ok: true, buffer: buf, type: 'audio', mimeType: audioMime };
+    const audioFormat = audioInputFormat(buf);
+    if (audioFormat) {
+      if (fileSize > config.maxFileSizes.audio) return rejected('Audiodatei ist zu groß.');
+      const normalized = await normalizeAudio(filePath, audioFormat);
+      return { ok: true, ...normalized, type: 'audio', mimeType: 'audio/mpeg' };
     }
 
     return rejected('Nicht unterstützter oder beschädigter Inhalt (nur JPG/PNG/WebP oder MP3/WAV/M4A/AAC/OGG).');
-  } catch {
+  } catch (error) {
+    if (error instanceof AudioProcessingError) throw error;
     return rejected('Datei konnte nicht gelesen oder verarbeitet werden.');
   }
 }
@@ -163,7 +166,7 @@ async function processUploaded(filePath: string, fileSize: number): Promise<Proc
 // POST /api/v1/media — Upload (Session erforderlich)
 // ------------------------------------------------------------
 
-mediaRouter.post('/', upload.single('file'), async (req, res) => {
+mediaRouter.post('/', receiveUpload, async (req, res) => {
   const uploadedPath: string | undefined = (req as { file?: { path: string } }).file?.path;
   const uploadedSize: number = (req as { file?: { size: number } }).file?.size ?? 0;
   // Alle von UNS erzeugten Pfade zuverlässig aufräumen (Nacharbeit B):
@@ -199,9 +202,7 @@ mediaRouter.post('/', upload.single('file'), async (req, res) => {
     }
 
     // Normalisiertes/neues Ergebnis ablegen (Bilder: WebP, saubere Metadaten).
-    const ext = processed.type === 'image' ? '.webp' : path.extname(
-      (req as { file?: { originalname: string } }).file?.originalname ?? ''
-    ) || '.bin';
+    const ext = processed.type === 'image' ? '.webp' : '.mp3';
     outPath = path.join(path.dirname(uploadedPath), crypto.randomBytes(16).toString('hex') + ext);
     await fs.writeFile(outPath, processed.buffer);
     await fs.unlink(uploadedPath).catch(() => {});
@@ -231,14 +232,14 @@ mediaRouter.post('/', upload.single('file'), async (req, res) => {
         outPath = undefined;
         return res.status(200).json({
           success: true,
-          data: { id: existing.id, type: existing.type, mimeType: existing.mimeType, filename: existing.filename, fileSize: existing.fileSize, deduplicated: true },
+          data: { id: existing.id, type: existing.type, mimeType: existing.mimeType, filename: existing.filename, fileSize: existing.fileSize, duration: existing.duration, deduplicated: true },
         });
       }
       const repairFilename = path.basename(outPath!);
       const repair = await repairAssetRow(existing.id, outPath!, {
         type: processed.type!, mimeType: processed.mimeType!,
-        fileSize: processed.buffer.length, width: processed.width ?? null, height: processed.height ?? null,
-        processed: processed.type === 'image',
+        fileSize: processed.buffer.length, width: processed.width ?? null, height: processed.height ?? null, duration: processed.duration ?? null,
+        processed: true,
       });
       if (repair === 'failed') throw new Error('MEDIA_ASSET_REPAIR_FAILED'); // DB-Update fehlgeschlagen: die neue Datei ist noch UNSERE → cleanup() entfernt sie (11-07)
       // 'ok' | 'degraded': Das DB-Update gelang — die Datei gehört jetzt zur
@@ -259,7 +260,7 @@ mediaRouter.post('/', upload.single('file'), async (req, res) => {
       logger.info('Media asset repaired in place (dedupe)', { assetId: existing.id });
       return res.status(200).json({
         success: true,
-        data: { id: existing.id, type: processed.type!, mimeType: processed.mimeType!, filename: repairFilename, fileSize: processed.buffer.length, deduplicated: true },
+        data: { id: existing.id, type: processed.type!, mimeType: processed.mimeType!, filename: repairFilename, fileSize: processed.buffer.length, duration: processed.duration ?? null, deduplicated: true },
       });
     }
 
@@ -287,9 +288,9 @@ mediaRouter.post('/', upload.single('file'), async (req, res) => {
               type: processed.type!, mimeType: processed.mimeType!,
               filename: path.basename(sharedPath),
               originalName: (req as { file?: { originalname: string } }).file?.originalname ?? 'upload',
-              fileSize: processed.buffer.length, width: processed.width ?? null, height: processed.height ?? null,
+              fileSize: processed.buffer.length, width: processed.width ?? null, height: processed.height ?? null, duration: processed.duration ?? null,
               sha256, assetKey, storagePath: sharedPath, uploadedBy: ownerId,
-              visibility: targetVisibility, processStatus: 'READY', processed: processed.type === 'image',
+              visibility: targetVisibility, processStatus: 'READY', processed: true,
             },
           });
         } catch (error) {
@@ -300,7 +301,7 @@ mediaRouter.post('/', upload.single('file'), async (req, res) => {
             if (winner) {
               return res.status(200).json({
                 success: true,
-                data: { id: winner.id, type: winner.type, mimeType: winner.mimeType, filename: winner.filename, fileSize: winner.fileSize, deduplicated: true },
+                data: { id: winner.id, type: winner.type, mimeType: winner.mimeType, filename: winner.filename, fileSize: winner.fileSize, duration: winner.duration, deduplicated: true },
               });
             }
           }
@@ -308,7 +309,7 @@ mediaRouter.post('/', upload.single('file'), async (req, res) => {
         }
         return res.status(200).json({
           success: true,
-          data: { id: ctxAsset.id, type: processed.type!, mimeType: processed.mimeType!, filename: path.basename(sharedPath), fileSize: processed.buffer.length, deduplicated: true },
+          data: { id: ctxAsset.id, type: processed.type!, mimeType: processed.mimeType!, filename: path.basename(sharedPath), fileSize: processed.buffer.length, duration: processed.duration ?? null, deduplicated: true },
         });
       }
       // Datei des fremden Kontexts fehlt → unten neu anlegen (eigene Datei).
@@ -324,14 +325,14 @@ mediaRouter.post('/', upload.single('file'), async (req, res) => {
           originalName: (req as { file?: { originalname: string } }).file?.originalname ?? 'upload', // Audit-only, nie an Client
           fileSize: processed.buffer.length,
           width: processed.width ?? null,
-          height: processed.height ?? null,
+          height: processed.height ?? null, duration: processed.duration ?? null,
           sha256,
           assetKey,
           storagePath: outPath!,
           uploadedBy: ownerId,
           visibility: targetVisibility,
           processStatus: 'READY',
-          processed: processed.type === 'image',
+          processed: true,
         },
       });
     } catch (error) {
@@ -349,8 +350,8 @@ mediaRouter.post('/', upload.single('file'), async (req, res) => {
           } else {
             const repaired = await repairAssetRow(winner.id, outPath!, {
               type: processed.type!, mimeType: processed.mimeType!,
-              fileSize: processed.buffer.length, width: processed.width ?? null, height: processed.height ?? null,
-              processed: processed.type === 'image',
+              fileSize: processed.buffer.length, width: processed.width ?? null, height: processed.height ?? null, duration: processed.duration ?? null,
+              processed: true,
             });
             // 'failed' = DB-Update schlug fehl → originale Fehlerantwort
             // (cleanup unten räumt unsere Datei ab, 11-07).
@@ -371,7 +372,7 @@ mediaRouter.post('/', upload.single('file'), async (req, res) => {
           const final = await prisma.mediaAsset.findUnique({ where: { id: winner.id } });
           return res.status(200).json({
             success: true,
-            data: { id: winner.id, type: final?.type ?? winner.type, mimeType: final?.mimeType ?? winner.mimeType, filename: final?.filename ?? winner.filename, fileSize: final?.fileSize ?? winner.fileSize, deduplicated: true },
+            data: { id: winner.id, type: final?.type ?? winner.type, mimeType: final?.mimeType ?? winner.mimeType, filename: final?.filename ?? winner.filename, fileSize: final?.fileSize ?? winner.fileSize, duration: final?.duration ?? winner.duration, deduplicated: true },
           });
         }
       }
@@ -381,10 +382,14 @@ mediaRouter.post('/', upload.single('file'), async (req, res) => {
     logger.info('Media uploaded (validated)', { assetId: asset.id, type: asset.type, size: processed.buffer.length });
     return res.status(201).json({
       success: true,
-      data: { id: asset.id, type: asset.type, mimeType: asset.mimeType, filename: asset.filename, fileSize: asset.fileSize },
+      data: { id: asset.id, type: asset.type, mimeType: asset.mimeType, filename: asset.filename, fileSize: asset.fileSize, duration: asset.duration },
     });
   } catch (error) {
     await cleanup();
+    if (error instanceof AudioProcessingError) {
+      logger.warn('Audio upload processing failed', { code: error.code, uploadedSize });
+      return res.status(error.status).json({ success: false, error: { code: error.code, message: error.message } });
+    }
     logger.error('Failed to upload media', { error });
     return res.status(500).json({ success: false, error: { code: 'INTERNAL_ERROR', message: 'Upload fehlgeschlagen.' } });
   }
@@ -424,7 +429,7 @@ export type RepairOutcome = 'ok' | 'degraded' | 'failed';
 async function repairAssetRow(
   assetId: string,
   newStoragePath: string,
-  data: { type: string; mimeType: string; fileSize: number; width: number | null; height: number | null; processed: boolean },
+  data: { type: string; mimeType: string; fileSize: number; width: number | null; height: number | null; duration: number | null; processed: boolean },
 ): Promise<RepairOutcome> {
   let current: { id: string; storagePath: string } | null = null;
   try {
@@ -440,6 +445,7 @@ async function repairAssetRow(
         fileSize: data.fileSize,
         width: data.width,
         height: data.height,
+        duration: data.duration,
         storagePath: newStoragePath,
         processStatus: 'READY',
         processed: data.processed,

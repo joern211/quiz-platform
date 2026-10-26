@@ -1,0 +1,58 @@
+# Paket 5 — Media / Voice / Camera / Display
+
+Basis: PR18 / 2319154. Vollständige GitHub-CI und29 Browserfälle grün
+(Run40253379733). Paket4: die benannten Vorlagen-, Blindmoderations- und
+Schnellstart-Lücken sind geschlossen. Detaillierte Grenzen bleiben in
+../pr18/acceptance.md. Kein Merge. Folgebranch feature/pr19-media-voice.
+
+## Erster implementierter Teil: echte Audioverarbeitung
+
+Der Upload prüft MP3, WAV, M4A/AAC und bestehendes OGG durch ffprobe und
+vollständiges Decodieren. Nur ein Audiostream; Video außer eingebettetem
+Coverbild wird abgewiesen. Fest gewählte Demuxer und file-only-Protokoll für
+Uploads erlauben keine Playlists/Netzwerkquellen. Das PCM-Zwischenergebnis
+enthält keine Quellmetadaten oder Bilder. Loudness-Normalisierung auf -16 LUFS,
+True-Peak-Ziel -1.5dBTP, danach stereo48kHz/128kbit MP3 ohne übernommene ID3-/
+Container-Metadaten. Dateiendung und MIME stammen vom Ergebnis, nicht vom Namen.
+
+Konfigurierbar:20MB Audio,300s,30s Gesamtverarbeitung und zwei gleichzeitige
+Jobs pro Serverprozess. PCM-/Ausgabepuffer sind begrenzt; Threads ebenfalls.
+Zu lange Audios werden abgewiesen statt abgeschnitten. Fehlender Prozessor,
+Timeout und Auslastung ergeben retryfähige503; ungültige Dateien415. Multipart-
+Größenlimit liefert413. Fehler erzeugen keine READY-Zeile oder Upload-Orphans;
+Slots werden auch nach Abbruch freigegeben. Dauer wird aus decodierten Samples
+ermittelt und mit dem fertigen Asset gespeichert. Dedupe, Owner-/Visibility-
+Grenzen, Reparatur und aktuelle Content-/Raum-/Frage-Signaturen bleiben gültig.
+
+FFmpeg/ffprobe sind Systemvoraussetzung, in CI und Docker-Runner eingetragen.
+Bildverarbeitung bleibt WebP. Historische Assets werden nicht still neu codiert.
+Die synchrone Uploadverarbeitung ist noch kein persistenter Background-Job-
+Scheduler und speichert noch keine zusätzliche Original-/Variantenhierarchie.
+
+## Nachweise
+
+- 14 echte Audio-HTTP-/DB-/Prozessfälle: fünf Formate, tatsächliche Lautstärke,
+  Metadata-Strip, gefälschte Header, Truncation, Dauer/Größe, Video, fehlender
+  Prozessor, Timeout/Parallelität und anschließender Retry, Dedupe/Ownership.
+- Bestehender Runtime-Medientest zusätzlich mit wirklich hochgeladenem Audio:
+  Wissensduell + Jeopardy, Host-/Player-/Viewer-Projektionen, aktives/future
+  Medium, Startgate, Itemaustausch, Resync und Run-/Room-Sperren.
+- M1-Browserfall: Upload über beide Editor-UIs, private Vorschau, tatsächliche
+  Wiedergabe auf einem Gastgerät, Reload, keine Lösung vor Reveal und Entzug
+  der Medien-URL nach Playtest-Close. Insgesamt30 Browserfälle aktiv.
+- Lokal505/505 Servertests (59 Dateien),132/132 Webtests (25 Dateien),
+  beide Builds und Typecheck grün; Lint0 Fehler/113 bestehende Warnungen.
+  Genaue GitHub-Abnahmen werden im PR aktualisiert.
+
+## Fortsetzung innerhalb von Paket 5
+
+Persistente Verarbeitung/Varianten und Originalableitung bleiben von diesem
+Uploadpfad getrennt. Live-Voice mit MAIN/TEAM-Fences, Host-Mute/PTT, Prejoin/
+Gerätewechsel, unabhängige Kamera-Freigabe, Viewer-Audio und echter DISPLAY-
+Sessionpfad sind noch nicht implementiert. Recording, Screen Sharing und
+weitere Engines werden nicht durch das Vorhandensein eines Audio-Uploads als
+fertig behauptet. Das Master-Regelwerk bleibt verbindlich; Paket5 ist in Arbeit.
+
+Technische Referenz: https://ffmpeg.org/ffmpeg-protocols.html,
+https://ffmpeg.org/ffmpeg-filters.html#loudnorm und
+https://ffmpeg.org/ffmpeg.html (-xerror).

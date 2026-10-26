@@ -34,6 +34,7 @@ RUN pnpm exec prisma generate --schema=./prisma/schema.prisma && \
 # ============================================================
 FROM base AS runner
 WORKDIR /app
+RUN apk add --no-cache ffmpeg
 
 ENV NODE_ENV=production
 ENV PORT=3001

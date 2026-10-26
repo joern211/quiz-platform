@@ -13,7 +13,8 @@ export function ContentMediaFields({ item, payload, disabled, onChange }: { item
   const load = async () => { if (!item) return; try { setPreview(await contentApi.media(item.id)); setError(''); } catch (e) { setError(e instanceof Error ? e.message : 'Medium konnte nicht geladen werden.'); } };
   return <fieldset><legend>Bild oder Audio</legend>
     {error && <p role="alert">{error}</p>}
-    <label>Medium hochladen<input type="file" accept="image/jpeg,image/png,image/webp,audio/mpeg,audio/mp4,audio/wav" disabled={disabled || busy} onChange={async e => {
+    {busy && <p role="status">Medium wird geprüft und verarbeitet …</p>}
+    <label>Medium hochladen<input type="file" accept="image/jpeg,image/png,image/webp,audio/mpeg,audio/mp4,audio/wav,audio/aac,audio/ogg,.m4a,.aac" disabled={disabled || busy} onChange={async e => {
       const file = e.target.files?.[0]; e.target.value = ''; if (!file) return; setBusy(true); setError('');
       try {
         const body = new FormData(); body.append('file', file);

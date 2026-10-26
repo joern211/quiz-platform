@@ -452,6 +452,13 @@ async function uploadContentImage(cookie: string) {
   const response = await supertest(app.app).post('/api/v1/media').set('Cookie', cookie).attach('file', bytes, { filename: 'content.png', contentType: 'image/png' });
   expect(response.status).toBe(201); const asset = await db.mediaAsset.findUniqueOrThrow({ where: { id: response.body.data.id } }); mediaFiles.push(asset.storagePath); return asset;
 }
+async function uploadContentAudio(cookie: string) {
+  const size = 48000, bytes = Buffer.alloc(44 + size * 2); bytes.write('RIFF'); bytes.writeUInt32LE(bytes.length - 8, 4); bytes.write('WAVEfmt ', 8); bytes.writeUInt32LE(16, 16); bytes.writeUInt16LE(1, 20); bytes.writeUInt16LE(1, 22); bytes.writeUInt32LE(48000, 24); bytes.writeUInt32LE(96000, 28); bytes.writeUInt16LE(2, 32); bytes.writeUInt16LE(16, 34); bytes.write('data', 36); bytes.writeUInt32LE(size * 2, 40);
+  const frequency = 440 + Math.floor(Math.random() * 400);
+  for (let i = 0; i < size; i++) bytes.writeInt16LE(Math.round(Math.sin(2 * Math.PI * frequency * i / 48000) * 100), 44 + i * 2);
+  const response = await supertest(app.app).post('/api/v1/media').set('Cookie', cookie).attach('file', bytes, { filename: 'content.wav', contentType: 'audio/wav' });
+  expect(response.status).toBe(201); const asset = await db.mediaAsset.findUniqueOrThrow({ where: { id: response.body.data.id } }); mediaFiles.push(asset.storagePath); return asset;
+}
 const ownRights = { source: 'Eigenes Material', sourceUrl: '', author: 'Test', license: 'Eigene Rechte', ownMaterial: true, recognizablePerson: false, consent: false };
 it('authorizes private media through normalized references, requires rights/READY and protects historical asset rows', async () => {
   const asset = await uploadContentImage(owner), p = await pool('wissensduell', 'SHARED', [otherId]);
@@ -497,18 +504,20 @@ it('preserves media IDs and structured rights in JSON, CSV and XLSX without expo
   }
   expect(await db.contentMediaReference.count({ where: { itemId: q.id, assetId: asset.id } })).toBe(1);
 });
-it('delivers media only for the active pinned question of both real engines and fences room/run/asset/rejoin', async () => {
+it.each(['image', 'audio'] as const)('delivers %s only for the active pinned question of both real engines and fences room/run/asset/rejoin', async mediaType => {
   for (const [gameSlug, value] of [['wissensduell', quiz], ['jeopardy', clue]] as const) {
-    const first = await uploadContentImage(owner), future = await uploadContentImage(owner), p = await pool(gameSlug);
-    const a = await item(p.id, { ...value, payload: { ...value.payload, mediaAssetId: first.id, mediaType: 'image', mediaRights: ownRights } }); await ready(a.id);
-    const b = await item(p.id, { ...value, payload: { ...value.payload, ...(gameSlug === 'jeopardy' ? { value: 200 } : { prompt: 'Future secret question' }), mediaAssetId: future.id, mediaType: 'image', mediaRights: ownRights } }); await ready(b.id);
+    const upload = mediaType === 'audio' ? uploadContentAudio : uploadContentImage;
+    const first = await upload(owner), future = await upload(owner), p = await pool(gameSlug);
+    const a = await item(p.id, { ...value, payload: { ...value.payload, mediaAssetId: first.id, mediaType, mediaRights: ownRights } }); await ready(a.id);
+    const b = await item(p.id, { ...value, payload: { ...value.payload, ...(gameSlug === 'jeopardy' ? { value: 200 } : { prompt: 'Future secret question' }), mediaAssetId: future.id, mediaType, mediaRights: ownRights } }); await ready(b.id);
     const created = await supertest(app.app).post('/api/v1/rooms').set('Cookie', owner).send({ gameSlug, roomName: 'Media runtime', idempotencyKey: randomUUID(),
       setupSnapshotJson: { contentSelection: { poolIds: [p.id], mode: 'MANUAL', itemIds: [a.id, b.id], count: 2 } } });
     expect(created.status).toBe(201); const room = await db.room.findUniqueOrThrow({ where: { id: created.body.data.roomId } }); roomIds.push(room.id);
     for (const name of ['Media Alice', 'Media Bob']) await db.participation.create({ data: { roomId: room.id, displayName: name, normalizedName: name.toLowerCase(), role: 'PLAYER', ready: true, connected: true, rejoinToken: randomUUID() } });
-    const host = await connectGameClient(origin, owner), viewer = await connectGameClient(origin);
+    const host = await connectGameClient(origin, owner), viewer = await connectGameClient(origin), player = await connectGameClient(origin);
     try {
       await gameAck(host, 'room:subscribe', { roomCode: room.code }); await gameAck(viewer, 'room:subscribe', { roomCode: room.code });
+      const participant = await db.participation.findFirstOrThrow({ where: { roomId: room.id, role: 'PLAYER' } }); await gameAck(player, 'room:subscribe', { roomCode: room.code, rejoinToken: participant.rejoinToken });
       await db.mediaAsset.update({ where: { id: first.id }, data: { processStatus: 'FAILED' } });
       expect((await gameAck(host, 'game:start', { roomCode: room.code, commandId: randomUUID() })).success).toBe(false);
       await db.mediaAsset.update({ where: { id: first.id }, data: { processStatus: 'READY' } });
@@ -522,11 +531,14 @@ it('delivers media only for the active pinned question of both real engines and 
       expect(url).toBeTruthy(); expect((await supertest(app.app).get(url!)).status).toBe(200);
       expect((await supertest(app.app).get(nextUrl)).status).toBe(403);
       expect((await supertest(app.app).get(url!.replace(first.id, future.id))).status).toBe(403);
-      const projected = await gameAck(viewer, gameSlug === 'wissensduell' ? 'geo:resync' : 'jeopardy:resync', {});
-      const current = gameSlug === 'wissensduell' ? projected.question : projected.currentField;
-      expect((await supertest(app.app).get(z.object({ mediaUrl: z.string() }).parse(current).mediaUrl)).status).toBe(200);
-      expect(JSON.stringify(projected)).not.toContain('mediaRights'); expect(JSON.stringify(projected)).not.toContain(future.id);
-      await api(owner).put(`/items/${a.id}`, { commandId: commandId(), revision: 2, item: { ...value, payload: { ...value.payload, mediaAssetId: future.id, mediaType: 'image', mediaRights: ownRights } } });
+      for (const recipient of [viewer, player]) {
+        const projected = await gameAck(recipient, gameSlug === 'wissensduell' ? 'geo:resync' : 'jeopardy:resync', {});
+        const current = gameSlug === 'wissensduell' ? projected.question : projected.currentField;
+        const delivered = await supertest(app.app).get(z.object({ mediaUrl: z.string() }).parse(current).mediaUrl);
+        expect(delivered.status).toBe(200); expect(delivered.headers['content-type']).toContain(mediaType === 'audio' ? 'audio/mpeg' : 'image/webp');
+        expect(JSON.stringify(projected)).not.toMatch(/mediaRights|SECRET_CLUE_ANSWER|SECRET_EXPLANATION/); expect(JSON.stringify(projected)).not.toContain(future.id);
+      }
+      await api(owner).put(`/items/${a.id}`, { commandId: commandId(), revision: 2, item: { ...value, payload: { ...value.payload, mediaAssetId: future.id, mediaType, mediaRights: ownRights } } });
       expect((await supertest(app.app).get(url!)).status).toBe(200);
       const afterReload = await gameAck(host, gameSlug === 'wissensduell' ? 'geo:resync' : 'jeopardy:resync', {});
       expect(z.object({ mediaUrl: z.string() }).parse(gameSlug === 'wissensduell' ? afterReload.question : afterReload.currentField).mediaUrl).toContain(first.id);
@@ -534,7 +546,7 @@ it('delivers media only for the active pinned question of both real engines and 
       expect((await supertest(app.app).get(url!)).status).toBe(403);
       await db.room.update({ where: { id: room.id }, data: { runIndex: 1, lifecycle: 'CLOSED' } });
       expect((await supertest(app.app).get(url!)).status).toBe(403);
-    } finally { host.disconnect(); viewer.disconnect(); cancelGeoTimer(room.id); }
+    } finally { host.disconnect(); viewer.disconnect(); player.disconnect(); cancelGeoTimer(room.id); }
   }
 });
 

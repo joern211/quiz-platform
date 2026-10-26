@@ -13,8 +13,8 @@ Spielregeln bleiben offen; bereits festgelegte Regeln nicht erneut abfragen.
 | 1 | TEAM-ROOM / GitHub #15 abschließen; öffentliche Raumliste reparieren | abgeschlossen, f26e8fb; CI + 20/20 E2E grün |
 | 2 | Gemeinsame Spielaktionen / Rundensteuerung, Planplatz PR15 | abgeschlossen, a1b55eb; CI/E2E grün |
 | 3 | Results / Finalisierung / Recovery, Planplatz PR16 | abgeschlossen, 7316415; vollständige CI/E2E grün |
-| 4 | Content-Pools / Editor, anschließend Review / Import / Qualität | in Arbeit, feature/pr18-content-editor |
-| 5 | Audio / Voice, Kamera / Display; danach weitere Engines | offen |
+| 4 | Content-Pools / Editor, anschließend Review / Import / Qualität | benannte Lücken geschlossen,2319154; CI +29/29 E2E grün; Grenzen in pr18/acceptance.md |
+| 5 | Audio / Voice, Kamera / Display; danach weitere Engines | in Arbeit, feature/pr19-media-voice; erster Teil echte Audioverarbeitung |
 
 ## Wiederaufnahme
 
@@ -224,3 +224,16 @@ Informationsrechten und Fences über Spiel, Rejoin, Editor, Exporte, alte Setups
 Media und Playtest-Capabilities.490 Server/128 Web lokal grün, sechs echte
 Gegenproben und C8-Browserfall. Quick-Setup-Assistent ist noch offen; spätere
 Übersetzungs-/Statistik-/Betriebssysteme bleiben getrennt. Kein Merge.
+
+## Wiederaufnahme — Paket4 benannte Lücken geschlossen, Paket5 begonnen
+
+2319154:490 Server-/132 Webtests und29 Browserfälle vollständig auf GitHub
+grün (Run40253379733). Geführter siebenstufiger Schnellstart, vollständige
+Spiel-/Raumvorlagen und BLIND_HOST einschließlich echter Replay-Recovery
+abgenommen. PR18 bleibt Draft und ungemergt; kein pauschales §6-alles-DONE.
+
+Paket5 auf eigener Folgebranch feature/pr19-media-voice. Erster Teil ersetzt
+Audio-Magic-Byte-Akzeptanz durch tatsächliche Decodierung, Loudness-
+Normalisierung, Metadata-Strip und begrenzte Verarbeitung. Details, Tests und
+die konkrete Fortsetzung stehen in ../pr19/handoff.md. Live-Voice/Kamera/
+Display sind weiterhin offene Arbeit innerhalb von Paket5.
