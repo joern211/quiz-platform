@@ -237,3 +237,12 @@ Audio-Magic-Byte-Akzeptanz durch tatsächliche Decodierung, Loudness-
 Normalisierung, Metadata-Strip und begrenzte Verarbeitung. Details, Tests und
 die konkrete Fortsetzung stehen in ../pr19/handoff.md. Live-Voice/Kamera/
 Display sind weiterhin offene Arbeit innerhalb von Paket5.
+
+## Paket5 — Audio grün, lokaler Gerätecheck ergänzt
+
+0934183 vollständig CI/E2E-grün (30 Fälle, Run40292697356, Wiederholung nach
+Paketdownload-Timeout). Optionaler lokaler Prejoin-/Host-Lobby-Gerätecheck ist
+als nächster Teil implementiert: unabhängige ausdrückliche Permissions,
+Vorschau/Pegel/Testton, Gerätefallback, Filter und sichere Capture-Bereinigung.
+139 Webtests lokal grün, M2/M3 erhöhen Browserabnahme auf32. Live-Übertragung,
+MAIN/TEAM/Host-Mute/PTT und DISPLAY bleiben offen. Details in pr19/handoff.md.

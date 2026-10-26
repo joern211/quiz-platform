@@ -1,3 +1,4 @@
+import { MediaDeviceCheck } from '../components/MediaDeviceCheck';
 // ============================================================
 // Viewer Page – Zuschauer-Einstieg (Code-Eingabe)
 // ============================================================
@@ -56,6 +57,8 @@ export function ViewerPage() {
           </Button>
         </form>
       </Card>
+
+      <MediaDeviceCheck microphone={false} />
 
       <div className={styles.notice}>
         <p>

@@ -1,3 +1,4 @@
+import { MediaDeviceCheck } from '../components/MediaDeviceCheck';
 // ============================================================
 // Join Page – v0.3.0 (P0-01: Name field, proper room code)
 // ============================================================
@@ -139,6 +140,8 @@ export function JoinPage() {
             Beitreten
           </Button>
         </form>
+
+        <MediaDeviceCheck />
 
         <p className={styles.hint}>
           Keinen Code? <a href="/raeume">Öffentliche Räume anzeigen</a>

@@ -76,3 +76,30 @@ unverhältnismäßig lange in der FFmpeg-Paketinstallation; die Installation
 erhält deshalb begrenzte Netzwerk-Timeouts/Retry, fünf Minuten Step-Limit,
 noninteractive und keine empfohlenen Zusatzpakete. Produktcode unverändert.
 Finale genaue Browserabnahme wird im PR festgehalten.
+
+## Wiederaufnahme 26.10.2026 — Audio abgenommen / lokaler Gerätecheck
+
+0934183: komplette GitHub-CI und30/30 Browserfälle im Wiederholungslauf grün
+(Run40292697356). Erster E2E-Versuch endete vor den Tests an einem langsamen
+FFmpeg-Paketdownload; derselbe Head bestand anschließend ohne Produktänderung.
+
+Neuer Teil: optionaler lokaler Gerätecheck vor Player-/Viewer-Beitritt und
+in der Host-Lobby. Mic und Kamera werden nur durch eigenen Klick und getrennt
+angefragt. Viewer erhalten keinen Mic-Test. Kamera-Preview bleibt lokal und
+stumm; der Mikrofonpegel hat keine Verbindung zum Lautsprecher. Testton am
+System-Standardausgang; separate Output-Auswahl wird noch nicht behauptet.
+Input-Geräte und Filterpräferenzen bleiben lokal gespeichert. Fehlende frühere
+Geräte fallen beim Test ausdrücklich auf das Standardgerät zurück; Permission-
+Denial und fehlende APIs blockieren keinen Beitritt. Kamera/Mic stoppen bei
+Collapse, Abbruch, Gerätewechsel und Unmount. Späte Freigaben werden anhand
+einer Requestgeneration gestoppt, ohne eine neuere Vorschau zu überschreiben.
+
+Sechs neue UI-Gegenproben, insgesamt139/139 Webtests grün. Beide Builds und
+Typecheck grün. M2/M3 ergänzen echte Chromium-Fake-Device-Aufnahme, getrennte
+Tracks, Pegel, Testton, Collapse-Cleanup und echten Beitritt trotz verweigerter
+Permission; insgesamt32 Browserfälle. Deren GitHub-Abnahme folgt am neuen Head.
+
+Das ist ausdrücklich lokale Vorbereitung, kein Live-Transport und keine
+serverseitige Voice-/Kamerafreigabe. MAIN/TEAM, Host-Mute/PTT, Gerätemanagement
+während eines Live-Spiels, DISPLAY und persistente Assetjobs bleiben offen.
+Kein Merge; Folgeänderungen weiterhin auf feature/pr19-media-voice sichern.
