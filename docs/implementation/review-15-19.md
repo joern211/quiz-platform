@@ -7,7 +7,7 @@ Heads abnehmen. Kein Merge. Pushes sind im Auftrag autorisiert.
 | Befund | Ziel | Stand |
 | --- | --- | --- |
 | 1 | PR15: wartende Zuschauer von Spielkanal und Resync trennen | behoben; 28 Raum-/Sockettests und neuer UI-Fall grün; finale CI nach Befund 2 |
-| 2 | PR15: Zuschauerlimit auch bei Zulassung über beide Modelle zählen | offen |
+| 2 | PR15: Zuschauerlimit auch bei Zulassung über beide Modelle zählen | behoben; 31 Raum-/Sockettests grün; finale CI am neuen PR15-Head |
 | 3 | PR16/17: Raumänderungen atomar protokollieren, Recovery ohne Verlust | offen |
 | 4 | PR18: ausdrücklich 0 Punkte in der Runtime erhalten | offen |
 | 5 | PR19: Empfangsverbindungen gemeinsam neu aushandeln | offen |
@@ -25,3 +25,13 @@ tatsächliche Admission, auch wenn bereits eine Partie läuft.
 Lokale Prüfungen zu Befund 1: vollständige betroffene Raum-Suite 28/28,
 neuer Viewer-UI-Fall 1/1, Lint ohne Fehler. Typecheck und finale PR15-CI werden
 am kombinierten Abschluss mit Befund 2 festgehalten.
+
+Befund 2: gemeinsame aktive Zuschauerzählung für JOIN, ADMIT und Token-Rejoin,
+jeweils unter dem DB-Schreiblock. Pending belegt keinen aktiven Slot; ein
+Gerätewechsel zählt die eigene Teilnahme nicht doppelt. Eine volle Zulassung
+rollt vollständig zurück und öffnet keinen Spielkanal.
+
+Kombinierter PR15-Stand lokal: 31/31 Raum-/Sockettests, neuer Viewer-UI-Fall,
+vollständiger Typecheck sowie Server- und Web-Build grün, Lint ohne Fehler.
+Befund 1 auf GitHub als 94e43ba gesichert. Nach dem zweiten Push CI am neuen
+Head prüfen; PR16–19 erhalten diese Änderungen über ihre Vorgänger.

@@ -50,6 +50,25 @@ export async function checkAccess(room: Room, role: 'PLAYER' | 'VIEWER', pin?: s
   return mode;
 }
 
+/** Both viewer models share one capacity, checked under the room writer lock. */
+export async function activeViewerCount(db: Prisma.TransactionClient, roomId: string, excludeParticipantId?: string): Promise<number> {
+  return await db.viewerSession.count({ where: { roomId, connected: true } })
+    + await db.participation.count({ where: { roomId, role: 'VIEWER', connected: true, admission: 'ACTIVE',
+      leftAt: null, kickedAt: null, bannedAt: null, ...(excludeParticipantId ? { id: { not: excludeParticipantId } } : {}) } });
+}
+
+export async function reconnectViewer(roomId: string, participantId: string, rejoinToken: string, connectionId: string) {
+  return prisma.$transaction(async tx => {
+    await writeLock(tx, roomId);
+    const room = await tx.room.findUniqueOrThrow({ where: { id: roomId } }); assertRoomLive(room);
+    const participant = await tx.participation.findFirst({ where: { id: participantId, roomId, rejoinToken,
+      role: 'VIEWER', leftAt: null, kickedAt: null, bannedAt: null } });
+    if (!participant) throw new RoomError('NO_PARTICIPATION');
+    if (participant.admission === 'ACTIVE' && await activeViewerCount(tx, roomId, participant.id) >= room.viewerLimit) throw new RoomError('VIEWER_LIMIT_REACHED');
+    return tx.participation.update({ where: { id: participant.id }, data: { connected: true, connectionId, lastSeenAt: new Date() } });
+  });
+}
+
 /** Viewer capacity and invite consumption use the same serialized write as admission. */
 export async function joinViewer(roomId: string, connectionId: string, input: { pin?: string; inviteToken?: string; userId?: string; displayName?: string }) {
   const initial = await prisma.room.findUniqueOrThrow({ where: { id: roomId } });
@@ -62,8 +81,8 @@ export async function joinViewer(roomId: string, connectionId: string, input: { 
     if (room.roomPolicyJson !== initial.roomPolicyJson || room.pinHash !== initial.pinHash) throw new RoomError('ROOM_CHANGED');
     if (input.userId && await tx.participation.findFirst({ where: { roomId, userId: input.userId, bannedAt: { not: null } } })) throw new RoomError('BANNED');
     const existing = input.userId ? await tx.participation.findFirst({ where: { roomId, userId: input.userId, role: 'VIEWER', leftAt: null, kickedAt: null, bannedAt: null } }) : null;
-    const count = await tx.viewerSession.count({ where: { roomId, connected: true } }) + await tx.participation.count({ where: { roomId, role: 'VIEWER', connected: true, admission: 'ACTIVE', bannedAt: null, leftAt: null } });
-    if ((!existing || !existing.connected) && count >= room.viewerLimit) throw new RoomError('VIEWER_LIMIT_REACHED');
+    const admission = existing?.admission ?? (mode === 'APPROVAL_REQUIRED' ? 'PENDING_JOIN' : 'ACTIVE');
+    if (admission === 'ACTIVE' && await activeViewerCount(tx, roomId, existing?.id) >= room.viewerLimit) throw new RoomError('VIEWER_LIMIT_REACHED');
     if (mode === 'INVITE_ONLY') {
       const consumed = await tx.roomInvite.updateMany({ where: { roomId, tokenHash: tokenHash(input.inviteToken!), role: 'VIEWER', usedAt: null, expiresAt: { gt: new Date() } }, data: { usedAt: new Date() } });
       if (consumed.count !== 1) throw new RoomError('INVITE_REQUIRED');
@@ -260,8 +279,8 @@ export async function mutateRoom(roomId: string, actor: RoomActor, op: RoomOpera
           if (p.role === 'PLAYER' && activePlayers.length >= Math.min(room.maxPlayers, room.gameDefinition.maxPlayers)) throw new RoomError('ROOM_FULL');
           if (room.status === 'RUNNING' && (!policy.allowLateJoin || !boundaryPhases.has(room.gameState?.phase ?? ''))) throw new RoomError('ROUND_BOUNDARY_REQUIRED');
           if (p.role === 'PLAYER' && policy.teamMode !== 'OFF' && !(!op.teamId && policy.teamMode === 'SELF_SELECT') && (!op.teamId || !room.teams.some(t => t.id === op.teamId) || activePlayers.filter(x => x.teamId === op.teamId).length >= policy.maxTeamSize)) throw new RoomError('TEAM_CONFIGURATION_INVALID');
+          if (p.role === 'VIEWER' && p.connected && await activeViewerCount(tx, roomId, p.id) >= room.viewerLimit) throw new RoomError('VIEWER_LIMIT_REACHED');
           await tx.participation.update({ where: { id: p.id }, data: { admission: 'ACTIVE', ready: false } });
-          if (p.role === 'VIEWER' && room.participations.filter(x => x.role === 'VIEWER' && x.connected && x.admission === 'ACTIVE').length >= room.viewerLimit) throw new RoomError('VIEWER_LIMIT_REACHED');
           if (op.teamId && p.role === 'PLAYER') await setTeam(tx, room, p.id, op.teamId);
           if (p.role === 'PLAYER' && room.gameState && room.status === 'RUNNING') {
             const state = JSON.parse(room.gameState.stateJson);

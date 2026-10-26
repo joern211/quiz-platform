@@ -62,6 +62,45 @@ afterAll(async () => {
 });
 
 describe('TEAM-ROOM: real HTTP / sockets / DB', () => {
+  it('counts anonymous sessions when approving a pending viewer and rolls a full admission back', async () => {
+    const r = await createRoom('jeopardy', { viewerLimit: 1 });
+    await configure(r, { viewerAccess: 'APPROVAL_REQUIRED' });
+    const waiting = await connect(); const initial = await ack(waiting, 'room:subscribe', { roomCode: r.code });
+    const p = await db.participation.findUniqueOrThrow({ where: { rejoinToken: String(initial.rejoinToken) } });
+    await configure(r, { viewerAccess: 'PUBLIC_JOIN' });
+    const anonymous = await connect(); expect((await ack(anonymous, 'room:subscribe', { roomCode: r.code })).success).toBe(true);
+    await configure(r, { viewerAccess: 'APPROVAL_REQUIRED' });
+    expect((await command(r.host, r.code, { type: 'ADMIT', participantId: p.id, approve: true })).error).toBe('VIEWER_LIMIT_REACHED');
+    expect((await db.participation.findUniqueOrThrow({ where: { id: p.id } })).admission).toBe('PENDING_JOIN');
+    expect(app.io.sockets.sockets.get(waiting.id!)!.rooms.has(roomChannel(r.id))).toBe(false);
+    expect(await db.viewerSession.count({ where: { roomId: r.id, connected: true } })).toBe(1);
+  });
+  it('admits at most one competing viewer into the final slot', async () => {
+    const r = await createRoom('jeopardy', { viewerLimit: 1 }); await configure(r, { viewerAccess: 'APPROVAL_REQUIRED' });
+    const waiting = await Promise.all([connect(), connect()]);
+    const joins = await Promise.all(waiting.map(s => ack(s, 'room:subscribe', { roomCode: r.code })));
+    const pending = await Promise.all(joins.map(j => db.participation.findUniqueOrThrow({ where: { rejoinToken: String(j.rejoinToken) } })));
+    const results = await Promise.all(pending.map(p => command(r.host, r.code, { type: 'ADMIT', participantId: p.id, approve: true })));
+    expect(results.filter(r => r.success)).toHaveLength(1);
+    expect(results.filter(r => r.error === 'VIEWER_LIMIT_REACHED')).toHaveLength(1);
+    expect(await db.participation.count({ where: { roomId: r.id, role: 'VIEWER', admission: 'ACTIVE', connected: true } })).toBe(1);
+  });
+  it('rechecks shared viewer capacity on token rejoin and permits takeover without double counting', async () => {
+    const r = await createRoom('jeopardy', { viewerLimit: 1 });
+    const signed = await connect(secondCookie); const joined = await ack(signed, 'room:subscribe', { roomCode: r.code });
+    const p = await db.participation.findUniqueOrThrow({ where: { rejoinToken: String(joined.rejoinToken) } });
+    const takeover = await connect(secondCookie);
+    expect((await ack(takeover, 'room:subscribe', { roomCode: r.code, rejoinToken: joined.rejoinToken })).success).toBe(true);
+    signed.disconnect(); takeover.disconnect();
+    await vi.waitFor(async () => expect((await db.participation.findUniqueOrThrow({ where: { id: p.id } })).connected).toBe(false));
+    const anonymous = await connect(); expect((await ack(anonymous, 'room:subscribe', { roomCode: r.code })).success).toBe(true);
+    const replacement = await connect(secondCookie);
+    expect((await ack(replacement, 'room:subscribe', { roomCode: r.code, rejoinToken: joined.rejoinToken })).error).toBe('VIEWER_LIMIT_REACHED');
+    expect((await db.participation.findUniqueOrThrow({ where: { id: p.id } })).connected).toBe(false);
+    anonymous.disconnect();
+    await vi.waitFor(async () => expect(await db.viewerSession.count({ where: { roomId: r.id, connected: true } })).toBe(0));
+    expect((await ack(replacement, 'room:subscribe', { roomCode: r.code, rejoinToken: joined.rejoinToken })).success).toBe(true);
+  });
   it('keeps pending viewers outside gameplay broadcasts and resync until committed admission', async () => {
     const r = await createRoom();
     await configure(r, { viewerAccess: 'APPROVAL_REQUIRED', allowLateJoin: true });

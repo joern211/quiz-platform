@@ -2,7 +2,7 @@
 // Room Socket Events
 // ============================================================
 
-import { assertRoomLive, RoomError, joinViewer } from '../rooms/core.js';
+import { assertRoomLive, RoomError, joinViewer, reconnectViewer } from '../rooms/core.js';
 import { changed } from '../rooms/socket.js';
 import { Server, Socket } from 'socket.io';
 import { prisma } from '../persistence/prisma.js';
@@ -182,7 +182,10 @@ export async function handleRoomSubscription(
     }
 
     // Update to connected
-    await prisma.participation.update({
+    if (participation.role === 'VIEWER') {
+      try { await reconnectViewer(room.id, participation.id, rejoinToken, socket.id); }
+      catch (error) { callback?.({ success: false, error: error instanceof RoomError ? error.code : 'NOT_AUTHORIZED' }); return; }
+    } else await prisma.participation.update({
       where: { id: participation.id },
       data: { connected: true, connectionId: socket.id, lastSeenAt: new Date() },
     });
