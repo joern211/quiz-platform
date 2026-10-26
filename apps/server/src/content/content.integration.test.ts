@@ -606,3 +606,41 @@ it('hides public pending proposals and historical drafts from unrelated hosts, i
   expect((await api(other).post(`/items/${q.id}/comments`, commentIntent)).status).toBe(403);
   expect((await api(other).put(`/items/${q.id}`, editIntent)).status).toBe(403);
 });
+
+it('pins difficulty ranges with exact cross-pool quotas and preserves the selected order in the real engine after edits', async () => {
+  const a = await pool(), b = await pool();
+  const ae = await item(a.id, { ...quiz, difficulty: 'EASY' }), ah = await item(a.id, { ...quiz, difficulty: 'HARD' }), be = await item(b.id, { ...quiz, difficulty: 'EASY' });
+  for (const q of [ae, ah, be]) await ready(q.id);
+  const selection = { poolIds: [a.id, b.id], count: 2, poolCounts: { [a.id]: 1, [b.id]: 1 }, difficultyPlan: { kind: 'RANGES', ranges: [{ from: 1, to: 1, difficulty: 'EASY' }, { from: 2, to: 2, difficulty: 'HARD' }] } };
+  const created = await supertest(app.app).post('/api/v1/rooms').set('Cookie', owner).send({ gameSlug: 'wissensduell', roomName: 'Progression', idempotencyKey: randomUUID(), setupSnapshotJson: { contentSelection: selection } });
+  expect(created.status).toBe(201); const room = await db.room.findUniqueOrThrow({ where: { id: created.body.data.roomId } }); roomIds.push(room.id);
+  const uses = await db.contentUse.findMany({ where: { roomId: room.id }, orderBy: { position: 'asc' } });
+  expect(uses.map(u => u.itemId)).toEqual([be.id, ah.id]); expect(uses.map(u => JSON.parse(u.snapshotJson).difficulty)).toEqual(['EASY', 'HARD']);
+  await api(owner).put(`/items/${be.id}`, { commandId: commandId(), revision: 2, item: { ...quiz, difficulty: 'VERY_HARD' } });
+  for (const displayName of ['Progression Alice', 'Progression Bob']) await db.participation.create({ data: { roomId: room.id, displayName, normalizedName: displayName.toLowerCase(), role: 'PLAYER', ready: true, connected: true, rejoinToken: randomUUID() } });
+  const host = await connectGameClient(origin, owner);
+  try {
+    await gameAck(host, 'room:subscribe', { roomCode: room.code }); expect((await gameAck(host, 'game:start', { roomCode: room.code, commandId: randomUUID() })).success).toBe(true);
+    const state = JSON.parse((await db.roomGameState.findUniqueOrThrow({ where: { roomId: room.id } })).stateJson);
+    expect(state.questions.map((q: { id: string }) => q.id)).toEqual([be.id, ah.id]);
+  } finally { host.disconnect(); cancelGeoTimer(room.id); }
+  const before = await db.room.count();
+  const impossible = await supertest(app.app).post('/api/v1/rooms').set('Cookie', owner).send({ gameSlug: 'wissensduell', roomName: 'Impossible', idempotencyKey: randomUUID(), setupSnapshotJson: { contentSelection: { ...selection, difficultyPlan: { kind: 'DISTRIBUTION', percentages: { VERY_EASY: 0, EASY: 0, MEDIUM: 0, HARD: 100, VERY_HARD: 0 } } } } });
+  expect(impossible.status).toBe(409); expect(impossible.body.error.code).toBe('DIFFICULTY_CONTENT_NOT_READY'); expect(await db.room.count()).toBe(before);
+});
+it('keeps difficulty presets private, receipted and versioned and prevents non-linear Jeopardy round plans', async () => {
+  const plan = { kind: 'DISTRIBUTION', percentages: { VERY_EASY: 0, EASY: 50, MEDIUM: 0, HARD: 50, VERY_HARD: 0 } };
+  const input = { commandId: commandId(), preset: { gameSlug: 'wissensduell', name: 'Private progression', plan } };
+  const created = await api(owner).post('/difficulty-presets', input); expect(created.status).toBe(201); const preset = created.body.data.preset;
+  expect((await api(owner).post('/difficulty-presets', input)).body.data.preset.id).toBe(preset.id);
+  expect((await api(owner).get('/difficulty-presets?gameSlug=wissensduell')).body.data.some((p: { id: string }) => p.id === preset.id)).toBe(true);
+  expect((await api(other).get('/difficulty-presets?gameSlug=wissensduell')).body.data.every((p: { scope: string }) => p.scope === 'SYSTEM')).toBe(true);
+  expect((await api(other).post(`/difficulty-presets/${preset.id}/archive`, { commandId: commandId(), revision: 1 })).status).toBe(404);
+  expect((await api(owner).post(`/difficulty-presets/${preset.id}/archive`, { commandId: commandId(), revision: 2 })).status).toBe(409);
+  expect((await api(owner).post(`/difficulty-presets/${preset.id}/archive`, { commandId: commandId(), revision: 1 })).status).toBe(200);
+  expect((await api(owner).get('/difficulty-presets?gameSlug=wissensduell')).body.data.some((p: { id: string }) => p.id === preset.id)).toBe(false);
+  expect((await api(owner).post('/difficulty-presets', { commandId: commandId(), preset: { gameSlug: 'jeopardy', name: 'Invalid rounds', plan: { kind: 'RISING' } } })).status).toBe(400);
+  const p = await pool('jeopardy'), q = await item(p.id, { ...clue, difficulty: 'EASY' }); await ready(q.id);
+  const rejected = await supertest(app.app).post('/api/v1/rooms').set('Cookie', owner).send({ gameSlug: 'jeopardy', roomName: 'Invalid rounds', idempotencyKey: randomUUID(), setupSnapshotJson: { contentSelection: { poolIds: [p.id], count: 1, difficultyPlan: { kind: 'RISING' } } } });
+  expect(rejected.status).toBe(400); expect(rejected.body.error.code).toBe('DIFFICULTY_GAME_UNSUPPORTED');
+});

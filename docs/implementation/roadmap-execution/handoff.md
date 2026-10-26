@@ -197,3 +197,13 @@ aktive Mediengrenzen. Keine normalen Räume, Stats oder ScoreEvents.
 HTTP-/DB-Abnahmen. Lint0 Fehler/113 bestehende Warnungen. Einzelstand, Browsergrenzen
 und Restumfang in ../pr18/handoff.md. GitHub-Sicherung durch automatische
 Freigabeprüfung blockiert; kein Workaround. Punkt4 offen, Punkt5 unbegonnen.
+
+## Punkt4 — Difficulty-Verläufe weitergeführt
+
+5ac3566 auf GitHub vollständig grün (476 Server/120 Web/25 E2E, Run40226692379).
+Folgeteil: genaue Prozentverteilungen, Rundenbereiche, System-/private Host-
+Schwierigkeitsvorlagen und gemeinsame Difficulty-/Pool-Quoten mit bevorzugten
+ungesehenen Fragen. Echter Engine-/Snapshot-Nachweis,38 gezielte Servertests
+und123 Webtests grün. Vollständig482 Servertests, beide Builds/Typecheck
+grün; Lint0 Fehler/113 bestehende Warnungen. C6 ergänzt Browserweg. Vollständige Spiel-/Room-Vorlagen
+und BLIND_HOST bleiben offen; Einzelabnahme siehe ../pr18/handoff.md.

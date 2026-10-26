@@ -1751,16 +1751,52 @@ export const ContentItemInputSchema = z.object({
   source: z.string().max(2000).default(''), sourceUrl: z.string().url().max(2000).or(z.literal('')).default(''),
   license: z.string().max(500).default(''),
 }).strict();
+export const CONTENT_DIFFICULTIES = ['VERY_EASY', 'EASY', 'MEDIUM', 'HARD', 'VERY_HARD'] as const;
+export const ContentDifficultyPlanSchema = z.discriminatedUnion('kind', [
+  z.object({ kind: z.literal('DISTRIBUTION'), percentages: z.object({ VERY_EASY: z.number().int().min(0).max(100), EASY: z.number().int().min(0).max(100), MEDIUM: z.number().int().min(0).max(100), HARD: z.number().int().min(0).max(100), VERY_HARD: z.number().int().min(0).max(100) }).strict() }).strict(),
+  z.object({ kind: z.literal('RANGES'), ranges: z.array(z.object({ from: z.number().int().min(1).max(100), to: z.number().int().min(1).max(100), difficulty: ContentDifficultySchema }).strict()).min(1).max(100) }).strict(),
+  z.object({ kind: z.literal('RISING') }).strict(),
+]).superRefine((plan, ctx) => {
+  if (plan.kind === 'DISTRIBUTION' && Object.values(plan.percentages).reduce((a, b) => a + b, 0) !== 100) ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Die Verteilung muss genau 100 Prozent ergeben.' });
+  if (plan.kind === 'RANGES') { let next = 1;
+    for (const range of plan.ranges) { if (range.from !== next || range.to < range.from) ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Rundenbereiche müssen bei 1 beginnen und lückenlos ohne Überschneidung aufeinander folgen.' }); next = range.to + 1; }
+  }
+});
+export type ContentDifficultyPlan = z.infer<typeof ContentDifficultyPlanSchema>;
+/** Exact integer allocation; ties use canonical difficulty order. Server randomizes distribution order. */
+export function contentDifficultySequence(raw: ContentDifficultyPlan, count: number): Array<z.infer<typeof ContentDifficultySchema>> {
+  const plan = ContentDifficultyPlanSchema.parse(raw);
+  if (!Number.isInteger(count) || count < 1 || count > 100) throw new Error('INVALID_DIFFICULTY_COUNT');
+  if (plan.kind === 'RISING') return Array.from({ length: count }, (_, i) => (['EASY', 'MEDIUM', 'HARD'] as const)[Math.min(2, Math.floor(i * 3 / count))]);
+  if (plan.kind === 'RANGES') {
+    if (plan.ranges.at(-1)!.to !== count) throw new Error('DIFFICULTY_RANGE_COUNT');
+    return plan.ranges.flatMap(r => Array.from({ length: r.to - r.from + 1 }, () => r.difficulty));
+  }
+  const allocations = CONTENT_DIFFICULTIES.map((difficulty, index) => { const exact = count * plan.percentages[difficulty] / 100; return { difficulty, index, count: Math.floor(exact), remainder: exact - Math.floor(exact) }; });
+  const extra = count - allocations.reduce((sum, a) => sum + a.count, 0);
+  [...allocations].sort((a, b) => b.remainder - a.remainder || a.index - b.index).slice(0, extra).forEach(a => a.count++);
+  return allocations.flatMap(a => Array.from({ length: a.count }, () => a.difficulty));
+}
+export const SYSTEM_DIFFICULTY_PRESETS: Array<{ id: string; name: string; plan: ContentDifficultyPlan }> = [
+  { id: 'system:relaxed', name: 'Locker', plan: { kind: 'DISTRIBUTION', percentages: { VERY_EASY: 40, EASY: 60, MEDIUM: 0, HARD: 0, VERY_HARD: 0 } } },
+  { id: 'system:normal', name: 'Normal', plan: { kind: 'DISTRIBUTION', percentages: { VERY_EASY: 0, EASY: 20, MEDIUM: 60, HARD: 20, VERY_HARD: 0 } } },
+  { id: 'system:rising', name: 'Steigend', plan: { kind: 'RISING' } },
+  { id: 'system:hardcore', name: 'Hardcore', plan: { kind: 'DISTRIBUTION', percentages: { VERY_EASY: 0, EASY: 0, MEDIUM: 0, HARD: 40, VERY_HARD: 60 } } },
+];
+export interface ContentDifficultyPresetView { id: string; name: string; gameSlug: string; revision: number; plan: ContentDifficultyPlan; scope: 'SYSTEM' | 'PRIVATE' }
+export const ContentDifficultyPresetInputSchema = z.object({ gameSlug: ContentGameSchema, name: z.string().trim().min(1).max(150), plan: ContentDifficultyPlanSchema }).strict()
+  .refine(p => p.gameSlug === 'wissensduell' || p.plan.kind === 'DISTRIBUTION', 'Rundenverläufe sind für Wissensduell vorgesehen; Jeopardy verwendet Verteilungen.');
 export const ContentSelectionSchema = z.object({
   poolIds: z.array(z.string().min(1).max(128)).min(1).max(20), count: z.number().int().min(1).max(100).default(10),
   language: ContentLanguageSchema.default('de-DE'), difficulty: ContentDifficultySchema.optional(),
+  difficultyPlan: ContentDifficultyPlanSchema.optional(),
   tagIds: z.array(z.string().uuid()).max(30).default([]),
   category: z.string().trim().min(1).max(100).optional(),
   poolCounts: z.record(z.number().int().min(0).max(100)).optional(),
   mode: z.enum(['RANDOM', 'MANUAL']).default('RANDOM'), itemIds: z.array(z.string().min(1).max(128)).max(100).default([]),
   repeatRule: z.enum(['NO_REPEAT_IN_ROOM', 'ALLOW_REPEATS', 'PREFER_UNSEEN']).default('NO_REPEAT_IN_ROOM'),
   visibility: z.literal('HOST_PREVIEW').default('HOST_PREVIEW'),
-}).strict();
+}).strict().refine(s => !s.difficultyPlan || !s.difficulty && s.mode === 'RANDOM', 'Schwierigkeitsverläufe erfordern Zufallsauswahl ohne einzelnen Schwierigkeitsfilter.');
 export const CONTENT_TEMPLATES = {
   wissensduell: { title: '', payload: { prompt: '', category: 'Allgemeinwissen', options: [
     { id: 'a', text: '' }, { id: 'b', text: '' }, { id: 'c', text: '' }, { id: 'd', text: '' },

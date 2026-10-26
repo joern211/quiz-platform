@@ -15,22 +15,23 @@ Punkt4 des autorisierten Fünf-Schritte-Plans bleibt in Arbeit.
 | Public Review | Quellen-/Lizenz-/READY-Gate, Pool-Sperre, nur ADMIN final; Gameplay-Vorschlag lässt publiziertes Original bis Entscheidung unverändert | echte HTTP-/DB-Reapproval-Fälle, C2-Browser von Dateiimport bis ADMIN-Freigabe |
 | Spieler-Korrekturen | stabile Teilnehmer-ID + Rejoin-Token; nur gespeicherte Auflösungs-Evidenz; Vorschlag/Inbox, Owner-/Admin-Entscheid | zwei echte Engine-Consumer; vor Reveal leer, künftige Fragen verborgen, falsche Tokens/Expired verweigert; alte Snapshots bleiben erhalten |
 | Qualität / Kommentare / Locks | konkrete Status-Counts/Gründe, Inbox, interne Kommentar-Endpunkte, manuelle und Review-Sperren | HTTP/DB-Nachweis; weitere UI für Kommentar-/Lock-/Usage-Arbeit offen |
-| Browser / Regression | Alle bestehenden 20 Browserfälle bleiben aktiv; C1 ergänzt beide Editoren/Setups; C2 ergänzt Import/Public Review | Aktueller CI/E2E-Head ist verbindlich; Ergebnisse älterer Heads gelten nicht automatisch für neue Commits |
+| Browser / Regression | Alle bisherigen25 Browserfälle bleiben aktiv; C6 ergänzt Schwierigkeitsvorlage/Setup | Aktueller CI/E2E-Head ist verbindlich; Ergebnisse älterer Heads gelten nicht automatisch für neue Commits |
 
 ## Noch nicht DONE
 
 - BLIND_HOST: bisher ausdrücklich nicht auswählbar. Erfordert vollständige
   Informationsgrenzen über Pool-Lesewege, Start, Projektion, Host-Mitspiel,
   Judge/Co-Host und Recovery; keine Freigabe nur wegen UI-Schalter.
-- Vollständige Difficulty-Progression, Host-Templates/Presets, Room-Templates,
-  definierter Quick-Setup-Ablauf und optionale erweiterte Feldmodelle.
-- Concurrent-Editor-Anzeige, Bulk-Workflows, Playtest, Review-Assignments,
-  Keyboard-/Batch-Review und alle übrigen verbindlichen §6-Abnahmen.
+- Vollständige Spiel-Presets und Room-Templates, definierter Quick-Setup-
+  Ablauf und optionale erweiterte Feldmodelle. Schwierigkeitsvorlagen sind
+  unten getrennt von vollständigen Spielkonfigurationen beschrieben.
+- Übrige verbindliche §6-Detailabnahmen; die unten belegten Zusammenarbeit-,
+  Bulk-, Playtest- und Review-Wege sind implementiert.
 - Vollständige Übersetzungsentitäten und Content-Statistik-Regeln mit ihren
   späteren Cores; die jetzige Sprachwahl ist kein vollständiges i18n-System.
-- Medienreferenzen im neuen Modell/Editor/Import und Delivery/READY-Prüfung
-  vervollständigen. Legacy-Daten sind unverändert vorhanden; neue Kopien
-  werden hier noch nicht als verlustfrei/fertig erklärt.
+- Erweiterte Medienmodelle/Legacy-Optionsfelder sowie vollständige Audio-
+  Decodierung/Normalisierung. Die unten beschriebene Medienintegration
+  und additive Bestandsmigration sind implementiert.
 - Retention/Quotas/Cleanup mit dem Betriebs-Paket; keine automatische Löschung
   historischer Daten oder unfreigegebener Drafts eingeführt.
 
@@ -93,6 +94,26 @@ Ablauf-, Zugriffs- und Mediengrenzen. Invalide Optionsmetadaten werden auch
 im alten Vorschauendpunkt nicht mehr ungefiltert an Leser weitergegeben.
 
 Der Fragenplaytest ist keine vollständige Multiplayer-Engine-Simulation;
-Jeopardy-Buzzer/Steal/Judge sind hier nicht nachgebaut. C5 für den realen
-Browserweg ist erstellt und gelistet, am neuen Head noch nicht ausgeführt.
-Push aktuell durch automatische Freigabeprüfung blockiert, lokal gesichert.
+Jeopardy-Buzzer/Steal/Judge sind hier nicht nachgebaut. C5 hat am gesicherten Head5ac3566 mit allen25 Browserfällen bestanden;
+CI476 Server-/120 Webtests ebenfalls grün (Run40226692379).
+
+## Ergänzung: Difficulty-Verläufe (§6.13)
+
+Prozentverteilungen werden über größte Reste exakt auf ganze Fragen verteilt;
+Rundenbereiche decken die gesamte gewählte Fragenzahl lückenlos ab. Steigend
+passt EASY/MEDIUM/HARD-Bereiche an die Fragenzahl an. SYSTEM- und private
+Host-Schwierigkeitsvorlagen sind auswählbar, privat speicherbar und per CAS
+archivierbar. Die gewählte Konfiguration wird als Wert in der Raumkonfiguration
+und die konkrete Reihenfolge in ContentUse gespeichert; spätere Vorlagen-/
+Fragenänderungen verändern sie nicht. Keine automatische Difficulty-Zuweisung.
+
+Mehrere Pools, feste Pool-Counts, Sprach-/Tag-/Kategoriefilter und Repeat-Regeln
+bleiben wirksam. Die gemeinsame Zuteilung erfüllt beide Quoten und bevorzugt
+unter PREFER_UNSEEN global ungesehene Fragen. Nicht erfüllbare Anforderungen
+brechen die gesamte Raumerstellung vor Writes ab, ohne stillen Fallback.
+Jeopardy unterstützt Prozentverteilungen; lineare Rundenverläufe würden die
+Boardreihenfolge falsch abbilden und werden dort ausdrücklich abgewiesen.
+
+Schwierigkeitsvorlagen speichern keine vollständigen Spielkonfigurationen.
+Spiel-Presets/Room-Templates bleiben separate offene Arbeit. C6 ergänzt den
+Browserweg vom Verlauf über eigene Vorlage zur echten Raumerstellung.

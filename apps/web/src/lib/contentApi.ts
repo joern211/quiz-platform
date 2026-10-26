@@ -1,4 +1,4 @@
-import type { ContentItemView, ContentPoolView, ContentBatchSchema, ContentTemplateView, ContentPlaytestView } from '@quiz/shared';
+import type { ContentItemView, ContentPoolView, ContentBatchSchema, ContentTemplateView, ContentPlaytestView, ContentDifficultyPlan, ContentDifficultyPresetView } from '@quiz/shared';
 
 import type { z } from 'zod';
 
@@ -22,6 +22,9 @@ async function request<T>(path: string, method = 'GET', body?: unknown): Promise
   return json.data as T;
 }
 export const contentApi = {
+  difficultyPresets: (gameSlug: string) => request<ContentDifficultyPresetView[]>(`/difficulty-presets?gameSlug=${encodeURIComponent(gameSlug)}`),
+  saveDifficultyPreset: (gameSlug: string, name: string, plan: ContentDifficultyPlan) => request<{ preset: ContentDifficultyPresetView }>('/difficulty-presets', 'POST', { commandId: crypto.randomUUID(), preset: { gameSlug, name, plan } }),
+  archiveDifficultyPreset: (preset: ContentDifficultyPresetView) => request(`/difficulty-presets/${encodeURIComponent(preset.id)}/archive`, 'POST', { commandId: crypto.randomUUID(), revision: preset.revision }),
   startPlaytest: (poolId: string, items: Array<{ id: string; revision: number }>) => request<{ code: string; expiresAt: string }>('/playtests', 'POST', { commandId: crypto.randomUUID(), poolId, items }),
   playtest: (code: string, role: string, clientKey: string) => request<ContentPlaytestView>(`/playtests/${encodeURIComponent(code)}?role=${role}&clientKey=${clientKey}`),
   controlPlaytest: (code: string, version: number, action: 'REVEAL' | 'NEXT' | 'CLOSE') => request(`/playtests/${encodeURIComponent(code)}/control`, 'POST', { commandId: crypto.randomUUID(), version, action }),

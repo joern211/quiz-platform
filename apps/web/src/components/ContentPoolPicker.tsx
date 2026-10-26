@@ -1,16 +1,20 @@
+import { ContentDifficultyPlan } from './ContentDifficultyPlan';
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import type { ContentPoolView } from '@quiz/shared';
+import { ContentDifficultyPlanSchema, contentDifficultySequence, type ContentDifficultyPlan as DifficultyPlan, type ContentPoolView } from '@quiz/shared';
 import { contentApi } from '../lib/contentApi';
 
-export interface ContentSelectionOptions { language: string; difficulty: string; category: string; repeatRule: string; tagIds: string[]; poolCounts?: Record<string, number> }
+export interface ContentSelectionOptions { language: string; difficulty: string; category: string; repeatRule: string; tagIds: string[]; poolCounts?: Record<string, number>; difficultyPlan?: DifficultyPlan }
 export const DEFAULT_CONTENT_OPTIONS: ContentSelectionOptions = { language: 'de-DE', difficulty: '', category: '', repeatRule: 'NO_REPEAT_IN_ROOM', tagIds: [] };
 export function contentSelectionPayload(poolIds: string[], count: number, options: ContentSelectionOptions) {
+  const total = options.poolCounts ? Object.values(options.poolCounts).reduce((sum, n) => sum + n, 0) : count;
+  if (options.difficultyPlan) { const parsed = ContentDifficultyPlanSchema.safeParse(options.difficultyPlan); if (!parsed.success) throw new Error(parsed.error.issues[0].message);
+    try { contentDifficultySequence(parsed.data, total); } catch { throw new Error(`Die Schwierigkeitsbereiche müssen genau die Fragen 1 bis ${total} abdecken.`); } }
   return { poolIds, count: options.poolCounts ? Object.values(options.poolCounts).reduce((sum, n) => sum + n, 0) : count,
     ...options, difficulty: options.difficulty || undefined, category: options.category.trim() || undefined };
 }
 
-export function ContentPoolPicker({ gameSlug, selected, onChange, options, onOptionsChange }: { gameSlug: string; selected: string[]; onChange: (ids: string[]) => void;
+export function ContentPoolPicker({ gameSlug, selected, onChange, options, onOptionsChange, count = 10 }: { count?: number; gameSlug: string; selected: string[]; onChange: (ids: string[]) => void;
   options?: ContentSelectionOptions; onOptionsChange?: (options: ContentSelectionOptions) => void }) {
   const [pools, setPools] = useState<ContentPoolView[]>([]), [error, setError] = useState('');
   const [tags, setTags] = useState<Awaited<ReturnType<typeof contentApi.tags>>>([]);
@@ -32,7 +36,8 @@ export function ContentPoolPicker({ gameSlug, selected, onChange, options, onOpt
     </label>)}
     {!!selected.length && options && onOptionsChange && <>
       <label style={{ display: 'grid', gap: 4, marginBlock: 12 }}>Inhaltssprache<select value={options.language} onChange={e => onOptionsChange({ ...options, language: e.target.value })}>{['de-DE', 'en-US', 'tr-TR'].map(l => <option key={l}>{l}</option>)}</select></label>
-      <label style={{ display: 'grid', gap: 4, marginBlock: 12 }}>Schwierigkeitsfilter<select value={options.difficulty} onChange={e => onOptionsChange({ ...options, difficulty: e.target.value })}><option value="">Alle Schwierigkeiten</option>{['VERY_EASY', 'EASY', 'MEDIUM', 'HARD', 'VERY_HARD'].map(d => <option key={d}>{d}</option>)}</select></label>
+      <label style={{ display: 'grid', gap: 4, marginBlock: 12 }}>Schwierigkeitsfilter<select disabled={!!options.difficultyPlan} value={options.difficulty} onChange={e => onOptionsChange({ ...options, difficulty: e.target.value })}><option value="">Alle Schwierigkeiten</option>{['VERY_EASY', 'EASY', 'MEDIUM', 'HARD', 'VERY_HARD'].map(d => <option key={d}>{d}</option>)}</select></label>
+      <ContentDifficultyPlan gameSlug={gameSlug} count={options.poolCounts ? Object.values(options.poolCounts).reduce((sum, n) => sum + n, 0) : count} plan={options.difficultyPlan} onChange={difficultyPlan => onOptionsChange({ ...options, difficulty: difficultyPlan ? '' : options.difficulty, difficultyPlan })} />
       <label style={{ display: 'grid', gap: 4, marginBlock: 12 }}>Kategorie (optional)<input value={options.category} onChange={e => onOptionsChange({ ...options, category: e.target.value })} /></label>
       <label style={{ display: 'grid', gap: 4, marginBlock: 12 }}>Tag-Filter<select multiple value={options.tagIds} onChange={e => onOptionsChange({ ...options, tagIds: Array.from(e.target.selectedOptions, o => o.value) })}>{tags.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}</select></label>
       <label style={{ display: 'grid', gap: 4, marginBlock: 12 }}>Wiederholungen<select value={options.repeatRule} onChange={e => onOptionsChange({ ...options, repeatRule: e.target.value })}><option value="NO_REPEAT_IN_ROOM">Keine Wiederholungen im Raum</option><option value="PREFER_UNSEEN">Neue Fragen bevorzugen</option><option value="ALLOW_REPEATS">Wiederholungen erlauben</option></select></label>

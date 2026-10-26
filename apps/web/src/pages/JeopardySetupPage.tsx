@@ -222,8 +222,8 @@ export function JeopardySetupPage() {
       } else {
         setApiError(json.error?.message ?? 'Fehler beim Erstellen');
       }
-    } catch {
-      setApiError('Netzwerkfehler: Server nicht erreichbar.');
+    } catch (error) {
+      setApiError(error instanceof Error ? error.message : 'Netzwerkfehler: Server nicht erreichbar.');
     } finally {
       setSaving(false);
     }
@@ -232,7 +232,7 @@ export function JeopardySetupPage() {
   return (
     <div className={styles.page}>
       <h1 className={styles.title}>Jeopardy einrichten</h1>
-      <ContentPoolPicker gameSlug="jeopardy" selected={contentPools} onChange={setContentPools} options={contentOptions} onOptionsChange={setContentOptions} />
+      <ContentPoolPicker count={poolQuestionCount} gameSlug="jeopardy" selected={contentPools} onChange={setContentPools} options={contentOptions} onOptionsChange={setContentOptions} />
       {contentPools.length > 0 && <label>Fragen aus Pools <input aria-label="Fragen aus Pools" type="number" min={1} max={30} value={poolQuestionCount} onChange={e => setPoolQuestionCount(Number(e.target.value))} /></label>}
 
       {/* Validation errors */}

@@ -923,3 +923,18 @@ model ContentPlaytestFeedback {
   @@unique([playtestId, position, clientKey, kind])
   @@map("content_playtest_feedback")
 }
+
+model ContentDifficultyPreset {
+  id       String @id @default(uuid())
+  ownerId  String
+  gameSlug String
+  name     String
+  planJson String
+  revision Int @default(1)
+  status   String @default("ACTIVE")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([ownerId, gameSlug, status])
+  @@map("content_difficulty_presets")
+}

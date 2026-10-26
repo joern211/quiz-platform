@@ -1,3 +1,5 @@
+import { ContentDifficultyPresetInputSchema } from '@quiz/shared';
+import { difficultyPresetCatalog } from '../content/difficultyPresets.js';
 import { Router, type Request, type Response } from 'express';
 import { z } from 'zod';
 import { ContentItemInputSchema, CreateContentPoolSchema, ContentDefaultsSchema, ContentStatusSchema, CONTENT_TEMPLATES,
@@ -432,4 +434,27 @@ contentRouter.post('/playtests/:code/control', endpoint(async (req, res) => {
 contentRouter.post('/playtests/:code/feedback', endpoint(async (req, res) => {
   const code = z.string().min(20).max(64).parse(req.params.code), input = PlaytestFeedbackSchema.parse(req.body);
   res.json({ success: true, data: await submitPlaytestFeedback(code, session(req), input) });
+}));
+
+contentRouter.get('/difficulty-presets', endpoint(async (req, res) => {
+  const actor = await contentActor(prisma, session(req)), slug = ContentGameSchema.parse(req.query.gameSlug);
+  res.json({ success: true, data: await difficultyPresetCatalog(prisma, actor, slug) });
+}));
+contentRouter.post('/difficulty-presets', endpoint(async (req, res) => {
+  const input = z.object({ commandId: z.string().uuid(), preset: ContentDifficultyPresetInputSchema }).strict().transform(({ commandId, preset }) => ({ commandId, ...preset })).parse(req.body);
+  const data = await mutateContent(session(req), input.commandId, { action: 'DIFFICULTY_PRESET_CREATE', input }, async (db, actor) => {
+    const row = await db.contentDifficultyPreset.create({ data: { ownerId: actor.userId, gameSlug: input.gameSlug, name: input.name, planJson: JSON.stringify(input.plan) } });
+    await auditContent(db, actor, 'CONTENT_DIFFICULTY_PRESET_CREATE', row.id, { revision: row.revision });
+    return { preset: { id: row.id, gameSlug: row.gameSlug, name: row.name, revision: row.revision, plan: input.plan, scope: 'PRIVATE' } };
+  }); res.status(201).json({ success: true, data });
+}));
+contentRouter.post('/difficulty-presets/:id/archive', endpoint(async (req, res) => {
+  const input = revisionCommand.strict().parse(req.body);
+  const data = await mutateContent(session(req), input.commandId, { action: 'DIFFICULTY_PRESET_ARCHIVE', id: req.params.id, input }, async (db, actor) => {
+    const row = await db.contentDifficultyPreset.findFirst({ where: { id: String(req.params.id), ownerId: actor.userId, status: 'ACTIVE' } });
+    if (!row) throw new ContentError('RESOURCE_NOT_ACCESSIBLE', 404);
+    if (row.revision !== input.revision) throw new ContentError('REVISION_CONFLICT', 409);
+    await db.contentDifficultyPreset.update({ where: { id: row.id, revision: input.revision }, data: { status: 'ARCHIVED', revision: { increment: 1 } } });
+    await auditContent(db, actor, 'CONTENT_DIFFICULTY_PRESET_ARCHIVE', row.id, { revision: row.revision + 1 }); return { archived: true };
+  }); res.json({ success: true, data });
 }));

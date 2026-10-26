@@ -396,3 +396,35 @@ Paket4 ist weiterhin offen: Auswahl-/Difficulty-Progression, Spiel-Presets /
 Room-Templates und BLIND_HOST durch alle Lese-/Recovery-/Info-Pfade sowie
 weitere Master-§6-Detailabnahmen. Audio-Headerprüfung ist kein vollständiger
 Decoder/Normalizer. Paket5 bleibt unbegonnen. Kein Merge.
+
+## Elfter Teil — Difficulty-Verläufe und private Schwierigkeitsvorlagen
+
+Vorheriger Stand5ac3566 vollständig auf GitHub grün:476 Server-/120 Web- und
+25 Browserfälle ohne Retry (Run40226692379). Push-Sperre des vorherigen
+Handoffs durch ausdrückliche Nutzerfreigabe aufgehoben; Dateibäume identisch.
+
+Neu: genaue Prozentverteilungen, lückenlose Rundenbereiche, Steigend-Preset,
+SYSTEM Locker/Normal/Steigend/Hardcore und persistierte private Host-Vorlagen.
+UI zeigt tatsächliche gerundete Counts und validiert Änderungen der Fragenzahl.
+Bei festen Pool-Anzahlen gilt deren Summe. Einzel-Difficulty und MANUAL können
+nicht still mit Verläufen kombiniert werden. Eigene Vorlagen archivieren
+verändert weder aktuelle Auswahl noch gespeicherte Partien.
+
+Server erfüllt Difficulty-/Pool-Quoten gemeinsam statt mit einem Greedy-Pick;
+PREFER_UNSEEN minimiert benötigte bereits verwendete Fragen global. Fehlende
+READY-Inhalte/unklassifizierte Difficulty führen zu atomarem Abbruch ohne
+schwierigkeitsfremden Fallback. Snapshot und echte Engine-Reihenfolge bleiben
+auch nach Editoränderungen gleich. Jeopardy erlaubt Verteilungen, aber keine
+vorgebliche lineare Rundenfolge über sein frei wählbares Board.
+
+Gezielt38/38 Servertests und123/123 Webtests (23 Dateien) grün. C6 bildet
+Validierung, private Vorlage und tatsächliche Raumerstellung im Browser ab;
+26 Browserfälle aktiv. Vollständige Server-Suite482/482 (57 Dateien),
+123/123 Webtests, beide Builds und Typecheck grün. Lint0 Fehler/113
+bestehende Warnungen. Exakte GitHub-Prüfung am nächsten Head noch offen.
+
+Paket4 bleibt offen: vollständige Spiel-Presets/Room-Templates/Quick Setup,
+BLIND_HOST über alle Lese-/Recovery-/Info-Pfade sowie restliche Master-§6-
+Detailabnahmen. Adaptive Difficulty ist laut Master später vorgesehen.
+Vollständige Audio-Decodierung/Normalisierung bleibt offen; Paket5 unbegonnen.
+Kein Merge. Nächster Schritt nach diesem Checkpoint: Spiel-/Room-Vorlagen.

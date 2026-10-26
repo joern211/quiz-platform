@@ -588,7 +588,7 @@ roomsRouter.post('/', createLimiter, async (req, res) => {
     });
   } catch (error) {
     if (error instanceof ContentError || error instanceof ZodError) return res.status(error instanceof ContentError ? error.status : 400).json({ success: false,
-      error: { code: error instanceof ContentError ? error.code : 'INVALID_CONTENT_SELECTION', message: 'Inhaltsauswahl prüfen.' } });
+      error: { code: error instanceof ContentError ? error.code : 'INVALID_CONTENT_SELECTION', message: error instanceof ContentError && error.code === 'DIFFICULTY_CONTENT_NOT_READY' ? 'Nicht genügend freigegebene Fragen für diesen Schwierigkeitsverlauf und die gewählten Pool-Anzahlen. Bitte Auswahl oder Verlauf anpassen.' : error instanceof ContentError && error.code === 'DIFFICULTY_RANGE_COUNT' ? 'Die Schwierigkeitsbereiche müssen genau die gewählte Fragenzahl abdecken.' : 'Inhaltsauswahl prüfen.' } });
     logger.error('Failed to create room', { error });
     res.status(500).json({
       success: false,

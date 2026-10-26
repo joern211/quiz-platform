@@ -213,3 +213,33 @@ test('C5: editor playtest shares a draft with a guest device, hides solutions un
     expect((await unchanged.json()).data.items[0].status).toBe('DRAFT');
   } finally { await Promise.allSettled([hostContext.close(), guestContext.close()]); }
 });
+
+test('C6: setup validates exact difficulty counts, saves a private distribution and creates a real pinned room', async ({ browser }) => {
+  const context = await browser.newContext();
+  try {
+    expect((await context.request.post(`${BASE}/api/v1/auth/e2e-token`, { data: { userId: 'mod-1' } })).status()).toBe(200);
+    const name = `Difficulty ${crypto.randomUUID()}`;
+    const p = await context.request.post(`${BASE}/api/v1/content/pools`, { data: { commandId: crypto.randomUUID(), gameSlug: 'wissensduell', name } }); expect(p.status()).toBe(201); const pool = (await p.json()).data;
+    for (const difficulty of ['EASY', 'HARD']) {
+      const q = await context.request.post(`${BASE}/api/v1/content/pools/${pool.id}/items`, { data: { commandId: crypto.randomUUID(), item: { title: difficulty, difficulty,
+        payload: { prompt: `Frage ${difficulty}`, category: 'Test', options: [{ id: 'a', text: 'Ja' }, { id: 'b', text: 'Nein' }], correctOptionId: 'a' } } } }); expect(q.status()).toBe(201);
+      const question = (await q.json()).data;
+      expect((await context.request.post(`${BASE}/api/v1/content/items/${question.id}/status`, { data: { commandId: crypto.randomUUID(), revision: question.revision, status: 'READY' } })).status()).toBe(200);
+    }
+    const page = await context.newPage(); await page.goto(`${BASE}/moderator/vorbereitung/wissensduell`);
+    await page.getByRole('checkbox', { name: `${name} · PRIVATE`, exact: true }).check();
+    const slider = page.getByRole('slider', { name: 'Anzahl Fragen' }); await slider.focus(); await page.keyboard.press('Home'); await page.keyboard.press('ArrowRight');
+    const editor = page.getByRole('region', { name: 'Schwierigkeitsverlauf' });
+    await editor.getByLabel('Schwierigkeitsvorlage', { exact: true }).selectOption('distribution');
+    for (const label of ['Sehr leicht (%)', 'Mittel (%)', 'Sehr schwer (%)']) await editor.getByLabel(label, { exact: true }).fill('0');
+    await expect(editor.getByRole('alert')).toContainText('100 Prozent');
+    for (const label of ['Leicht (%)', 'Schwer (%)']) await editor.getByLabel(label, { exact: true }).fill('50');
+    await expect(editor.getByRole('status')).toHaveText('2 Fragen: 1 Leicht · 1 Schwer');
+    await editor.getByLabel('Name der eigenen Schwierigkeitsvorlage').fill(name);
+    await editor.getByRole('button', { name: 'Schwierigkeitsvorlage speichern', exact: true }).click();
+    await expect(editor.getByRole('option', { name: `${name} · Eigene Vorlage`, exact: true })).toBeAttached();
+    const created = page.waitForResponse(r => r.url().endsWith('/api/v1/rooms') && r.request().method() === 'POST');
+    await page.getByRole('button', { name: /Raum erstellen/ }).click(); expect((await created).status()).toBe(201);
+    await expect(page).toHaveURL(/\/moderator\/raum\/\d{3}-\d{3}\/lobby$/);
+  } finally { await context.close(); }
+});

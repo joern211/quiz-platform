@@ -5,6 +5,7 @@ import { ContentDefaultsSchema, ContentItemInputSchema, ContentSelectionSchema, 
 import { prisma } from '../persistence/prisma.js';
 import { validateContentMedia, recordContentMediaReference } from './media.js';
 import { shuffleServer } from '../games/core/roundFlow.js';
+import { selectByDifficulty, DifficultySelectionError } from './difficulty.js';
 
 export class ContentError extends Error {
   constructor(public code: string, public status = 400, public details?: unknown) { super(code); }
@@ -153,6 +154,7 @@ export async function selectRoomContent(db: ContentDb, actor: ContentActor, game
     && (!selection.category || String(q.payload.category).trim().toLocaleLowerCase() === selection.category.toLocaleLowerCase()));
   const prior = roomId ? new Set((await db.contentUse.findMany({ where: { roomId }, select: { itemId: true } })).map(q => q.itemId)) : new Set<string>();
   let expectedCount = selection.count;
+  if (selection.difficultyPlan && gameSlug !== 'wissensduell' && selection.difficultyPlan.kind !== 'DISTRIBUTION') throw new ContentError('DIFFICULTY_GAME_UNSUPPORTED');
   if (selection.mode === 'MANUAL') {
     if (selection.poolCounts) throw new ContentError('INVALID_CONTENT_SELECTION');
     if (!selection.itemIds.length || new Set(selection.itemIds).size !== selection.itemIds.length) throw new ContentError('INVALID_CONTENT_SELECTION');
@@ -170,8 +172,12 @@ export async function selectRoomContent(db: ContentDb, actor: ContentActor, game
       if (Object.keys(counts).length !== selection.poolIds.length || !selection.poolIds.every(id => Object.hasOwn(counts, id))) throw new ContentError('INVALID_CONTENT_SELECTION');
       expectedCount = Object.values(counts).reduce((sum, count) => sum + count, 0);
       if (expectedCount < 1 || expectedCount > 100) throw new ContentError('INVALID_CONTENT_SELECTION');
-      items = selection.poolIds.flatMap(id => pick(items.filter(q => q.poolId === id), counts[id]));
-    } else items = pick(items, selection.count);
+      if (!selection.difficultyPlan) items = selection.poolIds.flatMap(id => pick(items.filter(q => q.poolId === id), counts[id]));
+    } else if (!selection.difficultyPlan) items = pick(items, selection.count);
+    if (selection.difficultyPlan) {
+      try { items = selectByDifficulty(items, selection.poolIds, expectedCount, selection.difficultyPlan, selection.poolCounts, selection.repeatRule === 'PREFER_UNSEEN' ? new Set(items.filter(q => !prior.has(q.id)).map(q => q.id)) : undefined); }
+      catch (e) { if (e instanceof DifficultySelectionError) throw new ContentError(e.message, 409); throw e; }
+    }
   }
   if (!items.length || (selection.mode === 'RANDOM' && items.length < expectedCount)) throw new ContentError('CONTENT_NOT_READY');
   for (const q of items) {

@@ -77,8 +77,8 @@ export function ModeratorSetupPage() {
       idempotencyRef.current = null;
       // data.data.code is the room code
       navigate(`/moderator/raum/${data.data.code}/lobby`);
-    } catch {
-      alert('Verbindungsfehler');
+    } catch (error) {
+      alert(error instanceof Error ? error.message : 'Verbindungsfehler');
       setLoading(false);
     }
   };
@@ -141,7 +141,7 @@ export function ModeratorSetupPage() {
 
         <Card padding="lg">
           <h2>Spieloptionen</h2>
-          {(gameSlug === 'wissensduell' || gameSlug === 'geo') && <ContentPoolPicker gameSlug="wissensduell" selected={contentPools} onChange={setContentPools} options={contentOptions} onOptionsChange={setContentOptions} />}
+          {(gameSlug === 'wissensduell' || gameSlug === 'geo') && <ContentPoolPicker count={questionCount} gameSlug="wissensduell" selected={contentPools} onChange={setContentPools} options={contentOptions} onOptionsChange={setContentOptions} />}
           
           <div className={styles.form}>
             <div className={styles.inputGroup}>
