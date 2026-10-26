@@ -644,3 +644,43 @@ it('keeps difficulty presets private, receipted and versioned and prevents non-l
   const rejected = await supertest(app.app).post('/api/v1/rooms').set('Cookie', owner).send({ gameSlug: 'jeopardy', roomName: 'Invalid rounds', idempotencyKey: randomUUID(), setupSnapshotJson: { contentSelection: { poolIds: [p.id], count: 1, difficultyPlan: { kind: 'RISING' } } } });
   expect(rejected.status).toBe(400); expect(rejected.body.error.code).toBe('DIFFICULTY_GAME_UNSUPPORTED');
 });
+
+it('keeps full setup presets private, versioned and favoritable, and pins effective settings with their source at real game start', async () => {
+  const p = await pool(), q = await item(p.id); await ready(q.id);
+  const input = { kind: 'GAME_PRESET', gameSlug: 'wissensduell', name: 'Complete preset', favorite: true, configuration: { room: { allowViewers: false, cameraEnabled: false, maxPlayers: 4 }, setup: { contentSelection: { poolIds: [p.id], count: 1 }, questionCount: 1, timerDuration: 17 } } };
+  const save = { commandId: commandId(), blueprint: input }, created = await api(owner).post('/setup-blueprints', save); expect(created.status).toBe(201); const preset = created.body.data.blueprint;
+  expect((await api(owner).post('/setup-blueprints', save)).body.data.blueprint.id).toBe(preset.id);
+  expect((await api(other).get('/setup-blueprints?gameSlug=wissensduell')).body.data.every((v: { scope: string }) => v.scope === 'SYSTEM')).toBe(true);
+  expect((await api(other).post(`/setup-blueprints/${preset.id}/load`, { revision: 1 })).status).toBe(404);
+  const templateInput = { kind: 'ROOM_TEMPLATE', name: 'Whole room', configuration: { room: { allowViewers: true, isPublic: false, viewerLimit: 0, roomPolicy: { allowLateJoin: true, readyRule: 'HOST_CAN_OVERRIDE' } }, language: 'de-DE', preferredGamePresetIds: [preset.id] } };
+  const tr = await api(owner).post('/setup-blueprints', { commandId: commandId(), blueprint: templateInput }); expect(tr.status).toBe(201); const template = tr.body.data.blueprint;
+  const r = await supertest(app.app).post('/api/v1/rooms').set('Cookie', owner).send({ gameSlug: 'wissensduell', roomName: 'From presets', idempotencyKey: randomUUID(), gamePreset: { id: preset.id, revision: 1 }, roomTemplate: { id: template.id, revision: 1 } });
+  expect(r.status).toBe(201); const room = await db.room.findUniqueOrThrow({ where: { id: r.body.data.roomId } }); roomIds.push(room.id);
+  expect(room.allowViewers).toBe(false); expect(room.viewerLimit).toBe(0); expect(room.isPublic).toBe(false); expect(JSON.parse(room.roomPolicyJson!).allowLateJoin).toBe(true);
+  expect(JSON.parse(room.setupSnapshotJson).contentSelection.poolIds).toEqual([p.id]);
+  const changed = await api(owner).post(`/setup-blueprints/${preset.id}/save`, { commandId: commandId(), revision: 1, blueprint: { ...input, favorite: false, configuration: { ...input.configuration, setup: { ...input.configuration.setup, timerDuration: 9 } } } }); expect(changed.status).toBe(200);
+  expect((await api(owner).post(`/setup-blueprints/${preset.id}/save`, { commandId: commandId(), revision: 1, blueprint: input })).status).toBe(409);
+  expect((await api(owner).post(`/setup-blueprints/${preset.id}/load`, { revision: 1 })).status).toBe(409);
+  for (const displayName of ['Preset Alice', 'Preset Bob']) await db.participation.create({ data: { roomId: room.id, displayName, normalizedName: displayName.toLowerCase(), role: 'PLAYER', ready: true, connected: true, rejoinToken: randomUUID() } });
+  const host = await connectGameClient(origin, owner);
+  try { await gameAck(host, 'room:subscribe', { roomCode: room.code }); expect((await gameAck(host, 'game:start', { roomCode: room.code, commandId: randomUUID() })).success).toBe(true);
+    const configSnapshot = JSON.parse((await db.room.findUniqueOrThrow({ where: { id: room.id } })).gameConfigSnapshotJson!);
+    expect(configSnapshot.values.timerDurationMs).toEqual({ value: 17000, source: 'GAME_PRESET' }); expect(configSnapshot.values.questionCount).toEqual({ value: 1, source: 'GAME_PRESET' });
+  } finally { host.disconnect(); cancelGeoTimer(room.id); }
+  const overridden = await supertest(app.app).post('/api/v1/rooms').set('Cookie', owner).send({ gameSlug: 'wissensduell', roomName: 'Explicit override', idempotencyKey: randomUUID(), gamePreset: { id: preset.id, revision: 2 }, allowViewers: true, setupSnapshotJson: { timerDuration: 11 } }); expect(overridden.status).toBe(201);
+  const overrideRoom = await db.room.findUniqueOrThrow({ where: { id: overridden.body.data.roomId } }); roomIds.push(overrideRoom.id); expect(overrideRoom.allowViewers).toBe(true); expect(JSON.parse(overrideRoom.setupSnapshotJson).timerDuration).toBe(11);
+  expect((await api(owner).post(`/setup-blueprints/system:room-standard/archive`, { commandId: commandId(), revision: 1 })).status).toBe(403);
+});
+it('rejects secret credentials, stale/foreign blueprint use, and revoked pool grants before any room or snapshot write', async () => {
+  const p = await pool('wissensduell', 'SHARED', [otherId]); const q = await item(p.id); await ready(q.id);
+  const input = { kind: 'GAME_PRESET', gameSlug: 'wissensduell', name: 'Shared source', configuration: { room: {}, setup: { contentSelection: { poolIds: [p.id], count: 1 } } } };
+  const saved = await api(other).post('/setup-blueprints', { commandId: commandId(), blueprint: input }); expect(saved.status).toBe(201); const preset = saved.body.data.blueprint;
+  expect((await api(owner).post('/setup-blueprints', { commandId: commandId(), blueprint: { ...input, configuration: { ...input.configuration, room: { pin: '1234' } } } })).status).toBe(400);
+  const count = await db.room.count();
+  const create = (cookie: string, ref: { id: string; revision: number }) => supertest(app.app).post('/api/v1/rooms').set('Cookie', cookie).send({ gameSlug: 'wissensduell', roomName: 'Fenced preset', idempotencyKey: randomUUID(), gamePreset: ref });
+  expect((await create(owner, { id: preset.id, revision: 1 })).status).toBe(404);
+  expect((await create(other, { id: preset.id, revision: 2 })).status).toBe(409);
+  await db.contentPool.update({ where: { id: p.id }, data: { editorIdsJson: '[]' } });
+  expect((await api(other).post(`/setup-blueprints/${preset.id}/load`, { revision: 1 })).status).toBe(404);
+  expect((await create(other, { id: preset.id, revision: 1 })).status).toBe(404); expect(await db.room.count()).toBe(count);
+});

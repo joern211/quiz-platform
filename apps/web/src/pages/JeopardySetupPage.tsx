@@ -1,3 +1,7 @@
+import { SetupBlueprints } from '../components/SetupBlueprints';
+import { SetupRoomRules } from '../components/SetupRoomRules';
+import { blueprintRoomInput, roomSettingsAfterPin, ROOM_SETUP_DEFAULTS, type BlueprintApplication } from '../lib/setupBlueprints';
+import type { BlueprintRoomSettings, GamePresetConfiguration } from '@quiz/shared';
 // ============================================================
 // Jeopardy Setup Page
 // ============================================================
@@ -29,16 +33,16 @@ const clueSchema = z.object({
 
 const categorySchema = z.object({
   name: z.string().min(1, 'Kategoriename darf nicht leer sein.'),
-  clues: z.array(clueSchema).min(5).max(5),
+  clues: z.array(clueSchema).min(1).max(20),
 });
 
 const boardSchema = z.object({
-  categories: z.array(categorySchema).min(6).max(6),
+  categories: z.array(categorySchema).min(1).max(6),
 });
 
 export const JeopardyBoardSchema = z.object({
   board1: boardSchema,
-  board2: boardSchema,
+  board2: boardSchema.optional(),
 });
 
 // Re-export Board type from JeopardySetupPage
@@ -50,6 +54,8 @@ export type JeopardyValidationError = {
 };
 
 export function JeopardySetupPage() {
+  const [roomExtra, setRoomExtra] = useState<BlueprintRoomSettings>({});
+  const [application, setApplication] = useState<BlueprintApplication | null>(null);
   const [contentPools, setContentPools] = useState<string[]>([]);
   const [contentOptions, setContentOptions] = useState(DEFAULT_CONTENT_OPTIONS);
   const [poolQuestionCount, setPoolQuestionCount] = useState(5);
@@ -80,6 +86,7 @@ export function JeopardySetupPage() {
     })),
   }))});
   
+  const [boardCount, setBoardCount] = useState<1 | 2>(2);
   const [currentBoard, setCurrentBoard] = useState<1 | 2>(1);
   const [currentCat, setCurrentCat] = useState(0);
   const [currentClue, setCurrentClue] = useState(0);
@@ -98,7 +105,8 @@ export function JeopardySetupPage() {
   const currentClueData = currentCategory?.clues[currentClue];
 
   const handleFieldChange = (value: string) => {
-    const newBoard = { ...currentBoardData };
+    if (!currentCategory || editingField !== 'title' && !currentClueData) return;
+    const newBoard = structuredClone(currentBoardData);
     if (editingField === 'title') {
       newBoard.categories[currentCat].title = value;
     } else {
@@ -166,6 +174,10 @@ export function JeopardySetupPage() {
     })),
   });
 
+  const currentConfiguration = (): GamePresetConfiguration => ({ room: { ...ROOM_SETUP_DEFAULTS, ...roomExtra }, setup: contentPools.length
+    ? { contentSelection: contentSelectionPayload(contentPools, poolQuestionCount, contentOptions) }
+    : { board1: { categories: board1.categories.map(c => ({ name: c.title, clues: c.clues.map(v => ({ value: v.value, question: v.question, answer: v.answer })) })) }, ...(boardCount === 2 ? { board2: { categories: board2.categories.map(c => ({ name: c.title, clues: c.clues.map(v => ({ value: v.value, question: v.question, answer: v.answer })) })) } } : {}) } });
+
   const handleCreateRoom = async () => {
     setApiError(null);
     setValidationErrors([]);
@@ -173,7 +185,7 @@ export function JeopardySetupPage() {
     // Phase 2: Zod validation before room creation
     const engineBoard1 = toEngineBoard(board1);
     const engineBoard2 = toEngineBoard(board2);
-    const validation = JeopardyBoardSchema.safeParse({ board1: engineBoard1, board2: engineBoard2 });
+    const validation = JeopardyBoardSchema.safeParse({ board1: engineBoard1, ...(boardCount === 2 ? { board2: engineBoard2 } : {}) });
     if (!contentPools.length && !validation.success) {
       const errors = validation.error.errors.map(e => {
         const path0 = String(e.path[0] ?? '');
@@ -203,11 +215,8 @@ export function JeopardySetupPage() {
           gameSlug: 'jeopardy',
           roomName: roomName || 'Jeopardy',
           pin: pin || undefined,
-          maxPlayers: 10,
-          allowViewers: true,
-          isPublic: true,
+          ...blueprintRoomInput(currentConfiguration(), application),
           idempotencyKey: idempotencyRef.current,
-          setupSnapshotJson: contentPools.length ? { contentSelection: contentSelectionPayload(contentPools, poolQuestionCount, contentOptions) } : { board1: engineBoard1, board2: engineBoard2 },
         }),
       });
 
@@ -232,6 +241,15 @@ export function JeopardySetupPage() {
   return (
     <div className={styles.page}>
       <h1 className={styles.title}>Jeopardy einrichten</h1>
+      <SetupBlueprints gameSlug="jeopardy" current={currentConfiguration} onApply={(configuration, applied) => {
+        setApplication(applied); setRoomExtra(configuration.room); const selection = configuration.setup.contentSelection; setContentPools(selection?.poolIds ?? []); setPoolQuestionCount(selection?.count ?? 5);
+        setContentOptions(selection ? { ...DEFAULT_CONTENT_OPTIONS, ...selection, difficulty: selection.difficulty ?? '', category: selection.category ?? '' } : DEFAULT_CONTENT_OPTIONS);
+        const board = (value: NonNullable<GamePresetConfiguration['setup']['board1']>): Board => ({ categories: value.categories.map(c => ({ id: crypto.randomUUID(), title: c.name, clues: c.clues.map(v => ({ ...v, id: crypto.randomUUID(), type: 'text' as const })) })) });
+        setBoardCount(configuration.setup.board2 ? 2 : 1); setCurrentBoard(1); setCurrentCat(0); setCurrentClue(0);
+        if (configuration.setup.board1) setBoard1(board(configuration.setup.board1)); if (configuration.setup.board2) setBoard2(board(configuration.setup.board2)); idempotencyRef.current = null;
+      }} />
+      {!contentPools.length && <label>Anzahl Boards<select aria-label="Anzahl Boards" value={boardCount} onChange={e => { setBoardCount(Number(e.target.value) as 1 | 2); setCurrentBoard(1); }}><option value={1}>Ein Board</option><option value={2}>Zwei Boards</option></select></label>}
+      <SetupRoomRules pinPresent={!!pin} value={{ ...ROOM_SETUP_DEFAULTS, ...roomExtra }} onChange={setRoomExtra} />
       <ContentPoolPicker count={poolQuestionCount} gameSlug="jeopardy" selected={contentPools} onChange={setContentPools} options={contentOptions} onOptionsChange={setContentOptions} />
       {contentPools.length > 0 && <label>Fragen aus Pools <input aria-label="Fragen aus Pools" type="number" min={1} max={30} value={poolQuestionCount} onChange={e => setPoolQuestionCount(Number(e.target.value))} /></label>}
 
@@ -263,7 +281,7 @@ export function JeopardySetupPage() {
         </button>
         <button 
           className={`${styles.tab} ${currentBoard === 2 ? styles.active : ''}`}
-          onClick={() => setCurrentBoard(2)}
+          disabled={boardCount === 1} onClick={() => setCurrentBoard(2)}
         >
           Board 2 (200-1000)
         </button>
@@ -278,7 +296,7 @@ export function JeopardySetupPage() {
               <button
                 key={cat.id}
                 className={`${styles.catBtn} ${i === currentCat ? styles.active : ''}`}
-                onClick={() => setCurrentCat(i)}
+                onClick={() => { setCurrentCat(i); setCurrentClue(0); }}
               >
                 {cat.title || `Kategorie ${i + 1}`}
               </button>
@@ -383,7 +401,7 @@ export function JeopardySetupPage() {
             label="PIN (optional)"
             type="password"
             value={pin}
-            onChange={(e) => setPin(e.target.value)}
+            onChange={(e) => { setPin(e.target.value); setRoomExtra(value => roomSettingsAfterPin(value, e.target.value)); }}
             placeholder="••••"
           />
 

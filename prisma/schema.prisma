@@ -309,6 +309,7 @@ model SetupDraft {
 // ------------------------------------------------------------
 
 model Room {
+  setupBlueprintsJson String?
   id                 String   @id @default(uuid())
   code               String   @unique
   roomName           String
@@ -937,4 +938,21 @@ model ContentDifficultyPreset {
 
   @@index([ownerId, gameSlug, status])
   @@map("content_difficulty_presets")
+}
+
+model SetupBlueprint {
+  id String @id @default(uuid())
+  ownerId String
+  kind String
+  gameSlug String?
+  name String
+  configurationJson String
+  favorite Boolean @default(false)
+  revision Int @default(1)
+  status String @default("ACTIVE")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([ownerId, kind, status])
+  @@map("setup_blueprints")
 }

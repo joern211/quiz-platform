@@ -436,3 +436,39 @@ C6 einen impliziten Select-Labelnamen, der Optionstexte enthält. Vorschau-
 Assertion auf die tatsächliche Vorschau begrenzt und Select explizit
 beschriftet. Keine Tests/Assertions entfernt, keine Timeouts/Retry erhöht.
 Neuer Browserlauf nach dem Korrekturcommit erforderlich.
+
+## Zwölfter Teil — vollständige Setup-Vorlagen der beiden Editor-Spiele
+
+61e5bf7 vollständig CI-grün:482 Server/123 Web/26 E2E, Run40248344794.
+Neu: persistierte private GAME_PRESETs und SYSTEM/private ROOM_TEMPLATEs mit
+Favoriten, explizitem Laden, neuer Version, Archivierung und Receipt/CAS.
+Die beiden Setup-Seiten speichern alle dort unterstützten Spiel-/Raumwerte,
+Content-Intent, Difficulty/Timer, Viewer/Kamera, Team-/Zugangs-/LateJoin-Regeln.
+PINs und Sessions werden nicht gespeichert. Eigene Vorlagen bleiben privat;
+aktuelle Poolrechte werden beim Laden und atomar bei Raumerstellung geprüft.
+
+Priorität: Raumvorlage → Spiel-Preset → ausdrückliche spätere Änderungen.
+Der Browser sendet nur tatsächliche Overrides. Räume halten die vorbereiteten
+Quellen und Werte fest, und der echte Start-Snapshot weist GAME_PRESET oder
+ROOM_CONFIG korrekt aus. Spätere Vorlagenänderungen/Archivierung verändern
+bestehende Räume nicht. Rematch bewahrt Quellen, Spielwechsel übernimmt sie
+nur vom gewählten eigenen Quellraum. Systemvorlagen sind nicht mutierbar.
+Eine explizite Funktion entfernt Vorlagenreferenzen, ohne Werte zu verwerfen.
+
+Jeopardy kann ein/zwei Boards als Textkonfiguration oder Content-Pools speichern;
+die manuelle Oberfläche erhält kleine gültige Boards ohne stilles Auffüllen.
+Neue Medien bleiben im Content-Pfad mit geschützten Referenzen. Wer-ist-das-
+Frageneditor und erweiterte Voice-/Display-Defaults gehören nicht zu diesen
+beiden Content-Editoren. Room-Templates können bestehende sonstige Setups
+serverseitig mit Raumregeln ergänzen, ohne deren Spielpayload umzuformen.
+
+Migration.deploy behält den historischen Upgrade-Nachweis, spielt vor dem Start
+des aktuellen Servers aber alle additiven Migrationen ein. IDs, Tokens,
+Versionen und Punkte bleiben weiterhin Gegenstand der Originalassertionen.
+Nachweise:484/484 Server (57 Dateien),127/127 Web (24 Dateien), vier finale
+gezielte UI-Fälle inklusive PIN-Verhalten. Beide Builds und Typecheck grün,
+Lint0 Fehler/113 bestehende Warnungen. C7 ergänzt den realen Vorlagenweg;
+27 Browserfälle am folgenden Head noch zu prüfen. Kein Merge.
+
+Nächster unmittelbarer Teil: BLIND_HOST mit persistierter Informationsgrenze,
+RANDOM-only, Projektions-/Rejoin-/Recovery-/Editor-/Media-Fences und Gegenproben.

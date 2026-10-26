@@ -117,3 +117,18 @@ Boardreihenfolge falsch abbilden und werden dort ausdrücklich abgewiesen.
 Schwierigkeitsvorlagen speichern keine vollständigen Spielkonfigurationen.
 Spiel-Presets/Room-Templates bleiben separate offene Arbeit. C6 ergänzt den
 Browserweg vom Verlauf über eigene Vorlage zur echten Raumerstellung.
+
+## Ergänzung: Spiel-Presets und Raumvorlagen
+
+Für Wissensduell/Jeopardy sind komplette vorbereitete Konfigurationen privat
+speicherbar, favoritisierbar, versioniert aktualisierbar und archivierbar.
+SYSTEM/private Raumvorlagen ergänzen Raum-/Team-/Zugangs-/Sprachdefaults und
+bevorzugte Presets. Explizite Übernahme mit lokalen Änderungen, kein Speichern
+von PINs/Tokens. Serverseitige CAS/Grant-Prüfung vor atomarer Raumerstellung;
+Quellen und wirksame Werte werden festgehalten. Neue Vorlagenfassungen ändern
+keine laufende Partie. GAME_PRESET-Herkunft ist im echten Start nachgewiesen.
+
+Die Aufnahme von weiteren Medien-/Voice-/Display-Feldern richtet sich nach deren
+verfügbaren Cores. Eine Vorlage schaltet keine bisher nicht implementierte
+Funktion frei. C7 ergänzt den realen Browserweg. BLIND_HOST bleibt bis zum
+separaten abschließenden Nachweis noch gesperrt.

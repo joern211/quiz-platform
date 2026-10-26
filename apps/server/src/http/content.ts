@@ -1,3 +1,5 @@
+import { SetupBlueprintInputSchema } from '@quiz/shared';
+import { setupBlueprintCatalog, readSetupBlueprint, validateBlueprint, saveSetupBlueprint } from '../content/setupBlueprints.js';
 import { ContentDifficultyPresetInputSchema } from '@quiz/shared';
 import { difficultyPresetCatalog } from '../content/difficultyPresets.js';
 import { Router, type Request, type Response } from 'express';
@@ -456,5 +458,32 @@ contentRouter.post('/difficulty-presets/:id/archive', endpoint(async (req, res) 
     if (row.revision !== input.revision) throw new ContentError('REVISION_CONFLICT', 409);
     await db.contentDifficultyPreset.update({ where: { id: row.id, revision: input.revision }, data: { status: 'ARCHIVED', revision: { increment: 1 } } });
     await auditContent(db, actor, 'CONTENT_DIFFICULTY_PRESET_ARCHIVE', row.id, { revision: row.revision + 1 }); return { archived: true };
+  }); res.json({ success: true, data });
+}));
+
+contentRouter.get('/setup-blueprints', endpoint(async (req, res) => {
+  const actor = await contentActor(prisma, session(req)); res.json({ success: true, data: await setupBlueprintCatalog(prisma, actor, ContentGameSchema.parse(req.query.gameSlug)) });
+}));
+contentRouter.post('/setup-blueprints', endpoint(async (req, res) => {
+  const input = z.object({ commandId: z.string().uuid(), blueprint: SetupBlueprintInputSchema }).strict().parse(req.body);
+  const data = await mutateContent(session(req), input.commandId, { action: 'SETUP_BLUEPRINT_CREATE', input }, (db, actor) => saveSetupBlueprint(db, actor, input.blueprint));
+  res.status(201).json({ success: true, data });
+}));
+contentRouter.post('/setup-blueprints/:id/save', endpoint(async (req, res) => {
+  const input = z.object({ commandId: z.string().uuid(), revision: z.number().int().positive(), blueprint: SetupBlueprintInputSchema }).strict().parse(req.body);
+  const data = await mutateContent(session(req), input.commandId, { action: 'SETUP_BLUEPRINT_SAVE', id: req.params.id, input }, (db, actor) => saveSetupBlueprint(db, actor, input.blueprint, { id: String(req.params.id), revision: input.revision }));
+  res.json({ success: true, data });
+}));
+contentRouter.post('/setup-blueprints/:id/load', endpoint(async (req, res) => {
+  const actor = await contentActor(prisma, session(req)), input = z.object({ revision: z.number().int().positive() }).strict().parse(req.body);
+  const blueprint = await readSetupBlueprint(prisma, actor, String(req.params.id), input.revision); await validateBlueprint(prisma, actor, blueprint);
+  res.json({ success: true, data: { blueprint } });
+}));
+contentRouter.post('/setup-blueprints/:id/archive', endpoint(async (req, res) => {
+  const input = revisionCommand.strict().parse(req.body);
+  const data = await mutateContent(session(req), input.commandId, { action: 'SETUP_BLUEPRINT_ARCHIVE', id: req.params.id, input }, async (db, actor) => {
+    const row = await readSetupBlueprint(db, actor, String(req.params.id), input.revision); if (row.scope === 'SYSTEM') throw new ContentError('NOT_AUTHORIZED', 403);
+    await db.setupBlueprint.update({ where: { id: row.id, revision: row.revision }, data: { status: 'ARCHIVED', revision: { increment: 1 } } });
+    await auditContent(db, actor, 'SETUP_BLUEPRINT_ARCHIVE', row.id, { revision: row.revision + 1 }); return { archived: true };
   }); res.json({ success: true, data });
 }));

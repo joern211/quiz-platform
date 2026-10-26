@@ -345,7 +345,7 @@ export async function mutateRoom(roomId: string, actor: RoomActor, op: RoomOpera
           roomId, runIndex: room.runIndex, gameDefinitionId: room.gameDefinitionId, engineVersion: room.gameState?.engineVersion,
           configSnapshotJson: room.gameConfigSnapshotJson, stateJson: room.gameState?.stateJson, scoresJson: JSON.stringify(room.participations.map(p => ({ id: p.id, displayName: p.displayName, score: p.score, teamId: p.teamId }))), teamsJson: JSON.stringify(room.teams),
         } });
-        let gameDefinitionId = room.gameDefinitionId, setupSnapshotJson = room.setupSnapshotJson;
+        let gameDefinitionId = room.gameDefinitionId, setupSnapshotJson = room.setupSnapshotJson, setupBlueprintsJson = room.setupBlueprintsJson;
         let contentSource = { roomId, runIndex: room.runIndex };
         if (op.type === 'SWITCH_GAME') {
           const game = await tx.gameDefinition.findUnique({ where: { slug: op.gameSlug } });
@@ -355,6 +355,7 @@ export async function mutateRoom(roomId: string, actor: RoomActor, op: RoomOpera
           if (op.sourceRoomId && !source) throw new RoomError('SETUP_NOT_OWNED');
           if (!source && game.slug !== 'wissensduell') throw new RoomError('PREPARED_SETUP_REQUIRED');
           setupSnapshotJson = source?.setupSnapshotJson ?? '{}';
+          setupBlueprintsJson = source?.setupBlueprintsJson ?? null;
           contentSource = { roomId: source?.id ?? '', runIndex: source?.runIndex ?? 0 };
         }
         const contentSetup: Record<string, unknown> = JSON.parse(setupSnapshotJson);
@@ -373,7 +374,7 @@ export async function mutateRoom(roomId: string, actor: RoomActor, op: RoomOpera
         await tx.roomGameState.deleteMany({ where: { roomId } });
         await tx.participation.updateMany({ where: { roomId }, data: { score: 0, ready: false } });
         await tx.roomTeam.updateMany({ where: { roomId }, data: { score: 0 } });
-        await tx.room.update({ where: { id: roomId }, data: { status: 'LOBBY', runPhase: 'OPEN', lifecycle: 'LOBBY_OPEN', gameDefinitionId, setupSnapshotJson, runIndex: { increment: 1 }, startedAt: null, endedAt: null, gameConfigSnapshotJson: null, configSchemaVersion: 0, liveConfigJson: null } });
+        await tx.room.update({ where: { id: roomId }, data: { status: 'LOBBY', runPhase: 'OPEN', lifecycle: 'LOBBY_OPEN', gameDefinitionId, setupSnapshotJson, setupBlueprintsJson, runIndex: { increment: 1 }, startedAt: null, endedAt: null, gameConfigSnapshotJson: null, configSchemaVersion: 0, liveConfigJson: null } });
         break;
       }
       case 'CLOSE':

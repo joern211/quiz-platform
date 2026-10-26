@@ -1,4 +1,4 @@
-import type { ContentItemView, ContentPoolView, ContentBatchSchema, ContentTemplateView, ContentPlaytestView, ContentDifficultyPlan, ContentDifficultyPresetView } from '@quiz/shared';
+import type { ContentItemView, ContentPoolView, ContentBatchSchema, ContentTemplateView, ContentPlaytestView, ContentDifficultyPlan, ContentDifficultyPresetView, SetupBlueprintView, SetupBlueprintInput } from '@quiz/shared';
 
 import type { z } from 'zod';
 
@@ -22,6 +22,10 @@ async function request<T>(path: string, method = 'GET', body?: unknown): Promise
   return json.data as T;
 }
 export const contentApi = {
+  setupBlueprints: (gameSlug: string) => request<SetupBlueprintView[]>(`/setup-blueprints?gameSlug=${encodeURIComponent(gameSlug)}`),
+  loadSetupBlueprint: (row: SetupBlueprintView) => request<{ blueprint: SetupBlueprintView }>(`/setup-blueprints/${encodeURIComponent(row.id)}/load`, 'POST', { revision: row.revision }),
+  saveSetupBlueprint: (blueprint: SetupBlueprintInput, row?: SetupBlueprintView) => request<{ blueprint: SetupBlueprintView }>(row ? `/setup-blueprints/${encodeURIComponent(row.id)}/save` : '/setup-blueprints', 'POST', { commandId: crypto.randomUUID(), ...(row ? { revision: row.revision } : {}), blueprint }),
+  archiveSetupBlueprint: (row: SetupBlueprintView) => request(`/setup-blueprints/${encodeURIComponent(row.id)}/archive`, 'POST', { commandId: crypto.randomUUID(), revision: row.revision }),
   difficultyPresets: (gameSlug: string) => request<ContentDifficultyPresetView[]>(`/difficulty-presets?gameSlug=${encodeURIComponent(gameSlug)}`),
   saveDifficultyPreset: (gameSlug: string, name: string, plan: ContentDifficultyPlan) => request<{ preset: ContentDifficultyPresetView }>('/difficulty-presets', 'POST', { commandId: crypto.randomUUID(), preset: { gameSlug, name, plan } }),
   archiveDifficultyPreset: (preset: ContentDifficultyPresetView) => request(`/difficulty-presets/${encodeURIComponent(preset.id)}/archive`, 'POST', { commandId: crypto.randomUUID(), revision: preset.revision }),

@@ -1,7 +1,7 @@
 import { ContentDifficultyPlan } from './ContentDifficultyPlan';
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { ContentDifficultyPlanSchema, contentDifficultySequence, type ContentDifficultyPlan as DifficultyPlan, type ContentPoolView } from '@quiz/shared';
+import { ContentSelectionSchema, ContentDifficultyPlanSchema, contentDifficultySequence, type ContentDifficultyPlan as DifficultyPlan, type ContentPoolView } from '@quiz/shared';
 import { contentApi } from '../lib/contentApi';
 
 export interface ContentSelectionOptions { language: string; difficulty: string; category: string; repeatRule: string; tagIds: string[]; poolCounts?: Record<string, number>; difficultyPlan?: DifficultyPlan }
@@ -10,8 +10,8 @@ export function contentSelectionPayload(poolIds: string[], count: number, option
   const total = options.poolCounts ? Object.values(options.poolCounts).reduce((sum, n) => sum + n, 0) : count;
   if (options.difficultyPlan) { const parsed = ContentDifficultyPlanSchema.safeParse(options.difficultyPlan); if (!parsed.success) throw new Error(parsed.error.issues[0].message);
     try { contentDifficultySequence(parsed.data, total); } catch { throw new Error(`Die Schwierigkeitsbereiche müssen genau die Fragen 1 bis ${total} abdecken.`); } }
-  return { poolIds, count: options.poolCounts ? Object.values(options.poolCounts).reduce((sum, n) => sum + n, 0) : count,
-    ...options, difficulty: options.difficulty || undefined, category: options.category.trim() || undefined };
+  return ContentSelectionSchema.parse({ poolIds, count: options.poolCounts ? Object.values(options.poolCounts).reduce((sum, n) => sum + n, 0) : count,
+    ...options, difficulty: options.difficulty || undefined, category: options.category.trim() || undefined });
 }
 
 export function ContentPoolPicker({ gameSlug, selected, onChange, options, onOptionsChange, count = 10 }: { count?: number; gameSlug: string; selected: string[]; onChange: (ids: string[]) => void;

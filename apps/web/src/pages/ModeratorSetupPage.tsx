@@ -1,3 +1,7 @@
+import { SetupBlueprints } from '../components/SetupBlueprints';
+import { SetupRoomRules } from '../components/SetupRoomRules';
+import { blueprintRoomInput, roomSettingsAfterPin, ROOM_SETUP_DEFAULTS, type BlueprintApplication } from '../lib/setupBlueprints';
+import type { BlueprintRoomSettings, GamePresetConfiguration } from '@quiz/shared';
 import { ContentPoolPicker, DEFAULT_CONTENT_OPTIONS, contentSelectionPayload } from '../components/ContentPoolPicker';
 // ============================================================
 // Moderator Setup Page
@@ -9,6 +13,8 @@ import { Card, Button, Input } from '@quiz/ui';
 import styles from './ModeratorSetupPage.module.css';
 
 export function ModeratorSetupPage() {
+  const [roomExtra, setRoomExtra] = useState<BlueprintRoomSettings>({});
+  const [application, setApplication] = useState<BlueprintApplication | null>(null);
   const [contentPools, setContentPools] = useState<string[]>([]);
   const [contentOptions, setContentOptions] = useState(DEFAULT_CONTENT_OPTIONS);
   const { gameSlug } = useParams<{ gameSlug: string }>();
@@ -28,10 +34,15 @@ export function ModeratorSetupPage() {
   const idempotencyRef = useRef<string | null>(null);
 
   // Geo-specific setup
-  const [selectedQuestions] = useState<string[]>([]);
+  const [selectedQuestions, setSelectedQuestions] = useState<string[]>([]);
+  const [legacyPool, setLegacyPool] = useState<string | undefined>();
   const [questionCount, setQuestionCount] = useState(10);
   const [timerDuration, setTimerDuration] = useState(20);
 
+  const currentConfiguration = (): GamePresetConfiguration => ({ room: { ...ROOM_SETUP_DEFAULTS, ...roomExtra, maxPlayers, allowViewers }, setup: {
+    questionCount, timerDuration, ...(legacyPool ? { questionPoolId: legacyPool } : {}), ...(selectedQuestions.length ? { selectedQuestionIds: selectedQuestions } : {}),
+    ...(contentPools.length ? { contentSelection: contentSelectionPayload(contentPools, questionCount, contentOptions) } : {}),
+  } });
   const handleCreateRoom = async () => {
     if (loading) return;
     setLoading(true);
@@ -53,15 +64,8 @@ export function ModeratorSetupPage() {
           gameSlug,
           roomName: roomName || `${gameSlug} Raum`,
           pin: pin || undefined,
-          maxPlayers,
-          allowViewers,
+          ...blueprintRoomInput(currentConfiguration(), application),
           idempotencyKey: idempotencyRef.current,
-          setupSnapshotJson: JSON.stringify({
-            questionCount,
-            timerDuration,
-            selectedQuestionIds: selectedQuestions,
-            ...(contentPools.length ? { contentSelection: contentSelectionPayload(contentPools, questionCount, contentOptions) } : {}),
-          }),
         }),
       });
 
@@ -90,6 +94,15 @@ export function ModeratorSetupPage() {
         Konfiguriere den Raum und die Spieloptionen für {gameSlug}
       </p>
 
+      {(gameSlug === 'wissensduell' || gameSlug === 'geo') && <SetupBlueprints gameSlug="wissensduell" current={currentConfiguration} onApply={(configuration, applied) => {
+        setApplication(applied); setRoomExtra(configuration.room); setMaxPlayers(configuration.room.maxPlayers ?? 10); setAllowViewers(configuration.room.allowViewers ?? true);
+        setSelectedQuestions(configuration.setup.selectedQuestionIds ?? []); setLegacyPool(configuration.setup.questionPoolId);
+        setQuestionCount(configuration.setup.contentSelection?.count ?? configuration.setup.questionCount ?? 10); setTimerDuration(configuration.setup.timerDuration ?? 20);
+        const selection = configuration.setup.contentSelection; setContentPools(selection?.poolIds ?? []);
+        setContentOptions(selection ? { ...DEFAULT_CONTENT_OPTIONS, ...selection, difficulty: selection.difficulty ?? '', category: selection.category ?? '' } : DEFAULT_CONTENT_OPTIONS);
+        idempotencyRef.current = null;
+      }} />}
+      <SetupRoomRules pinPresent={!!pin} value={{ ...ROOM_SETUP_DEFAULTS, ...roomExtra, maxPlayers, allowViewers }} onChange={setRoomExtra} />
       <div className={styles.grid}>
         <Card padding="lg">
           <h2>Raumoptionen</h2>
@@ -106,7 +119,7 @@ export function ModeratorSetupPage() {
               label="PIN (optional)"
               type="password"
               value={pin}
-              onChange={(e) => setPin(e.target.value)}
+              onChange={(e) => { setPin(e.target.value); setRoomExtra(value => roomSettingsAfterPin(value, e.target.value)); }}
               placeholder="••••"
               maxLength={4}
               hint="4-stelliger Code für zusätzlichen Schutz"

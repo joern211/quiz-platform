@@ -207,3 +207,11 @@ ungesehenen Fragen. Echter Engine-/Snapshot-Nachweis,38 gezielte Servertests
 und123 Webtests grün. Vollständig482 Servertests, beide Builds/Typecheck
 grün; Lint0 Fehler/113 bestehende Warnungen. C6 ergänzt Browserweg. Vollständige Spiel-/Room-Vorlagen
 und BLIND_HOST bleiben offen; Einzelabnahme siehe ../pr18/handoff.md.
+
+## Punkt4 — Spiel-/Raumvorlagen lokal geschlossen, BLIND_HOST folgt
+
+Private versionierte/favorisierte Spiel-Presets der beiden Content-Editor-
+Spiele und System-/private Raumvorlagen sind verbunden, mit atomaren Grant-
+und CAS-Prüfungen, expliziten Overrides und unveränderten historischen Werten.
+484 Server/127 Web lokal grün; C7 ergänzt Browserabnahme. Details siehe PR18-
+Handoff. BLIND_HOST ist der nächste unmittelbar offene Teil. Kein Merge.

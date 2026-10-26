@@ -243,3 +243,30 @@ test('C6: setup validates exact difficulty counts, saves a private distribution 
     await expect(page).toHaveURL(/\/moderator\/raum\/\d{3}-\d{3}\/lobby$/);
   } finally { await context.close(); }
 });
+
+test('C7: complete preset and room template preserve settings, favorites and explicit overrides across reload and room creation', async ({ browser }) => {
+  const context = await browser.newContext();
+  try {
+    expect((await context.request.post(`${BASE}/api/v1/auth/e2e-token`, { data: { userId: 'mod-1' } })).status()).toBe(200);
+    const page = await context.newPage(), name = `Whole preset ${crypto.randomUUID()}`;
+    await page.goto(`${BASE}/moderator/vorbereitung/wissensduell`);
+    const view = page.getByRole('region', { name: 'Spiel- und Raumvorlagen' });
+    const viewers = page.getByRole('checkbox', { name: 'Zuschauer erlauben', exact: true }); if (await viewers.isChecked()) await viewers.uncheck();
+    await view.getByLabel('Presetname', { exact: true }).fill(name);
+    await view.getByRole('button', { name: 'Aktuelle Konfiguration als Preset speichern' }).click();
+    await expect(view.getByRole('option', { name: `${name} · V1`, exact: true })).toBeAttached();
+    await view.getByRole('button', { name: 'Als Favorit pinnen' }).click();
+    await expect(view.getByRole('option', { name: `★ ${name} · V2`, exact: true })).toBeAttached();
+    await page.reload(); await expect(page.getByRole('checkbox', { name: 'Zuschauer erlauben', exact: true })).toBeChecked();
+    await view.getByLabel('Spiel-Preset', { exact: true }).selectOption({ label: `★ ${name} · V2` });
+    page.once('dialog', d => d.accept()); await view.getByRole('button', { name: 'Übernehmen', exact: true }).click();
+    await expect(page.getByRole('checkbox', { name: 'Zuschauer erlauben', exact: true })).not.toBeChecked();
+    await view.getByLabel('Raumvorlage', { exact: true }).selectOption('system:room-private');
+    const template = view.getByRole('group', { name: 'Room Templates' }); page.once('dialog', d => d.accept()); await template.getByRole('button', { name: 'Übernehmen', exact: true }).click();
+    await page.getByRole('checkbox', { name: 'Zuschauer erlauben', exact: true }).check();
+    const created = page.waitForResponse(r => r.url().endsWith('/api/v1/rooms') && r.request().method() === 'POST');
+    await page.getByRole('button', { name: /Raum erstellen/ }).click(); const r = await created; expect(r.status()).toBe(201);
+    const room = (await r.json()).data; await expect(page).toHaveURL(new RegExp(`/moderator/raum/${room.code}/lobby$`));
+    const info = await context.request.get(`${BASE}/api/v1/rooms/${room.code}`); expect(await info.text()).not.toContain('setupBlueprintsJson');
+  } finally { await context.close(); }
+});

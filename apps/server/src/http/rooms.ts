@@ -1,3 +1,4 @@
+import { prepareBlueprintRoom, readSetupBlueprint, validateBlueprint } from '../content/setupBlueprints.js';
 import { readGameResult, publicResultView } from '../games/core/results.js';
 import { ContentError, contentActor, selectRoomContent, applyPinnedContent } from '../content/core.js';
 import { ZodError } from 'zod';
@@ -297,14 +298,15 @@ roomsRouter.post('/', createLimiter, async (req, res) => {
       include: { user: true },
     });
 
-    if (!session || session.revokedAt || session.expiresAt < new Date()) {
+    if (!session || session.revokedAt || session.expiresAt < new Date() || session.user.disabledAt) {
       return res.status(401).json({
         success: false,
         error: { code: 'SESSION_EXPIRED', message: 'Sitzung abgelaufen.' },
       });
     }
 
-    const parsed = validateBody(CreateRoomSchema, req.body, res);
+    const prepared = await prepareBlueprintRoom(prisma, { sessionId, userId: session.userId, role: session.user.role }, req.body);
+    const parsed = validateBody(CreateRoomSchema, prepared.input, res);
     if (!parsed) return;
 
     const {
@@ -419,6 +421,7 @@ roomsRouter.post('/', createLimiter, async (req, res) => {
       lobbyChatEnabled,
       isPublic: isPublic ?? true,
       roomPolicy: policy,
+      setupBlueprints: prepared.provenance,
     };
     const idemKey = idempotencyKey ?? computeRoomFingerprint(fpCfg);
     const existingRoom = await prisma.room.findFirst({
@@ -486,6 +489,9 @@ roomsRouter.post('/', createLimiter, async (req, res) => {
     let moderatorToken: string | null = null;
     try {
       room = await prisma.$transaction(async (tx) => {
+        await tx.$executeRaw`UPDATE sessions SET id = id WHERE 0`;
+        const currentActor = await contentActor(tx, sessionId);
+        for (const ref of prepared.refs) { const blueprint = await readSetupBlueprint(tx, currentActor, ref.id, ref.revision); if (blueprint.kind === 'GAME_PRESET') await validateBlueprint(tx, currentActor, blueprint); }
         // Server materializes authorized READY content; client-provided payloads
         // never become trusted engine snapshots.
         const contentItems = setupSnapshotJson.contentSelection === undefined ? [] : await selectRoomContent(tx,
@@ -506,6 +512,7 @@ roomsRouter.post('/', createLimiter, async (req, res) => {
             viewerLimit,
             lobbyChatEnabled,
             setupSnapshotJson: JSON.stringify(materializedSetup),
+            setupBlueprintsJson: prepared.provenance ? JSON.stringify(prepared.provenance) : null,
             setupSchemaVersion: roomSetupSchemaVersion,
             isPublic: isPublic ?? true,
             idempotencyKey: idemKey,
@@ -809,7 +816,7 @@ roomsRouter.delete('/:code', async (req, res) => {
       include: { user: true },
     });
 
-    if (!session || session.revokedAt || session.expiresAt < new Date()) {
+    if (!session || session.revokedAt || session.expiresAt < new Date() || session.user.disabledAt) {
       return res.status(401).json({
         success: false,
         error: { code: 'SESSION_EXPIRED', message: 'Sitzung abgelaufen.' },

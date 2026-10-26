@@ -1838,3 +1838,27 @@ export interface ContentPlaytestView {
   warnings: Array<{ path: string; message: string }>; ownAnswer: string | null; ownReport: boolean;
   reports: Array<{ position: number; message: string; createdAt: string }>;
 }
+
+// Reusable setup configurations contain settings and content intent, never PINs or session tokens.
+export const BlueprintRoomSettingsSchema = z.object({
+  maxPlayers: z.number().int().min(2).max(100).optional(), cameraEnabled: z.boolean().optional(), allowViewers: z.boolean().optional(),
+  viewerRequiresPin: z.boolean().optional(), viewerLimit: z.number().int().min(0).max(500).optional(), lobbyChatEnabled: z.boolean().optional(), isPublic: z.boolean().optional(), roomPolicy: RoomPolicySchema.optional(),
+}).strict();
+const blueprintClue = z.object({ value: z.number().int().positive().max(100000), question: z.string().max(10000), answer: z.string().max(10000) }).strict();
+const blueprintBoard = z.object({ categories: z.array(z.object({ name: z.string().max(100), clues: z.array(blueprintClue).min(1).max(20) }).strict()).min(1).max(6) }).strict();
+export const BlueprintGameSetupSchema = z.object({
+  contentSelection: ContentSelectionSchema.optional(), questionCount: z.number().int().min(1).max(100).optional(), timerDuration: z.number().int().min(1).max(3600).optional(),
+  selectedQuestionIds: z.array(z.string().min(1).max(128)).max(100).optional(), questionPoolId: z.string().min(1).max(128).optional(), board1: blueprintBoard.optional(), board2: blueprintBoard.optional(),
+}).strict();
+export const GamePresetConfigurationSchema = z.object({ room: BlueprintRoomSettingsSchema.default({}), setup: BlueprintGameSetupSchema }).strict();
+export const RoomTemplateConfigurationSchema = z.object({ room: BlueprintRoomSettingsSchema.default({}), language: ContentLanguageSchema.optional(), preferredGamePresetIds: z.array(z.string().min(1).max(128)).max(20).default([]) }).strict();
+export const SetupBlueprintInputSchema = z.discriminatedUnion('kind', [
+  z.object({ kind: z.literal('GAME_PRESET'), gameSlug: ContentGameSchema, name: z.string().trim().min(1).max(150), favorite: z.boolean().default(false), configuration: GamePresetConfigurationSchema }).strict(),
+  z.object({ kind: z.literal('ROOM_TEMPLATE'), gameSlug: z.null().default(null), name: z.string().trim().min(1).max(150), favorite: z.boolean().default(false), configuration: RoomTemplateConfigurationSchema }).strict(),
+]);
+export type GamePresetConfiguration = z.infer<typeof GamePresetConfigurationSchema>;
+export type BlueprintRoomSettings = z.infer<typeof BlueprintRoomSettingsSchema>;
+export type SetupBlueprintInput = z.infer<typeof SetupBlueprintInputSchema>;
+export type SetupBlueprintView = SetupBlueprintInput & { id: string; revision: number; scope: 'SYSTEM' | 'PRIVATE' };
+export const SetupBlueprintRefSchema = z.object({ id: z.string().min(1).max(128), revision: z.number().int().positive() }).strict();
+export type SetupBlueprintRef = z.infer<typeof SetupBlueprintRefSchema>;
