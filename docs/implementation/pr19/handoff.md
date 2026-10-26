@@ -56,3 +56,17 @@ fertig behauptet. Das Master-Regelwerk bleibt verbindlich; Paket5 ist in Arbeit.
 Technische Referenz: https://ffmpeg.org/ffmpeg-protocols.html,
 https://ffmpeg.org/ffmpeg-filters.html#loudnorm und
 https://ffmpeg.org/ffmpeg.html (-xerror).
+
+## Gegenprobe aus der vollständigen Browserregression
+
+376bc88: GitHub-CI mit505 Server-/132 Webtests grün; M1-Audiowiedergabe und
+weitere28 Browserfälle bestanden. C3 (zwei Editoren) zeigte eine echte
+Anwesenheits-Race: StrictMode kann active/cleanup/active mit demselben editorKey
+parallel senden. Ein verspätetes inactive löscht dann die neue Registrierung.
+Die Komponente serialisiert diese Requests jetzt über Effect-Lebenszyklen;
+eine verzögerte erste Antwort wird im StrictMode-UI-Test reproduziert. Keine
+Verlängerung des Browsertimeouts und kein Entfernen des C3-Nachweises.
+
+Lokale Gegenprobe nach der Korrektur:133/133 Webtests (26 Dateien), beide
+Builds und Typecheck grün. Der bisherige Unmount-Test wartet auf die jetzt
+geordnet asynchrone Abmeldung; seine inhaltliche Assertion bleibt erhalten.
