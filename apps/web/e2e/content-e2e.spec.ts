@@ -291,3 +291,24 @@ test('C8: blind setup persists across reload, blocks editor and export reads, an
     expect((await context.request.get(`${BASE}/api/v1/content/items/${item.id}/preview?role=HOST`)).status()).toBe(200);
   } finally { await context.close(); }
 });
+
+test('C9: guided quick setup completes seven steps, keeps explicit choices and reaches a real lobby', async ({ browser }) => {
+  const context = await browser.newContext();
+  try {
+    expect((await context.request.post(`${BASE}/api/v1/auth/e2e-token`, { data: { userId: 'mod-1' } })).status()).toBe(200);
+    const name = `Quick ${crypto.randomUUID()}`;
+    const p = await context.request.post(`${BASE}/api/v1/content/pools`, { data: { commandId: crypto.randomUUID(), gameSlug: 'wissensduell', name } }); expect(p.status()).toBe(201); const pool = (await p.json()).data;
+    const q = await context.request.post(`${BASE}/api/v1/content/pools/${pool.id}/items`, { data: { commandId: crypto.randomUUID(), item: { title: 'Quick', payload: { prompt: 'Quick question?', category: 'Test', options: [{ id: 'a', text: 'Ja' }, { id: 'b', text: 'Nein' }], correctOptionId: 'b' } } } }); expect(q.status()).toBe(201); const item = (await q.json()).data;
+    expect((await context.request.post(`${BASE}/api/v1/content/items/${item.id}/status`, { data: { commandId: crypto.randomUUID(), revision: 1, status: 'READY' } })).status()).toBe(200);
+    const page = await context.newPage(); await page.goto(`${BASE}/spiel/wissensduell`);
+    await page.getByRole('link', { name: 'Geführter Schnellstart', exact: true }).click(); await expect(page).toHaveURL(/\/moderator\/schnellstart\/wissensduell$/);
+    await page.getByRole('button', { name: 'Weiter', exact: true }).click(); await page.getByRole('checkbox', { name: `${name} · PRIVATE`, exact: true }).check();
+    await page.getByRole('button', { name: 'Weiter', exact: true }).click(); await page.getByRole('button', { name: 'Weiter', exact: true }).click();
+    await page.getByLabel('Anzahl Fragen', { exact: true }).fill('1'); await page.getByRole('button', { name: 'Zurück', exact: true }).click(); await page.getByRole('button', { name: 'Weiter', exact: true }).click(); await expect(page.getByLabel('Anzahl Fragen', { exact: true })).toHaveValue('1');
+    await page.getByRole('button', { name: 'Weiter', exact: true }).click(); await page.getByLabel('Antwortzeit (Sekunden)', { exact: true }).fill('15');
+    await page.getByRole('button', { name: 'Weiter', exact: true }).click(); await page.getByLabel('Maximale Spielerzahl', { exact: true }).fill('6');
+    await page.getByRole('button', { name: 'Weiter', exact: true }).click(); await expect(page.getByRole('region', { name: 'Vorbereitungsübersicht' })).toContainText('Fragen1');
+    const created = page.waitForResponse(r => r.url().endsWith('/api/v1/rooms') && r.request().method() === 'POST'); await page.getByRole('button', { name: 'Raum erstellen', exact: true }).click(); const response = await created; expect(response.status()).toBe(201);
+    const room = (await response.json()).data; await expect(page).toHaveURL(new RegExp(`/moderator/raum/${room.code}/lobby$`));
+  } finally { await context.close(); }
+});

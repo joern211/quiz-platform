@@ -2,7 +2,8 @@
 
 Master-Regelwerk 28.09.2026, §6. Dieses Dokument ist eine aktuelle
 Implementierungsabgrenzung, keine pauschale Erfüllungserklärung für §6.
-Punkt4 des autorisierten Fünf-Schritte-Plans bleibt in Arbeit.
+Die konkret benannten offenen Vorlagen-, BLIND_HOST- und Schnellstart-Wege
+sind implementiert. Nachfolgende Cores bleiben separat abgegrenzt.
 
 | Bereich | Reales Verhalten | Nachweis / Grenze |
 |---|---|---|
@@ -15,12 +16,10 @@ Punkt4 des autorisierten Fünf-Schritte-Plans bleibt in Arbeit.
 | Public Review | Quellen-/Lizenz-/READY-Gate, Pool-Sperre, nur ADMIN final; Gameplay-Vorschlag lässt publiziertes Original bis Entscheidung unverändert | echte HTTP-/DB-Reapproval-Fälle, C2-Browser von Dateiimport bis ADMIN-Freigabe |
 | Spieler-Korrekturen | stabile Teilnehmer-ID + Rejoin-Token; nur gespeicherte Auflösungs-Evidenz; Vorschlag/Inbox, Owner-/Admin-Entscheid | zwei echte Engine-Consumer; vor Reveal leer, künftige Fragen verborgen, falsche Tokens/Expired verweigert; alte Snapshots bleiben erhalten |
 | Qualität / Kommentare / Locks | konkrete Status-Counts/Gründe, Inbox, interne Kommentar-Endpunkte, manuelle und Review-Sperren | HTTP/DB-Nachweis; Kommentar-/Lock-/Usage-UI ist angebunden; empirische Statistik folgt separat |
-| Browser / Regression | Alle bisherigen25 Browserfälle bleiben aktiv; C6 ergänzt Schwierigkeitsvorlage/Setup | Aktueller CI/E2E-Head ist verbindlich; Ergebnisse älterer Heads gelten nicht automatisch für neue Commits |
+| Browser / Regression | 29 Browserfälle aktiv; C6 Difficulty, C7 vollständige Vorlagen, C8 BLIND_HOST, C9 Schnellstart | Aktueller CI/E2E-Head ist verbindlich; Ergebnisse älterer Heads gelten nicht automatisch für neue Commits |
 
-## Noch konkret offen
+## Nachfolgende Cores und optionale Erweiterungen
 
-- Ein eigener geführter Quick-Setup-Ablauf (§6.51); die bestehenden erweiterten
-  Setup-Seiten sind bereits mit Spiel-/Raumvorlagen und BLIND_HOST verbunden.
 - Eigene nachfolgende Cores: vollständige Übersetzungsentitäten/zentraler UI-
   Sprachwechsel, empirische Content-Statistiken sowie Betriebs-Retention/Quotas.
 - Vollständige Audio-Decodierung/Normalisierung und erweiterte Medienfelder
@@ -69,7 +68,7 @@ behauptet. Laufzeitdaten/History bekommen keine rückwirkende Secretfreigabe.
 
 SYSTEM-Quickvorlagen und eigene Fragevorlagen erzeugen neue DRAFTs mit
 Revision-/Receipt-/Ownership-Grenzen für beide unterstützten Spiele.
-Spiel-Presets und Room-Templates sind dadurch noch nicht implementiert.
+Vollständige Spiel-Presets und Room-Templates sind separat unten ergänzt.
 Prüfaufgaben sind versionsgebunden und geben beim Abschluss nichts frei.
 Die Einzelprüfung besitzt Original/Vorschlag, Skip/Next, Begründung,
 Tastaturbefehle und kontogebundenen Cursor. C4 ergänzt den realen Browserweg.
@@ -111,7 +110,7 @@ Jeopardy unterstützt Prozentverteilungen; lineare Rundenverläufe würden die
 Boardreihenfolge falsch abbilden und werden dort ausdrücklich abgewiesen.
 
 Schwierigkeitsvorlagen speichern keine vollständigen Spielkonfigurationen.
-Spiel-Presets/Room-Templates bleiben separate offene Arbeit. C6 ergänzt den
+Spiel-Presets/Room-Templates sind separat unten implementiert. C6 ergänzt den
 Browserweg vom Verlauf über eigene Vorlage zur echten Raumerstellung.
 
 ## Ergänzung: Spiel-Presets und Raumvorlagen
@@ -126,8 +125,8 @@ keine laufende Partie. GAME_PRESET-Herkunft ist im echten Start nachgewiesen.
 
 Die Aufnahme von weiteren Medien-/Voice-/Display-Feldern richtet sich nach deren
 verfügbaren Cores. Eine Vorlage schaltet keine bisher nicht implementierte
-Funktion frei. C7 ergänzt den realen Browserweg. BLIND_HOST bleibt bis zum
-separaten abschließenden Nachweis noch gesperrt.
+Funktion frei. C7 ergänzt den realen Browserweg; BLIND_HOST folgt im
+separaten Nachweis unten.
 
 ## Ergänzung: BLIND_HOST
 
@@ -144,4 +143,23 @@ Sechs echte DB/HTTP/Socket-Fälle decken diese Grenzen und die Freigabe nach Clo
 ab. Normales HOST_PREVIEW bleibt verfügbar. Bereits gelerntes Vorwissen oder
 Absprachen außerhalb der Anwendung sind kein durch Software löschbares Wissen.
 Wer-ist-das wird nicht fälschlich als BLIND_HOST-fähiger Content-Editor beworben.
-C8 ergänzt den UI-Weg; exakte Browserabnahme am nachfolgenden Head noch offen.
+C8 ergänzt den UI-Weg. Head85f4ae4: GitHub-CI und alle28 Browserfälle grün
+(Run40252335244). Der zusätzliche echte RESTORE_REPLAY-Fall prüft einen
+absichtlich beschädigten Zustand, den wiederhergestellten Pausezustand und
+die weiterhin gefilterte Hostprojektion vor regulärem Reveal.
+
+
+## Ergänzung: geführter Schnellstart (§6.51)
+
+Sieben Schritte für Wissensduell/Jeopardy: Spiel, Pools/Themen, Difficulty,
+Fragen/Runden, zentrale Optionen, Teams/Spieler, Prüfung/Raumerstellung.
+Bestehende Schemas, Poolfilter und Raumvorlagen werden gemeinsam verwendet.
+Explizite Werte bleiben beim Zurückgehen und bei späteren Defaultänderungen
+erhalten. Manuelle Board-Presets verweisen ausdrücklich zur erweiterten
+Vorbereitung. Der normale serverseitige Snapshot-/Preflight-Pfad bleibt gültig.
+Doppelklick ist gesperrt; ein unbestätigter Netzwerkfehler wird mit demselben
+Idempotenzschlüssel wiederholt. Geänderte Vorbereitung erzeugt einen neuen.
+
+132 Webtests inklusive vollständigem Ablauf und Netzwerk-Retry sind lokal
+grün. C9 führt durch alle Schritte zu einer echten Lobby. Die abschließende
+CI-/Browserprüfung am neuen Head wird im PR festgehalten.

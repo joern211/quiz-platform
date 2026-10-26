@@ -17,6 +17,7 @@ import { socketIdentityMap } from '../http/middleware/auth.js';
 import { contentMediaUrl } from './media.js';
 import { buildSignedMediaUrl } from '../media/signedUrl.js';
 import { ContentSelectionSchema } from '@quiz/shared';
+import { ensureGameStateSafe } from '../games/core/recovery.js';
 
 let dir: string, db: PrismaClient, previous: PrismaClient | undefined, app: ReturnType<typeof createApp>, origin: string;
 const rooms: string[] = [];
@@ -66,7 +67,7 @@ it('requires RANDOM-only and excludes a parallel room oracle, while keeping host
   expect((await f.create({ ...f.selection, visibility: 'HOST_PREVIEW' })).status).toBe(409);
   const info = await supertest(app.app).get(`/api/v1/rooms/${created.body.data.code}`).set('Cookie', f.cookie); expect(info.body.data.contentVisibility).toBe('BLIND_HOST'); expect(JSON.stringify(info.body)).not.toMatch(/BLIND_PROMPT|BLIND_SECRET/);
 });
-it('hides solutions and answer statistics through real quiz events, pause, authenticated rejoin and the persisted projection', async () => {
+it('hides solutions and answer statistics through real quiz events, pause, authenticated rejoin and committed replay recovery', async () => {
   const f = await fixture(), { room, host, players } = await start(f); let rejoined: Awaited<ReturnType<typeof connectGameClient>> | undefined;
   const player = await connectGameClient(origin); const privateAnswers: unknown[] = []; host.on('geo:answered:moderator', p => privateAnswers.push(p));
   try {
@@ -78,6 +79,14 @@ it('hides solutions and answer statistics through real quiz events, pause, authe
     host.disconnect(); rejoined = await connectGameClient(origin, f.cookie); await gameAck(rejoined, 'room:subscribe', { roomCode: room.code });
     const resumed = await gameAck(rejoined, 'geo:resync', {}); expect(resumed.phase).toBe('PAUSED'); expect(JSON.stringify(resumed)).not.toMatch(/correctOptionId|BLIND_SECRET|answerStats/);
     const durable = new PrismaClient({ datasourceUrl: `file:${join(dir, 'test.db')}` }); try { expect((await durable.room.findUniqueOrThrow({ where: { id: room.id } })).contentVisibility).toBe('BLIND_HOST'); } finally { await durable.$disconnect(); }
+    const paused = await db.roomGameState.findUniqueOrThrow({ where: { roomId: room.id } });
+    await db.roomGameState.update({ where: { roomId: room.id }, data: { stateJson: '{broken' } });
+    await expect(ensureGameStateSafe(room.id)).rejects.toThrow('STATE_INVARIANT_FAILED');
+    const frozen = await db.roomGameState.findUniqueOrThrow({ where: { roomId: room.id } });
+    const recovered = await gameAck(rejoined, 'game:recovery:command', { roomCode: room.code, runIndex: 1, gameStateVersion: frozen.revision, commandId: randomUUID(), operation: 'RESTORE_REPLAY' });
+    expect(recovered.success, JSON.stringify(recovered)).toBe(true); expect(JSON.stringify(recovered)).not.toMatch(/correctOptionId|BLIND_SECRET|answerStats/);
+    expect(JSON.parse((await db.roomGameState.findUniqueOrThrow({ where: { roomId: room.id } })).stateJson)).toEqual(JSON.parse(paused.stateJson));
+    const repairedProjection = await gameAck(rejoined, 'geo:resync', {}); expect(repairedProjection.phase).toBe('PAUSED'); expect(repairedProjection.blindHost).toBe(true); expect(JSON.stringify(repairedProjection)).not.toMatch(/correctOptionId|BLIND_SECRET|answerStats/);
     expect((await gameAck(rejoined, 'game:resume', { roomCode: room.code, commandId: randomUUID() })).success).toBe(true);
     expect((await gameAck(rejoined, 'geo:reveal', { roomCode: room.code, commandId: randomUUID() })).success).toBe(true);
     expect((await gameAck(rejoined, 'geo:resync', {})).question).toHaveProperty('correctOptionId', 'b');

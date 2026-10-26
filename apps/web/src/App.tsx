@@ -17,6 +17,7 @@ import { CategoriesPage }  from './pages/CategoriesPage';
 import { CategoryPage }    from './pages/CategoryPage';
 import { GamePage }        from './pages/GamePage';
 import { ModeratorLoginPage }  from './pages/ModeratorLoginPage';
+import { QuickSetupPage } from './pages/QuickSetupPage';
 import { ModeratorSetupPage }  from './pages/ModeratorSetupPage';
 import { ModeratorLobbyPage }  from './pages/ModeratorLobbyPage';
 import { ModeratorGamePage }   from './pages/ModeratorGamePage';
@@ -74,6 +75,7 @@ export default function App() {
           <Route path="/inhalte/playtest/:code" element={<ContentPlaytestPage />} />
 
           {/* ── Moderator ── */}
+          <Route path="/moderator/schnellstart/:gameSlug" element={<QuickSetupPage />} />
           <Route path="/moderator/anmelden"                              element={<ModeratorLoginPage />} />
           <Route path="/moderator/vorbereitung/jeopardy"         element={<JeopardySetupPage />} />
           <Route path="/moderator/vorbereitung/wer-ist-das" element={<WerIstDasSetupPage />} />

@@ -11,7 +11,7 @@ export function SetupBlueprints({ gameSlug, current, onApply }: { gameSlug: stri
   useEffect(() => { let active = true; contentApi.setupBlueprints(gameSlug).then(data => { if (active) setRows(data); }, () => { if (active) setError('Vorlagen konnten nicht geladen werden.'); }); return () => { active = false; }; }, [gameSlug]);
   const run = async (work: () => Promise<void>) => { if (busy) return; setBusy(true); setError(''); try { await work(); } catch (e) { setError(e instanceof Error ? e.message : 'Vorlagenaktion fehlgeschlagen.'); } finally { setBusy(false); } };
   const replace = (value: SetupBlueprintView) => setRows(prior => [...prior.filter(r => r.id !== value.id), value]);
-  const apply = (nextGame: SetupBlueprintView | null, nextRoom: SetupBlueprintView | null) => { const result = blueprintConfiguration(current(), nextGame, nextRoom); setGame(nextGame); setTemplate(nextRoom); onApply(result.configuration, result.application); setNotice('Vorlage übernommen. Du kannst die Werte vor der Raumerstellung anpassen.'); };
+  const apply = (nextGame: SetupBlueprintView | null, nextRoom: SetupBlueprintView | null) => { const result = blueprintConfiguration(nextGame?.kind === 'GAME_PRESET' ? nextGame.configuration : current(), nextGame, nextRoom); onApply(result.configuration, result.application); setGame(nextGame); setTemplate(nextRoom); setNotice('Vorlage übernommen. Du kannst die Werte vor der Raumerstellung anpassen.'); };
   const load = (row: SetupBlueprintView) => run(async () => {
     const loaded = (await contentApi.loadSetupBlueprint(row)).blueprint;
     if (!window.confirm('Die vorbereiteten Einstellungen durch diese Vorlage ersetzen? Raumname und PIN bleiben erhalten.')) return;

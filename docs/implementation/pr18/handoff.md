@@ -513,3 +513,35 @@ Close. Die28 Browserfälle werden am nächsten Head geprüft. Kein Merge.
 Verbleibender konkreter UI-Punkt aus §6.51: eigener geführter Quick-Setup-Ablauf.
 Erweiterte i18n-/Statistik-/Retention- und optionale Custom-Field-/AI-/Publishing-
 Systeme bleiben ihren späteren Cores zugeordnet; kein pauschales §6-alles-DONE.
+
+
+## Vierzehnter Teil — geführter Schnellstart und abschließende Gegenproben
+
+BLIND_HOST-Head85f4ae4: GitHub-CI und28 Browserfälle erfolgreich
+(Run40252335244). Zusätzlich prüft der echte RESTORE_REPLAY-Command einen
+beschädigten Quiz-Zustand: exakter Pausezustand wird aus committed Events
+rekonstruiert; keine Lösung/Statistik im Ack oder Host-Resync; reguläres
+Resume/Reveal weiterhin möglich. Alle sechs Blind-Integrationsfälle grün.
+
+Schnellstart für beide Editor-Spiele hat sieben Schritte und verwendet die
+bestehenden Content-/Raum-/Vorlagenverträge. Unveränderte Defaults passen sich
+an Spielerzahl an; explizite Fragenzahl und alle Rücknavigationen bleiben
+erhalten. Finale Prüfung, stabile Retry-Identität und Doppelklickschutz führen
+über die normale Raumerstellung in die Lobby. Kein vorgezogener Spielstart.
+Manuelle Board-Presets werden nicht still in einen anderen Modus umgewandelt.
+Ein gültiges geladenes Preset ersetzt auch eine derzeit ungültige lokale
+Vorbereitung; die Übernahme wird erst nach erfolgreichem Apply bestätigt.
+
+Lokal131/132 Webtests (25 Dateien), beide Builds/Typecheck grün; Lint0 Fehler
+bei113 bestehenden Warnungen. C9 ergänzt die29. Browserabnahme. Finale GitHub-
+Ergebnisse stehen im PR. Die konkret benannten drei Lücken sind implementiert;
+spätere Cores und optionale Erweiterungen stehen in acceptance.md.
+Draft-PR18 bleibt auf PR17 gestapelt und wird nicht gemergt.
+
+Die Abschlussprüfung fand außerdem eine echte Override-Lücke: geladene
+ContentSelection-Objekte konnten alte poolIds/count als zusätzliche Laufzeit-
+Felder in options tragen. Die Payload setzt aktuelle Poolauswahl und Fragenzahl
+jetzt nach diesen Optionen. Eine dritte vollständige Wizard-Gegenprobe lädt
+ein Preset, ändert die Fragenzahl und prüft den tatsächlich gesendeten Override.
+C9 prüft auch den Einstieg über die Spielseite, ohne Klickweiterleitung in die
+erweiterte Vorbereitung. Insgesamt132 Webtests und29 Browserfälle aktiv.

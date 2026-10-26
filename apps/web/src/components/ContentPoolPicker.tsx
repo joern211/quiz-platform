@@ -10,11 +10,11 @@ export function contentSelectionPayload(poolIds: string[], count: number, option
   const total = options.poolCounts ? Object.values(options.poolCounts).reduce((sum, n) => sum + n, 0) : count;
   if (options.difficultyPlan) { const parsed = ContentDifficultyPlanSchema.safeParse(options.difficultyPlan); if (!parsed.success) throw new Error(parsed.error.issues[0].message);
     try { contentDifficultySequence(parsed.data, total); } catch { throw new Error(`Die Schwierigkeitsbereiche müssen genau die Fragen 1 bis ${total} abdecken.`); } }
-  return ContentSelectionSchema.parse({ poolIds, count: options.poolCounts ? Object.values(options.poolCounts).reduce((sum, n) => sum + n, 0) : count,
-    ...options, difficulty: options.difficulty || undefined, category: options.category.trim() || undefined });
+  return ContentSelectionSchema.parse({ ...options, poolIds, count: total,
+    difficulty: options.difficulty || undefined, category: options.category.trim() || undefined });
 }
 
-export function ContentPoolPicker({ gameSlug, selected, onChange, options, onOptionsChange, count = 10 }: { count?: number; gameSlug: string; selected: string[]; onChange: (ids: string[]) => void;
+export function ContentPoolPicker({ gameSlug, selected, onChange, options, onOptionsChange, count = 10, view = 'all' }: { view?: 'all' | 'pools' | 'filters'; count?: number; gameSlug: string; selected: string[]; onChange: (ids: string[]) => void;
   options?: ContentSelectionOptions; onOptionsChange?: (options: ContentSelectionOptions) => void }) {
   const [pools, setPools] = useState<ContentPoolView[]>([]), [error, setError] = useState('');
   const [tags, setTags] = useState<Awaited<ReturnType<typeof contentApi.tags>>>([]);
@@ -28,13 +28,13 @@ export function ContentPoolPicker({ gameSlug, selected, onChange, options, onOpt
     <legend>Fragen aus deinen Pools</legend>
     {error && <p role="status">{error}</p>}
     {!error && !pools.length && <p>Noch keine Pools vorhanden.</p>}
-    {pools.map(pool => <label key={pool.id} style={{ display: 'flex', alignItems: 'center', gap: '.5rem', minHeight: 44 }}>
+    {view !== 'filters' && pools.map(pool => <label key={pool.id} style={{ display: 'flex', alignItems: 'center', gap: '.5rem', minHeight: 44 }}>
       <input type="checkbox" checked={selected.includes(pool.id)} onChange={e => {
         const ids = e.target.checked ? [...selected, pool.id] : selected.filter(id => id !== pool.id); onChange(ids);
         if (options?.poolCounts && onOptionsChange) onOptionsChange({ ...options, poolCounts: Object.fromEntries(ids.map(id => [id, options.poolCounts?.[id] ?? 1])) });
       }} />{pool.name} · {pool.scope}
     </label>)}
-    {!!selected.length && options && onOptionsChange && <>
+    {view !== 'pools' && !!selected.length && options && onOptionsChange && <>
       <label style={{ display: 'grid', gap: 4, marginBlock: 12 }}>Inhaltssprache<select value={options.language} onChange={e => onOptionsChange({ ...options, language: e.target.value })}>{['de-DE', 'en-US', 'tr-TR'].map(l => <option key={l}>{l}</option>)}</select></label>
       <label style={{ display: 'grid', gap: 4, marginBlock: 12 }}>Schwierigkeitsfilter<select disabled={!!options.difficultyPlan} value={options.difficulty} onChange={e => onOptionsChange({ ...options, difficulty: e.target.value })}><option value="">Alle Schwierigkeiten</option>{['VERY_EASY', 'EASY', 'MEDIUM', 'HARD', 'VERY_HARD'].map(d => <option key={d}>{d}</option>)}</select></label>
       <label style={{ display: 'grid', gap: 4, marginBlock: 12 }}>Inhaltssicht des Hosts<select aria-label="Inhaltssicht des Hosts" value={options.visibility ?? 'HOST_PREVIEW'} onChange={e => {

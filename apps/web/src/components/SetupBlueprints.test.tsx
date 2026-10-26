@@ -49,3 +49,12 @@ it('switches an explicitly confirmed manual selection to RANDOM-only when enabli
   await userEvent.selectOptions(screen.getByLabelText('Inhaltssicht des Hosts', { exact: true }), 'BLIND_HOST');
   expect(window.confirm).toHaveBeenCalled(); expect(change).toHaveBeenCalledWith(expect.objectContaining({ visibility: 'BLIND_HOST', mode: 'RANDOM', itemIds: [] }));
 });
+
+it('can explicitly replace an invalid local setup with a valid saved preset', async () => {
+  vi.spyOn(contentApi, 'setupBlueprints').mockResolvedValue([preset]); vi.spyOn(contentApi, 'loadSetupBlueprint').mockResolvedValue({ blueprint: preset }); vi.spyOn(window, 'confirm').mockReturnValue(true);
+  const apply = vi.fn(); render(<SetupBlueprints gameSlug="wissensduell" current={() => { throw new Error('Invalid local distribution'); }} onApply={apply} />);
+  await screen.findByRole('option', { name: 'Eigene Runde · V1' }); await userEvent.selectOptions(screen.getByLabelText('Spiel-Preset', { exact: true }), preset.id);
+  await userEvent.click(screen.getByRole('button', { name: 'Übernehmen' }));
+  expect(apply).toHaveBeenCalledWith(expect.objectContaining({ setup: current.setup }), expect.objectContaining({ gamePreset: { id: preset.id, revision: 1 } }));
+  expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+});
