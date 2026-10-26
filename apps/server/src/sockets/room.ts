@@ -1,3 +1,4 @@
+import { blindRoom } from '../content/blindHost.js';
 // ============================================================
 // Room Socket Events
 // ============================================================
@@ -236,7 +237,7 @@ async function subscribeInRoom(
     if (existingModPart) {
       const refreshedModerator = await prisma.participation.update({
         where: { id: existingModPart.id },
-        data: { connected: true, connectionId: socket.id, ready: true, lastSeenAt: new Date(), userId, hasSeenHostSecrets: true },
+        data: { connected: true, connectionId: socket.id, ready: true, lastSeenAt: new Date(), userId, ...(!blindRoom(room) ? { hasSeenHostSecrets: true } : {}) },
       });
       identity = {
         participationId: refreshedModerator.id,
@@ -256,7 +257,7 @@ async function subscribeInRoom(
           displayName,
           normalizedName: displayName.toLowerCase().trim(),
           role: 'HOST',
-          hasSeenHostSecrets: true,
+          hasSeenHostSecrets: !blindRoom(room),
           userId,
           connected: true,
           connectionId: socket.id,
@@ -302,6 +303,7 @@ async function subscribeInRoom(
     participationId: identity.participationId,
     roomId: identity.roomId,
     role: identity.role,
+    blindHost: blindRoom(room),
     displayName: identity.displayName,
   };
 
@@ -351,6 +353,7 @@ async function subscribeInRoom(
     revision: room.revision,
     serverTime: Date.now(),
     gameSlug: room.gameDefinition.slug,
+    contentVisibility: room.contentVisibility,
     // Include identity for client to store
     identity: {
       participationId: identity.participationId,

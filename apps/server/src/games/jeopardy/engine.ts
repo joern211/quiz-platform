@@ -283,7 +283,7 @@ export const handleJeopardyGame = {
     io.to(roomChannel(roomId)).emit('jeopardy:field:open', fieldOpenEvent);
 
     // Emit answer ONLY to the moderator socket (P0-07: sensitive data stays server→moderator)
-    if (auth.actor.role === 'HOST') socket.emit('jeopardy:answer:secret', {
+    if (auth.actor.role === 'HOST' && !auth.actor.blindHost) socket.emit('jeopardy:answer:secret', {
       categoryIndex: data.categoryIndex,
       value: data.value,
       answer: clue.answer,

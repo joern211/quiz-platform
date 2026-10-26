@@ -270,3 +270,24 @@ test('C7: complete preset and room template preserve settings, favorites and exp
     const info = await context.request.get(`${BASE}/api/v1/rooms/${room.code}`); expect(await info.text()).not.toContain('setupBlueprintsJson');
   } finally { await context.close(); }
 });
+
+test('C8: blind setup persists across reload, blocks editor and export reads, and releases the fence when the room closes', async ({ browser }) => {
+  const context = await browser.newContext();
+  try {
+    expect((await context.request.post(`${BASE}/api/v1/auth/e2e-token`, { data: { userId: 'admin-1' } })).status()).toBe(200);
+    const name = `Blind ${crypto.randomUUID()}`;
+    const p = await context.request.post(`${BASE}/api/v1/content/pools`, { data: { commandId: crypto.randomUUID(), gameSlug: 'wissensduell', name } }); expect(p.status()).toBe(201); const pool = (await p.json()).data;
+    const q = await context.request.post(`${BASE}/api/v1/content/pools/${pool.id}/items`, { data: { commandId: crypto.randomUUID(), item: { title: 'Blind UI', payload: { prompt: 'BLIND_BROWSER_PROMPT', category: 'Test', options: [{ id: 'a', text: 'Ja' }, { id: 'b', text: 'Nein' }], correctOptionId: 'b', explanation: 'BLIND_BROWSER_SECRET' } } } }); expect(q.status()).toBe(201); const item = (await q.json()).data;
+    expect((await context.request.post(`${BASE}/api/v1/content/items/${item.id}/status`, { data: { commandId: crypto.randomUUID(), revision: 1, status: 'READY' } })).status()).toBe(200);
+    const page = await context.newPage(); await page.goto(`${BASE}/moderator/vorbereitung/wissensduell`);
+    await page.getByRole('checkbox', { name: `${name} · PRIVATE`, exact: true }).check(); await page.getByRole('slider', { name: 'Anzahl Fragen' }).focus(); await page.keyboard.press('Home');
+    await page.getByLabel('Inhaltssicht des Hosts', { exact: true }).selectOption('BLIND_HOST');
+    const created = page.waitForResponse(r => r.url().endsWith('/api/v1/rooms') && r.request().method() === 'POST'); await page.getByRole('button', { name: /Raum erstellen/ }).click(); const response = await created; expect(response.status()).toBe(201); const room = (await response.json()).data;
+    await page.reload(); await expect(page.getByRole('status').filter({ hasText: 'Blindmoderation: Lösungen erst nach Auflösung' })).toBeVisible();
+    const info = await context.request.get(`${BASE}/api/v1/rooms/${room.code}`); expect(await info.text()).not.toContain('BLIND_BROWSER_SECRET'); expect((await info.json()).data.contentVisibility).toBe('BLIND_HOST');
+    expect((await context.request.get(`${BASE}/api/v1/content/items/${item.id}/preview?role=HOST&reveal=true`)).status()).toBe(403);
+    expect((await context.request.get(`${BASE}/api/v1/content/pools/${pool.id}/export?format=JSON`)).status()).toBe(403);
+    expect((await context.request.delete(`${BASE}/api/v1/rooms/${room.code}`)).status()).toBe(200);
+    expect((await context.request.get(`${BASE}/api/v1/content/items/${item.id}/preview?role=HOST`)).status()).toBe(200);
+  } finally { await context.close(); }
+});

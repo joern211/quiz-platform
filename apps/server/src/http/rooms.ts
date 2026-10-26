@@ -1,3 +1,4 @@
+import { blindRoom, blindSetup, assertBlindRoomCreation } from '../content/blindHost.js';
 import { prepareBlueprintRoom, readSetupBlueprint, validateBlueprint } from '../content/setupBlueprints.js';
 import { readGameResult, publicResultView } from '../games/core/results.js';
 import { ContentError, contentActor, selectRoomContent, applyPinnedContent } from '../content/core.js';
@@ -108,7 +109,7 @@ async function ensureModeratorParticipation(
 ): Promise<{ id: string; rejoinToken: string } | null> {
   const room = await prisma.room.findUniqueOrThrow({ where: { id: roomId } });
   const existing = await prisma.participation.findFirst({ where: { roomId, role: 'HOST' } });
-  if (existing) return prisma.participation.update({ where: { id: existing.id }, data: { userId: room.hostUserId, hasSeenHostSecrets: true } });
+  if (existing) return prisma.participation.update({ where: { id: existing.id }, data: { userId: room.hostUserId, ...(!blindRoom(room) ? { hasSeenHostSecrets: true } : {}) } });
   if (await prisma.participation.findFirst({ where: { roomId, userId: room.hostUserId, role: { in: ['PLAYER', 'VIEWER'] }, kickedAt: null, leftAt: null } })) return null;
   const created = await prisma.participation.create({
     data: {
@@ -117,7 +118,7 @@ async function ensureModeratorParticipation(
       normalizedName: displayName.toLowerCase().trim(),
       role: 'HOST',
       userId: room.hostUserId,
-      hasSeenHostSecrets: true,
+      hasSeenHostSecrets: !blindRoom(room),
       connected: true,
       ready: true,
       rejoinToken: crypto.randomUUID(),
@@ -491,6 +492,7 @@ roomsRouter.post('/', createLimiter, async (req, res) => {
       room = await prisma.$transaction(async (tx) => {
         await tx.$executeRaw`UPDATE sessions SET id = id WHERE 0`;
         const currentActor = await contentActor(tx, sessionId);
+        await assertBlindRoomCreation(tx, currentActor.userId, blindSetup(setupSnapshotJson));
         for (const ref of prepared.refs) { const blueprint = await readSetupBlueprint(tx, currentActor, ref.id, ref.revision); if (blueprint.kind === 'GAME_PRESET') await validateBlueprint(tx, currentActor, blueprint); }
         // Server materializes authorized READY content; client-provided payloads
         // never become trusted engine snapshots.
@@ -513,6 +515,7 @@ roomsRouter.post('/', createLimiter, async (req, res) => {
             lobbyChatEnabled,
             setupSnapshotJson: JSON.stringify(materializedSetup),
             setupBlueprintsJson: prepared.provenance ? JSON.stringify(prepared.provenance) : null,
+            contentVisibility: blindSetup(materializedSetup) ? 'BLIND_HOST' : 'HOST_PREVIEW',
             setupSchemaVersion: roomSetupSchemaVersion,
             isPublic: isPublic ?? true,
             idempotencyKey: idemKey,
@@ -530,7 +533,7 @@ roomsRouter.post('/', createLimiter, async (req, res) => {
             displayName: session.user.displayName,
             normalizedName: session.user.displayName.toLowerCase().trim(),
             role: 'HOST',
-            hasSeenHostSecrets: true,
+            hasSeenHostSecrets: !blindSetup(materializedSetup),
             userId: session.userId,
             connected: true,
             ready: true,
@@ -595,7 +598,7 @@ roomsRouter.post('/', createLimiter, async (req, res) => {
     });
   } catch (error) {
     if (error instanceof ContentError || error instanceof ZodError) return res.status(error instanceof ContentError ? error.status : 400).json({ success: false,
-      error: { code: error instanceof ContentError ? error.code : 'INVALID_CONTENT_SELECTION', message: error instanceof ContentError && error.code === 'DIFFICULTY_CONTENT_NOT_READY' ? 'Nicht genügend freigegebene Fragen für diesen Schwierigkeitsverlauf und die gewählten Pool-Anzahlen. Bitte Auswahl oder Verlauf anpassen.' : error instanceof ContentError && error.code === 'DIFFICULTY_RANGE_COUNT' ? 'Die Schwierigkeitsbereiche müssen genau die gewählte Fragenzahl abdecken.' : 'Inhaltsauswahl prüfen.' } });
+      error: { code: error instanceof ContentError ? error.code : 'INVALID_CONTENT_SELECTION', message: error instanceof ContentError && error.code === 'BLIND_HOST_OTHER_ACTIVE_ROOM' ? 'Für Blindmoderation darf kein weiterer eigener Raum offen sein. Bitte schließe ihn zuerst.' : error instanceof ContentError && error.code === 'DIFFICULTY_CONTENT_NOT_READY' ? 'Nicht genügend freigegebene Fragen für diesen Schwierigkeitsverlauf und die gewählten Pool-Anzahlen. Bitte Auswahl oder Verlauf anpassen.' : error instanceof ContentError && error.code === 'DIFFICULTY_RANGE_COUNT' ? 'Die Schwierigkeitsbereiche müssen genau die gewählte Fragenzahl abdecken.' : 'Inhaltsauswahl prüfen.' } });
     logger.error('Failed to create room', { error });
     res.status(500).json({
       success: false,
@@ -680,6 +683,7 @@ roomsRouter.get('/:code', async (req, res) => {
         maxPlayers: room.maxPlayers,
         cameraEnabled: room.cameraEnabled,
         allowViewers: room.allowViewers,
+        contentVisibility: room.contentVisibility,
         game: room.gameDefinition,
         players: room.participations.map(p => ({
           id: p.id,

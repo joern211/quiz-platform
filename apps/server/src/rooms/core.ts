@@ -345,7 +345,7 @@ export async function mutateRoom(roomId: string, actor: RoomActor, op: RoomOpera
           roomId, runIndex: room.runIndex, gameDefinitionId: room.gameDefinitionId, engineVersion: room.gameState?.engineVersion,
           configSnapshotJson: room.gameConfigSnapshotJson, stateJson: room.gameState?.stateJson, scoresJson: JSON.stringify(room.participations.map(p => ({ id: p.id, displayName: p.displayName, score: p.score, teamId: p.teamId }))), teamsJson: JSON.stringify(room.teams),
         } });
-        let gameDefinitionId = room.gameDefinitionId, setupSnapshotJson = room.setupSnapshotJson, setupBlueprintsJson = room.setupBlueprintsJson;
+        let gameDefinitionId = room.gameDefinitionId, setupSnapshotJson = room.setupSnapshotJson, setupBlueprintsJson = room.setupBlueprintsJson, contentVisibility = room.contentVisibility;
         let contentSource = { roomId, runIndex: room.runIndex };
         if (op.type === 'SWITCH_GAME') {
           const game = await tx.gameDefinition.findUnique({ where: { slug: op.gameSlug } });
@@ -356,6 +356,7 @@ export async function mutateRoom(roomId: string, actor: RoomActor, op: RoomOpera
           if (!source && game.slug !== 'wissensduell') throw new RoomError('PREPARED_SETUP_REQUIRED');
           setupSnapshotJson = source?.setupSnapshotJson ?? '{}';
           setupBlueprintsJson = source?.setupBlueprintsJson ?? null;
+          contentVisibility = source?.contentVisibility ?? 'HOST_PREVIEW';
           contentSource = { roomId: source?.id ?? '', runIndex: source?.runIndex ?? 0 };
         }
         const contentSetup: Record<string, unknown> = JSON.parse(setupSnapshotJson);
@@ -374,7 +375,7 @@ export async function mutateRoom(roomId: string, actor: RoomActor, op: RoomOpera
         await tx.roomGameState.deleteMany({ where: { roomId } });
         await tx.participation.updateMany({ where: { roomId }, data: { score: 0, ready: false } });
         await tx.roomTeam.updateMany({ where: { roomId }, data: { score: 0 } });
-        await tx.room.update({ where: { id: roomId }, data: { status: 'LOBBY', runPhase: 'OPEN', lifecycle: 'LOBBY_OPEN', gameDefinitionId, setupSnapshotJson, setupBlueprintsJson, runIndex: { increment: 1 }, startedAt: null, endedAt: null, gameConfigSnapshotJson: null, configSchemaVersion: 0, liveConfigJson: null } });
+        await tx.room.update({ where: { id: roomId }, data: { status: 'LOBBY', runPhase: 'OPEN', lifecycle: 'LOBBY_OPEN', gameDefinitionId, setupSnapshotJson, setupBlueprintsJson, contentVisibility, runIndex: { increment: 1 }, startedAt: null, endedAt: null, gameConfigSnapshotJson: null, configSchemaVersion: 0, liveConfigJson: null } });
         break;
       }
       case 'CLOSE':
@@ -400,6 +401,7 @@ export async function roomView(roomId: string, actor: RoomActor): Promise<RoomCo
   const host = room.participations.find(p => p.userId === room.hostUserId || p.role === 'HOST');
   return {
     gameSlug: room.gameDefinition.slug,
+    contentVisibility: room.contentVisibility as 'HOST_PREVIEW' | 'BLIND_HOST',
     history: (await prisma.roomRun.findMany({ where: { roomId }, orderBy: { runIndex: 'desc' }, take: 20 })).map(run => ({ runIndex: run.runIndex, endedAt: run.endedAt.toISOString(), players: (JSON.parse(run.scoresJson) as Array<{ displayName: string; score: number }>).map(p => ({ displayName: p.displayName, score: p.score })) })),
     switchOptions: actor.userId === room.hostUserId ? (await prisma.room.findMany({ where: { hostUserId: room.hostUserId }, include: { gameDefinition: true }, orderBy: { createdAt: 'desc' }, take: 50 })).map(r => ({ id: r.id, roomName: r.roomName, gameSlug: r.gameDefinition.slug })) : [],
     revision: room.revision, lifecycle: lifecycle(room), policy: roomPolicy(room), scheduledAt: room.scheduledAt?.toISOString() ?? null,

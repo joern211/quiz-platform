@@ -310,6 +310,7 @@ model SetupDraft {
 
 model Room {
   setupBlueprintsJson String?
+  contentVisibility String @default("HOST_PREVIEW")
   id                 String   @id @default(uuid())
   code               String   @unique
   roomName           String

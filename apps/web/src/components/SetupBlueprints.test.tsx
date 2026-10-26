@@ -42,3 +42,10 @@ it('preserves PIN access when team or template rules are active, without storing
   expect(JSON.stringify(protectedRoom)).not.toContain('1234');
   expect(roomSettingsAfterPin(protectedRoom, '').roomPolicy?.playerAccess).toBe('PUBLIC_JOIN');
 });
+it('switches an explicitly confirmed manual selection to RANDOM-only when enabling blind moderation', async () => {
+  const { MemoryRouter } = await import('react-router-dom'); const { ContentPoolPicker, DEFAULT_CONTENT_OPTIONS } = await import('./ContentPoolPicker');
+  vi.spyOn(contentApi, 'pools').mockResolvedValue([]); vi.spyOn(contentApi, 'tags').mockResolvedValue([]); vi.spyOn(contentApi, 'difficultyPresets').mockResolvedValue([]); vi.spyOn(window, 'confirm').mockReturnValue(true);
+  const change = vi.fn(); render(<MemoryRouter><ContentPoolPicker gameSlug="wissensduell" selected={['p']} onChange={vi.fn()} options={{ ...DEFAULT_CONTENT_OPTIONS, mode: 'MANUAL', itemIds: ['q'] }} onOptionsChange={change} /></MemoryRouter>);
+  await userEvent.selectOptions(screen.getByLabelText('Inhaltssicht des Hosts', { exact: true }), 'BLIND_HOST');
+  expect(window.confirm).toHaveBeenCalled(); expect(change).toHaveBeenCalledWith(expect.objectContaining({ visibility: 'BLIND_HOST', mode: 'RANDOM', itemIds: [] }));
+});

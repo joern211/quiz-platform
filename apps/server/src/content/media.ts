@@ -1,3 +1,4 @@
+import { activeBlindHost } from './blindHost.js';
 import { createHmac, timingSafeEqual } from 'node:crypto';
 import { access } from 'node:fs/promises';
 import type { ContentItem } from '@prisma/client';
@@ -77,6 +78,7 @@ export async function canDeliverContentMedia(db: ContentDb, assetId: string, que
   }
   if (context.kind === 'EDITOR') {
     let actor: ContentActor; try { actor = await contentActor(db, sessionId); } catch { return false; }
+    if (await activeBlindHost(db, actor.userId)) return false;
     const item = await db.contentItem.findUnique({ where: { id: context.itemId }, include: { pool: true } });
     if (!item || item.revision !== context.revision || !canReadPool(item.pool, actor) || JSON.parse(item.payloadJson).mediaAssetId !== assetId) return false;
     if (!await db.contentMediaReference.count({ where: { itemId: item.id, assetId } })) return false;

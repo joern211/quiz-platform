@@ -14,26 +14,22 @@ Punkt4 des autorisierten Fünf-Schritte-Plans bleibt in Arbeit.
 | Import / Export | JSON1, CSV, XLSX; persistierte Preview; New/Exact/Similar/Conflict/Invalid; Entscheidungen pro Zeile/Tag; DRAFT-only, Stale-Fence, Receipts | Roundtrip in beiden Schemas; Formel-/Format-Ablehnung; keine Writes vor Commit; keine stillen Updates |
 | Public Review | Quellen-/Lizenz-/READY-Gate, Pool-Sperre, nur ADMIN final; Gameplay-Vorschlag lässt publiziertes Original bis Entscheidung unverändert | echte HTTP-/DB-Reapproval-Fälle, C2-Browser von Dateiimport bis ADMIN-Freigabe |
 | Spieler-Korrekturen | stabile Teilnehmer-ID + Rejoin-Token; nur gespeicherte Auflösungs-Evidenz; Vorschlag/Inbox, Owner-/Admin-Entscheid | zwei echte Engine-Consumer; vor Reveal leer, künftige Fragen verborgen, falsche Tokens/Expired verweigert; alte Snapshots bleiben erhalten |
-| Qualität / Kommentare / Locks | konkrete Status-Counts/Gründe, Inbox, interne Kommentar-Endpunkte, manuelle und Review-Sperren | HTTP/DB-Nachweis; weitere UI für Kommentar-/Lock-/Usage-Arbeit offen |
+| Qualität / Kommentare / Locks | konkrete Status-Counts/Gründe, Inbox, interne Kommentar-Endpunkte, manuelle und Review-Sperren | HTTP/DB-Nachweis; Kommentar-/Lock-/Usage-UI ist angebunden; empirische Statistik folgt separat |
 | Browser / Regression | Alle bisherigen25 Browserfälle bleiben aktiv; C6 ergänzt Schwierigkeitsvorlage/Setup | Aktueller CI/E2E-Head ist verbindlich; Ergebnisse älterer Heads gelten nicht automatisch für neue Commits |
 
-## Noch nicht DONE
+## Noch konkret offen
 
-- BLIND_HOST: bisher ausdrücklich nicht auswählbar. Erfordert vollständige
-  Informationsgrenzen über Pool-Lesewege, Start, Projektion, Host-Mitspiel,
-  Judge/Co-Host und Recovery; keine Freigabe nur wegen UI-Schalter.
-- Vollständige Spiel-Presets und Room-Templates, definierter Quick-Setup-
-  Ablauf und optionale erweiterte Feldmodelle. Schwierigkeitsvorlagen sind
-  unten getrennt von vollständigen Spielkonfigurationen beschrieben.
-- Übrige verbindliche §6-Detailabnahmen; die unten belegten Zusammenarbeit-,
-  Bulk-, Playtest- und Review-Wege sind implementiert.
-- Vollständige Übersetzungsentitäten und Content-Statistik-Regeln mit ihren
-  späteren Cores; die jetzige Sprachwahl ist kein vollständiges i18n-System.
-- Erweiterte Medienmodelle/Legacy-Optionsfelder sowie vollständige Audio-
-  Decodierung/Normalisierung. Die unten beschriebene Medienintegration
-  und additive Bestandsmigration sind implementiert.
-- Retention/Quotas/Cleanup mit dem Betriebs-Paket; keine automatische Löschung
-  historischer Daten oder unfreigegebener Drafts eingeführt.
+- Ein eigener geführter Quick-Setup-Ablauf (§6.51); die bestehenden erweiterten
+  Setup-Seiten sind bereits mit Spiel-/Raumvorlagen und BLIND_HOST verbunden.
+- Eigene nachfolgende Cores: vollständige Übersetzungsentitäten/zentraler UI-
+  Sprachwechsel, empirische Content-Statistiken sowie Betriebs-Retention/Quotas.
+- Vollständige Audio-Decodierung/Normalisierung und erweiterte Medienfelder
+  gehören zum Medien-/Voice-Paket. Optionale Custom-Felder, Feldsets, AI und
+  geplantes Publishing werden nicht als bereits implementiert behauptet.
+
+Die früher hier offenen Zusammenarbeit-, Bulk-, Medien-, Vorlagen-, Review-,
+Playtest-, Difficulty- und BLIND_HOST-Wege sind in den Ergänzungen unten mit
+ihren konkreten Nachweisen und Grenzen beschrieben.
 
 ## Wiederaufnahme
 
@@ -132,3 +128,20 @@ Die Aufnahme von weiteren Medien-/Voice-/Display-Feldern richtet sich nach deren
 verfügbaren Cores. Eine Vorlage schaltet keine bisher nicht implementierte
 Funktion frei. C7 ergänzt den realen Browserweg. BLIND_HOST bleibt bis zum
 separaten abschließenden Nachweis noch gesperrt.
+
+## Ergänzung: BLIND_HOST
+
+BLIND_HOST ist für zufällige Poolauswahl von Wissensduell/Jeopardy nutzbar.
+Persistierter Raummodus, aktuelle Rolle und serverseitige Projektionen gelten
+auch nach Pause/Rejoin/Recovery. Keine Lösungen oder privaten Antwortstatistiken
+vor tatsächlicher Auflösung; keine künftigen Items/Medien im Client. Manuelle
+Auswahl bleibt unzulässig. Die Grenzen umfassen zusätzlich Editor, Exporte,
+Draft-Setups, private Host-/Editor-URLs und ältere Playtest-Links. Andere eigene
+aktive Räume sind ausgeschlossen, um keine parallele Vorschau als Oracle zu
+öffnen. Bestehende Secret-Kenntnis wird nie durch einen Rollenwechsel gelöscht.
+
+Sechs echte DB/HTTP/Socket-Fälle decken diese Grenzen und die Freigabe nach Close
+ab. Normales HOST_PREVIEW bleibt verfügbar. Bereits gelerntes Vorwissen oder
+Absprachen außerhalb der Anwendung sind kein durch Software löschbares Wissen.
+Wer-ist-das wird nicht fälschlich als BLIND_HOST-fähiger Content-Editor beworben.
+C8 ergänzt den UI-Weg; exakte Browserabnahme am nachfolgenden Head noch offen.

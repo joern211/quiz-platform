@@ -1,3 +1,4 @@
+import { activeBlindHost, assertBlindEditorialAccess } from '../content/blindHost.js';
 // ============================================================
 // Media Router — Upload + geschützte Auslieferung
 //
@@ -53,6 +54,12 @@ export type { MediaUrlAudience };
 // ------------------------------------------------------------
 // (Signed-URL-Helfer leben jetzt in media/signedUrl.ts)
 // ------------------------------------------------------------
+
+mediaRouter.use(async (req, res, next) => {
+  if (req.method === 'GET') return next();
+  try { await assertBlindEditorialAccess(prisma, verifySession(req, config.sessionSecret)); next(); }
+  catch { res.status(403).json({ success: false, error: { code: 'BLIND_HOST_CONTENT_HIDDEN', message: 'Inhaltsmedien sind während deiner Blindmoderation gesperrt.' } }); }
+});
 
 // ------------------------------------------------------------
 // Upload-Storage
@@ -660,7 +667,7 @@ mediaRouter.get('/:id', async (req, res) => {
         // Originale: gültige, NICHT widerrufene, NICHT abgelaufene Session
         // + Host-Recht. Bloße Kenntnis von ID/Signatur genügt nicht.
         const session = await loadValidSession(req);
-        if (session && (asset.uploadedBy === session.userId
+        if (session && !await activeBlindHost(prisma, session.userId) && (asset.uploadedBy === session.userId
           || (asset.roomId ? await isRoomHost(asset.roomId, session.userId) : false))) {
           allowed = true;
         }

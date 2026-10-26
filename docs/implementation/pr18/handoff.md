@@ -472,3 +472,44 @@ Lint0 Fehler/113 bestehende Warnungen. C7 ergänzt den realen Vorlagenweg;
 
 Nächster unmittelbarer Teil: BLIND_HOST mit persistierter Informationsgrenze,
 RANDOM-only, Projektions-/Rejoin-/Recovery-/Editor-/Media-Fences und Gegenproben.
+
+## Dreizehnter Teil — BLIND_HOST mit echten Informationsgrenzen
+
+Vorlagenstand069bda3: vollständige GitHub-CI und27 Browserfälle erfolgreich
+(Run40250890079). Die Vorlage übernimmt keine PIN/Tokens und schaltet keine
+fehlenden Voice-/Display-Funktionen frei.
+
+Neu: persistierter contentVisibility-Modus am Raum. Neue Migration ist additiv,
+Bestand bleibt HOST_PREVIEW. BLIND_HOST ist nur für zufällige Content-Pool-
+Auswahl der beiden Editor-Spiele zulässig; keine manuellen IDs oder seedbasierte
+Rekonstruktion. UI bestätigt das Verwerfen einer geladenen manuellen Auswahl.
+Andere eigene aktive Räume sind ausgeschlossen, damit keine zweite Vorschau-
+Partie als Lösungsoracle dient. Idempotente Wiederaufnahme vorhandener Räume
+bleibt erhalten. Geschlossene/abgelaufene Räume halten keine Sperre.
+
+Moderationsrechte bleiben von Information getrennt. Quizantworten/Statistiken
+und Jeopardy-Lösungen fehlen vor Auflösung auch bei Pause, Rejoin und Resync.
+Raum-/Spielprojektionen sind Feld-Allowlisten. Die normale tatsächliche
+Auflösung gibt nur die aktuelle Lösung frei. Spätere Fragen/Medien bleiben
+serverseitig verborgen. Co-Host-/Kontrollrechte sind kein Host-Informationsrecht.
+Ein blinder Host kann eine getrennte PLAYER-Identität verwenden; einmaliges
+früheres Secretwissen wird beim Reconnect niemals zurückgesetzt.
+
+Während einer aktiven Blindmoderation sind Inhaltseditor, alte Draft-Setups,
+Exporte, Vorlagen mit Inhalten und private Host-/Editor-Medien geblockt. Schon
+vorher erzeugte Playtest-Capabilities des Hosts liefern dann ebenfalls nichts.
+Laufzeitmedien gelten weiter nur für die aktive gepinnte Frage. Raum schließen
+bzw. Spielende löst die temporäre Lesesperre. Metadaten der Pools bleiben
+verfügbar. Bereits vorher gelerntes menschliches Wissen ist nicht rückgängig
+zu machen; BLIND_HOST ist kein Versprechen gegen Vorwissen oder Absprachen.
+
+Nachweise: sechs echte HTTP-/DB-/Socket-Gegenproben, darunter beide Engines,
+Steal, Pause/Rejoin, separate PLAYER-Identität, bestehende Vorschau-/Media-/
+Playtest-Links und parallele Raum-Erstellung.490/490 Server (58 Dateien),
+128/128 Web (24 Dateien), beide Builds/Typecheck grün, Lint0 Fehler/113
+bestehende Warnungen. C8 ergänzt UI-Wahl, Reload, Lesesperre und Freigabe nach
+Close. Die28 Browserfälle werden am nächsten Head geprüft. Kein Merge.
+
+Verbleibender konkreter UI-Punkt aus §6.51: eigener geführter Quick-Setup-Ablauf.
+Erweiterte i18n-/Statistik-/Retention- und optionale Custom-Field-/AI-/Publishing-
+Systeme bleiben ihren späteren Cores zugeordnet; kein pauschales §6-alles-DONE.

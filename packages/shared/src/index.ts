@@ -537,7 +537,7 @@ export const GAME_MANIFESTS: GameManifestSpec[] = [
     hasTimer: true,
     setupSchemaVersion: 1,
     engineVersion: 1,
-    capabilities: ['TEAMS', 'LATE_JOIN', 'TEAM_RESHUFFLE', 'SUBMISSIONS', 'JUDGE', 'TIMER', 'CONTENT_POOLS', 'VIEWER'],
+    capabilities: ['TEAMS', 'LATE_JOIN', 'TEAM_RESHUFFLE', 'SUBMISSIONS', 'JUDGE', 'TIMER', 'CONTENT_POOLS', 'BLIND_HOST', 'VIEWER'],
     lateJoin: true,
     viewer: true,
     broadcast: false,
@@ -583,7 +583,7 @@ export const GAME_MANIFESTS: GameManifestSpec[] = [
     hasTimer: true,
     setupSchemaVersion: 1,
     engineVersion: 1,
-    capabilities: ['TEAMS', 'LATE_JOIN', 'TEAM_RESHUFFLE', 'BUZZER', 'JUDGE', 'TIMER', 'CONTENT_POOLS', 'VIEWER'],
+    capabilities: ['TEAMS', 'LATE_JOIN', 'TEAM_RESHUFFLE', 'BUZZER', 'JUDGE', 'TIMER', 'CONTENT_POOLS', 'BLIND_HOST', 'VIEWER'],
     lateJoin: true,
     viewer: true,
     broadcast: false,
@@ -1645,6 +1645,7 @@ export const RoomCommandSchema = z.object({
 export type RoomCommand = z.infer<typeof RoomCommandSchema>;
 
 export interface RoomCoreView {
+  contentVisibility?: 'HOST_PREVIEW' | 'BLIND_HOST';
   gameSlug: string;
   history: Array<{ runIndex: number; endedAt: string; players: Array<{ displayName: string; score: number }> }>;
   switchOptions: Array<{ id: string; roomName: string; gameSlug: string }>;
@@ -1795,8 +1796,9 @@ export const ContentSelectionSchema = z.object({
   poolCounts: z.record(z.number().int().min(0).max(100)).optional(),
   mode: z.enum(['RANDOM', 'MANUAL']).default('RANDOM'), itemIds: z.array(z.string().min(1).max(128)).max(100).default([]),
   repeatRule: z.enum(['NO_REPEAT_IN_ROOM', 'ALLOW_REPEATS', 'PREFER_UNSEEN']).default('NO_REPEAT_IN_ROOM'),
-  visibility: z.literal('HOST_PREVIEW').default('HOST_PREVIEW'),
-}).strict().refine(s => !s.difficultyPlan || !s.difficulty && s.mode === 'RANDOM', 'Schwierigkeitsverläufe erfordern Zufallsauswahl ohne einzelnen Schwierigkeitsfilter.');
+  visibility: z.enum(['HOST_PREVIEW', 'BLIND_HOST']).default('HOST_PREVIEW'),
+}).strict().refine(s => !s.difficultyPlan || !s.difficulty && s.mode === 'RANDOM', 'Schwierigkeitsverläufe erfordern Zufallsauswahl ohne einzelnen Schwierigkeitsfilter.')
+.refine(s => s.visibility !== 'BLIND_HOST' || s.mode === 'RANDOM' && s.itemIds.length === 0, 'Blindmoderation erfordert reine Zufallsauswahl.');
 export const CONTENT_TEMPLATES = {
   wissensduell: { title: '', payload: { prompt: '', category: 'Allgemeinwissen', options: [
     { id: 'a', text: '' }, { id: 'b', text: '' }, { id: 'c', text: '' }, { id: 'd', text: '' },

@@ -1,3 +1,4 @@
+import { blindRoom } from '../../content/blindHost.js';
 // ============================================================
 // Shared Game Authorization
 // Exact role + room membership checks for game actions.
@@ -20,6 +21,7 @@ export interface GameActor {
   participationId?: string;
   role: GameRole;
   displayName?: string;
+  blindHost?: boolean;
 }
 
 export type GameAuthorizationResult =
@@ -58,6 +60,7 @@ export function authorizeGameAction(
       participationId: identity.participationId,
       role: identity.role as GameRole,
       displayName: identity.displayName,
+      blindHost: socket.data.blindHost === true,
     },
   };
 }
@@ -86,6 +89,7 @@ export async function authorizeGameContext(
     where: { id: auth.actor.roomId }, include: { gameDefinition: true },
   });
   if (!room) return { ok: false, error: 'ROOM_NOT_FOUND' };
+  auth.actor.blindHost = blindRoom(room);
   if (auth.actor.role === 'HOST' && socket.data.userId !== room.hostUserId) {
     auth.actor.role = 'VIEWER';
     if (!options.roles.includes('VIEWER')) return { ok: false, error: 'FORBIDDEN' };

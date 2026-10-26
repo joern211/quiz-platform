@@ -49,12 +49,12 @@ export function projectGeoStateForClient(state: GeoState, actor: GameActor) {
     };
   }
   const round = state.roundStates[state.currentRoundIndex];
-  const audience = { role: actor.role, participantId: actor.participationId };
+  const audience = { role: actor.role, blindHost: actor.blindHost, participantId: actor.participationId };
   const own = canView(audience, { scope: 'PLAYER_PRIVATE', ownerParticipantId: actor.participationId }) && actor.participationId
     ? round?.playerStates[actor.participationId] : undefined;
   const revealed = round?.revealed ?? false;
   const answerStats: Record<string, number> = {};
-  if (actor.role === 'HOST') {
+  if (actor.role === 'HOST' && !actor.blindHost) {
     for (const player of Object.values(round?.playerStates ?? {})) {
       if (player.answered && player.selectedOptionId) {
         answerStats[player.selectedOptionId] = (answerStats[player.selectedOptionId] ?? 0) + 1;
@@ -72,7 +72,7 @@ export function projectGeoStateForClient(state: GeoState, actor: GameActor) {
       mediaUrl: roomContentMediaUrl(actor.roomId, state.contentRunIndex, round.question.id, round.question.mediaAssetId), imageUrl: round.question.imageUrl,
       options: round.question.options.map(option => ({ id: option.id, text: option.text,
         ...(option.label !== undefined ? { label: option.label } : {}), ...(option.imageUrl !== undefined ? { imageUrl: option.imageUrl } : {}) })),
-      ...((revealed || actor.role === 'HOST') ? { correctOptionId: visibleValue(audience,
+      ...((revealed || actor.role === 'HOST' && !actor.blindHost) ? { correctOptionId: visibleValue(audience,
         { scope: 'HOST_PRIVATE', publiclyRevealed: revealed }, () => state.questions[state.currentRoundIndex]?.correctOptionId) } : {}),
     } : null,
     recoveryError: state.recoveryError,
@@ -85,7 +85,7 @@ export function projectGeoStateForClient(state: GeoState, actor: GameActor) {
     ownJokers: own?.jokers ?? null,
     ownEliminatedOptions: own?.eliminatedOptions ?? [],
     ownSpyDistribution: own?.spyDistribution ?? null,
-    ...(actor.role === 'HOST' ? { answerStats } : {}),
+    ...(actor.role === 'HOST' && !actor.blindHost ? { answerStats } : {}),
   };
 }
 
@@ -104,7 +104,7 @@ export function registerGeoResync(_io: Server, socket: Socket): void {
       await ensureGameStateSafe(room.id);
       const loaded = await loadGameState<GeoState>(room.id);
       if (!loaded) { callback?.({ success: false, error: 'GAME_NOT_FOUND' }); return; }
-      callback?.(getGameEngineContract('wissensduell')!.createProjection({ state: loaded.state, setup: {}, actor: auth.actor, participants: [], stateVersion: loaded.revision }));
+      callback?.(getGameEngineContract('wissensduell')!.createProjection({ state: loaded.state, setup: JSON.parse(room.setupSnapshotJson ?? '{}'), actor: { ...auth.actor, blindHost: room.contentVisibility === 'BLIND_HOST' }, participants: [], stateVersion: loaded.revision }));
     } catch (error) {
       logger.error('geo:resync failed', { error });
       callback?.({ success: false, error: error instanceof Error && error.message === 'STATE_INVARIANT_FAILED' ? 'STATE_INVARIANT_FAILED' : 'INTERNAL_ERROR' });

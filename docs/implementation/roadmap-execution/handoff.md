@@ -215,3 +215,12 @@ Spiele und System-/private Raumvorlagen sind verbunden, mit atomaren Grant-
 und CAS-Prüfungen, expliziten Overrides und unveränderten historischen Werten.
 484 Server/127 Web lokal grün; C7 ergänzt Browserabnahme. Details siehe PR18-
 Handoff. BLIND_HOST ist der nächste unmittelbar offene Teil. Kein Merge.
+
+## Punkt4 — BLIND_HOST implementiert
+
+069bda3 (Spiel-/Raumvorlagen) vollständig CI/E2E-grün,27 Browserfälle.
+BLIND_HOST folgt mit persistiertem Modus, RANDOM-only, getrennten Kontroll-/
+Informationsrechten und Fences über Spiel, Rejoin, Editor, Exporte, alte Setups,
+Media und Playtest-Capabilities.490 Server/128 Web lokal grün, sechs echte
+Gegenproben und C8-Browserfall. Quick-Setup-Assistent ist noch offen; spätere
+Übersetzungs-/Statistik-/Betriebssysteme bleiben getrennt. Kein Merge.
