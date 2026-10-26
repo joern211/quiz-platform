@@ -70,3 +70,9 @@ Verlängerung des Browsertimeouts und kein Entfernen des C3-Nachweises.
 Lokale Gegenprobe nach der Korrektur:133/133 Webtests (26 Dateien), beide
 Builds und Typecheck grün. Der bisherige Unmount-Test wartet auf die jetzt
 geordnet asynchrone Abmeldung; seine inhaltliche Assertion bleibt erhalten.
+
+180080a: komplette CI mit505 Server-/133 Webtests grün. Browserjob blieb
+unverhältnismäßig lange in der FFmpeg-Paketinstallation; die Installation
+erhält deshalb begrenzte Netzwerk-Timeouts/Retry, fünf Minuten Step-Limit,
+noninteractive und keine empfohlenen Zusatzpakete. Produktcode unverändert.
+Finale genaue Browserabnahme wird im PR festgehalten.
