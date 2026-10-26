@@ -14,7 +14,7 @@ Spielregeln bleiben offen; bereits festgelegte Regeln nicht erneut abfragen.
 | 2 | Gemeinsame Spielaktionen / Rundensteuerung, Planplatz PR15 | abgeschlossen, a1b55eb; CI/E2E grün |
 | 3 | Results / Finalisierung / Recovery, Planplatz PR16 | abgeschlossen, 7316415; vollständige CI/E2E grün |
 | 4 | Content-Pools / Editor, anschließend Review / Import / Qualität | benannte Lücken geschlossen,2319154; CI +29/29 E2E grün; Grenzen in pr18/acceptance.md |
-| 5 | Audio / Voice, Kamera / Display; danach weitere Engines | in Arbeit, feature/pr19-media-voice; erster Teil echte Audioverarbeitung |
+| 5 | Audio / Voice, Kamera / Display; danach weitere Engines | implementiert; finale Abnahme am aktuellen PR19-Head maßgeblich, Details pr19/acceptance.md |
 
 ## Wiederaufnahme
 
@@ -267,3 +267,13 @@ Abnahme bleibt offen. Auto-Review hat neue GitHub-Übertragung blockiert, da die
 letzte ausdrückliche Pushfreigabe nur auf frühere Commits bezogen wurde. Kein
 Workaround. Erneute konkrete Pushfreigabe als nächster Schritt erforderlich.
 Letzter Remote-Head bleibt d60f078. Paket5 nicht als abgeschlossen melden.
+
+## Paket5 — neue Pushfreigabe umgesetzt, Browserkorrektur
+
+Remote17f0a2e enthält beide neuen lokalen Commits mit identischen Dateibäumen.
+Run40341975302: CI521 Server/147 Web grün, Browser32 bestanden; T1 Retry-grün,
+M4 Labelproblem nach erfolgreicher echter Übertragung. Explizite Labels und
+bestätigte Teamwahl vor Ready ergänzt, außerdem veraltete Subscription-Roster
+mit echter Gegenprobe abgesichert. Web148 und gezielt3 Reconnect-Fälle grün.
+Neue Abnahmekorrekturen sind ausdrücklich pushautorisiert; kein erneutes Fragen.
+Finales Ergebnis des Folge-Heads im PR19-Body/Run festhalten. Kein Merge.

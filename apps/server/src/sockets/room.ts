@@ -327,20 +327,26 @@ async function subscribeInRoom(
   // ONLY AFTER identity validated: socket.join(roomChannel(room.id)) (P0-07 fix)
   await socket.join(roomChannel(room.id));
 
-  changed(io, room.id);
+  // Admission/rejoin may await writes while readiness changes independently.
+  // Project the committed roster now, never the one loaded before admission.
+  const latest = await prisma.room.findUniqueOrThrow({ where: { id: room.id }, include: {
+    gameDefinition: true,
+    participations: { where: { role: { not: 'VIEWER' }, admission: 'ACTIVE', bannedAt: null, leftAt: null, kickedAt: null } },
+    viewerSessions: true,
+  } });
 
   // Build snapshot
   const snapshot = {
-    roomId: room.id,
-    code: room.code,
-    roomName: room.roomName,
-    status: room.status,
-    runPhase: room.runPhase,
+    roomId: latest.id,
+    code: latest.code,
+    roomName: latest.roomName,
+    status: latest.status,
+    runPhase: latest.runPhase,
     game: {
-      slug: room.gameDefinition.slug,
-      name: room.gameDefinition.name,
+      slug: latest.gameDefinition.slug,
+      name: latest.gameDefinition.name,
     },
-    players: room.participations.map(p => ({
+    players: latest.participations.map(p => ({
       id: p.id,
       displayName: p.displayName,
       role: p.role,
@@ -350,11 +356,11 @@ async function subscribeInRoom(
       avatarMode: p.avatarMode,
       avatarGenerated: p.avatarGenerated ? JSON.parse(p.avatarGenerated) : null,
     })),
-    viewerCount: room.viewerSessions.filter(vs => vs.connected).length,
-    revision: room.revision,
+    viewerCount: latest.viewerSessions.filter(vs => vs.connected).length,
+    revision: latest.revision,
     serverTime: Date.now(),
-    gameSlug: room.gameDefinition.slug,
-    contentVisibility: room.contentVisibility,
+    gameSlug: latest.gameDefinition.slug,
+    contentVisibility: latest.contentVisibility,
     // Include identity for client to store
     identity: {
       participationId: identity.participationId,
@@ -365,12 +371,9 @@ async function subscribeInRoom(
   // Send snapshot
   socket.emit('room:snapshot', snapshot);
 
-  // Broadcast update to room (only THIS room)
-  io.to(roomChannel(room.id)).emit('room:updated', {
-    roomCode: room.code,
-    revision: room.revision + 1,
-    players: snapshot.players,
-  });
+  // The common projection reads current state and uses its real revision.
+  // Do not rebroadcast the pre-admission roster with a fabricated revision.
+  changed(io, latest.id);
 
   // Emit player join only for actual players (not viewers), only to THIS room
   if (identity.role !== 'VIEWER' && identity.participationId) {

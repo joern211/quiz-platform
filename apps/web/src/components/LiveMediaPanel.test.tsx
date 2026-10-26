@@ -24,3 +24,13 @@ it('cancels a pending microphone permission when host mute arrives and a later r
   expect(screen.getByRole('button', { name: 'Mikrofon einschalten' })).toBeEnabled(); expect(capture).toHaveBeenCalledOnce();
   expect(state.emit.mock.calls.filter(call => call[0] === 'media:self' && call[1].mic)).toHaveLength(0); view.unmount();
 });
+
+it('exposes an exact channel label and sends the selected channel without changing the browser contract', async () => {
+  state.emit.mockImplementation((_event, _data, ack) => ack?.({ success: true }));
+  const self = { id: 'host', name: 'Host', role: 'HOST', teamId: null, hostMuted: false, cameraHidden: false, mic: false, camera: false };
+  const snapshot: LiveMediaSnapshot = { roomCode: '123-456', selfId: 'host', revision: 3, self, members: [self], routes: [], iceServers: [], canManage: true, policy: LiveMediaPolicySchema.parse({}) };
+  const view = render(<MemoryRouter initialEntries={['/raum/123-456/lobby']}><LiveMediaPanel /></MemoryRouter>);
+  await act(async () => state.handlers.get('media:snapshot')?.(snapshot));
+  await userEvent.selectOptions(screen.getByLabelText('Raumsprachkanal', { exact: true }), 'TEAM');
+  expect(state.emit).toHaveBeenCalledWith('media:control', { expectedRevision: 3, policy: { channel: 'TEAM' } }, expect.any(Function)); view.unmount();
+});

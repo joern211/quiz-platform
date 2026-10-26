@@ -224,3 +224,35 @@ und Ref nur Fast-Forward mit expected_sha setzen. Vollständige CI/E2E abnehmen,
 eventuelle Fehler beheben, PR19-Body um finalen Scope/Nachweise neu schreiben.
 Keine eigenständigen Merges und keine früheren CI-Ergebnisse für neuen Code
 als gültig darstellen.
+
+## Freigabe umgesetzt / erste Browserabnahme und Korrektur
+
+Nutzer erteilte ausdrücklich Pushfreigabe für b9ec43d/51ba101 sowie nötige
+Paket5-Abnahmekorrekturen auf feature/pr19-media-voice → joern211/quiz-platform.
+Der Blocker ist erledigt. Remote24d3cf7/17f0a2e entsprechen lokal b9ec43d/51ba101
+exakt (finaler Baum4cadf25). Run40341975302: CI521 Server/147 Web/Build/Typecheck/
+Lint grün. Browser32 bestanden, T1 Retry-grün, M4 nicht grün. DISPLAY M5 und
+persistente Editor-Jobs C1/M1 sind bestanden. Keine Tests entfernt.
+
+Logs und Traces tatsächlich gelesen: /tmp/quiz-pr19-e2e. M4 scheitert erst bei
+getByLabel('Raumsprachkanal', exact:true), nachdem Audio, Kamera, Mute/Release
+bereits bestanden. Selects bekommen explizite aria-labels, Browserfall bleibt
+unverändert. T1 klickte Ready unmittelbar nach noch laufendem TEAM_SELECT;
+eine Teamzuordnung setzt Ready zurück. Der Test wartet jetzt auf bestätigte
+Mitgliedschaft im gewählten Team. Außerdem schließt ein echter Regressionstest
+eine globale Snapshot-Lücke: während Subscription kann Ready geändert werden;
+vorher wurde der alte Roster sogar nochmals mit einer erfundenen höheren
+Revision verbreitet. Snapshot liest jetzt nach Admission frisch, gemeinsame
+Raumprojektion übernimmt die anschließende Broadcastaktualisierung.
+
+Gezielte Reconnect-Suite3/3 und Web148/148 grün, Typecheck grün. Vollständige
+Serverregression und beide Builds/Lint vor Folgecommit prüfen. Remote-Eltern-
+commit für die nächste API-Sicherung17f0a2ec20bccf7045e3a7a49fe6b279fb8f6b70.
+Lokaler Elterncommit bleibt51ba101; Bäume gleich. Neue Dateien als Diff vom
+lokalen Elterncommit übertragen, Tree vergleichen, nur FF mit expected_sha.
+PR19 bleibt Draft, kein Merge. Finalen Status im PR-Body nach vollständiger
+Abnahme des Folge-Heads festhalten; die ältere Pushblockade nicht erneut fragen.
+
+Korrekturstand lokal vollständig geprüft:522/522 Server (61 Dateien),148/148
+Webtests (31 Dateien), beide Builds und Typecheck grün, Lint0 Fehler/113
+bestehende Warnungen. Nach Push folgt vollständige GitHub-Abnahme am neuen Head.

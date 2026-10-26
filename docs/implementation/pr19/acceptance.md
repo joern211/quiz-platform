@@ -36,12 +36,20 @@ PR19 bleibt Draft, gestapelt auf PR18; kein Merge durch den Agenten.
   zu späteren Betriebserweiterungen. Die neue Bereinigung betrifft nur eigene,
   alte, nachweislich unreferenzierte Job-Stagingdateien.
 
-## Offene finale Abnahme
+## Stand der finalen Abnahme
 
-GitHub-Ziel `joern211/quiz-platform`, Branch `feature/pr19-media-voice`.
-Remote d60f078 ist weiterhin der letzte vollständig grüne veröffentlichte Stand.
-Live-/DISPLAY-Commit b9ec43d liegt lokal. Upload wurde durch die automatische
-Freigabeprüfung blockiert, weil sie nur die frühere Freigabe für c17ea05/5135371
-anerkennt. Kein alternativer Uploadweg versucht. Nach ausdrücklicher Freigabe
-alle neuen lokalen Commits mit Baumvergleich sichern und vollständige CI plus
-34 Browserfälle am tatsächlich gepushten Head abnehmen. Vorher kein DONE.
+Pushfreigabe für die neuen Commits und nötige Abnahmekorrekturen ist erteilt.
+Die lokalen Commits b9ec43d/51ba101 sind mit identischen Bäumen als24d3cf7/
+17f0a2e auf feature/pr19-media-voice gesichert. Run40341975302 bestätigte
+521 Server-/147 Webtests, Migrationen/Builds/Typecheck/Lint. Im Browser bestanden
+32 Fälle; T1 war Retry-grün, M4 scheiterte an der exakten Kanalbeschriftung,
+nach bereits erfolgreichem echten Audio-/Video-/Mute-Weg. M5 DISPLAY und die
+beiden Editor-/Medienjobwege bestanden.
+
+Die Folgekorektur ergänzt explizite Select-Beschriftungen. T1 wartet auf die
+bestätigte Teamzuordnung, bevor Ready gesendet wird. Raumaufnahmen lesen nach
+Admission den aktuellen committed Roster und verwenden keine erfundene Revision
+für eine veraltete zweite Broadcastaufnahme. Neue Server-/UI-Gegenproben sind
+aktiv; alle34 Browserfälle bleiben unverändert verpflichtend. Der aktuelle
+Abnahmestand am tatsächlichen Folge-Head wird verbindlich im PR19-Body mit
+Run-Link festgehalten. Kein früheres Ergebnis gilt automatisch für neueren Code.

@@ -40,7 +40,13 @@ test('T1: approval, self-select teams, preflight, play, pause, reconnect, rematc
     await expect(hostPanel.getByRole('button', { name: 'Zulassen', exact: true })).toHaveCount(0);
     await alice.getByRole('button', { name: 'Team wählen' }).nth(0).click();
     await bob.getByRole('button', { name: 'Team wählen' }).nth(1).click();
-    for (const page of [alice, bob]) await page.getByRole('button', { name: 'Ich bin bereit!' }).click();
+    // A team mutation resets readiness. Wait for its committed roster before
+    // sending the independent ready action rather than racing both writes.
+    for (const [page, team, participant] of [[alice, /Team 1/, 'Alice Team'], [bob, /Team 2/, 'Bob Team']] as const) {
+      const card = page.getByRole('region', { name: 'Raum und Teams' }).getByRole('heading', { name: team }).locator('..');
+      await expect(card.getByRole('listitem').filter({ hasText: participant })).toBeVisible();
+      await page.getByRole('button', { name: 'Ich bin bereit!' }).click();
+    }
     await viewer.goto(`${BASE}/zuschauen/${code}/lobby`);
     await expect(viewer.getByText('Verbunden', { exact: true }).first()).toBeVisible();
     await expect(host.getByRole('button', { name: 'Spiel starten', exact: true })).toBeEnabled();
