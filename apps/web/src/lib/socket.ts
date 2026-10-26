@@ -41,6 +41,7 @@ export interface RoomState {
   status: string;
   runPhase: string;
   gameSlug?: string; // sent by server to enable game-specific navigation
+  admission?: string;
   players: Array<{
     id: string;
     displayName: string;
@@ -95,6 +96,7 @@ export interface GeoResyncResponse {
 }
 
 export type ServerToClientEvents = {
+  'room:admission': (data: { admission: 'ACTIVE'; status: string; gameSlug: string }) => void;
   'room:probe': (ack: () => void) => void;
   'room:core:changed': () => void;
   'room:lobby': (data: { roomCode: string }) => void;

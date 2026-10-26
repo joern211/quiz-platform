@@ -170,7 +170,7 @@ function shuffled<T>(values: T[]): T[] {
   for (let i = copy.length - 1; i > 0; i--) { const j = randomInt(i + 1); [copy[i], copy[j]] = [copy[j], copy[i]]; }
   return copy;
 }
-export interface RoomActor { participantId: string; userId: string | null; sessionId?: string; canManage: boolean; permissions: Set<GamePermission> }
+export interface RoomActor { connectionId?: string; participantId: string; userId: string | null; sessionId?: string; canManage: boolean; permissions: Set<GamePermission> }
 
 /** All room edits serialize on the room row and fence their receipt owner. */
 export async function mutateRoom(roomId: string, actor: RoomActor, op: RoomOperation): Promise<Record<string, unknown>> {
@@ -181,6 +181,8 @@ export async function mutateRoom(roomId: string, actor: RoomActor, op: RoomOpera
     if (actor.userId && (!actor.sessionId || !await tx.session.findFirst({ where: { id: actor.sessionId, userId: actor.userId, revokedAt: null, expiresAt: { gt: new Date() }, user: { disabledAt: null } } }))) throw new RoomError('NOT_AUTHENTICATED');
     const owner = actor.userId === room.hostUserId, policy = roomPolicy(room);
     const self = room.participations.find(p => p.id === actor.participantId);
+    if (actor.connectionId && (!self || !self.connected || self.connectionId !== actor.connectionId || self.leftAt || self.kickedAt || self.bannedAt)) throw new RoomError('NO_PARTICIPATION');
+    if (self && self.admission !== 'ACTIVE' && op.type !== 'LEAVE') throw new RoomError('ADMISSION_REQUIRED');
     const grants = actor.userId ? await tx.roomPermissionGrant.findMany({ where: { roomId, userId: actor.userId, revokedAt: null } }) : [];
     const permissions = effectivePermissions(owner ? 'HOST' : self?.role === 'PLAYER' ? 'PLAYER' : 'VIEWER', policy.coHostEnabled || owner ? grants.filter(g => g.direction === 'GRANT').map(g => g.permission as GamePermission) : [], grants.filter(g => g.direction === 'REVOKE').map(g => g.permission as GamePermission));
     actor = { ...actor, permissions, canManage: permissions.has('PLAYER_MANAGE') || permissions.has('TEAM_MANAGE') || owner };
@@ -371,6 +373,13 @@ export async function roomView(roomId: string, actor: RoomActor): Promise<RoomCo
   const room = await prisma.room.findUniqueOrThrow({ where: { id: roomId }, include: { gameDefinition: true, participations: true, teams: true, feed: { orderBy: { createdAt: 'desc' }, take: 50 } } });
   const self = room.participations.find(p => p.id === actor.participantId);
   const host = room.participations.find(p => p.userId === room.hostUserId || p.role === 'HOST');
+  if (self && self.admission !== 'ACTIVE') return {
+    gameSlug: room.gameDefinition.slug, history: [], switchOptions: [], revision: room.revision,
+    lifecycle: lifecycle(room), policy: roomPolicy(room), scheduledAt: room.scheduledAt?.toISOString() ?? null,
+    hostStatus: host?.connected ? 'ONLINE' : 'HOST_MISSING', permissions: [], canManage: false, isOwner: false,
+    selfId: self.id, selfAdmission: self.admission, participants: [], teams: [], feed: [],
+    preflight: { status: 'BLOCKED', blockers: ['ADMISSION_REQUIRED'], warnings: [] }, runIndex: room.runIndex,
+  };
   return {
     gameSlug: room.gameDefinition.slug,
     history: (await prisma.roomRun.findMany({ where: { roomId }, orderBy: { runIndex: 'desc' }, take: 20 })).map(run => ({ runIndex: run.runIndex, endedAt: run.endedAt.toISOString(), players: (JSON.parse(run.scoresJson) as Array<{ displayName: string; score: number }>).map(p => ({ displayName: p.displayName, score: p.score })) })),

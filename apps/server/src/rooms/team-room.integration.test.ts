@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { randomUUID } from 'node:crypto';
 import type { PrismaClient } from '@prisma/client';
 import type { Socket } from 'socket.io-client';
@@ -9,6 +9,8 @@ import { createSessionCookie } from '../auth/session.js';
 import { config } from '../config/index.js';
 import { connectGameClient, gameAck } from '../test-socket-harness.js';
 import { joinPlayer, roomPreflight } from './core.js';
+import { roomChannel, roomWaitingChannel } from '../sockets/channel.js';
+import { socketIdentityMap } from '../http/middleware/auth.js';
 
 let db: PrismaClient, app: ReturnType<typeof createApp>, origin: string;
 const sockets: Socket[] = [], rooms: string[] = [], assets: string[] = [];
@@ -54,11 +56,58 @@ beforeAll(async () => {
 afterAll(async () => {
   for (const s of sockets) s.disconnect();
   await new Promise<void>(done => app.io.close(() => app.httpServer.close(() => done())));
+  await vi.waitFor(() => expect([...socketIdentityMap.values()].filter(i => i.roomId && rooms.includes(i.roomId))).toHaveLength(0));
   await db.room.deleteMany({ where: { id: { in: rooms } } }); await db.mediaAsset.deleteMany({ where: { id: { in: assets } } });
   await db.$disconnect(); globalThis.__prisma = undefined;
 });
 
 describe('TEAM-ROOM: real HTTP / sockets / DB', () => {
+  it('keeps pending viewers outside gameplay broadcasts and resync until committed admission', async () => {
+    const r = await createRoom();
+    await configure(r, { viewerAccess: 'APPROVAL_REQUIRED', allowLateJoin: true });
+    const players = await Promise.all(['Admission A', 'Admission B'].map(name => player(r, name)));
+    await ready(r, players);
+    const viewer = await connect(), broadcasts: unknown[] = [];
+    viewer.on('jeopardy:field:open', event => broadcasts.push(event));
+    const subscription = await ack(viewer, 'room:subscribe', { roomCode: r.code });
+    expect(subscription.success).toBe(true);
+    expect(subscription.snapshot).toMatchObject({ admission: 'PENDING_JOIN', players: [] });
+    const id = String(subscription.rejoinToken);
+    const pending = await db.participation.findUniqueOrThrow({ where: { rejoinToken: id } });
+    expect(app.io.sockets.sockets.get(viewer.id!)!.rooms.has(roomWaitingChannel(r.id))).toBe(true);
+    expect(app.io.sockets.sockets.get(viewer.id!)!.rooms.has(roomChannel(r.id))).toBe(false);
+    expect((await ack(r.host, 'game:start', { roomCode: r.code, commandId: randomUUID() })).success).toBe(true);
+    expect((await ack(r.host, 'jeopardy:field:open', { boardIndex: 1, categoryIndex: 0, value: 100, commandId: randomUUID() })).success).toBe(true);
+    for (const event of ['room:resync', 'jeopardy:resync', 'geo:resync', 'weristdas:resync']) {
+      expect((await ack(viewer, event, { roomCode: r.code })).success, event).toBe(false);
+    }
+    const waitingView = (await ack(viewer, 'room:core:read', {})).view as RoomCoreView;
+    expect(waitingView).toMatchObject({ selfAdmission: 'PENDING_JOIN', participants: [], history: [], feed: [], permissions: [] });
+    expect(JSON.stringify(waitingView)).not.toMatch(/Öffentliche Frage|PR15_SECRET/);
+    expect(broadcasts).toHaveLength(0);
+    expect((await ack(players[0].socket, 'jeopardy:buzz', { commandId: randomUUID() })).success).toBe(true);
+    expect((await ack(r.host, 'jeopardy:judge', { correct: true, commandId: randomUUID() })).success).toBe(true);
+    const promoted = new Promise(resolve => viewer.once('room:admission', resolve));
+    expect((await command(r.host, r.code, { type: 'ADMIT', participantId: pending.id, approve: true })).success).toBe(true);
+    expect(await promoted).toMatchObject({ admission: 'ACTIVE', status: 'RUNNING', gameSlug: 'jeopardy' });
+    expect((await ack(viewer, 'jeopardy:resync', {})).success).toBe(true);
+    expect(app.io.sockets.sockets.get(viewer.id!)!.rooms.has(roomChannel(r.id))).toBe(true);
+    expect(app.io.sockets.sockets.get(viewer.id!)!.rooms.has(roomWaitingChannel(r.id))).toBe(false);
+  });
+  it('preserves the waiting gate on rejoin and denies pending co-host permissions and rejected tokens', async () => {
+    const r = await createRoom(); await configure(r, { viewerAccess: 'APPROVAL_REQUIRED', coHostEnabled: true });
+    const viewer = await connect(secondCookie);
+    const first = await ack(viewer, 'room:subscribe', { roomCode: r.code });
+    const p = await db.participation.findUniqueOrThrow({ where: { rejoinToken: String(first.rejoinToken) } });
+    expect((await command(r.host, r.code, { type: 'COHOST', userId: secondId, permissions: ['GAME_START', 'PLAYER_MANAGE'] })).success).toBe(true);
+    expect((await ack(viewer, 'game:start', { roomCode: r.code, commandId: randomUUID() })).success).toBe(false);
+    const replacement = await connect(secondCookie);
+    expect((await ack(replacement, 'room:subscribe', { roomCode: r.code, rejoinToken: first.rejoinToken })).snapshot).toMatchObject({ admission: 'PENDING_JOIN', players: [] });
+    expect((await command(replacement, r.code, { type: 'MESSAGE', message: 'must be denied' })).success).toBe(false);
+    expect((await command(r.host, r.code, { type: 'ADMIT', participantId: p.id, approve: false })).success).toBe(true);
+    expect((await ack(replacement, 'room:core:read', {})).success).toBe(false);
+    expect((await ack(await connect(secondCookie), 'room:subscribe', { roomCode: r.code, rejoinToken: first.rejoinToken })).success).toBe(false);
+  });
   it('normalizes names, reserves the last slot atomically, and keeps waitlist read-only', async () => {
     const r = await createRoom('jeopardy', { maxPlayers: 2 });
     await configure(r, { waitlist: true });
