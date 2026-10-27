@@ -70,6 +70,7 @@ export function RoomPanel() {
   return <section className={styles.panel} aria-label="Raum und Teams">
     <Card padding="lg">
       <h2>Raum & Teams</h2>
+    {view.contentVisibility === 'BLIND_HOST' && <p role="status">Blindmoderation: Lösungen erst nach Auflösung. Inhaltseditor und private Vorschauen bleiben bis zum Spielende gesperrt.</p>}
       <p>{view.lifecycle === 'IDLE' ? 'Spiel beendet' : view.lifecycle === 'SCHEDULED' ? 'Geplanter Raum' : view.lifecycle === 'LOBBY_LOCKED' ? 'Lobby gesperrt' : lobby ? 'Lobby geöffnet' : 'Spiel läuft'} · Spiel {view.runIndex}</p>
       {view.scheduledAt && <p>Geplant: {new Date(view.scheduledAt).toLocaleString('de-DE')} — der Host startet das Spiel.</p>}
       {view.hostStatus !== 'ONLINE' && <p role="status">{view.hostStatus === 'HOST_MISSING' ? 'Host fehlt. Ein berechtigter Co-Host kann übernehmen.' : 'Host vorübergehend getrennt.'}</p>}

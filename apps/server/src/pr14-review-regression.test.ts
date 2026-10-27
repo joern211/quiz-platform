@@ -1,5 +1,13 @@
 import { createCommandIntentClient } from '@quiz/shared';
-import { afterAll, beforeAll, expect, it } from 'vitest';
+import { afterAll, beforeAll, expect, it, vi } from 'vitest';
+import { mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join, dirname, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
+import { createTestDatabase } from './test-helpers.js';
+import { socketIdentityMap } from './http/middleware/auth.js';
 import { createServer, type Server as HttpServer } from 'node:http';
 import { randomUUID } from 'node:crypto';
 import { Server } from 'socket.io';
@@ -17,6 +25,7 @@ import { handleGeoGame, cancelGeoTimer } from './games/geo/index.js';
 const ack = gameAck;
 const HOST_USER_ID = 'mod-1';
 let testPrisma: PrismaClient;
+let testDirectory: string;
 let httpServer: HttpServer;
 let io: Server;
 let origin: string;
@@ -62,7 +71,14 @@ async function makeHostRoom(overrides: {
 }
 beforeAll(async () => {
     const { PrismaClient } = await import('@prisma/client');
-    testPrisma = new PrismaClient({ datasourceUrl: process.env.DATABASE_URL });
+    // Preserve all real DB/socket races inside this suite while preventing
+    // other suites' background servers and probes from owning its database.
+    testDirectory = await mkdtemp(join(tmpdir(), 'quiz-pr14-review-'));
+    const databaseUrl = `file:${join(testDirectory, 'review.db')}`;
+    await createTestDatabase(databaseUrl);
+    const seed = resolve(dirname(fileURLToPath(import.meta.url)), '../../../prisma/seed.ts');
+    await promisify(execFile)(process.execPath, ['--import', 'tsx', seed], { env: { ...process.env, DATABASE_URL: databaseUrl } });
+    testPrisma = new PrismaClient({ datasourceUrl: databaseUrl });
     await testPrisma.$connect();
     (globalThis as Record<string, unknown>).__prisma = testPrisma;
     await testPrisma.user.upsert({ where: { id: HOST_USER_ID }, update: {}, create: { id: HOST_USER_ID, displayName: 'A14 Host', passwordHash: 'x', role: 'HOST' } });
@@ -77,14 +93,17 @@ beforeAll(async () => {
     origin = `http://127.0.0.1:${address.port}`;
 });
 afterAll(async () => {
+    for (const id of roomIds) cancelGeoTimer(id);
     for (const s of sockets)
         s.disconnect();
     await new Promise<void>((resolve) => io.close(() => httpServer.close(() => resolve())));
+    await vi.waitFor(() => expect([...socketIdentityMap.values()].filter(identity => identity.roomId && roomIds.includes(identity.roomId))).toHaveLength(0), { timeout: 10000 });
     for (const id of roomIds)
         await testPrisma.room.deleteMany({ where: { id } }).catch(() => undefined);
     await testPrisma.mediaAsset.deleteMany({ where: { id: { in: assetIds } } });
     await testPrisma.$disconnect();
     (globalThis as Record<string, unknown>).__prisma = undefined;
+    await rm(testDirectory, { recursive: true, force: true });
 });
 async function reviewWid(start = true) {
     const image = await testPrisma.mediaAsset.create({ data: { type: 'image', mimeType: 'image/png', filename: 'review.png', originalName: 'review.png', fileSize: 12, sha256: randomUUID(), storagePath: '/tmp/review.png', uploadedBy: HOST_USER_ID } });

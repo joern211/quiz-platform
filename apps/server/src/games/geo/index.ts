@@ -3,6 +3,8 @@
 // ============================================================
 
 import { Server, Socket } from 'socket.io';
+import { roomContentMediaUrl } from '../../content/media.js';
+import { readPinnedContent } from '../../content/core.js';
 import { prisma } from '../../persistence/prisma.js';
 import { resolveCanonicalSlug, slugWithLegacy, type CoreTimer, type SubmissionRecord, type CoreRoundTransition } from '@quiz/shared';
 import { createTimer, legacyRoundTimer, timerAcceptsInput, pauseTimer, resumeTimer, endTimer, submitOnce, lockSubmission, judgeSubmission, scoreJudgement } from '../core/runtimePrimitives.js';
@@ -50,6 +52,7 @@ interface GeoRoundState {
 }
 
 interface GeoGameState {
+  contentRunIndex?: number;
   tieStrategy?: 'ALLOW_TIE';
   lastRoundTransition?: CoreRoundTransition;
   phase: string;
@@ -150,7 +153,10 @@ export const handleGeoGame = {
     // Get questions based on setup
     let questions: any[] = [];
     
-    if (setup.selectedQuestionIds && setup.selectedQuestionIds.length > 0) {
+    const pinned = await readPinnedContent(room.id);
+    if (pinned.length) {
+      questions = pinned.map(q => ({ ...q.payload, id: q.id, contentRevision: q.revision, options: JSON.stringify(q.payload.options) }));
+    } else if (setup.selectedQuestionIds && setup.selectedQuestionIds.length > 0) {
       // P0-08: Get specific questions
       const geoQuestions = await prisma.geoQuestion.findMany({
         where: {
@@ -235,6 +241,7 @@ export const handleGeoGame = {
 
     // Create initial game state
     const gameState: GeoGameState = {
+      contentRunIndex: (await prisma.room.findUniqueOrThrow({ where: { id: room.id }, select: { runIndex: true } })).runIndex,
       tieStrategy: await loadInitialTieStrategy(room.id, 'wissensduell'),
       phase: initialPhase,
       currentRoundIndex: 0,
@@ -409,6 +416,8 @@ export const handleGeoGame = {
         prompt: question.prompt,
         category: question.category,
         imageUrl: question.imageUrl || undefined,
+        mediaType: question.mediaType,
+        mediaUrl: roomContentMediaUrl(roomRecord.id, state.contentRunIndex, question.id, question.mediaAssetId),
         options: options.map((o: any) => ({ 
           id: o.id, 
           label: o.label || o.id, 
@@ -573,7 +582,7 @@ export const handleGeoGame = {
       });
       const roomSockets = await io.in(roomChannel(room.id)).fetchSockets();
       for (const moderator of roomSockets) {
-        if (moderator.data.role === 'HOST' && moderator.data.roomId === room.id && moderator.data.userId === room.hostUserId) {
+        if (room.contentVisibility !== 'BLIND_HOST' && moderator.data.role === 'HOST' && moderator.data.roomId === room.id && moderator.data.userId === room.hostUserId) {
           moderator.emit('geo:answered:moderator', {
             questionIndex: roundIndex, participantId: participationId, optionId: data.optionId,
           });
@@ -954,7 +963,7 @@ export const handleGeoGame = {
 
           if (isCorrect) {
             // Points with potential risk multiplier
-            let questionPoints = question.points || 100;
+            let questionPoints = question.points ?? 100;
             if (ps.jokers.usedRisk) {
               questionPoints *= 2;
               bonus = questionPoints / 2;

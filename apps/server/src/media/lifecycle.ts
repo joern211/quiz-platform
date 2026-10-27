@@ -132,7 +132,9 @@ export async function cleanupOrphanedTempAssets(
         const current = await tx.mediaAsset.findFirst({
           where: { id: asset.id, roomId: { startsWith: 'tmp-' }, createdAt: { lt: cutoff } },
         });
-        if (!current || await isReferencedInAnySnapshot(tx, asset.id)) return false;
+        if (!current || await isReferencedInAnySnapshot(tx, asset.id)
+          || await tx.contentMediaReference.count({ where: { assetId: asset.id } })
+          || await tx.geoQuestion.count({ where: { mediaAssetId: asset.id } })) return false;
         // Count before deleting the row. On failure, retain row AND file so
         // a later startup can retry (not an untracked file-only orphan).
         const sharedWith = await tx.mediaAsset.count({

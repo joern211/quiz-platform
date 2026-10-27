@@ -1,0 +1,1 @@
+ALTER TABLE "rooms" ADD COLUMN "contentVisibility" TEXT NOT NULL DEFAULT 'HOST_PREVIEW' CHECK("contentVisibility" IN ('HOST_PREVIEW', 'BLIND_HOST'));

@@ -3,6 +3,7 @@
 // ============================================================
 
 import { feed } from '../rooms/core.js';
+import { serializeRoom } from '../rooms/queue.js';
 import { changed } from '../rooms/socket.js';
 import { requireGamePermission } from '../games/core/permissions.js';
 import { Server, Socket } from 'socket.io';
@@ -159,6 +160,7 @@ export async function handleDisconnect(io: Server, socket: Socket) {
     }
 
     const roomId = identity.roomId;
+    const participationId = identity.participationId;
     const channel = roomChannel(roomId);
     let disconnectedParticipation = false;
 
@@ -179,43 +181,47 @@ export async function handleDisconnect(io: Server, socket: Socket) {
       disconnectedParticipation = released.count === 1;
     }
 
-    if (disconnectedParticipation) await feed(prisma, roomId, identity.participationId, 'DISCONNECT', identity.role === 'HOST' ? 'Host vorübergehend getrennt' : 'Teilnehmer vorübergehend getrennt');
+    // The conditional connection-owner release above must remain concurrent
+    // with a replacement connection. Queue only the subsequent feed/projection
+    // work with room admission; never hold admission behind a stalled old CAS.
+    await serializeRoom(roomId, async () => {
+      if (disconnectedParticipation) await feed(prisma, roomId, participationId, 'DISCONNECT', identity.role === 'HOST' ? 'Host vorübergehend getrennt' : 'Teilnehmer vorübergehend getrennt');
 
-    // Get updated room state for broadcast
-    const room = await prisma.room.findUnique({
-      where: { id: roomId },
-      include: {
-        participations: { where: { role: { not: 'VIEWER' }, admission: 'ACTIVE', leftAt: null, kickedAt: null, bannedAt: null } },
-        viewerSessions: true,
-      },
-    });
+      // Get updated room state for broadcast
+      const room = await prisma.room.findUnique({
+        where: { id: roomId },
+        include: {
+          participations: { where: { role: { not: 'VIEWER' }, admission: 'ACTIVE', leftAt: null, kickedAt: null, bannedAt: null } },
+          viewerSessions: true,
+        },
+      });
 
-    if (room) {
-      // Broadcast player leave (only for actual players)
-      if (identity.role !== 'VIEWER' && disconnectedParticipation) {
-        io.to(channel).emit('player:leave', {
-          playerId: identity.participationId,
+      if (room) {
+        // Broadcast player leave (only for actual players)
+        if (identity.role !== 'VIEWER' && disconnectedParticipation) {
+          io.to(channel).emit('player:leave', {
+            playerId: identity.participationId,
+          });
+        }
+
+        // Broadcast updated room state
+        io.to(channel).emit('room:updated', {
+          roomCode: room.code,
+          revision: room.revision + 1,
+          players: room.participations.map(p => ({
+            id: p.id,
+            displayName: p.displayName,
+            role: p.role,
+            connected: p.connected,
+            ready: p.ready,
+            score: p.score,
+          })),
+          viewerCount: room.viewerSessions.filter(vs => vs.connected).length,
         });
       }
 
-      // Broadcast updated room state
-      io.to(channel).emit('room:updated', {
-        roomCode: room.code,
-        revision: room.revision + 1,
-        players: room.participations.map(p => ({
-          id: p.id,
-          displayName: p.displayName,
-          role: p.role,
-          connected: p.connected,
-          ready: p.ready,
-          score: p.score,
-        })),
-        viewerCount: room.viewerSessions.filter(vs => vs.connected).length,
-      });
-    }
-
-    changed(io, roomId);
-    socketIdentityMap.delete(socket.id);
+      changed(io, roomId);
+    });
 
     // Clear socket data
     socket.data = {};
@@ -228,5 +234,9 @@ export async function handleDisconnect(io: Server, socket: Socket) {
     });
   } catch (error) {
     logger.error('Disconnect handler error', { error });
+  } finally {
+    // A best-effort feed failure must not retain a disconnected identity.
+    socketIdentityMap.delete(socket.id);
+    socket.data = {};
   }
 }

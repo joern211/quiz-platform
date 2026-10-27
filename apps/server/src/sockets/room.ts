@@ -1,8 +1,10 @@
+import { blindRoom } from '../content/blindHost.js';
 // ============================================================
 // Room Socket Events
 // ============================================================
 
 import { assertRoomLive, RoomError, joinViewer, reconnectViewer } from '../rooms/core.js';
+import { serializeRoom } from '../rooms/queue.js';
 import { changed } from '../rooms/socket.js';
 import { Server, Socket } from 'socket.io';
 import { prisma } from '../persistence/prisma.js';
@@ -50,6 +52,17 @@ export async function handleRoomSubscription(
   socket: Socket,
   data: { roomCode: string; rejoinToken?: string; pin?: string; moderatorToken?: string; inviteToken?: string },
   callback?: RoomAcknowledgement
+) {
+  const room = await prisma.room.findUnique({ where: { code: data.roomCode }, select: { id: true } });
+  if (!room) { callback?.({ success: false, error: 'ROOM_NOT_FOUND' }); return; }
+  return serializeRoom(room.id, () => subscribeInRoom(io, socket, data, callback));
+}
+
+async function subscribeInRoom(
+  io: Server,
+  socket: Socket,
+  data: { roomCode: string; rejoinToken?: string; pin?: string; moderatorToken?: string; inviteToken?: string },
+  callback?: RoomAcknowledgement,
 ) {
   const { roomCode, rejoinToken, pin, moderatorToken } = data;
 
@@ -228,7 +241,7 @@ export async function handleRoomSubscription(
     if (existingModPart) {
       const refreshedModerator = await prisma.participation.update({
         where: { id: existingModPart.id },
-        data: { connected: true, connectionId: socket.id, ready: true, lastSeenAt: new Date(), userId, hasSeenHostSecrets: true },
+        data: { connected: true, connectionId: socket.id, ready: true, lastSeenAt: new Date(), userId, ...(!blindRoom(room) ? { hasSeenHostSecrets: true } : {}) },
       });
       identity = {
         participationId: refreshedModerator.id,
@@ -248,7 +261,7 @@ export async function handleRoomSubscription(
           displayName,
           normalizedName: displayName.toLowerCase().trim(),
           role: 'HOST',
-          hasSeenHostSecrets: true,
+          hasSeenHostSecrets: !blindRoom(room),
           userId,
           connected: true,
           connectionId: socket.id,
@@ -294,6 +307,7 @@ export async function handleRoomSubscription(
     participationId: identity.participationId,
     roomId: identity.roomId,
     role: identity.role,
+    blindHost: blindRoom(room),
     displayName: identity.displayName,
   };
 
@@ -347,6 +361,7 @@ export async function handleRoomSubscription(
     revision: room.revision,
     serverTime: Date.now(),
     gameSlug: room.gameDefinition.slug,
+    contentVisibility: room.contentVisibility,
     // Include identity for client to store
     identity: {
       participationId: identity.participationId,

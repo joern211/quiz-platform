@@ -11,6 +11,7 @@ import { getGameHandler } from '../games/registry.js';
 import { mutateRoom, RoomError, roomView, roomPolicy, assertRoomLive, audit, feed, type RoomActor } from './core.js';
 import { normalizeRole } from '@quiz/shared';
 import { logger } from '../observability/logger.js';
+import { ContentError } from '../content/core.js';
 
 export async function socketRoomActor(socket: Socket, allowPending = false): Promise<{ roomId: string; actor: RoomActor }> {
   const identity = socketIdentityMap.get(socket.id);
@@ -66,6 +67,9 @@ export function registerRoomCore(io: Server, socket: Socket) {
     if (!participationId || !roomId || participationId.startsWith('viewer:')) return;
     const start = performance.now();
     socket.timeout(3000).emit('room:probe', (error: Error | null) => {
+      // An in-flight probe can finish after disconnect, room switch or
+      // replacement. Do not enqueue stale writes against a released identity.
+      if (!socket.connected || socket.data.roomId !== roomId || socket.data.participationId !== participationId) return;
       const ms = error ? 3000 : Math.max(0, Math.round(performance.now() - start));
       void prisma.participation.updateMany({ where: { id: participationId, roomId, connectionId: socket.id, connected: true }, data: { lastRoundTripMs: ms } }).catch(() => undefined);
     });
@@ -102,7 +106,7 @@ export function registerRoomCore(io: Server, socket: Socket) {
               return { success: true };
             }
             return { success: true, ...await mutateRoom(roomId, actor, data.operation) };
-          } catch (e) { if (e instanceof RoomError) return { success: false, error: e.code }; throw e; }
+          } catch (e) { if (e instanceof RoomError || e instanceof ContentError) return { success: false, error: e.code }; throw e; }
         }, toResponse: d => d,
       });
       const result = response.success ? response.data : response;

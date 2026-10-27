@@ -9,7 +9,7 @@ Heads abnehmen. Kein Merge. Pushes sind im Auftrag autorisiert.
 | 1 | PR15: wartende Zuschauer von Spielkanal und Resync trennen | behoben; 28 Raum-/Sockettests und neuer UI-Fall grün; finale CI nach Befund 2 |
 | 2 | PR15: Zuschauerlimit auch bei Zulassung über beide Modelle zählen | behoben; 31 Raum-/Sockettests grün; finale CI am neuen PR15-Head |
 | 3 | PR16/17: Raumänderungen atomar protokollieren, Recovery ohne Verlust | behoben; PR16-Events und PR17-Recovery-Regressionsfälle grün |
-| 4 | PR18: ausdrücklich 0 Punkte in der Runtime erhalten | offen |
+| 4 | PR18: ausdrücklich 0 Punkte in der Runtime erhalten | behoben; vier neue Content-bis-Ergebnis-Fälle grün |
 | 5 | PR19: Empfangsverbindungen gemeinsam neu aushandeln | offen |
 
 Wiederaufnahme: Branch/Working Tree und Remote-Heads abgleichen. Bestehende
@@ -50,3 +50,8 @@ Befund 3 / PR17: Freeze speichert die exakte Vorversion. Recovery lehnt auch
 einen formal gültigen, aber älteren Event-Tail ab. Zehn Result-/Recoveryfälle
 grün, darunter Late-Admission/Umbenennung mit erfolgreicher Wertung nach Repair,
 Legacy-Lücke ohne Änderungen und wiederholte Recovery. PR16 ist als 99900ce gepusht.
+
+Befund 4: Nullish-Default erhält ausdrücklich 0 Punkte auch mit Risiko-Joker.
+Neue reale Content-/HTTP-/Socket-/DB-Fälle sichern 0, 0 mit Risiko, 100 sowie
+den fehlenden Wert mit Default 100 bis Score-Ledger und persistiertem Ergebnis.
+PR15/16: vollständige CI einschließlich E2E am finalen Head erfolgreich.

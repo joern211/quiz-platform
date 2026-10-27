@@ -1,4 +1,8 @@
+import { blindRoom, blindSetup, assertBlindRoomCreation } from '../content/blindHost.js';
+import { prepareBlueprintRoom, readSetupBlueprint, validateBlueprint } from '../content/setupBlueprints.js';
 import { readGameResult, publicResultView } from '../games/core/results.js';
+import { ContentError, contentActor, selectRoomContent, applyPinnedContent } from '../content/core.js';
+import { ZodError } from 'zod';
 import { rankScores } from '../games/core/roundFlow.js';
 // ============================================================
 // Online Quiz Plattform - Rooms Router
@@ -105,7 +109,7 @@ async function ensureModeratorParticipation(
 ): Promise<{ id: string; rejoinToken: string } | null> {
   const room = await prisma.room.findUniqueOrThrow({ where: { id: roomId } });
   const existing = await prisma.participation.findFirst({ where: { roomId, role: 'HOST' } });
-  if (existing) return prisma.participation.update({ where: { id: existing.id }, data: { userId: room.hostUserId, hasSeenHostSecrets: true } });
+  if (existing) return prisma.participation.update({ where: { id: existing.id }, data: { userId: room.hostUserId, ...(!blindRoom(room) ? { hasSeenHostSecrets: true } : {}) } });
   if (await prisma.participation.findFirst({ where: { roomId, userId: room.hostUserId, role: { in: ['PLAYER', 'VIEWER'] }, kickedAt: null, leftAt: null } })) return null;
   const created = await prisma.participation.create({
     data: {
@@ -114,7 +118,7 @@ async function ensureModeratorParticipation(
       normalizedName: displayName.toLowerCase().trim(),
       role: 'HOST',
       userId: room.hostUserId,
-      hasSeenHostSecrets: true,
+      hasSeenHostSecrets: !blindRoom(room),
       connected: true,
       ready: true,
       rejoinToken: crypto.randomUUID(),
@@ -295,14 +299,15 @@ roomsRouter.post('/', createLimiter, async (req, res) => {
       include: { user: true },
     });
 
-    if (!session || session.revokedAt || session.expiresAt < new Date()) {
+    if (!session || session.revokedAt || session.expiresAt < new Date() || session.user.disabledAt) {
       return res.status(401).json({
         success: false,
         error: { code: 'SESSION_EXPIRED', message: 'Sitzung abgelaufen.' },
       });
     }
 
-    const parsed = validateBody(CreateRoomSchema, req.body, res);
+    const prepared = await prepareBlueprintRoom(prisma, { sessionId, userId: session.userId, role: session.user.role }, req.body);
+    const parsed = validateBody(CreateRoomSchema, prepared.input, res);
     if (!parsed) return;
 
     const {
@@ -417,6 +422,7 @@ roomsRouter.post('/', createLimiter, async (req, res) => {
       lobbyChatEnabled,
       isPublic: isPublic ?? true,
       roomPolicy: policy,
+      setupBlueprints: prepared.provenance,
     };
     const idemKey = idempotencyKey ?? computeRoomFingerprint(fpCfg);
     const existingRoom = await prisma.room.findFirst({
@@ -484,6 +490,16 @@ roomsRouter.post('/', createLimiter, async (req, res) => {
     let moderatorToken: string | null = null;
     try {
       room = await prisma.$transaction(async (tx) => {
+        await tx.$executeRaw`UPDATE sessions SET id = id WHERE 0`;
+        const currentActor = await contentActor(tx, sessionId);
+        await assertBlindRoomCreation(tx, currentActor.userId, blindSetup(setupSnapshotJson));
+        for (const ref of prepared.refs) { const blueprint = await readSetupBlueprint(tx, currentActor, ref.id, ref.revision); if (blueprint.kind === 'GAME_PRESET') await validateBlueprint(tx, currentActor, blueprint); }
+        // Server materializes authorized READY content; client-provided payloads
+        // never become trusted engine snapshots.
+        const contentItems = setupSnapshotJson.contentSelection === undefined ? [] : await selectRoomContent(tx,
+          await contentActor(tx, sessionId), resolveCanonicalSlug(gameDef!.slug) ?? gameDef!.slug, setupSnapshotJson.contentSelection);
+        const materializedSetup = contentItems.length ? applyPinnedContent(setupSnapshotJson,
+          resolveCanonicalSlug(gameDef!.slug) ?? gameDef!.slug, contentItems) : setupSnapshotJson;
         const createdRoom = await tx.room.create({
           data: {
             code,
@@ -497,7 +513,9 @@ roomsRouter.post('/', createLimiter, async (req, res) => {
             viewerRequiresPin,
             viewerLimit,
             lobbyChatEnabled,
-            setupSnapshotJson: JSON.stringify(setupSnapshotJson),
+            setupSnapshotJson: JSON.stringify(materializedSetup),
+            setupBlueprintsJson: prepared.provenance ? JSON.stringify(prepared.provenance) : null,
+            contentVisibility: blindSetup(materializedSetup) ? 'BLIND_HOST' : 'HOST_PREVIEW',
             setupSchemaVersion: roomSetupSchemaVersion,
             isPublic: isPublic ?? true,
             idempotencyKey: idemKey,
@@ -507,13 +525,15 @@ roomsRouter.post('/', createLimiter, async (req, res) => {
             runPhase: 'OPEN',
           },
         });
+        for (const [position, item] of contentItems.entries()) await tx.contentUse.create({ data: { roomId: createdRoom.id, runIndex: createdRoom.runIndex,
+          itemId: item.id, itemRevision: item.revision, position, snapshotJson: JSON.stringify(item) } });
         const modPart = await tx.participation.create({
           data: {
             roomId: createdRoom.id,
             displayName: session.user.displayName,
             normalizedName: session.user.displayName.toLowerCase().trim(),
             role: 'HOST',
-            hasSeenHostSecrets: true,
+            hasSeenHostSecrets: !blindSetup(materializedSetup),
             userId: session.userId,
             connected: true,
             ready: true,
@@ -577,6 +597,8 @@ roomsRouter.post('/', createLimiter, async (req, res) => {
       },
     });
   } catch (error) {
+    if (error instanceof ContentError || error instanceof ZodError) return res.status(error instanceof ContentError ? error.status : 400).json({ success: false,
+      error: { code: error instanceof ContentError ? error.code : 'INVALID_CONTENT_SELECTION', message: error instanceof ContentError && error.code === 'BLIND_HOST_OTHER_ACTIVE_ROOM' ? 'Für Blindmoderation darf kein weiterer eigener Raum offen sein. Bitte schließe ihn zuerst.' : error instanceof ContentError && error.code === 'DIFFICULTY_CONTENT_NOT_READY' ? 'Nicht genügend freigegebene Fragen für diesen Schwierigkeitsverlauf und die gewählten Pool-Anzahlen. Bitte Auswahl oder Verlauf anpassen.' : error instanceof ContentError && error.code === 'DIFFICULTY_RANGE_COUNT' ? 'Die Schwierigkeitsbereiche müssen genau die gewählte Fragenzahl abdecken.' : 'Inhaltsauswahl prüfen.' } });
     logger.error('Failed to create room', { error });
     res.status(500).json({
       success: false,
@@ -661,6 +683,7 @@ roomsRouter.get('/:code', async (req, res) => {
         maxPlayers: room.maxPlayers,
         cameraEnabled: room.cameraEnabled,
         allowViewers: room.allowViewers,
+        contentVisibility: room.contentVisibility,
         game: room.gameDefinition,
         players: room.participations.map(p => ({
           id: p.id,
@@ -797,7 +820,7 @@ roomsRouter.delete('/:code', async (req, res) => {
       include: { user: true },
     });
 
-    if (!session || session.revokedAt || session.expiresAt < new Date()) {
+    if (!session || session.revokedAt || session.expiresAt < new Date() || session.user.disabledAt) {
       return res.status(401).json({
         success: false,
         error: { code: 'SESSION_EXPIRED', message: 'Sitzung abgelaufen.' },

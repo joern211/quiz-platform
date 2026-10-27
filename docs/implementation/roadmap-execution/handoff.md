@@ -12,8 +12,8 @@ Spielregeln bleiben offen; bereits festgelegte Regeln nicht erneut abfragen.
 |---|---|---|
 | 1 | TEAM-ROOM / GitHub #15 abschließen; öffentliche Raumliste reparieren | abgeschlossen, f26e8fb; CI + 20/20 E2E grün |
 | 2 | Gemeinsame Spielaktionen / Rundensteuerung, Planplatz PR15 | abgeschlossen, a1b55eb; CI/E2E grün |
-| 3 | Results / Finalisierung / Recovery, Planplatz PR16 | in Arbeit, feature/pr17-results-recovery |
-| 4 | Content-Pools / Editor, anschließend Review / Import / Qualität | offen |
+| 3 | Results / Finalisierung / Recovery, Planplatz PR16 | abgeschlossen, 7316415; vollständige CI/E2E grün |
+| 4 | Content-Pools / Editor, anschließend Review / Import / Qualität | in Arbeit, feature/pr18-content-editor |
 | 5 | Audio / Voice, Kamera / Display; danach weitere Engines | offen |
 
 ## Wiederaufnahme
@@ -148,3 +148,79 @@ in Run 40143108619 grün. PR16 Ready for Review, nicht gemergt. Punkt 3 auf
 eigener Folgebranch: persistente Round-/GameResults, Review/Finalisierung,
 kompensierende Ledger-Korrekturen/Amendments, Historie und Replay-Recovery.
 Stand und exakte Fortsetzung: ../pr17/handoff.md. Punkte 4–5 weiterhin offen.
+
+## Wiederaufnahme 25.10.2026 — Punkt 3 fertig / Punkt 4 begonnen
+
+7316415: Run 40147789297 vollständig grün, 20/20 E2E ohne Retry/Flake.
+PR17 Ready for Review, kein Merge. Punkt 4 folgt auf eigener gestapelter
+Branch; Einzelstand und offene Master-Anforderungen: ../pr18/handoff.md.
+Punkt 5 bleibt offen.
+
+
+## Punkt4 — Wiederaufnahme gesichert / Zusammenarbeit ergänzt
+
+9a03c4f: vollständige CI/E2E grün (Run40220311085). Lokaler Folgeteil:
+Sammelbearbeitung mit Impact/Bestätigung/Teilresultaten, Concurrent-Editor-
+Anzeige, interne Kommentare/Locks/Usage-UI, PUBLIC-Privacy-Fix und echte
+konkurrierende Editorwrites. Details/Nachweise in ../pr18/handoff.md.
+Weiterhin kein Abschluss von Punkt4, kein Beginn von Punkt5, kein Merge.
+
+## Punkt4 — Content-Medien weitergeführt
+
+c125c13 ist gesichert; CI grün,22/23 E2E grün. C3-Trace hat einen konkreten
+Beschriftungsfehler geladener Textareas gezeigt; explizite Labels korrigiert.
+Lokaler Folgeteil bindet Medienrefs/Rechte an Editor/Import/READY/Preflight
+und reale Wissensduell-/Jeopardy-Delivery, mit Kontextsignaturen, geschützter
+Historie und additiver Legacy-Migration.463/463 Server,112/112 Web lokal grün.
+Details und ehrliche Restgrenzen stehen im PR18-Handoff. Punkt4 bleibt offen.
+
+## Punkt4 — Vorlagen und Review-Arbeitsschritte
+
+Medienstand cdadb97 vollständig CI/E2E-grün (Run40222792665,23/23 E2E).
+Folgeteil ergänzt private/System-Fragenvorlagen, getrennte versionsgebundene
+Prüfaufgaben, Einzelreview mit Tastatur/Wiederaufnahme und weitere Public-
+Privacy-/Receipt-Fixes. Lokal467 Server/116 Web grün, C4 zusätzlich aktiv.
+Nächste Schritte und verbleibende Grenzen in ../pr18/handoff.md.
+Punkt4 offen, Punkt5 unbegonnen, kein Merge.
+
+## Punkt4 — PLAYTEST und Teststabilität lokal gesichert
+
+Ältere P14-Regressionen erhalten eine eigene Testdatenbank und vollständigen
+Disconnect-Abbau; verspätete room:probe-Antworten schreiben nach Identitäts-
+wechsel nicht mehr. C3 synchronisiert die echte Anwesenheitsregistrierung.
+470 Servertests für diesen Teil grün; lokaler Commit6693b5b.
+
+Danach PLAYTEST aus Editor mit temporärem Gerätecode, vier Perspektiven,
+Auflösung, Testantworten und gesammelten Hinweisen; immutable Snapshot und
+aktive Mediengrenzen. Keine normalen Räume, Stats oder ScoreEvents.
+476 Server-/120 Webtests, beide Builds und Typecheck grün; neue echte
+HTTP-/DB-Abnahmen. Lint0 Fehler/113 bestehende Warnungen. Einzelstand, Browsergrenzen
+und Restumfang in ../pr18/handoff.md. GitHub-Sicherung durch automatische
+Freigabeprüfung blockiert; kein Workaround. Punkt4 offen, Punkt5 unbegonnen.
+
+## Punkt4 — Difficulty-Verläufe weitergeführt
+
+5ac3566 auf GitHub vollständig grün (476 Server/120 Web/25 E2E, Run40226692379).
+Folgeteil: genaue Prozentverteilungen, Rundenbereiche, System-/private Host-
+Schwierigkeitsvorlagen und gemeinsame Difficulty-/Pool-Quoten mit bevorzugten
+ungesehenen Fragen. Echter Engine-/Snapshot-Nachweis,38 gezielte Servertests
+und123 Webtests grün. Vollständig482 Servertests, beide Builds/Typecheck
+grün; Lint0 Fehler/113 bestehende Warnungen. C6 ergänzt Browserweg. Vollständige Spiel-/Room-Vorlagen
+und BLIND_HOST bleiben offen; Einzelabnahme siehe ../pr18/handoff.md.
+
+## Punkt4 — Spiel-/Raumvorlagen lokal geschlossen, BLIND_HOST folgt
+
+Private versionierte/favorisierte Spiel-Presets der beiden Content-Editor-
+Spiele und System-/private Raumvorlagen sind verbunden, mit atomaren Grant-
+und CAS-Prüfungen, expliziten Overrides und unveränderten historischen Werten.
+484 Server/127 Web lokal grün; C7 ergänzt Browserabnahme. Details siehe PR18-
+Handoff. BLIND_HOST ist der nächste unmittelbar offene Teil. Kein Merge.
+
+## Punkt4 — BLIND_HOST implementiert
+
+069bda3 (Spiel-/Raumvorlagen) vollständig CI/E2E-grün,27 Browserfälle.
+BLIND_HOST folgt mit persistiertem Modus, RANDOM-only, getrennten Kontroll-/
+Informationsrechten und Fences über Spiel, Rejoin, Editor, Exporte, alte Setups,
+Media und Playtest-Capabilities.490 Server/128 Web lokal grün, sechs echte
+Gegenproben und C8-Browserfall. Quick-Setup-Assistent ist noch offen; spätere
+Übersetzungs-/Statistik-/Betriebssysteme bleiben getrennt. Kein Merge.

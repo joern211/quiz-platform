@@ -20,6 +20,7 @@ import { catalogRouter } from './http/catalog.js';
 import { roomsRouter } from './http/rooms.js';
 import { setupRouter } from './http/setups.js';
 import { mediaRouter } from './http/media.js';
+import { contentRouter } from './http/content.js';
 import { setupSocketHandlers } from './sockets/index.js';
 import { prisma } from './persistence/prisma.js';
 import { logger } from './observability/logger.js';
@@ -84,6 +85,7 @@ export function createApp(): AppFactoryResult {
   app.use('/api/v1/rooms', roomsRouter);
   app.use('/api/v1/setups', setupRouter);
   app.use('/api/v1/media', mediaRouter);
+  app.use('/api/v1/content', contentRouter);
 
   // Health check
   const healthHandler: RequestHandler = async (_req, res) => {

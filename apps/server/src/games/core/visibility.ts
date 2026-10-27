@@ -1,6 +1,7 @@
 /** Information roles are resolved on the server, independently of permissions. */
 export interface ProjectionAudience {
   role: 'HOST' | 'PLAYER' | 'VIEWER' | 'DISPLAY';
+  blindHost?: boolean;
   participantId?: string | null;
   teamId?: string | null;
 }
@@ -12,7 +13,7 @@ export interface VisibilityRule {
 }
 export function canView(audience: ProjectionAudience, rule: VisibilityRule): boolean {
   if (rule.scope === 'PUBLIC' || rule.publiclyRevealed) return true;
-  if (rule.scope === 'HOST_PRIVATE') return audience.role === 'HOST';
+  if (rule.scope === 'HOST_PRIVATE') return audience.role === 'HOST' && !audience.blindHost;
   if (audience.role !== 'PLAYER') return false;
   if (rule.scope === 'PLAYER_PRIVATE') return !!rule.ownerParticipantId && rule.ownerParticipantId === audience.participantId;
   return !!rule.ownerTeamId && rule.ownerTeamId === audience.teamId;

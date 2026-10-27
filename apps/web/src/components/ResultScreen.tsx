@@ -5,6 +5,7 @@ import { Card, Button } from '@quiz/ui';
 import { connectSocket, emitCommand, getSocket, type PlayerRole } from '../lib/socket';
 import { getSession } from '../lib/sessionStore';
 import styles from './ResultScreen.module.css';
+import { ContentCorrection } from './ContentCorrection';
 
 export function ResultScreen({ roomCode, role }: { roomCode: string; role: PlayerRole }) {
   const [result, setResult] = useState<PublicResultView | null>(null), [room, setRoom] = useState<RoomCoreView | null>(null);
@@ -65,6 +66,7 @@ export function ResultScreen({ roomCode, role }: { roomCode: string; role: Playe
       <p role="status">{revision ? `Historische Version ${revision}` : result.resultStatus === 'FINALIZED' ? 'Verbindlich bestätigt' : result.resultStatus === 'RESULT_REVIEW' ? 'In Ergebnisprüfung' : result.resultStatus === 'GAME_END' ? 'Spiel beendet · noch nicht bestätigt' : 'Historisches Ergebnis ohne Finalisierungsnachweis'}</p>
       {result.aborted && <p>Abgebrochene Partie · kein reguläres Siegergebnis.</p>}
       {result.requiresReview && <p role="alert">Punkteprotokoll und Spielzustand müssen vor einer Bestätigung geprüft werden.</p>}
+      {role === 'PLAYER' && <ContentCorrection roomCode={roomCode} runIndex={result.runIndex} />}
       {result.scoring === 'TEAM_SCORE' && <Card padding="lg"><h2>Teamwertung</h2><ol>{result.teams.map(t => <li key={t.id} value={t.rank}>{t.name}: {t.score} Punkte</li>)}</ol></Card>}
       <Card padding="lg"><h2>{result.scoring === 'TEAM_SCORE' ? 'Persönliche Beiträge' : 'Rangliste'}</h2>
         <ol>{result.scores.map(p => <li key={p.participationId} value={p.rank}>{p.displayName}: {p.score} Punkte</li>)}</ol>

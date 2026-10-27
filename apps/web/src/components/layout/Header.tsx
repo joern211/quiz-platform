@@ -98,6 +98,7 @@ export function Header() {
         <nav className={styles.nav} aria-label="Hauptnavigation">
           <Link to="/kategorien" className={styles.link}>Spiele</Link>
           <Link to="/raeume" className={styles.link}>Räume</Link>
+          <Link to="/inhalte" className={styles.link}>Fragen & Pools</Link>
           <Link to="/moderator/anmelden" className={styles.link}>Moderieren</Link>
           <Link to="/zuschauen" className={styles.link}>Zuschauen</Link>
         </nav>
