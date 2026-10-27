@@ -5,6 +5,7 @@ import styles from '../pages/ContentPage.module.css';
 
 export function ContentCollaboration({ item, pool, actorId, dirty, onSaved }: { item: ContentItemView; pool: ContentPoolView; actorId?: string; dirty: boolean; onSaved: (item: ContentItemView) => void }) {
   const key = useRef(crypto.randomUUID()), [others, setOthers] = useState<Array<{ id: string; displayName: string }>>([]);
+  const presenceTail = useRef<Promise<unknown>>(Promise.resolve());
   const [presenceError, setPresenceError] = useState(''), [comments, setComments] = useState<CommentView[] | null>(null), [text, setText] = useState('');
   const [usage, setUsage] = useState<Awaited<ReturnType<typeof contentApi.usage>> | null>(null), [error, setError] = useState(''), [busy, setBusy] = useState(false);
   const internal = pool.canReadInternal ?? (pool.canEdit || pool.canPropose);
@@ -12,13 +13,19 @@ export function ContentCollaboration({ item, pool, actorId, dirty, onSaved }: { 
     if (!actorId || !internal) return;
     let current = true, pending = false;
     const editorKey = key.current;
+    // StrictMode can mount/clean up/remount before the first POST finishes.
+    // A late inactive request must not delete the newer active registration.
+    const sendPresence = (active: boolean) => {
+      const result = presenceTail.current.catch(() => {}).then(() => contentApi.presence(item.id, editorKey, active));
+      presenceTail.current = result; return result;
+    };
     const heartbeat = async () => { if (pending) return; pending = true;
-      try { const data = await contentApi.presence(item.id, editorKey, true); if (current) { setOthers(data); setPresenceError(''); } }
+      try { const data = await sendPresence(true); if (current) { setOthers(data); setPresenceError(''); } }
       catch { if (current) setPresenceError('Weitere Bearbeiter können gerade nicht angezeigt werden. Versionsschutz bleibt aktiv.'); }
       finally { pending = false; }
     };
     void heartbeat(); const timer = setInterval(() => void heartbeat(), 15000);
-    return () => { current = false; clearInterval(timer); void contentApi.presence(item.id, editorKey, false).catch(() => {}); };
+    return () => { current = false; clearInterval(timer); void sendPresence(false).catch(() => {}); };
   }, [item.id, actorId, internal]);
   const run = async (work: () => Promise<unknown>) => { setBusy(true); setError(''); try { await work(); } catch (e) { setError(e instanceof Error ? e.message : 'Aktion fehlgeschlagen.'); } finally { setBusy(false); } };
   if (!internal) return null;

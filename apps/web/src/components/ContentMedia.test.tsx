@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, expect, it, vi } from 'vitest';
 import { ContentMedia } from './ContentMedia';
@@ -18,11 +18,12 @@ it('never autoplays question audio and does not request an absent or future asse
   const audio = screen.getByLabelText('Audio zur Frage'); expect(audio).toHaveAttribute('controls'); expect(audio).not.toHaveAttribute('autoplay');
 });
 it('uploads privately with the real multipart contract and resets prior media rights on replacement', async () => {
-  const changed = vi.fn(), fetch = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ success: true, data: { id: 'new-asset', type: 'image' } }) });
+  const changed = vi.fn(), fetch = vi.fn().mockResolvedValueOnce({ ok: true, json: async () => ({ success: true, data: { id: 'job-1', status: 'QUEUED' } }) }).mockResolvedValue({ ok: true, json: async () => ({ success: true, data: { id: 'job-1', status: 'READY', asset: { id: 'new-asset', type: 'image' } } }) });
   vi.stubGlobal('fetch', fetch);
   render(<ContentMediaFields item={null} payload={{ mediaAssetId: 'old-asset', mediaRights: { license: 'Old license' } }} disabled={false} onChange={changed} />);
   const file = new File(['png'], 'new.png', { type: 'image/png' }); await userEvent.upload(screen.getByLabelText('Medium hochladen'), file);
-  expect(fetch).toHaveBeenCalledWith('/api/v1/media', expect.objectContaining({ method: 'POST', credentials: 'include', body: expect.any(FormData) }));
+  expect(fetch).toHaveBeenCalledWith('/api/v1/media/jobs', expect.objectContaining({ method: 'POST', credentials: 'include', body: expect.any(FormData) }));
   expect((fetch.mock.calls[0][1].body as FormData).get('file')).toEqual(file);
-  expect(changed).toHaveBeenCalledWith(expect.objectContaining({ mediaAssetId: 'new-asset', mediaType: 'image', mediaRights: expect.objectContaining({ license: '', ownMaterial: false }) }));
+  expect((fetch.mock.calls[0][1].body as FormData).get('commandId')).toMatch(/^[a-f0-9-]{36}$/);
+  await waitFor(() => expect(changed).toHaveBeenCalledWith(expect.objectContaining({ mediaAssetId: 'new-asset', mediaType: 'image', mediaRights: expect.objectContaining({ license: '', ownMaterial: false }) })));
 });

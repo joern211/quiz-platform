@@ -10,7 +10,7 @@ Heads abnehmen. Kein Merge. Pushes sind im Auftrag autorisiert.
 | 2 | PR15: Zuschauerlimit auch bei Zulassung über beide Modelle zählen | behoben; 31 Raum-/Sockettests grün; finale CI am neuen PR15-Head |
 | 3 | PR16/17: Raumänderungen atomar protokollieren, Recovery ohne Verlust | behoben; PR16-Events und PR17-Recovery-Regressionsfälle grün |
 | 4 | PR18: ausdrücklich 0 Punkte in der Runtime erhalten | behoben; vier neue Content-bis-Ergebnis-Fälle grün |
-| 5 | PR19: Empfangsverbindungen gemeinsam neu aushandeln | offen |
+| 5 | PR19: Empfangsverbindungen gemeinsam neu aushandeln | behoben; 11 Media-Integrationstests und 7 UI/Transportfälle grün; Browserabnahme folgt |
 
 Wiederaufnahme: Branch/Working Tree und Remote-Heads abgleichen. Bestehende
 Arbeit erhalten. Jeden Befund mit gezielten Regressionen sichern; abschließend
@@ -55,3 +55,11 @@ Befund 4: Nullish-Default erhält ausdrücklich 0 Punkte auch mit Risiko-Joker.
 Neue reale Content-/HTTP-/Socket-/DB-Fälle sichern 0, 0 mit Risiko, 100 sowie
 den fehlenden Wert mit Default 100 bis Score-Ledger und persistiertem Ergebnis.
 PR15/16: vollständige CI einschließlich E2E am finalen Head erfolgreich.
+
+Befund 5: Autorisierter, serialisierter media:restart rotiert ausschließlich
+die eigenen erlaubten Routen. Sender und Empfänger erhalten neue IDs; fremde
+Routen bleiben stabil, alte Signale werden verworfen. Consent, Teamkanal,
+Host-Mute und Kamerasperre bleiben wirksam. Receive-only UI meldet Fehler.
+Der Browserfall stoppt echte Empfangstracks und verlangt neue Sender-Offers
+sowie wieder laufende Audio-/Videoübertragung nach dem Klick.
+PR18 als be52aca gesichert. Finale CI/E2E und Draft-Übergang stehen noch aus.

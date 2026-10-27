@@ -1,3 +1,4 @@
+import { refreshLiveMedia } from '../../media/live.js';
 // ============================================================
 // Receipted Socket-Handler Wrapper (BASIS-STANDARDS, §5.17/§10.6)
 // ============================================================
@@ -125,7 +126,7 @@ export async function runGuardedCriticalAction(
   }
 
   const finish = (result: { success: boolean; error?: string; [k: string]: unknown }, replayed?: boolean) => {
-    if (result.success && !replayed || result.error === 'STATE_INVARIANT_FAILED') args.io.to(roomChannel(perm.roomId)).emit('game:core:changed');
+    if (result.success && !replayed || result.error === 'STATE_INVARIANT_FAILED') { args.io.to(roomChannel(perm.roomId)).emit('game:core:changed'); void refreshLiveMedia(args.io); }
     if (!result.success && result.error) {
       const appError = wireErrorToAppError(String(result.error), { context: { action: args.action } });
       callback?.({ ...result, code: appError.code, messageKey: appError.messageKey, traceId: appError.traceId, ...(replayed ? { replayed: true } : {}) });

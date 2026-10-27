@@ -1,3 +1,4 @@
+import { refreshLiveMedia } from '../media/live.js';
 import type { Server, Socket } from 'socket.io';
 import { RoomCommandSchema } from '@quiz/shared';
 import { prisma } from '../persistence/prisma.js';
@@ -24,15 +25,20 @@ export async function socketRoomActor(socket: Socket, allowPending = false): Pro
     if (session) userId = user.id;
   }
   let pending = false;
-  if (identity.participationId && !identity.participationId.startsWith('viewer:')) {
+  const display = identity.role === 'DISPLAY';
+  if (display) {
+    const session = await prisma.displaySession.findFirst({ where: { id: identity.participationId?.slice(8), roomId: room.id, connected: true, expiresAt: { gt: new Date() } } });
+    if (!session) throw new RoomError('DISPLAY_SESSION_EXPIRED'); userId = null;
+  }
+  if (identity.participationId && !identity.participationId.startsWith('viewer:') && !display) {
     const p = await prisma.participation.findFirst({ where: { id: identity.participationId, roomId: room.id, connectionId: socket.id, connected: true, bannedAt: null, kickedAt: null, leftAt: null } });
     if (!p) throw new RoomError('NO_PARTICIPATION');
     pending = p.admission !== 'ACTIVE';
     if (pending && !allowPending) throw new RoomError('ADMISSION_REQUIRED');
   }
-  const role = userId === room.hostUserId ? 'HOST' : identity.role === 'HOST' ? 'VIEWER' : normalizeRole(identity.role) ?? 'VIEWER';
+  const role = display ? 'DISPLAY' : userId === room.hostUserId ? 'HOST' : identity.role === 'HOST' ? 'VIEWER' : normalizeRole(identity.role) ?? 'VIEWER';
   const permissions = pending ? new Set<import('@quiz/shared').GamePermission>() : await loadEffectivePermissions(room.id, role, userId === room.hostUserId || roomPolicy(room).coHostEnabled ? userId : null);
-  return { roomId: room.id, actor: { connectionId: socket.id, participantId: identity.participationId ?? '', userId, sessionId: user?.sessionId, permissions, canManage: !pending && (permissions.has('PLAYER_MANAGE') || permissions.has('TEAM_MANAGE') || userId === room.hostUserId) } };
+  return { roomId: room.id, actor: { connectionId: socket.id, participantId: identity.participationId ?? '', userId, sessionId: user?.sessionId, permissions, canManage: !display && !pending && (permissions.has('PLAYER_MANAGE') || permissions.has('TEAM_MANAGE') || userId === room.hostUserId) } };
 }
 
 export function revokeParticipantSockets(io: Server, roomId: string, ids: string[], event = 'session:replaced') {
@@ -51,6 +57,7 @@ export function closeRoomSockets(io: Server, roomId: string) {
   }
 }
 export function changed(io: Server, roomId: string) {
+  refreshLiveMedia(io);
   io.to([roomChannel(roomId), roomWaitingChannel(roomId)]).emit('room:core:changed');
   void prisma.room.findUnique({ where: { id: roomId }, include: {
     participations: { where: { role: { not: 'VIEWER' }, admission: 'ACTIVE', kickedAt: null, bannedAt: null, leftAt: null } },

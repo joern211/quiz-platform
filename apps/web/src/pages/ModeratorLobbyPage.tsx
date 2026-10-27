@@ -1,3 +1,4 @@
+import { MediaDeviceCheck } from '../components/MediaDeviceCheck';
 // ============================================================
 // Moderator Lobby Page - v0.3.0
 // ============================================================
@@ -216,6 +217,7 @@ export function ModeratorLobbyPage() {
       <div className={styles.header}>
         <div>
           <h1 className={styles.title}>Spielleiter-Lobby</h1>
+          <MediaDeviceCheck />
           <p className={styles.subtitle}>Raum: {code}</p>
         </div>
         <div className={styles.headerRight}>

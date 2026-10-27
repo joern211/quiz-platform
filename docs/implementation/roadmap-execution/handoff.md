@@ -13,8 +13,8 @@ Spielregeln bleiben offen; bereits festgelegte Regeln nicht erneut abfragen.
 | 1 | TEAM-ROOM / GitHub #15 abschließen; öffentliche Raumliste reparieren | abgeschlossen, f26e8fb; CI + 20/20 E2E grün |
 | 2 | Gemeinsame Spielaktionen / Rundensteuerung, Planplatz PR15 | abgeschlossen, a1b55eb; CI/E2E grün |
 | 3 | Results / Finalisierung / Recovery, Planplatz PR16 | abgeschlossen, 7316415; vollständige CI/E2E grün |
-| 4 | Content-Pools / Editor, anschließend Review / Import / Qualität | in Arbeit, feature/pr18-content-editor |
-| 5 | Audio / Voice, Kamera / Display; danach weitere Engines | offen |
+| 4 | Content-Pools / Editor, anschließend Review / Import / Qualität | benannte Lücken geschlossen,2319154; CI +29/29 E2E grün; Grenzen in pr18/acceptance.md |
+| 5 | Audio / Voice, Kamera / Display; danach weitere Engines | implementiert; finale Abnahme am aktuellen PR19-Head maßgeblich, Details pr19/acceptance.md |
 
 ## Wiederaufnahme
 
@@ -224,3 +224,56 @@ Informationsrechten und Fences über Spiel, Rejoin, Editor, Exporte, alte Setups
 Media und Playtest-Capabilities.490 Server/128 Web lokal grün, sechs echte
 Gegenproben und C8-Browserfall. Quick-Setup-Assistent ist noch offen; spätere
 Übersetzungs-/Statistik-/Betriebssysteme bleiben getrennt. Kein Merge.
+
+## Wiederaufnahme — Paket4 benannte Lücken geschlossen, Paket5 begonnen
+
+2319154:490 Server-/132 Webtests und29 Browserfälle vollständig auf GitHub
+grün (Run40253379733). Geführter siebenstufiger Schnellstart, vollständige
+Spiel-/Raumvorlagen und BLIND_HOST einschließlich echter Replay-Recovery
+abgenommen. PR18 bleibt Draft und ungemergt; kein pauschales §6-alles-DONE.
+
+Paket5 auf eigener Folgebranch feature/pr19-media-voice. Erster Teil ersetzt
+Audio-Magic-Byte-Akzeptanz durch tatsächliche Decodierung, Loudness-
+Normalisierung, Metadata-Strip und begrenzte Verarbeitung. Details, Tests und
+die konkrete Fortsetzung stehen in ../pr19/handoff.md. Live-Voice/Kamera/
+Display sind weiterhin offene Arbeit innerhalb von Paket5.
+
+## Paket5 — Audio grün, lokaler Gerätecheck ergänzt
+
+0934183 vollständig CI/E2E-grün (30 Fälle, Run40292697356, Wiederholung nach
+Paketdownload-Timeout). Optionaler lokaler Prejoin-/Host-Lobby-Gerätecheck ist
+als nächster Teil implementiert: unabhängige ausdrückliche Permissions,
+Vorschau/Pegel/Testton, Gerätefallback, Filter und sichere Capture-Bereinigung.
+139 Webtests lokal grün, M2/M3 erhöhen Browserabnahme auf32. Live-Übertragung,
+MAIN/TEAM/Host-Mute/PTT und DISPLAY bleiben offen. Details in pr19/handoff.md.
+
+## Paket5 — Live-Transport und DISPLAY weitergeführt
+
+Basis remote d60f078: vollständigeCI505 Server/139 Web/32 E2E grün.
+Lokal folgen echte WebRTC-Verbindungen mit MAIN/TEAM, getrennter Kamera,
+persistenter Hostmoderation, PTT und Live-Gerätewechsel sowie eigener DISPLAY-
+Session/Broadcast. Acht DB-/Socket-Gegenproben, drei Transporttests; M4/M5
+prüfen tatsächliche Übertragung und zwei Displays. Vorher511 Server/142 Web
+lokal grün; vollständige Folgeabnahme mit513 Server/34 E2E noch ausstehend.
+Details in ../pr19/handoff.md. Medienjobs/Varianten bleiben offen; kein Merge.
+
+## Paket5 — lokale Implementierung ergänzt, finale Browserabnahme blockiert
+
+Lokal b9ec43d plus Folgecommit: Live-WebRTC/MAIN/TEAM/Mute/PTT/Kamera, eigener
+DISPLAY-Pfad, persistente Medienjobs mit Original-/Variantenverwaltung und
+Geräte-/Filterwechsel.521 Servertests und147 Webtests grün. Genaue Grenzen und
+finaler Prüfumfang in ../pr19/acceptance.md.34 Browserfälle vorbereitet; deren
+Abnahme bleibt offen. Auto-Review hat neue GitHub-Übertragung blockiert, da die
+letzte ausdrückliche Pushfreigabe nur auf frühere Commits bezogen wurde. Kein
+Workaround. Erneute konkrete Pushfreigabe als nächster Schritt erforderlich.
+Letzter Remote-Head bleibt d60f078. Paket5 nicht als abgeschlossen melden.
+
+## Paket5 — neue Pushfreigabe umgesetzt, Browserkorrektur
+
+Remote17f0a2e enthält beide neuen lokalen Commits mit identischen Dateibäumen.
+Run40341975302: CI521 Server/147 Web grün, Browser32 bestanden; T1 Retry-grün,
+M4 Labelproblem nach erfolgreicher echter Übertragung. Explizite Labels und
+bestätigte Teamwahl vor Ready ergänzt, außerdem veraltete Subscription-Roster
+mit echter Gegenprobe abgesichert. Web148 und gezielt3 Reconnect-Fälle grün.
+Neue Abnahmekorrekturen sind ausdrücklich pushautorisiert; kein erneutes Fragen.
+Finales Ergebnis des Folge-Heads im PR19-Body/Run festhalten. Kein Merge.

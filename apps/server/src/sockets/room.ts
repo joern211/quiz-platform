@@ -53,6 +53,7 @@ export async function handleRoomSubscription(
   data: { roomCode: string; rejoinToken?: string; pin?: string; moderatorToken?: string; inviteToken?: string },
   callback?: RoomAcknowledgement
 ) {
+  if (socket.data.role === 'DISPLAY') { callback?.({ success: false, error: 'DISPLAY_READ_ONLY' }); return; }
   const room = await prisma.room.findUnique({ where: { code: data.roomCode }, select: { id: true } });
   if (!room) { callback?.({ success: false, error: 'ROOM_NOT_FOUND' }); return; }
   return serializeRoom(room.id, () => subscribeInRoom(io, socket, data, callback));
@@ -295,6 +296,7 @@ async function subscribeInRoom(
       if (oldSocket) {
         oldSocket.emit('session:replaced');
         await oldSocket.leave(roomChannel(room.id));
+        await oldSocket.leave(roomWaitingChannel(room.id));
         oldSocket.data = {};
       }
       socketIdentityMap.delete(oldId);
@@ -333,21 +335,27 @@ async function subscribeInRoom(
   // A pending identity is valid only for its waiting room, never for gameplay.
   await socket.join(targetChannel);
 
-  changed(io, room.id);
+  // Admission/rejoin may await writes while readiness changes independently.
+  // Project the committed roster now, never the one loaded before admission.
+  const latest = await prisma.room.findUniqueOrThrow({ where: { id: room.id }, include: {
+    gameDefinition: true,
+    participations: { where: { role: { not: 'VIEWER' }, admission: 'ACTIVE', bannedAt: null, leftAt: null, kickedAt: null } },
+    viewerSessions: true,
+  } });
 
   // Build snapshot
   const snapshot = {
-    roomId: room.id,
-    code: room.code,
-    roomName: room.roomName,
-    status: room.status,
-    runPhase: room.runPhase,
+    roomId: latest.id,
+    code: latest.code,
+    roomName: latest.roomName,
+    status: latest.status,
+    runPhase: latest.runPhase,
     game: {
-      slug: room.gameDefinition.slug,
-      name: room.gameDefinition.name,
+      slug: latest.gameDefinition.slug,
+      name: latest.gameDefinition.name,
     },
     admission: member?.admission ?? 'ACTIVE',
-    players: (admitted ? room.participations : []).map(p => ({
+    players: (admitted ? latest.participations : []).map(p => ({
       id: p.id,
       displayName: p.displayName,
       role: p.role,
@@ -357,11 +365,11 @@ async function subscribeInRoom(
       avatarMode: p.avatarMode,
       avatarGenerated: p.avatarGenerated ? JSON.parse(p.avatarGenerated) : null,
     })),
-    viewerCount: admitted ? room.viewerSessions.filter(vs => vs.connected).length : 0,
-    revision: room.revision,
+    viewerCount: admitted ? latest.viewerSessions.filter(vs => vs.connected).length : 0,
+    revision: latest.revision,
     serverTime: Date.now(),
-    gameSlug: room.gameDefinition.slug,
-    contentVisibility: room.contentVisibility,
+    gameSlug: latest.gameDefinition.slug,
+    contentVisibility: latest.contentVisibility,
     // Include identity for client to store
     identity: {
       participationId: identity.participationId,
@@ -372,12 +380,9 @@ async function subscribeInRoom(
   // Send snapshot
   socket.emit('room:snapshot', snapshot);
 
-  // Broadcast update to room (only THIS room)
-  io.to(roomChannel(room.id)).emit('room:updated', {
-    roomCode: room.code,
-    revision: room.revision + 1,
-    players: snapshot.players,
-  });
+  // The common projection reads current state and uses its real revision.
+  // Do not rebroadcast the pre-admission roster with a fabricated revision.
+  changed(io, latest.id);
 
   // Emit player join only for actual players (not viewers), only to THIS room
   if (admitted && identity.role !== 'VIEWER' && identity.participationId) {
@@ -515,6 +520,7 @@ export const handleRoomEvents = {
     callback?: RoomAcknowledgement
   ) {
     const identity = socket.data as { roomId?: string; role?: string };
+    if (identity.role === 'DISPLAY') { callback?.({ success: false, error: 'ROLE_REQUIRED' }); return; }
     if (!identity.roomId || !identity.role || !socket.rooms.has(roomChannel(identity.roomId))) {
       callback?.({ success: false, error: 'NOT_IN_ROOM' });
       return;

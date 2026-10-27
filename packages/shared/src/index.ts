@@ -1864,3 +1864,21 @@ export type SetupBlueprintInput = z.infer<typeof SetupBlueprintInputSchema>;
 export type SetupBlueprintView = SetupBlueprintInput & { id: string; revision: number; scope: 'SYSTEM' | 'PRIVATE' };
 export const SetupBlueprintRefSchema = z.object({ id: z.string().min(1).max(128), revision: z.number().int().positive() }).strict();
 export type SetupBlueprintRef = z.infer<typeof SetupBlueprintRefSchema>;
+
+// Live media: identifiers are server-issued routes, never client-chosen rooms.
+export const LiveMediaPolicySchema = z.object({
+  voiceEnabled: z.boolean().default(true), viewerAudio: z.boolean().default(true),
+  camerasEnabled: z.boolean().default(false), voiceMode: z.enum(['OPEN_MIC', 'PUSH_TO_TALK', 'PLAYER_CHOICE']).default('PLAYER_CHOICE'),
+  autoTeamDuringRound: z.boolean().default(false), autoPttDuringRound: z.boolean().default(false),
+  channel: z.enum(['MAIN', 'TEAM']).default('MAIN'), forcePushToTalk: z.boolean().default(false),
+  camerasVisible: z.boolean().default(true), exclusiveSpeakerId: z.string().nullable().default(null),
+}).strict();
+export type LiveMediaPolicy = z.infer<typeof LiveMediaPolicySchema>;
+export type LiveMediaRoute = { id: string; kind: 'audio' | 'video'; from: string; to: string; name: string };
+export type LiveMediaMember = { id: string; name: string; role: string; teamId: string | null; hostMuted: boolean; cameraHidden: boolean; mic: boolean; camera: boolean };
+export type LiveMediaSnapshot = {
+  roomCode: string; revision: number; selfId: string; policy: LiveMediaPolicy; canManage: boolean;
+  self: LiveMediaMember; members: LiveMediaMember[]; routes: LiveMediaRoute[];
+  iceServers: { urls: string | string[]; username?: string; credential?: string }[];
+};
+export type LiveMediaSignal = { routeId: string; description?: { type: 'offer' | 'answer'; sdp: string }; candidate?: { candidate: string; sdpMid?: string | null; sdpMLineIndex?: number | null; usernameFragment?: string | null } };

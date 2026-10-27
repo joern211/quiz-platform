@@ -1,3 +1,4 @@
+import { startMediaWorker, cleanupMediaJobStaging } from './media/jobs.js';
 // ============================================================
 // Online Quiz Plattform - Main Server Entry
 // Uses createApp() factory from app.ts
@@ -13,12 +14,15 @@ import { logger } from './observability/logger.js';
 import { config } from './config/index.js';
 
 const { io, httpServer } = createApp();
+let stopMediaWorker: (() => Promise<void>) | undefined;
 
 // Start server
 export async function start() {
   try {
     await prisma.$connect();
     logger.info('Database connected');
+    await cleanupMediaJobStaging(prisma);
+    stopMediaWorker = startMediaWorker(prisma);
 
     // Versionierte, idempotente Slug-Migration auf die kanonischen
     // Spielidentitäten (Regelwerk §5.22/§5.23/§14). Muss VOR der
@@ -55,6 +59,7 @@ export async function start() {
 // Graceful shutdown
 process.on('SIGTERM', async () => {
   logger.info('SIGTERM received, shutting down...');
+  await stopMediaWorker?.();
   await prisma.$disconnect();
   httpServer.close(() => {
     logger.info('Server closed');

@@ -380,6 +380,9 @@ model Room {
   gameEvents         GameDomainEvent[]
   gameResults        GameResultRecord[]
   roundResults       RoundResultRecord[]
+  displaySessions DisplaySession[]
+  mediaControl RoomMediaControl?
+  mediaParticipantControls ParticipantMediaControl[]
   viewerSessions     ViewerSession[]
   chatMessages       ChatMessage[]
   scoreEvents        ScoreEvent[]
@@ -654,6 +657,10 @@ model MediaAsset {
   @@index([sha256])
   @@index([assetKey])
 
+  processingSources MediaProcessingJob[]
+  variantOriginals MediaAssetVariant[] @relation("VariantOriginal")
+  variantOutputs MediaAssetVariant[] @relation("VariantOutput")
+  variantKind String @default("WEB")
   contentReferences ContentMediaReference[]
 
   // Note: GeoQuestion holds the forward relation via mediaAssetId
@@ -956,4 +963,64 @@ model SetupBlueprint {
 
   @@index([ownerId, kind, status])
   @@map("setup_blueprints")
+}
+
+model RoomMediaControl {
+  roomId String @id
+  room Room @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  revision Int @default(1)
+  policyJson String @default("{}")
+  @@map("room_media_controls")
+}
+model ParticipantMediaControl {
+  id String @id @default(uuid())
+  roomId String
+  room Room @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  participantId String
+  hostMuted Boolean @default(false)
+  cameraHidden Boolean @default(false)
+  @@unique([roomId, participantId])
+  @@map("participant_media_controls")
+}
+
+model DisplaySession {
+  id String @id @default(uuid())
+  roomId String
+  room Room @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  connected Boolean @default(true)
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+  @@index([roomId])
+  @@map("display_sessions")
+}
+
+model MediaProcessingJob {
+  id String @id @default(uuid())
+  ownerId String
+  commandId String
+  inputHash String
+  originalId String
+  original MediaAsset @relation(fields: [originalId], references: [id], onDelete: Restrict)
+  outputId String?
+  status String @default("QUEUED")
+  attempts Int @default(0)
+  leaseToken String?
+  leaseUntil DateTime?
+  errorCode String?
+  retryable Boolean @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  @@unique([ownerId, commandId])
+  @@index([status, leaseUntil])
+  @@map("media_processing_jobs")
+}
+model MediaAssetVariant {
+  id String @id @default(uuid())
+  originalId String
+  original MediaAsset @relation("VariantOriginal", fields: [originalId], references: [id], onDelete: Restrict)
+  assetId String
+  asset MediaAsset @relation("VariantOutput", fields: [assetId], references: [id], onDelete: Restrict)
+  kind String
+  @@unique([originalId, kind])
+  @@map("media_asset_variants")
 }

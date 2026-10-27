@@ -53,6 +53,7 @@ sind keine eigenen Spiele, sondern **Content-Pools** von Wissensduell.
 
 - Node.js 22+ (entsprechend `.nvmrc` und `package.json`)
 - pnpm 9+
+- FFmpeg und ffprobe mit MP3/AAC/Vorbis-Decodern und libmp3lame für Audio-Uploads
 - (Docker für Container-Deployment)
 
 ### 1. Klonen

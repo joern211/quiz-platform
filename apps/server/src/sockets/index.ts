@@ -1,3 +1,5 @@
+import { registerDisplay } from '../media/display.js';
+import { setupLiveMedia } from '../media/live.js';
 import { registerRecoveryCommands } from '../games/core/recoveryCommands.js';
 import { registerResultCommands } from '../games/core/resultCommands.js';
 // ============================================================
@@ -42,6 +44,8 @@ export function setupSocketHandlers(io: Server) {
   // can access the io instance
   (globalThis as any).__quiz_io = io;
 
+  setupLiveMedia(io);
+
   // Authentication middleware
   io.use(async (socket, next) => {
     try {
@@ -70,6 +74,7 @@ export function setupSocketHandlers(io: Server) {
     // P0-08/P0-09: Initialize socket.data to track identity
     socket.data = {};
 
+    registerDisplay(io, socket);
     registerRoomCore(io, socket);
     registerResultCommands(io, socket);
     registerRecoveryCommands(io, socket);

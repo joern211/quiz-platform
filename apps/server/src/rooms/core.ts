@@ -418,7 +418,8 @@ export async function mutateRoom(roomId: string, actor: RoomActor, op: RoomOpera
         } });
         await tx.room.update({ where: { id: roomId }, data: { status: 'ARCHIVED', lifecycle: 'CLOSED', archivedAt: new Date() } });
         await tx.participation.updateMany({ where: { roomId }, data: { connected: false, connectionId: null, rejoinTokenVersion: { increment: 1 } } });
-        await tx.viewerSession.updateMany({ where: { roomId }, data: { connected: false, disconnectedAt: new Date() } }); break;
+        await tx.viewerSession.updateMany({ where: { roomId }, data: { connected: false, disconnectedAt: new Date() } });
+        await tx.displaySession.updateMany({ where: { roomId }, data: { connected: false } }); break;
       case 'EMERGENCY': throw new RoomError('ENGINE_ACTION_UNSUPPORTED');
     }
     const labels: Record<string, string> = { POLICY: 'Raumeinstellungen geändert', LOCK: op.type === 'LOCK' && op.locked ? 'Lobby gesperrt' : 'Lobby geöffnet', SCHEDULE: 'Raum geplant', OPEN: 'Lobby geöffnet', DRAFT: 'Raum als Entwurf gespeichert', TEAMS_ASSIGN: 'Teams neu zugewiesen', TEAM_EDIT: 'Team bearbeitet', TEAM_SELECT: 'Team gewählt', ADMIT: 'Teilnahme entschieden', RENAME: 'Anzeigename geändert', LEAVE: 'Raum verlassen', KICK: 'Teilnehmer entfernt', BAN: 'Teilnehmer gesperrt', UNBAN: 'Raumsperre aufgehoben', TOKEN_ROTATE: 'Geräteübernahme vorbereitet', COHOST: 'Co-Host-Rechte geändert', TRANSFER: 'Host-Verwaltung übertragen', INVITE: 'Einladung erstellt', LOBBY: 'Neue Lobby vorbereitet', REMATCH: 'Revanche vorbereitet', SWITCH_GAME: 'Spiel gewechselt', CLOSE: 'Raum endgültig geschlossen' };

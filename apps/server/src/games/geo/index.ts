@@ -1,3 +1,4 @@
+import { refreshLiveMedia } from '../../media/live.js';
 // ============================================================
 // Geo Quiz Game Engine
 // ============================================================
@@ -408,6 +409,7 @@ export const handleGeoGame = {
 
     // P0-04/P0-17: Emit 'geo:question' with correct structure (NO correctOptionId!)
     // P0-16: Include timerEndMs in geo:question event
+    await refreshLiveMedia(io);
     io.to(roomChannelName).emit('geo:question', {
       roundIndex: state.currentRoundIndex,
       totalQuestions: state.questions.length,

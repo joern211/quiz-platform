@@ -164,6 +164,11 @@ export async function handleDisconnect(io: Server, socket: Socket) {
     const channel = roomChannel(roomId);
     let disconnectedParticipation = false;
 
+    if (identity.role === 'DISPLAY') {
+      await prisma.displaySession.updateMany({ where: { id: participationId.slice(8), roomId }, data: { connected: false } });
+      socketIdentityMap.delete(socket.id); socket.data = {}; return;
+    }
+
     // Update participation or viewer session based on type
     if (identity.participationId.startsWith('viewer:')) {
       // Viewer session - set disconnectedAt timestamp for reliable cleanup tracking

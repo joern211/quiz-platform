@@ -36,6 +36,10 @@ export function authorizeGameAction(
   }
 ): GameAuthorizationResult {
   const identity = getSocketDataIdentity(socket);
+  if (identity.role === 'DISPLAY') {
+    if (!socket.data.displayExpiresAt || socket.data.displayExpiresAt <= Date.now()) return { ok: false, error: 'NOT_IN_ROOM' };
+    identity.role = 'VIEWER'; // Public projection only; permission core separately denies DISPLAY mutations.
+  }
 
   if (!identity.roomId || !identity.role) {
     return { ok: false, error: 'NOT_IN_ROOM' };

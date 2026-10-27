@@ -1,3 +1,5 @@
+import { BroadcastPage } from './pages/BroadcastPage';
+import { LiveMediaPanel } from './components/LiveMediaPanel';
 // ============================================================
 // App Component – v0.2.1 (Clean routes, no redirect loops)
 // ============================================================
@@ -90,6 +92,7 @@ export default function App() {
           <Route path="/moderator/raum/:code/weristdas" element={<WerIstDasGamePage role="HOST" />} />
 
           {/* ── Spieler ── */}
+          <Route path="/raum/:code/broadcast" element={<BroadcastPage />} />
           <Route path="/raum/:code/lobby"     element={<PlayerLobbyPage />} />
           <Route path="/raum/:code/spiel"     element={<PlayerGamePage />} />
           <Route path="/raum/:code/ergebnis"  element={<PlayerResultPage />} />
@@ -114,8 +117,9 @@ export default function App() {
           {/* ── 404 ── */}
           <Route path="*" element={<NotFoundPage />} />
         </Routes>
-        {!location.pathname.startsWith('/inhalte/playtest/') && <RoomPanel />}
+        {!location.pathname.startsWith('/inhalte/playtest/') && !location.pathname.endsWith('/broadcast') && <RoomPanel />}
       </main>
+      <LiveMediaPanel />
       <Footer />
     </div>
   );

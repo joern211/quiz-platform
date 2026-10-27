@@ -40,5 +40,5 @@ it('shows simultaneous editors without replacing local content and releases its 
   await userEvent.click(screen.getByText('Zusammenarbeit und Verwendung'));
   expect(screen.getByRole('button', { name: 'Bearbeitung sperren' })).toBeDisabled();
   expect(presence).toHaveBeenCalledWith('q', expect.any(String), true);
-  const editorKey = presence.mock.calls[0][1]; unmount(); expect(presence).toHaveBeenLastCalledWith('q', editorKey, false);
+  const editorKey = presence.mock.calls[0][1]; unmount(); await waitFor(() => expect(presence).toHaveBeenLastCalledWith('q', editorKey, false));
 });
