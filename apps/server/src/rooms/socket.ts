@@ -1,3 +1,4 @@
+import { refreshLiveMedia } from '../media/live.js';
 import type { Server, Socket } from 'socket.io';
 import { RoomCommandSchema } from '@quiz/shared';
 import { prisma } from '../persistence/prisma.js';
@@ -11,6 +12,7 @@ import { getGameHandler } from '../games/registry.js';
 import { mutateRoom, RoomError, roomView, roomPolicy, assertRoomLive, audit, feed, type RoomActor } from './core.js';
 import { normalizeRole } from '@quiz/shared';
 import { logger } from '../observability/logger.js';
+import { ContentError } from '../content/core.js';
 
 export async function socketRoomActor(socket: Socket, allowPending = false): Promise<{ roomId: string; actor: RoomActor }> {
   const identity = socketIdentityMap.get(socket.id);
@@ -23,15 +25,20 @@ export async function socketRoomActor(socket: Socket, allowPending = false): Pro
     if (session) userId = user.id;
   }
   let pending = false;
-  if (identity.participationId && !identity.participationId.startsWith('viewer:')) {
+  const display = identity.role === 'DISPLAY';
+  if (display) {
+    const session = await prisma.displaySession.findFirst({ where: { id: identity.participationId?.slice(8), roomId: room.id, connected: true, expiresAt: { gt: new Date() } } });
+    if (!session) throw new RoomError('DISPLAY_SESSION_EXPIRED'); userId = null;
+  }
+  if (identity.participationId && !identity.participationId.startsWith('viewer:') && !display) {
     const p = await prisma.participation.findFirst({ where: { id: identity.participationId, roomId: room.id, connectionId: socket.id, connected: true, bannedAt: null, kickedAt: null, leftAt: null } });
     if (!p) throw new RoomError('NO_PARTICIPATION');
     pending = p.admission !== 'ACTIVE';
     if (pending && !allowPending) throw new RoomError('ADMISSION_REQUIRED');
   }
-  const role = userId === room.hostUserId ? 'HOST' : identity.role === 'HOST' ? 'VIEWER' : normalizeRole(identity.role) ?? 'VIEWER';
+  const role = display ? 'DISPLAY' : userId === room.hostUserId ? 'HOST' : identity.role === 'HOST' ? 'VIEWER' : normalizeRole(identity.role) ?? 'VIEWER';
   const permissions = pending ? new Set<import('@quiz/shared').GamePermission>() : await loadEffectivePermissions(room.id, role, userId === room.hostUserId || roomPolicy(room).coHostEnabled ? userId : null);
-  return { roomId: room.id, actor: { connectionId: socket.id, participantId: identity.participationId ?? '', userId, sessionId: user?.sessionId, permissions, canManage: !pending && (permissions.has('PLAYER_MANAGE') || permissions.has('TEAM_MANAGE') || userId === room.hostUserId) } };
+  return { roomId: room.id, actor: { connectionId: socket.id, participantId: identity.participationId ?? '', userId, sessionId: user?.sessionId, permissions, canManage: !display && !pending && (permissions.has('PLAYER_MANAGE') || permissions.has('TEAM_MANAGE') || userId === room.hostUserId) } };
 }
 
 export function revokeParticipantSockets(io: Server, roomId: string, ids: string[], event = 'session:replaced') {
@@ -50,6 +57,7 @@ export function closeRoomSockets(io: Server, roomId: string) {
   }
 }
 export function changed(io: Server, roomId: string) {
+  refreshLiveMedia(io);
   io.to([roomChannel(roomId), roomWaitingChannel(roomId)]).emit('room:core:changed');
   void prisma.room.findUnique({ where: { id: roomId }, include: {
     participations: { where: { role: { not: 'VIEWER' }, admission: 'ACTIVE', kickedAt: null, bannedAt: null, leftAt: null } },
@@ -66,6 +74,9 @@ export function registerRoomCore(io: Server, socket: Socket) {
     if (!participationId || !roomId || participationId.startsWith('viewer:')) return;
     const start = performance.now();
     socket.timeout(3000).emit('room:probe', (error: Error | null) => {
+      // An in-flight probe can finish after disconnect, room switch or
+      // replacement. Do not enqueue stale writes against a released identity.
+      if (!socket.connected || socket.data.roomId !== roomId || socket.data.participationId !== participationId) return;
       const ms = error ? 3000 : Math.max(0, Math.round(performance.now() - start));
       void prisma.participation.updateMany({ where: { id: participationId, roomId, connectionId: socket.id, connected: true }, data: { lastRoundTripMs: ms } }).catch(() => undefined);
     });
@@ -102,7 +113,7 @@ export function registerRoomCore(io: Server, socket: Socket) {
               return { success: true };
             }
             return { success: true, ...await mutateRoom(roomId, actor, data.operation) };
-          } catch (e) { if (e instanceof RoomError) return { success: false, error: e.code }; throw e; }
+          } catch (e) { if (e instanceof RoomError || e instanceof ContentError) return { success: false, error: e.code }; throw e; }
         }, toResponse: d => d,
       });
       const result = response.success ? response.data : response;

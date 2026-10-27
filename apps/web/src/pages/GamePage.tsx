@@ -102,6 +102,7 @@ export function GamePage() {
                 <li>✓ Ergebnisse sehen</li>
               </ul>
               <Button fullWidth disabled={!startable}>Raum erstellen</Button>
+              {startable && ['wissensduell', 'jeopardy'].includes(manifest.slug) && <Link onClick={event => event.stopPropagation()} to={`/moderator/schnellstart/${manifest.slug}`}>Geführter Schnellstart</Link>}
             </Card>
 
             <Card interactive padding="lg" className={styles.roleCard} onClick={() => navigate('/beitreten')}>

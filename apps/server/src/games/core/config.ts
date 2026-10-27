@@ -139,7 +139,7 @@ function parseSetupSnapshot(room: Pick<Room, 'setupSnapshotJson'>): Record<strin
  * als Resolved-Werte — Basis für No-Op-Entscheidungen und Validierung.
  */
 export async function loadGameConfigValues(
-  room: Pick<Room, 'gameConfigSnapshotJson' | 'configSchemaVersion' | 'setupSnapshotJson' | 'liveConfigJson' | 'id'>,
+  room: Pick<Room, 'gameConfigSnapshotJson' | 'configSchemaVersion' | 'setupSnapshotJson' | 'liveConfigJson' | 'id'> & { setupBlueprintsJson?: string | null },
   gameSlug: string,
 ): Promise<Record<string, ResolvedConfigValue<unknown>>> {
   const loaded = await loadGameConfig(room, gameSlug);
@@ -283,7 +283,7 @@ export function applyLiveOverrides(
 }
 
 export async function loadGameConfig(
-  room: Pick<Room, 'gameConfigSnapshotJson' | 'configSchemaVersion' | 'setupSnapshotJson' | 'liveConfigJson' | 'id'>,
+  room: Pick<Room, 'gameConfigSnapshotJson' | 'configSchemaVersion' | 'setupSnapshotJson' | 'liveConfigJson' | 'id'> & { setupBlueprintsJson?: string | null },
   gameSlug: string,
 ): Promise<LoadedGameConfig | null> {
   const canonical = canonicalSlugOf(gameSlug);
@@ -324,12 +324,21 @@ export async function loadGameConfig(
     const legacySetup = parseSetupSnapshot(room) ?? {};
     const setupOverrides = setupConfigOverrides(canonical, legacySetup);
     const timerMs = legacyTimerDurationMs(legacySetup);
+    const prepared: { presetSetup?: Record<string, unknown>; explicitSetup?: Record<string, unknown> } | null = room.setupBlueprintsJson ? JSON.parse(room.setupBlueprintsJson) : null;
+    const configOf = (setup: Record<string, unknown>) => {
+      const out = setupConfigOverrides(canonical, setup), selection = setup.contentSelection as { count?: number; poolCounts?: Record<string, number> } | undefined;
+      if (canonical === 'wissensduell' && selection) { if (selection.poolCounts) out.questionCount = Object.values(selection.poolCounts).reduce((a, b) => a + b, 0); else if (selection.count !== undefined) out.questionCount = selection.count; }
+      if (canonical === 'jeopardy' && !setup.board1 && !setup.board2 && !setup.contentSelection) delete out.boardCount;
+      const timer = legacyTimerDurationMs(setup); if (timer !== undefined) out.timerDurationMs = timer;
+      return out;
+    };
     base = resolveGameConfig(canonical, {
       systemDefault: null,
+      gamePreset: prepared ? configOf(prepared.presetSetup ?? {}) : null,
       gameConfig: null,
       // Tatsächliche Setup-Daten (Runden/Fragen/Boards) + Legacy-Adapter
       // timerDuration (Sekunden) → ms, falls gesetzt.
-      roomConfig: {
+      roomConfig: prepared ? configOf(prepared.explicitSetup ?? {}) : {
         ...setupOverrides,
         ...(timerMs !== undefined ? { timerDurationMs: timerMs } : {}),
       },

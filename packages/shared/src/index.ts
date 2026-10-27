@@ -537,7 +537,7 @@ export const GAME_MANIFESTS: GameManifestSpec[] = [
     hasTimer: true,
     setupSchemaVersion: 1,
     engineVersion: 1,
-    capabilities: ['TEAMS', 'LATE_JOIN', 'TEAM_RESHUFFLE', 'SUBMISSIONS', 'JUDGE', 'TIMER', 'CONTENT_POOLS', 'VIEWER'],
+    capabilities: ['TEAMS', 'LATE_JOIN', 'TEAM_RESHUFFLE', 'SUBMISSIONS', 'JUDGE', 'TIMER', 'CONTENT_POOLS', 'BLIND_HOST', 'VIEWER'],
     lateJoin: true,
     viewer: true,
     broadcast: false,
@@ -583,7 +583,7 @@ export const GAME_MANIFESTS: GameManifestSpec[] = [
     hasTimer: true,
     setupSchemaVersion: 1,
     engineVersion: 1,
-    capabilities: ['TEAMS', 'LATE_JOIN', 'TEAM_RESHUFFLE', 'BUZZER', 'JUDGE', 'TIMER', 'CONTENT_POOLS', 'VIEWER'],
+    capabilities: ['TEAMS', 'LATE_JOIN', 'TEAM_RESHUFFLE', 'BUZZER', 'JUDGE', 'TIMER', 'CONTENT_POOLS', 'BLIND_HOST', 'VIEWER'],
     lateJoin: true,
     viewer: true,
     broadcast: false,
@@ -1629,7 +1629,7 @@ export const RoomOperationSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('INVITE'), role: z.enum(['PLAYER', 'VIEWER']) }),
   z.object({ type: z.literal('MESSAGE'), message: z.string().trim().min(1).max(300) }),
   z.object({ type: z.literal('LOBBY') }),
-  z.object({ type: z.literal('REMATCH') }),
+  z.object({ type: z.literal('REMATCH'), runIndex: z.number().int().positive().optional() }),
   z.object({ type: z.literal('SWITCH_GAME'), gameSlug: z.string(), sourceRoomId: z.string().optional() }),
   z.object({ type: z.literal('CLOSE') }),
   z.object({ type: z.literal('EMERGENCY'), action: z.enum(['ABORT_ROUND', 'RESTART_ROUND', 'SKIP_ROUND', 'ABORT_GAME']), points: z.enum(['KEEP_POINTS', 'ROLLBACK_ROUND_POINTS']) }),
@@ -1645,6 +1645,7 @@ export const RoomCommandSchema = z.object({
 export type RoomCommand = z.infer<typeof RoomCommandSchema>;
 
 export interface RoomCoreView {
+  contentVisibility?: 'HOST_PREVIEW' | 'BLIND_HOST';
   gameSlug: string;
   history: Array<{ runIndex: number; endedAt: string; players: Array<{ displayName: string; score: number }> }>;
   switchOptions: Array<{ id: string; roomName: string; gameSlug: string }>;
@@ -1664,3 +1665,220 @@ export interface RoomCoreView {
   preflight: { status: 'READY_TO_START' | 'WARNINGS' | 'BLOCKED'; blockers: string[]; warnings: string[] };
   runIndex: number;
 }
+
+// Results lifecycle is separate from the engine's terminal GAME_END subphase.
+export const ResultLifecycleSchema = z.enum(['GAME_END', 'RESULT_REVIEW', 'FINALIZED']);
+export const ResultOperationSchema = z.discriminatedUnion('type', [
+  z.object({ type: z.literal('REVIEW') }).strict(),
+  z.object({ type: z.literal('FINALIZE') }).strict(),
+  z.object({ type: z.enum(['ADJUST', 'AMEND']), participantId: z.string().min(1).max(128), delta: z.number().int().min(-1000000).max(1000000).refine(v => v !== 0), reason: z.string().trim().min(1).max(500), referenceEventId: z.string().min(1).max(128).optional() }).strict(),
+  z.object({ type: z.literal('ROLLBACK'), referenceEventId: z.string().min(1).max(128), reason: z.string().trim().min(1).max(500) }).strict(),
+]);
+export const ResultCommandSchema = z.object({ roomCode: z.string().regex(/^\d{3}-\d{3}$/), runIndex: z.number().int().positive(), resultRevision: z.number().int().positive(),
+  commandId: z.string().min(1).max(128), protocolVersion: z.literal(1).default(1), operation: ResultOperationSchema }).strict();
+export type ResultOperation = z.infer<typeof ResultOperationSchema>;
+export type ResultCommand = z.infer<typeof ResultCommandSchema>;
+export const RecoveryCommandSchema = z.object({ roomCode: z.string().regex(/^\d{3}-\d{3}$/), runIndex: z.number().int().positive(), gameStateVersion: z.number().int().positive(),
+  commandId: z.string().min(1).max(128), protocolVersion: z.literal(1).default(1), operation: z.literal('RESTORE_REPLAY') }).strict();
+export const PublicResultViewSchema = z.object({
+  roomCode: z.string(), roomName: z.string(), status: z.string(), runPhase: z.string(), runIndex: z.number().int().positive(),
+  resultRevision: z.number().int().positive().nullable(), resultStatus: ResultLifecycleSchema.nullable(),
+  game: z.object({ slug: z.string(), name: z.string() }),
+  scores: z.array(z.object({ rank: z.number().int().positive(), participationId: z.string(), displayName: z.string(), role: z.string(), score: z.number().int(), teamId: z.string().nullable().optional() })),
+  teams: z.array(z.object({ id: z.string(), name: z.string(), score: z.number().int(), rank: z.number().int().positive() })).default([]),
+  scoring: z.enum(['INDIVIDUAL_SCORE', 'TEAM_SCORE']).optional(), requiresReview: z.boolean().optional(),
+  endReason: z.string().optional(), aborted: z.boolean().optional(),
+  versions: z.array(z.object({ revision: z.number().int().positive(), kind: z.string(), createdAt: z.string() })).default([]),
+  endedAt: z.string().nullable(),
+});
+export type PublicResultView = z.infer<typeof PublicResultViewSchema>;
+export const ResultReadSchema = z.object({ roomCode: z.string().regex(/^\d{3}-\d{3}$/), runIndex: z.number().int().positive().optional(), revision: z.number().int().positive().optional() }).strict();
+
+// Content pools and shared game-specific editor schemas (Master §6).
+
+export const ContentGameSchema = z.enum(['wissensduell', 'jeopardy']);
+export const ContentScopeSchema = z.enum(['PRIVATE', 'SHARED', 'PUBLIC', 'SYSTEM']);
+export const ContentStatusSchema = z.enum(['DRAFT', 'READY', 'DISABLED', 'ARCHIVED', 'TRASHED']);
+export const ContentDifficultySchema = z.enum(['VERY_EASY', 'EASY', 'MEDIUM', 'HARD', 'VERY_HARD']);
+export const ContentLanguageSchema = z.enum(['de-DE', 'en-US', 'tr-TR']);
+const text = z.string().trim().min(1).max(10000);
+export const ContentMediaRightsSchema = z.object({
+  source: z.string().max(2000).default(''), sourceUrl: z.string().url().max(2000).or(z.literal('')).default(''),
+  author: z.string().max(500).default(''), license: z.string().max(500).default(''), ownMaterial: z.boolean().default(false),
+  recognizablePerson: z.boolean().default(false), consent: z.boolean().default(false),
+}).strict();
+const contentMediaFields = { mediaAssetId: z.string().uuid().optional(), mediaType: z.enum(['image', 'audio']).optional(), mediaRights: ContentMediaRightsSchema.optional() };
+function contentMediaIssues(q: { mediaAssetId?: string; mediaType?: string; mediaRights?: z.infer<typeof ContentMediaRightsSchema> }, ctx: z.RefinementCtx) {
+  if (!q.mediaAssetId && !q.mediaType) return;
+  if (!q.mediaAssetId || !q.mediaType) ctx.addIssue({ code: 'custom', path: ['mediaAssetId'], message: 'Medium und Medientyp gemeinsam angeben.' });
+  const r = q.mediaRights;
+  if (!r || (!r.ownMaterial && ((!r.source.trim() && !r.sourceUrl.trim()) || !r.license.trim())) || r.recognizablePerson && !r.consent)
+    ctx.addIssue({ code: 'custom', path: ['mediaRights'], message: 'Eigene Rechte oder Quelle und Nutzungserlaubnis sowie gegebenenfalls Einwilligung bestätigen.' });
+}
+export const QuizContentSchema = z.object({
+  ...contentMediaFields, prompt: text, category: z.string().trim().min(1).max(100),
+  options: z.array(z.object({ id: z.string().min(1).max(40), text }).strict()).min(2).max(6),
+  correctOptionId: z.string().min(1).max(40), explanation: z.string().max(10000).default(''),
+  points: z.number().int().min(0).max(100000).default(100),
+  wrongPoints: z.number().int().min(-100000).max(0).default(0),
+  durationMs: z.number().int().min(1000).max(3600000).default(20000),
+}).strict().superRefine((q, ctx) => {
+  contentMediaIssues(q, ctx);
+  if (new Set(q.options.map(o => o.id)).size !== q.options.length || !q.options.some(o => o.id === q.correctOptionId))
+    ctx.addIssue({ code: 'custom', path: ['correctOptionId'], message: 'Eindeutige Optionen und eine gültige richtige Antwort erforderlich.' });
+  if (new Set(q.options.map(o => o.text.toLocaleLowerCase().trim())).size !== q.options.length)
+    ctx.addIssue({ code: 'custom', path: ['options'], message: 'Antwortoptionen dürfen nicht doppelt sein.' });
+});
+export const JeopardyItemSchema = z.object({
+  ...contentMediaFields, question: text, answer: text, category: z.string().trim().min(1).max(100),
+  value: z.number().int().min(1).max(100000),
+}).strict().superRefine(contentMediaIssues);
+export function validateContentPayload(gameSlug: string, payload: unknown) {
+  return (gameSlug === 'wissensduell' ? QuizContentSchema : JeopardyItemSchema).safeParse(payload);
+}
+export const ContentDefaultsSchema = z.object({
+  language: ContentLanguageSchema.default('de-DE'), difficulty: ContentDifficultySchema.nullable().default(null),
+  tagIds: z.array(z.string().uuid()).max(30).default([]),
+}).strict();
+export const CreateContentPoolSchema = z.object({
+  commandId: z.string().uuid(), gameSlug: ContentGameSchema, name: z.string().trim().min(1).max(150),
+  description: z.string().max(2000).default(''), scope: z.enum(['PRIVATE', 'SHARED']).default('PRIVATE'),
+  defaults: ContentDefaultsSchema.default({}), editorIds: z.array(z.string().min(1).max(128)).max(30).default([]),
+}).strict();
+export const ContentItemInputSchema = z.object({
+  title: z.string().trim().max(200).default(''), payload: z.record(z.unknown()),
+  language: ContentLanguageSchema.nullable().default(null), difficulty: ContentDifficultySchema.nullable().default(null),
+  tagIds: z.array(z.string().uuid()).max(30).nullable().default(null),
+  source: z.string().max(2000).default(''), sourceUrl: z.string().url().max(2000).or(z.literal('')).default(''),
+  license: z.string().max(500).default(''),
+}).strict();
+export const CONTENT_DIFFICULTIES = ['VERY_EASY', 'EASY', 'MEDIUM', 'HARD', 'VERY_HARD'] as const;
+export const ContentDifficultyPlanSchema = z.discriminatedUnion('kind', [
+  z.object({ kind: z.literal('DISTRIBUTION'), percentages: z.object({ VERY_EASY: z.number().int().min(0).max(100), EASY: z.number().int().min(0).max(100), MEDIUM: z.number().int().min(0).max(100), HARD: z.number().int().min(0).max(100), VERY_HARD: z.number().int().min(0).max(100) }).strict() }).strict(),
+  z.object({ kind: z.literal('RANGES'), ranges: z.array(z.object({ from: z.number().int().min(1).max(100), to: z.number().int().min(1).max(100), difficulty: ContentDifficultySchema }).strict()).min(1).max(100) }).strict(),
+  z.object({ kind: z.literal('RISING') }).strict(),
+]).superRefine((plan, ctx) => {
+  if (plan.kind === 'DISTRIBUTION' && Object.values(plan.percentages).reduce((a, b) => a + b, 0) !== 100) ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Die Verteilung muss genau 100 Prozent ergeben.' });
+  if (plan.kind === 'RANGES') { let next = 1;
+    for (const range of plan.ranges) { if (range.from !== next || range.to < range.from) ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Rundenbereiche müssen bei 1 beginnen und lückenlos ohne Überschneidung aufeinander folgen.' }); next = range.to + 1; }
+  }
+});
+export type ContentDifficultyPlan = z.infer<typeof ContentDifficultyPlanSchema>;
+/** Exact integer allocation; ties use canonical difficulty order. Server randomizes distribution order. */
+export function contentDifficultySequence(raw: ContentDifficultyPlan, count: number): Array<z.infer<typeof ContentDifficultySchema>> {
+  const plan = ContentDifficultyPlanSchema.parse(raw);
+  if (!Number.isInteger(count) || count < 1 || count > 100) throw new Error('INVALID_DIFFICULTY_COUNT');
+  if (plan.kind === 'RISING') return Array.from({ length: count }, (_, i) => (['EASY', 'MEDIUM', 'HARD'] as const)[Math.min(2, Math.floor(i * 3 / count))]);
+  if (plan.kind === 'RANGES') {
+    if (plan.ranges.at(-1)!.to !== count) throw new Error('DIFFICULTY_RANGE_COUNT');
+    return plan.ranges.flatMap(r => Array.from({ length: r.to - r.from + 1 }, () => r.difficulty));
+  }
+  const allocations = CONTENT_DIFFICULTIES.map((difficulty, index) => { const exact = count * plan.percentages[difficulty] / 100; return { difficulty, index, count: Math.floor(exact), remainder: exact - Math.floor(exact) }; });
+  const extra = count - allocations.reduce((sum, a) => sum + a.count, 0);
+  [...allocations].sort((a, b) => b.remainder - a.remainder || a.index - b.index).slice(0, extra).forEach(a => a.count++);
+  return allocations.flatMap(a => Array.from({ length: a.count }, () => a.difficulty));
+}
+export const SYSTEM_DIFFICULTY_PRESETS: Array<{ id: string; name: string; plan: ContentDifficultyPlan }> = [
+  { id: 'system:relaxed', name: 'Locker', plan: { kind: 'DISTRIBUTION', percentages: { VERY_EASY: 40, EASY: 60, MEDIUM: 0, HARD: 0, VERY_HARD: 0 } } },
+  { id: 'system:normal', name: 'Normal', plan: { kind: 'DISTRIBUTION', percentages: { VERY_EASY: 0, EASY: 20, MEDIUM: 60, HARD: 20, VERY_HARD: 0 } } },
+  { id: 'system:rising', name: 'Steigend', plan: { kind: 'RISING' } },
+  { id: 'system:hardcore', name: 'Hardcore', plan: { kind: 'DISTRIBUTION', percentages: { VERY_EASY: 0, EASY: 0, MEDIUM: 0, HARD: 40, VERY_HARD: 60 } } },
+];
+export interface ContentDifficultyPresetView { id: string; name: string; gameSlug: string; revision: number; plan: ContentDifficultyPlan; scope: 'SYSTEM' | 'PRIVATE' }
+export const ContentDifficultyPresetInputSchema = z.object({ gameSlug: ContentGameSchema, name: z.string().trim().min(1).max(150), plan: ContentDifficultyPlanSchema }).strict()
+  .refine(p => p.gameSlug === 'wissensduell' || p.plan.kind === 'DISTRIBUTION', 'Rundenverläufe sind für Wissensduell vorgesehen; Jeopardy verwendet Verteilungen.');
+export const ContentSelectionSchema = z.object({
+  poolIds: z.array(z.string().min(1).max(128)).min(1).max(20), count: z.number().int().min(1).max(100).default(10),
+  language: ContentLanguageSchema.default('de-DE'), difficulty: ContentDifficultySchema.optional(),
+  difficultyPlan: ContentDifficultyPlanSchema.optional(),
+  tagIds: z.array(z.string().uuid()).max(30).default([]),
+  category: z.string().trim().min(1).max(100).optional(),
+  poolCounts: z.record(z.number().int().min(0).max(100)).optional(),
+  mode: z.enum(['RANDOM', 'MANUAL']).default('RANDOM'), itemIds: z.array(z.string().min(1).max(128)).max(100).default([]),
+  repeatRule: z.enum(['NO_REPEAT_IN_ROOM', 'ALLOW_REPEATS', 'PREFER_UNSEEN']).default('NO_REPEAT_IN_ROOM'),
+  visibility: z.enum(['HOST_PREVIEW', 'BLIND_HOST']).default('HOST_PREVIEW'),
+}).strict().refine(s => !s.difficultyPlan || !s.difficulty && s.mode === 'RANDOM', 'Schwierigkeitsverläufe erfordern Zufallsauswahl ohne einzelnen Schwierigkeitsfilter.')
+.refine(s => s.visibility !== 'BLIND_HOST' || s.mode === 'RANDOM' && s.itemIds.length === 0, 'Blindmoderation erfordert reine Zufallsauswahl.');
+export const CONTENT_TEMPLATES = {
+  wissensduell: { title: '', payload: { prompt: '', category: 'Allgemeinwissen', options: [
+    { id: 'a', text: '' }, { id: 'b', text: '' }, { id: 'c', text: '' }, { id: 'd', text: '' },
+  ], correctOptionId: 'a', explanation: '', points: 100, wrongPoints: 0, durationMs: 20000 } },
+  jeopardy: { title: '', payload: { question: '', answer: '', category: 'Allgemeinwissen', value: 100 } },
+} as const;
+export interface ContentItemView {
+  id: string; poolId: string; gameSlug: string; revision: number; status: string; title: string;
+  payload: Record<string, unknown>; language: string | null; difficulty: string | null; tagIds: string[] | null;
+  source: string; sourceUrl: string; license: string; reviewState: string; lockState: string;
+  effective: { language: string; difficulty: string | null; tagIds: string[] };
+  validation: Array<{ path: string; message: string }>; updatedAt: string;
+}
+export interface ContentPoolView {
+  id: string; gameSlug: string; name: string; description: string; scope: string; ownerId: string | null;
+  revision: number; defaults: z.infer<typeof ContentDefaultsSchema>; canEdit: boolean; canPropose?: boolean; canManage?: boolean; canReadInternal?: boolean; canAssignReview?: boolean; editorIds?: string[];
+}
+
+export type ContentStatus = z.infer<typeof ContentStatusSchema>;
+export const ContentBatchSchema = z.object({
+  poolId: z.string().min(1).max(128), poolRevision: z.number().int().positive(),
+  items: z.array(z.object({ id: z.string().min(1).max(128), revision: z.number().int().positive() }).strict()).min(1).max(100),
+  operation: z.discriminatedUnion('kind', [
+    z.object({ kind: z.literal('STATUS'), status: ContentStatusSchema }).strict(),
+    z.object({ kind: z.literal('TAGS'), tagIds: z.array(z.string().uuid()).max(30).nullable() }).strict(),
+    z.object({ kind: z.literal('DIFFICULTY'), difficulty: ContentDifficultySchema.nullable() }).strict(),
+    z.object({ kind: z.literal('COPY'), targetPoolId: z.string().min(1).max(128), targetRevision: z.number().int().positive() }).strict(),
+    z.object({ kind: z.literal('MOVE'), targetPoolId: z.string().min(1).max(128), targetRevision: z.number().int().positive() }).strict(),
+  ]),
+}).strict();
+
+export const ContentTemplateInputSchema = z.object({ name: z.string().trim().min(1).max(150), gameSlug: ContentGameSchema,
+  item: ContentItemInputSchema.refine(v => v.payload.mediaAssetId === undefined, 'Vorlagen enthalten Medienoptionen, keine konkrete Datei.') }).strict();
+export interface ContentTemplateView { id: string; name: string; gameSlug: string; scope: 'SYSTEM' | 'PRIVATE'; revision: number; item: z.infer<typeof ContentItemInputSchema> }
+
+export interface ContentPlaytestView {
+  code: string; gameSlug: string; phase: 'QUESTION' | 'REVEAL' | 'CLOSED'; version: number; position: number; total: number;
+  role: 'HOST' | 'PLAYER' | 'VIEWER' | 'TEAM'; canControl: boolean; expiresAt: string; endsAt: number | null; question: Record<string, unknown> | null;
+  warnings: Array<{ path: string; message: string }>; ownAnswer: string | null; ownReport: boolean;
+  reports: Array<{ position: number; message: string; createdAt: string }>;
+}
+
+// Reusable setup configurations contain settings and content intent, never PINs or session tokens.
+export const BlueprintRoomSettingsSchema = z.object({
+  maxPlayers: z.number().int().min(2).max(100).optional(), cameraEnabled: z.boolean().optional(), allowViewers: z.boolean().optional(),
+  viewerRequiresPin: z.boolean().optional(), viewerLimit: z.number().int().min(0).max(500).optional(), lobbyChatEnabled: z.boolean().optional(), isPublic: z.boolean().optional(), roomPolicy: RoomPolicySchema.optional(),
+}).strict();
+const blueprintClue = z.object({ value: z.number().int().positive().max(100000), question: z.string().max(10000), answer: z.string().max(10000) }).strict();
+const blueprintBoard = z.object({ categories: z.array(z.object({ name: z.string().max(100), clues: z.array(blueprintClue).min(1).max(20) }).strict()).min(1).max(6) }).strict();
+export const BlueprintGameSetupSchema = z.object({
+  contentSelection: ContentSelectionSchema.optional(), questionCount: z.number().int().min(1).max(100).optional(), timerDuration: z.number().int().min(1).max(3600).optional(),
+  selectedQuestionIds: z.array(z.string().min(1).max(128)).max(100).optional(), questionPoolId: z.string().min(1).max(128).optional(), board1: blueprintBoard.optional(), board2: blueprintBoard.optional(),
+}).strict();
+export const GamePresetConfigurationSchema = z.object({ room: BlueprintRoomSettingsSchema.default({}), setup: BlueprintGameSetupSchema }).strict();
+export const RoomTemplateConfigurationSchema = z.object({ room: BlueprintRoomSettingsSchema.default({}), language: ContentLanguageSchema.optional(), preferredGamePresetIds: z.array(z.string().min(1).max(128)).max(20).default([]) }).strict();
+export const SetupBlueprintInputSchema = z.discriminatedUnion('kind', [
+  z.object({ kind: z.literal('GAME_PRESET'), gameSlug: ContentGameSchema, name: z.string().trim().min(1).max(150), favorite: z.boolean().default(false), configuration: GamePresetConfigurationSchema }).strict(),
+  z.object({ kind: z.literal('ROOM_TEMPLATE'), gameSlug: z.null().default(null), name: z.string().trim().min(1).max(150), favorite: z.boolean().default(false), configuration: RoomTemplateConfigurationSchema }).strict(),
+]);
+export type GamePresetConfiguration = z.infer<typeof GamePresetConfigurationSchema>;
+export type BlueprintRoomSettings = z.infer<typeof BlueprintRoomSettingsSchema>;
+export type SetupBlueprintInput = z.infer<typeof SetupBlueprintInputSchema>;
+export type SetupBlueprintView = SetupBlueprintInput & { id: string; revision: number; scope: 'SYSTEM' | 'PRIVATE' };
+export const SetupBlueprintRefSchema = z.object({ id: z.string().min(1).max(128), revision: z.number().int().positive() }).strict();
+export type SetupBlueprintRef = z.infer<typeof SetupBlueprintRefSchema>;
+
+// Live media: identifiers are server-issued routes, never client-chosen rooms.
+export const LiveMediaPolicySchema = z.object({
+  voiceEnabled: z.boolean().default(true), viewerAudio: z.boolean().default(true),
+  camerasEnabled: z.boolean().default(false), voiceMode: z.enum(['OPEN_MIC', 'PUSH_TO_TALK', 'PLAYER_CHOICE']).default('PLAYER_CHOICE'),
+  autoTeamDuringRound: z.boolean().default(false), autoPttDuringRound: z.boolean().default(false),
+  channel: z.enum(['MAIN', 'TEAM']).default('MAIN'), forcePushToTalk: z.boolean().default(false),
+  camerasVisible: z.boolean().default(true), exclusiveSpeakerId: z.string().nullable().default(null),
+}).strict();
+export type LiveMediaPolicy = z.infer<typeof LiveMediaPolicySchema>;
+export type LiveMediaRoute = { id: string; kind: 'audio' | 'video'; from: string; to: string; name: string };
+export type LiveMediaMember = { id: string; name: string; role: string; teamId: string | null; hostMuted: boolean; cameraHidden: boolean; mic: boolean; camera: boolean };
+export type LiveMediaSnapshot = {
+  roomCode: string; revision: number; selfId: string; policy: LiveMediaPolicy; canManage: boolean;
+  self: LiveMediaMember; members: LiveMediaMember[]; routes: LiveMediaRoute[];
+  iceServers: { urls: string | string[]; username?: string; credential?: string }[];
+};
+export type LiveMediaSignal = { routeId: string; description?: { type: 'offer' | 'answer'; sdp: string }; candidate?: { candidate: string; sdpMid?: string | null; sdpMLineIndex?: number | null; usernameFragment?: string | null } };

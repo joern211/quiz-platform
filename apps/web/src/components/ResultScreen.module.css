@@ -1,0 +1,32 @@
+.page {
+  width: min(900px, 100%);
+  margin: 0 auto;
+  padding: clamp(1rem, 4vw, 2rem);
+  display: grid;
+  gap: 1.25rem;
+  text-align: left;
+  box-sizing: border-box;
+}
+.title { margin: 0; font-size: clamp(1.8rem, 5vw, 2.7rem); }
+.page h2 { margin: 0 0 1rem; }
+.page h3 { margin: .25rem 0; }
+.page p { margin: 0; line-height: 1.6; }
+.page ol { margin: 0; padding-left: 2rem; }
+.page li { padding: .55rem .25rem; line-height: 1.5; }
+.page label { display: grid; gap: .5rem; font-size: .95rem; }
+.page select, .page input {
+  min-height: 44px;
+  padding: .65rem .8rem;
+  border: 1px solid var(--border, #475569);
+  border-radius: .65rem;
+  font: inherit;
+  color: var(--fg);
+  background: var(--surface);
+  width: 100%;
+  box-sizing: border-box;
+}
+.page select:focus-visible, .page input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.page button { justify-self: start; }
+.correctionForm { display: grid; gap: 1rem; padding-top: 1.5rem; margin-top: 1rem; }
+.correctionForm h3 { grid-column: 1 / -1; }
+@media (min-width: 600px) { .correctionForm { grid-template-columns: 1fr 1fr; } }

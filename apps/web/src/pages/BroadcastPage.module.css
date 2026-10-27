@@ -1,0 +1,9 @@
+.page { max-width: 1600px; margin: auto; padding: var(--space-6); font-size: clamp(1.3rem, 2.5vw, 2.8rem); text-align: center; }
+.page h1 { font-size: clamp(2rem, 4vw, 4rem); }
+.page h2 { font-size: clamp(2rem, 4vw, 4.5rem); }
+.page header p { color: var(--muted); }
+.page img { max-width: 100%; max-height: 55vh; object-fit: contain; }
+.timer { font-variant-numeric: tabular-nums; font-size: 4rem; }
+.scores { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: var(--space-4); }
+.scores > div { display: grid; padding: var(--space-4); border: 1px solid var(--border); border-radius: var(--radius-md, 8px); }
+.page ol { text-align: left; }

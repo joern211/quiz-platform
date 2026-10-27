@@ -1,8 +1,10 @@
+import { refreshLiveMedia } from '../../media/live.js';
 // ============================================================
 // Jeopardy Game Engine (Phase 4)
 // Server-authoritative game flow
 // ============================================================
 
+import { roomContentMediaUrl } from '../../content/media.js';
 import { Server, Socket } from 'socket.io';
 import { prisma } from '../../persistence/prisma.js';
 import { finishRunningGame, saveGameStateIfRevision, upsertGameState } from '../core/state.js';
@@ -101,6 +103,7 @@ export const handleJeopardyGame = {
 
     // Build initial state
     let state = createJeopardyGameState(1, playerIds, playerNames);
+    state.contentRunIndex = (await prisma.room.findUniqueOrThrow({ where: { id: room.id }, select: { runIndex: true } })).runIndex;
     state.tieStrategy = await loadInitialTieStrategy(room.id, 'jeopardy');
     state.boardCount = boardCount;
 
@@ -238,7 +241,7 @@ export const handleJeopardyGame = {
     if (!category) return { success: false, error: 'CATEGORY_NOT_FOUND' };
     const clue = category.clues.find(
       (c) => c.value === data.value
-    ) as { value: number; question: string; answer: string; mediaType?: string; mediaAssetId?: string };
+    ) as { value: number; question: string; answer: string; mediaType?: string; mediaAssetId?: string; contentId?: string };
     if (!clue) return { success: false, error: 'CLUE_NOT_FOUND' };
 
     // Update state
@@ -255,7 +258,7 @@ export const handleJeopardyGame = {
           categoryIndex: data.categoryIndex,
           value: data.value,
           question: clue.question,
-          answer: clue.answer,
+          answer: clue.answer, mediaAssetId: clue.mediaAssetId, mediaType: clue.mediaType, contentId: clue.contentId,
         },
       },
       phase: JEOPARDY_PHASES.BUZZ_OPEN,
@@ -269,6 +272,8 @@ export const handleJeopardyGame = {
       await saveGameStateIfRevision(tx, { gameSlug: 'jeopardy', roomId, expectedRevision: gameStateData.revision, state, phase: state.phase });
     });
 
+    await refreshLiveMedia(io);
+
     // Emit question to ALL (no answer — P0-07 fix: using io.to broadcasts to the correct room channel)
     const fieldOpenEvent: JeopardyFieldOpenEvent = {
       categoryIndex: data.categoryIndex,
@@ -276,11 +281,12 @@ export const handleJeopardyGame = {
       question: clue.question,
       mediaType: clue.mediaType,
       mediaAssetId: clue.mediaAssetId,
+      mediaUrl: roomContentMediaUrl(roomId, state.contentRunIndex, clue.contentId, clue.mediaAssetId),
     };
     io.to(roomChannel(roomId)).emit('jeopardy:field:open', fieldOpenEvent);
 
     // Emit answer ONLY to the moderator socket (P0-07: sensitive data stays server→moderator)
-    if (auth.actor.role === 'HOST') socket.emit('jeopardy:answer:secret', {
+    if (auth.actor.role === 'HOST' && !auth.actor.blindHost) socket.emit('jeopardy:answer:secret', {
       categoryIndex: data.categoryIndex,
       value: data.value,
       answer: clue.answer,
@@ -414,12 +420,13 @@ export const handleJeopardyGame = {
           eligiblePlayerIds: state.buzzer.eligiblePlayerIds ?? Object.keys(state.scores),
           teamByPlayer: state.buzzer.teamByPlayer, excludePlayerIds: state.buzzer.excludedPlayerIds });
       }
-      await saveGameStateIfRevision(tx, { gameSlug: 'jeopardy', roomId, expectedRevision: row.revision, state, phase: state.phase });
       await recordScoreMutation(tx, {
         roomId, participationId: playerId, score: state.scores[playerId], delta,
         reason: data.correct ? 'JEOPARDY_CORRECT' : 'JEOPARDY_WRONG_FIRST',
-        roundIndex: state.currentBoard - 1,
+        roundIndex: state.currentBoard - 1, roundKey: `field:${fieldKey(state.currentBoard, categoryIndex, value)}`,
       });
+      await saveGameStateIfRevision(tx, { gameSlug: 'jeopardy', roomId, expectedRevision: row.revision, state, phase: state.phase });
+
       return { state, playerId, delta, categoryIndex, value, answer: fieldDef.answer };
     });
 
@@ -561,13 +568,13 @@ export const handleJeopardyGame = {
         state.phase = JEOPARDY_PHASES.FIELD_DONE;
       }
 
-      await saveGameStateIfRevision(tx, { gameSlug: 'jeopardy', roomId, expectedRevision: gameStateData.revision, state, phase: state.phase });
-
       await recordScoreMutation(tx, {
         roomId, participationId: stealWinnerId, score: state.scores[stealWinnerId], delta,
         reason: data.correct ? 'JEOPARDY_CORRECT_STEAL' : 'JEOPARDY_WRONG_STEAL',
-        roundIndex: state.currentBoard - 1,
+        roundIndex: state.currentBoard - 1, roundKey: `field:${fieldKey(state.currentBoard, categoryIndex, value)}`,
       });
+      await saveGameStateIfRevision(tx, { gameSlug: 'jeopardy', roomId, expectedRevision: gameStateData.revision, state, phase: state.phase });
+
 
       return { state, stealWinnerId, delta, value, categoryIndex, correct: data.correct, answer };
     });
@@ -642,7 +649,7 @@ export const handleJeopardyGame = {
       }
 
       state = transitionRoundState({ gameSlug: 'jeopardy', current: state,
-        completedRoundId: state.currentField ? fieldKey(state.currentBoard, state.currentField.categoryIndex, state.currentField.value) : `board:${state.currentBoard}`,
+        completedRoundId: state.currentField ? fieldKey(state.currentBoard, state.currentField.categoryIndex, state.currentField.value) : state.lastResolvedFieldKey ?? `legacy-board:${state.currentBoard}`,
         prepared: resetBuzzer({ ...state, ...prepareRoundRuntime(), currentField: null, phase: JEOPARDY_PHASES.SELECTING }) });
 
       await saveGameStateIfRevision(tx, { gameSlug: 'jeopardy', roomId, expectedRevision: gameStateData.revision, state, phase: state.phase });
@@ -689,7 +696,7 @@ export const handleJeopardyGame = {
 
       // Board 2 fields were registered at initialization; never reinsert played fields.
       const newState = transitionRoundState({ gameSlug: 'jeopardy', current: state,
-        completedRoundId: state.currentField ? fieldKey(state.currentBoard, state.currentField.categoryIndex, state.currentField.value) : `board:${state.currentBoard}`,
+        completedRoundId: state.currentField ? fieldKey(state.currentBoard, state.currentField.categoryIndex, state.currentField.value) : state.lastResolvedFieldKey ?? `legacy-board:${state.currentBoard}`,
         prepared: resetBuzzer({ ...state, ...prepareRoundRuntime(), currentBoard: 2 as const, currentField: null, phase: JEOPARDY_PHASES.SELECTING }) });
       await prisma.$transaction(async (tx) => saveGameStateIfRevision(tx, { gameSlug: 'jeopardy', roomId: room.id, expectedRevision: gameStateData.revision, state: newState, phase: newState.phase }));
 
@@ -729,9 +736,9 @@ export const handleJeopardyGame = {
     manual = false
   ): Promise<{ success: boolean; error?: string; ended?: boolean }> {
     const result = await finishRunningGame<JeopardyGameState>({ gameSlug: 'jeopardy',
-      roomId: room.id,
+      roomId: room.id, endReason: manual ? 'HOST_ABORTED' : 'COMPLETED',
       ...(!manual ? { requiredPhase: JEOPARDY_PHASES.BOARD_COMPLETE, nextState: (state: JeopardyGameState) => transitionRoundState({ gameSlug: 'jeopardy', current: state,
-        completedRoundId: state.currentField ? fieldKey(state.currentBoard, state.currentField.categoryIndex, state.currentField.value) : `board:${state.currentBoard}`,
+        completedRoundId: state.currentField ? fieldKey(state.currentBoard, state.currentField.categoryIndex, state.currentField.value) : state.lastResolvedFieldKey ?? `legacy-board:${state.currentBoard}`,
         prepared: resetBuzzer({ ...state, ...prepareRoundRuntime(), phase: JEOPARDY_PHASES.GAME_END }) }) } : {}),
     });
     if (!result.ended) return { success: true, ended: false };

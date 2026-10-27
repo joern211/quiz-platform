@@ -1,3 +1,4 @@
+import { pinnedContentMediaReady } from '../content/media.js';
 import { createHash, randomUUID } from 'node:crypto';
 import argon2 from 'argon2';
 import type { Prisma, Room } from '@prisma/client';
@@ -164,7 +165,8 @@ export async function roomPreflight(roomId: string, overrideReady = false, db: P
   const slug = room.gameDefinition.slug;
   if (slug === 'wissensduell' || slug === 'geo') {
     const selected = Array.isArray(setup.selectedQuestionIds) ? setup.selectedQuestionIds as string[] : null;
-    const questions = await db.geoQuestion.count({ where: { enabled: true, ...(selected?.length ? { id: { in: selected } } : setup.questionPoolId ? { packId: String(setup.questionPoolId) } : {}) } });
+    const pinnedCount = await db.contentUse.count({ where: { roomId: room.id, runIndex: room.runIndex } });
+    const questions = pinnedCount || await db.geoQuestion.count({ where: { enabled: true, ...(selected?.length ? { id: { in: selected } } : setup.questionPoolId ? { packId: String(setup.questionPoolId) } : {}) } });
     if (!questions || (selected?.length && questions !== selected.length)) blockers.push('CONTENT_NOT_READY');
   } else if (slug === 'wer-ist-das' || slug === 'weristdas') {
     if (!Array.isArray(setup.rounds) || !setup.rounds.length) blockers.push('CONTENT_NOT_READY');
@@ -174,6 +176,7 @@ export async function roomPreflight(roomId: string, overrideReady = false, db: P
       if (ids.length !== setup.rounds.length || ids.some(id => !media.some(m => m.id === id && m.processStatus === 'READY'))) blockers.push('MEDIA_NOT_READY');
     }
   } else if (slug === 'jeopardy' && !setup.board1) blockers.push('CONTENT_NOT_READY');
+  if (!await pinnedContentMediaReady(db, roomId, room.runIndex)) blockers.push('MEDIA_NOT_READY');
   return { status: blockers.length ? 'BLOCKED' : warnings.length ? 'WARNINGS' : 'READY_TO_START', blockers, warnings };
 }
 
@@ -369,11 +372,13 @@ export async function mutateRoom(roomId: string, actor: RoomActor, op: RoomOpera
       case 'MESSAGE': break;
       case 'LOBBY': case 'REMATCH': case 'SWITCH_GAME': {
         if (room.status !== 'ENDED') throw new RoomError('GAME_NOT_ENDED');
+        if (op.type === 'REMATCH' && op.runIndex !== undefined && op.runIndex !== room.runIndex) throw new RoomError('STATE_CONFLICT');
         await tx.roomRun.upsert({ where: { roomId_runIndex: { roomId, runIndex: room.runIndex } }, update: {}, create: {
           roomId, runIndex: room.runIndex, gameDefinitionId: room.gameDefinitionId, engineVersion: room.gameState?.engineVersion,
           configSnapshotJson: room.gameConfigSnapshotJson, stateJson: room.gameState?.stateJson, scoresJson: JSON.stringify(room.participations.map(p => ({ id: p.id, displayName: p.displayName, score: p.score, teamId: p.teamId }))), teamsJson: JSON.stringify(room.teams),
         } });
-        let gameDefinitionId = room.gameDefinitionId, setupSnapshotJson = room.setupSnapshotJson;
+        let gameDefinitionId = room.gameDefinitionId, setupSnapshotJson = room.setupSnapshotJson, setupBlueprintsJson = room.setupBlueprintsJson, contentVisibility = room.contentVisibility;
+        let contentSource = { roomId, runIndex: room.runIndex };
         if (op.type === 'SWITCH_GAME') {
           const game = await tx.gameDefinition.findUnique({ where: { slug: op.gameSlug } });
           if (!game || !supportedRoomEngines.has(game.slug) || !['AVAILABLE', 'BETA'].includes(game.status)) throw new RoomError('GAME_NOT_STARTABLE');
@@ -382,11 +387,27 @@ export async function mutateRoom(roomId: string, actor: RoomActor, op: RoomOpera
           if (op.sourceRoomId && !source) throw new RoomError('SETUP_NOT_OWNED');
           if (!source && game.slug !== 'wissensduell') throw new RoomError('PREPARED_SETUP_REQUIRED');
           setupSnapshotJson = source?.setupSnapshotJson ?? '{}';
+          setupBlueprintsJson = source?.setupBlueprintsJson ?? null;
+          contentVisibility = source?.contentVisibility ?? 'HOST_PREVIEW';
+          contentSource = { roomId: source?.id ?? '', runIndex: source?.runIndex ?? 0 };
+        }
+        const contentSetup: Record<string, unknown> = JSON.parse(setupSnapshotJson);
+        if (contentSetup.contentSelection) {
+          const { selectRoomContent, contentActor, applyPinnedContent } = await import('../content/core.js');
+          const definition = await tx.gameDefinition.findUniqueOrThrow({ where: { id: gameDefinitionId } });
+          const selected = await selectRoomContent(tx, await contentActor(tx, actor.sessionId ?? null), definition.slug, contentSetup.contentSelection, roomId);
+          setupSnapshotJson = JSON.stringify(applyPinnedContent(contentSetup, definition.slug, selected));
+          for (const [position, item] of selected.entries()) await tx.contentUse.create({ data: { roomId, runIndex: room.runIndex + 1,
+            itemId: item.id, itemRevision: item.revision, position, snapshotJson: JSON.stringify(item) } });
+        } else {
+          const content = await tx.contentUse.findMany({ where: contentSource });
+          for (const item of content) await tx.contentUse.create({ data: { roomId, runIndex: room.runIndex + 1, itemId: item.itemId,
+            itemRevision: item.itemRevision, position: item.position, snapshotJson: item.snapshotJson } });
         }
         await tx.roomGameState.deleteMany({ where: { roomId } });
         await tx.participation.updateMany({ where: { roomId }, data: { score: 0, ready: false } });
         await tx.roomTeam.updateMany({ where: { roomId }, data: { score: 0 } });
-        await tx.room.update({ where: { id: roomId }, data: { status: 'LOBBY', runPhase: 'OPEN', lifecycle: 'LOBBY_OPEN', gameDefinitionId, setupSnapshotJson, runIndex: { increment: 1 }, startedAt: null, endedAt: null, gameConfigSnapshotJson: null, configSchemaVersion: 0, liveConfigJson: null } });
+        await tx.room.update({ where: { id: roomId }, data: { status: 'LOBBY', runPhase: 'OPEN', lifecycle: 'LOBBY_OPEN', gameDefinitionId, setupSnapshotJson, setupBlueprintsJson, contentVisibility, runIndex: { increment: 1 }, startedAt: null, endedAt: null, gameConfigSnapshotJson: null, configSchemaVersion: 0, liveConfigJson: null } });
         break;
       }
       case 'CLOSE':
@@ -397,7 +418,8 @@ export async function mutateRoom(roomId: string, actor: RoomActor, op: RoomOpera
         } });
         await tx.room.update({ where: { id: roomId }, data: { status: 'ARCHIVED', lifecycle: 'CLOSED', archivedAt: new Date() } });
         await tx.participation.updateMany({ where: { roomId }, data: { connected: false, connectionId: null, rejoinTokenVersion: { increment: 1 } } });
-        await tx.viewerSession.updateMany({ where: { roomId }, data: { connected: false, disconnectedAt: new Date() } }); break;
+        await tx.viewerSession.updateMany({ where: { roomId }, data: { connected: false, disconnectedAt: new Date() } });
+        await tx.displaySession.updateMany({ where: { roomId }, data: { connected: false } }); break;
       case 'EMERGENCY': throw new RoomError('ENGINE_ACTION_UNSUPPORTED');
     }
     const labels: Record<string, string> = { POLICY: 'Raumeinstellungen geändert', LOCK: op.type === 'LOCK' && op.locked ? 'Lobby gesperrt' : 'Lobby geöffnet', SCHEDULE: 'Raum geplant', OPEN: 'Lobby geöffnet', DRAFT: 'Raum als Entwurf gespeichert', TEAMS_ASSIGN: 'Teams neu zugewiesen', TEAM_EDIT: 'Team bearbeitet', TEAM_SELECT: 'Team gewählt', ADMIT: 'Teilnahme entschieden', RENAME: 'Anzeigename geändert', LEAVE: 'Raum verlassen', KICK: 'Teilnehmer entfernt', BAN: 'Teilnehmer gesperrt', UNBAN: 'Raumsperre aufgehoben', TOKEN_ROTATE: 'Geräteübernahme vorbereitet', COHOST: 'Co-Host-Rechte geändert', TRANSFER: 'Host-Verwaltung übertragen', INVITE: 'Einladung erstellt', LOBBY: 'Neue Lobby vorbereitet', REMATCH: 'Revanche vorbereitet', SWITCH_GAME: 'Spiel gewechselt', CLOSE: 'Raum endgültig geschlossen' };
@@ -419,6 +441,7 @@ export async function roomView(roomId: string, actor: RoomActor): Promise<RoomCo
   };
   return {
     gameSlug: room.gameDefinition.slug,
+    contentVisibility: room.contentVisibility as 'HOST_PREVIEW' | 'BLIND_HOST',
     history: (await prisma.roomRun.findMany({ where: { roomId }, orderBy: { runIndex: 'desc' }, take: 20 })).map(run => ({ runIndex: run.runIndex, endedAt: run.endedAt.toISOString(), players: (JSON.parse(run.scoresJson) as Array<{ displayName: string; score: number }>).map(p => ({ displayName: p.displayName, score: p.score })) })),
     switchOptions: actor.userId === room.hostUserId ? (await prisma.room.findMany({ where: { hostUserId: room.hostUserId }, include: { gameDefinition: true }, orderBy: { createdAt: 'desc' }, take: 50 })).map(r => ({ id: r.id, roomName: r.roomName, gameSlug: r.gameDefinition.slug })) : [],
     revision: room.revision, lifecycle: lifecycle(room), policy: roomPolicy(room), scheduledAt: room.scheduledAt?.toISOString() ?? null,

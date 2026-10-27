@@ -40,7 +40,13 @@ test('T1: approval, self-select teams, preflight, play, pause, reconnect, rematc
     await expect(hostPanel.getByRole('button', { name: 'Zulassen', exact: true })).toHaveCount(0);
     await alice.getByRole('button', { name: 'Team wählen' }).nth(0).click();
     await bob.getByRole('button', { name: 'Team wählen' }).nth(1).click();
-    for (const page of [alice, bob]) await page.getByRole('button', { name: 'Ich bin bereit!' }).click();
+    // A team mutation resets readiness. Wait for its committed roster before
+    // sending the independent ready action rather than racing both writes.
+    for (const [page, team, participant] of [[alice, /Team 1/, 'Alice Team'], [bob, /Team 2/, 'Bob Team']] as const) {
+      const card = page.getByRole('region', { name: 'Raum und Teams' }).getByRole('heading', { name: team }).locator('..');
+      await expect(card.getByRole('listitem').filter({ hasText: participant })).toBeVisible();
+      await page.getByRole('button', { name: 'Ich bin bereit!' }).click();
+    }
     await viewer.goto(`${BASE}/zuschauen/${code}/lobby`);
     await expect(viewer.getByText('Verbunden', { exact: true }).first()).toBeVisible();
     await expect(host.getByRole('button', { name: 'Spiel starten', exact: true })).toBeEnabled();
@@ -57,6 +63,28 @@ test('T1: approval, self-select teams, preflight, play, pause, reconnect, rematc
     await expect(host.getByRole('button', { name: 'Spiel pausieren', exact: true })).toBeVisible();
     host.once('dialog', dialog => dialog.accept());
     await host.getByRole('button', { name: 'Spiel abbrechen', exact: true }).click();
+    await host.getByRole('button', { name: 'Zum Ergebnis', exact: true }).click();
+    await expect(host.getByRole('button', { name: 'Ergebnisprüfung beginnen' })).toBeVisible();
+    await host.getByRole('button', { name: 'Ergebnisprüfung beginnen' }).click();
+    await expect(host.getByText('In Ergebnisprüfung', { exact: true })).toBeVisible();
+    await host.getByLabel('Teilnehmer', { exact: true }).selectOption({ label: 'Alice Team' });
+    await host.getByLabel('Punkteänderung', { exact: true }).fill('5');
+    await host.getByLabel('Grund', { exact: true }).fill('Browserabnahme der Punkteprüfung');
+    await host.getByRole('button', { name: 'Korrektur speichern', exact: true }).click();
+    await expect(host.getByText('Alice Team: 5 Punkte', { exact: true })).toBeVisible();
+    await host.getByRole('button', { name: 'Ergebnis verbindlich bestätigen' }).click();
+    await expect(host.getByText('Verbindlich bestätigt', { exact: true })).toBeVisible();
+    await host.reload();
+    await expect(host.getByText('Verbindlich bestätigt', { exact: true })).toBeVisible();
+    await host.getByLabel('Teilnehmer', { exact: true }).selectOption({ label: 'Alice Team' });
+    await host.getByLabel('Punkteänderung', { exact: true }).fill('2');
+    await host.getByLabel('Grund', { exact: true }).fill('Nachträgliche Korrektur mit Historie');
+    await host.getByRole('button', { name: 'Korrektur speichern', exact: true }).click();
+    await expect(host.getByText('Alice Team: 7 Punkte', { exact: true })).toBeVisible();
+    await host.getByLabel('Ergebnisversion', { exact: true }).selectOption('1');
+    await expect(host.getByText('Alice Team: 0 Punkte', { exact: true })).toBeVisible();
+    await expect(host.getByRole('button', { name: 'Korrektur speichern' })).toHaveCount(0);
+    await host.getByLabel('Ergebnisversion', { exact: true }).selectOption('');
     await expect(host.getByRole('button', { name: 'Revanche vorbereiten' })).toBeVisible();
     await host.getByRole('button', { name: 'Revanche vorbereiten' }).click();
     await expect(host).toHaveURL(new RegExp(`/moderator/raum/${code}/lobby$`));

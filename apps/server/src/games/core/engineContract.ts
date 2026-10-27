@@ -1,3 +1,4 @@
+import { blindSetup } from '../../content/blindHost.js';
 import { z } from 'zod';
 import { coreLifecyclePhase } from './lifecycle.js';
 import { BuzzerOverridePayloadSchema, handleBuzzerOverride } from './buzzerOverride.js';
@@ -144,13 +145,14 @@ export function getGameEngineContract(inputSlug: string): ServerGameEngineContra
     handleCommand: (context, command) => dispatch(slug, context, command),
     applyEvent(snapshot, event) { validVersion(snapshot.engineVersion, snapshot.gameSlug); return applyStateEvent(snapshot, event); },
     createProjection(context) {
+      const actor = { ...context.actor, blindHost: context.actor.blindHost || blindSetup(context.setup) };
       if (slug === 'wissensduell' && z.object({ phase: z.literal('ERROR_RECOVERY'), recoveryError: z.literal('STATE_INVARIANT_FAILED') }).safeParse(context.state).success)
-        return { ...projectGeoStateForClient(context.state as GeoState, context.actor), stateVersion: context.stateVersion };
+        return { ...projectGeoStateForClient(context.state as GeoState, actor), stateVersion: context.stateVersion };
       if (checkGameInvariants(slug, context.state).length) throw new Error('STATE_INVARIANT_FAILED');
-      const projected = slug === 'wissensduell' ? projectGeoStateForClient(context.state as GeoState, context.actor)
-        : slug === 'jeopardy' ? projectJeopardyForClient(context.state as JeopardyGameState, context.setup, context.actor.role, context.participants)
+      const projected = slug === 'wissensduell' ? projectGeoStateForClient(context.state as GeoState, actor)
+        : slug === 'jeopardy' ? projectJeopardyForClient(context.state as JeopardyGameState, context.setup, context.actor.role, context.participants, actor.roomId, actor.blindHost)
         : projectWerIstDas(context.state as WerIstDasState, WerIstDasSetupSchema.parse(context.setup), context.actor.role, context.actor.participationId);
-      return { ...projected, stateVersion: context.stateVersion };
+      return { ...projected, blindHost: actor.blindHost === true, stateVersion: context.stateVersion };
     },
     buildRoundResult(context) { validVersion(context.engineVersion, context.gameSlug); return buildEngineRoundResult({ ...context, gameSlug: slug }); },
     buildGameResult(context) { validVersion(context.engineVersion, context.gameSlug); return buildEngineGameResult({ ...context, gameSlug: slug }); },

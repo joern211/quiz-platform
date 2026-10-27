@@ -12,7 +12,11 @@ export const EngineResultEntrySchema = z.object({ participantId: z.string(), dis
 const resultBase = z.object({ schemaVersion: z.literal(1), roomId: z.string(), runIndex: z.number().int().positive(), gameSlug: z.string(), engineVersion: z.number().int().positive(),
   participants: z.array(EngineResultEntrySchema), winnerIds: z.array(z.string()), contentRefs: z.array(z.string()),
   durationMs: z.number().int().nonnegative().nullable(), aborted: z.boolean(), skipped: z.boolean() });
-export const EngineRoundResultSchema = resultBase.extend({ roundIndex: z.number().int().nonnegative(), endReason: RoundEndReasonSchema }).strict();
+export const EngineRoundResultSchema = resultBase.extend({ roundIndex: z.number().int().nonnegative(), endReason: RoundEndReasonSchema,
+  // Explicit public-release evidence. Absent on legacy rounds; never infer it
+  // from a generic completed/aborted result or from unrevealed setup content.
+  publicContentIds: z.array(z.string()).optional(),
+}).strict();
 export const EngineGameResultSchema = resultBase.extend({ roundCount: z.number().int().nonnegative(), endReason: GameEndReasonSchema }).strict();
 export type EngineRoundResult = z.infer<typeof EngineRoundResultSchema>;
 export type EngineGameResult = z.infer<typeof EngineGameResultSchema>;

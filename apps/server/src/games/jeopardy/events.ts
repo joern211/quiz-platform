@@ -297,7 +297,7 @@ export function registerJeopardyEvents(io: Server, socket: Socket) {
 
         const state: JeopardyGameState = JSON.parse(gameStateData.stateJson);
         const informationRole = identity.role === 'HOST' && socket.data.userId === room.hostUserId ? 'HOST' : identity.role === 'PLAYER' ? 'PLAYER' : 'VIEWER';
-        callback?.(getGameEngineContract('jeopardy')!.createProjection({ state, setup: JSON.parse(room.setupSnapshotJson ?? '{}'), actor: { ...auth.actor, role: informationRole }, participants: room.participations, stateVersion: gameStateData.revision }));
+        callback?.(getGameEngineContract('jeopardy')!.createProjection({ state, setup: JSON.parse(room.setupSnapshotJson ?? '{}'), actor: { ...auth.actor, role: informationRole, blindHost: room.contentVisibility === 'BLIND_HOST' }, participants: room.participations, stateVersion: gameStateData.revision }));
       } catch (err) {
         logger.error('jeopardy:resync threw', { err });
         callback?.({ success: false, error: gameErrorCode(err) });

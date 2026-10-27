@@ -80,6 +80,7 @@ export async function requireGamePermission(
   socket: Socket,
   permission: GamePermission,
 ): Promise<PermissionCheckResult> {
+  if (getSocketIdentity(socket)?.role === 'DISPLAY') return { ok: false, error: 'NOT_AUTHORIZED', code: 'NOT_AUTHORIZED' };
   const data = getSocketDataIdentity(socket);
   const identity = getSocketIdentity(socket);
   const roomId = identity?.roomId ?? data.roomId;

@@ -40,7 +40,7 @@
 
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { spawn, execFile, type ChildProcess } from 'node:child_process';
-import { mkdtemp, rm, cp, mkdir, copyFile } from 'node:fs/promises';
+import { mkdtemp, rm, cp, mkdir, copyFile, readdir } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -75,6 +75,9 @@ const PR14_MIGRATIONS = [
   '20261020114000_participation_connection_owner',
   '20261023190000_team_room',
   '20261024180000_game_domain_events',
+  '20261025010000_results_history',
+  '20261025130000_content_core',
+  '20261025140000_content_import_review',
 ];
 
 const SESSION_SECRET = 'ci-test-secret-at-least-32-chars-long';
@@ -190,6 +193,13 @@ beforeAll(async () => {
   const receiptColumns = await qy<{ name: string }>('PRAGMA table_info(command_receipts)');
   expect(receiptColumns.map(column => column.name)).toContain('beforeStateRevision');
 
+  // The current server/Prisma client requires every additive migration.
+  // Keep the explicit historical PR14 upgrade proof above, then advance
+  // that same database to the current schema before process/rejoin checks.
+  for (const entry of await readdir(MIGRATIONS_DIR, { withFileTypes: true })) if (entry.isDirectory() && !BASE_MIGRATIONS.includes(entry.name) && !PR14_MIGRATIONS.includes(entry.name)) await stageMigration(entry.name, join(stagedDir, 'migrations'));
+  await runMigrateDeploy();
+  expect((await qy<{ name: string }>('PRAGMA table_info(rooms)')).map(c => c.name)).toContain('setupBlueprintsJson');
+
   // ── Phase 3: deploy WIEDER → No-op (Idempotenz) ──────────────────────
   const deploy2 = await runMigrateDeploy();
   expect(deploy2.stdout + deploy2.stderr).toMatch(/No pending migrations to apply/i);
@@ -273,8 +283,9 @@ async function seedBaseState() {
 async function assertDataPreserved() {
   // All staged migrations applied, including audit follow-ups.
   const applied = (await qy<{ n: string }>('SELECT migration_name AS n FROM _prisma_migrations')).map(r => r.n);
-  expect(applied.length).toBe(BASE_MIGRATIONS.length + PR14_MIGRATIONS.length);
-  for (const m of [...BASE_MIGRATIONS, ...PR14_MIGRATIONS]) expect(applied).toContain(m);
+  const expectedMigrations = (await readdir(MIGRATIONS_DIR, { withFileTypes: true })).filter(entry => entry.isDirectory()).map(entry => entry.name);
+  expect(applied.length).toBe(expectedMigrations.length);
+  for (const m of expectedMigrations) expect(applied).toContain(m);
 
   // Neue Objekte existieren NACH dem deploy.
   const tables = new Set((await qy<{ name: string }>("SELECT name FROM sqlite_master WHERE type='table'")).map(r => r.name));

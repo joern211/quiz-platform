@@ -16,7 +16,7 @@ export function JeopardySpectatorPage() {
   const { code } = useParams<{ code: string }>();
   const roomCode = code ?? '';
 
-  const { connected, gameState, error, clearError } =
+  const { refreshMedia, connected, gameState, error, clearError } =
     useJeopardy(roomCode, 'VIEWER');
 
   const playerScoreList = Object.entries(gameState.scores).map(
@@ -112,6 +112,7 @@ export function JeopardySpectatorPage() {
               categoryIndex={gameState.currentField!.categoryIndex}
               value={gameState.currentField!.value}
               question={gameState.currentField!.question}
+                onMediaRefresh={refreshMedia} mediaUrl={gameState.currentField!.mediaUrl} mediaType={gameState.currentField!.mediaType}
               phase={gameState.phase}
               buzzWinner={gameState.buzzWinner}
               stealWinner={gameState.stealWinner}

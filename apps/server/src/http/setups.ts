@@ -1,3 +1,4 @@
+import { assertBlindEditorialAccess } from '../content/blindHost.js';
 // ============================================================
 // Setup Drafts Router
 // ============================================================
@@ -9,6 +10,10 @@ import { logger } from '../observability/logger.js';
 import { config } from '../config/index.js';
 
 export const setupRouter : ReturnType<typeof Router> = Router();
+setupRouter.use(async (req, res, next) => {
+  try { await assertBlindEditorialAccess(prisma, verifySession(req, config.sessionSecret)); next(); }
+  catch { res.status(403).json({ success: false, error: { code: 'BLIND_HOST_CONTENT_HIDDEN', message: 'Inhaltsentwürfe sind während deiner Blindmoderation gesperrt.' } }); }
+});
 
 // GET /api/v1/setups/:id
 setupRouter.get('/:id', async (req, res) => {

@@ -17,6 +17,12 @@ const envSchema = z.object({
   STORAGE_ROOT: z.string().default('./storage'),
   MAX_UPLOAD_SIZE_MB: z.coerce.number().int().default(50),
   MAX_IMAGE_SIZE_MB: z.coerce.number().int().default(10),
+  MAX_AUDIO_SIZE_MB: z.coerce.number().int().min(1).max(100).default(20),
+  MAX_AUDIO_DURATION_SECONDS: z.coerce.number().int().min(1).max(1800).default(300),
+  AUDIO_PROCESSING_TIMEOUT_MS: z.coerce.number().int().min(1000).max(120000).default(30000),
+  AUDIO_PROCESSING_CONCURRENCY: z.coerce.number().int().min(1).max(4).default(2),
+  FFMPEG_PATH: z.string().min(1).default('ffmpeg'),
+  FFPROBE_PATH: z.string().min(1).default('ffprobe'),
   MAX_IMAGE_DIMENSION: z.coerce.number().int().min(1).default(4096),
   MAX_AVATAR_SIZE_MB: z.coerce.number().int().default(5),
   ROOM_ARCHIVE_HOURS: z.coerce.number().int().default(24),
@@ -46,6 +52,12 @@ function loadConfig() {
     STORAGE_ROOT: process.env.STORAGE_ROOT || './storage',
     MAX_UPLOAD_SIZE_MB: process.env.MAX_UPLOAD_SIZE_MB || '50',
     MAX_IMAGE_SIZE_MB: process.env.MAX_IMAGE_SIZE_MB || '10',
+    MAX_AUDIO_SIZE_MB: process.env.MAX_AUDIO_SIZE_MB || '20',
+    MAX_AUDIO_DURATION_SECONDS: process.env.MAX_AUDIO_DURATION_SECONDS || '300',
+    AUDIO_PROCESSING_TIMEOUT_MS: process.env.AUDIO_PROCESSING_TIMEOUT_MS || '30000',
+    AUDIO_PROCESSING_CONCURRENCY: process.env.AUDIO_PROCESSING_CONCURRENCY || '2',
+    FFMPEG_PATH: process.env.FFMPEG_PATH || 'ffmpeg',
+    FFPROBE_PATH: process.env.FFPROBE_PATH || 'ffprobe',
     MAX_IMAGE_DIMENSION: process.env.MAX_IMAGE_DIMENSION || '4096',
     MAX_AVATAR_SIZE_MB: process.env.MAX_AVATAR_SIZE_MB || '5',
     ROOM_ARCHIVE_HOURS: process.env.ROOM_ARCHIVE_HOURS || '24',
@@ -101,9 +113,11 @@ function loadConfig() {
     maxFileSizes: {
       upload: data.MAX_UPLOAD_SIZE_MB * 1024 * 1024,
       image: data.MAX_IMAGE_SIZE_MB * 1024 * 1024,
+      audio: data.MAX_AUDIO_SIZE_MB * 1024 * 1024,
       imageDimension: data.MAX_IMAGE_DIMENSION,
       avatar: data.MAX_AVATAR_SIZE_MB * 1024 * 1024,
     },
+    audioProcessing: { ffmpeg: data.FFMPEG_PATH, ffprobe: data.FFPROBE_PATH, maxDurationSeconds: data.MAX_AUDIO_DURATION_SECONDS, timeoutMs: data.AUDIO_PROCESSING_TIMEOUT_MS, concurrency: data.AUDIO_PROCESSING_CONCURRENCY },
     // Game defaults
     geoDefaultTimerMs: data.GEO_DEFAULT_TIMER_MS,
     geoMinTimerMs: data.GEO_MIN_TIMER_MS,
@@ -143,9 +157,11 @@ export type Config = {
   maxFileSizes: {
     upload: number;
     image: number;
+    audio: number;
     imageDimension: number;
     avatar: number;
   };
+  audioProcessing: { ffmpeg: string; ffprobe: string; maxDurationSeconds: number; timeoutMs: number; concurrency: number };
   geoDefaultTimerMs: number;
   geoMinTimerMs: number;
   geoDefaultPoints: number;

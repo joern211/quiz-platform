@@ -187,3 +187,21 @@ it('in-flight old disconnect cannot overwrite a newly subscribed connection', as
     socketIdentityMap.clear(); await database.$disconnect(); globalThis.__prisma = undefined;
   }
 });
+
+it('publishes the current committed roster when readiness changes during subscription', async () => {
+  const db = await createDatabase(); const host = await db.user.create({ data: { displayName: 'Snapshot Host', passwordHash: 'unused', role: 'HOST' } });
+  const game = await db.gameDefinition.create({ data: { slug: 'snapshot-test', name: 'Snapshot', category: 'test' } });
+  const room = await db.room.create({ data: { code: '234-567', roomName: 'Snapshot', hostUserId: host.id, gameDefinitionId: game.id, status: 'LOBBY', runPhase: 'OPEN' } });
+  const player = await db.participation.create({ data: { roomId: room.id, displayName: 'Ready Player', normalizedName: 'ready player', role: 'PLAYER', connected: true, ready: false, rejoinToken: 'snapshot-ready-token' } });
+  const socket = createSocket('snapshot-host', host), io = createIo();
+  socket.join = vi.fn(async (channel: string | string[]) => {
+    for (const value of Array.isArray(channel) ? channel : [channel]) socket.rooms.add(value);
+    await db.$transaction(async tx => { await tx.participation.update({ where: { id: player.id }, data: { ready: true } }); await tx.room.update({ where: { id: room.id }, data: { revision: { increment: 1 } } }); });
+  });
+  try {
+    const ack = vi.fn(); await handleRoomSubscription(io, socket, { roomCode: room.code }, ack);
+    const snapshot = vi.mocked(socket.emit).mock.calls.find(call => call[0] === 'room:snapshot')?.[1] as { revision: number; players: { id: string; ready: boolean }[] };
+    expect(snapshot.players.find(p => p.id === player.id)?.ready).toBe(true); expect(snapshot.revision).toBe((await db.room.findUniqueOrThrow({ where: { id: room.id } })).revision);
+    await vi.waitFor(() => expect(vi.mocked(io.to).mock.results[0]?.value.emit).toHaveBeenCalled());
+  } finally { await handleDisconnect(io, socket); await db.$disconnect(); globalThis.__prisma = undefined; }
+});

@@ -1,3 +1,4 @@
+import { ContentMedia } from '../components/ContentMedia';
 // ============================================================
 // Viewer Game Page (Geo Quiz)
 // ============================================================
@@ -102,6 +103,7 @@ export function ViewerGamePage() {
           <Card padding="lg" className={styles.questionCard}>
             <p className={styles.category}>{question.category}</p>
             <h2 className={styles.prompt}>{question.prompt}</h2>
+        <ContentMedia mediaUrl={question.mediaUrl} mediaType={question.mediaType} onRefresh={() => getSocket().emit('geo:resync', {}, res => { if (res.success && res.question) setQuestion(res.question); })} />
             
             {!revealed && phase === 'INPUT_OPEN' && <Timer endsAt={timerEndMs} size="lg" />}
             

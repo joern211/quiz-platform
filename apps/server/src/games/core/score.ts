@@ -17,6 +17,7 @@ export async function recordScoreMutation(
     delta: number;
     reason: string;
     roundIndex?: number;
+    roundKey?: string;
   }
 ): Promise<void> {
   const updated = await tx.participation.updateMany({
@@ -35,6 +36,7 @@ export async function recordScoreMutation(
     data: {
       roomId: params.roomId, participationId: params.participationId, teamId: player.teamId, runIndex: room.runIndex,
       roundIndex: params.roundIndex ?? 0, delta: params.delta,
+      roundKey: params.roundKey,
       reason: params.reason, source: 'auto',
     },
   });

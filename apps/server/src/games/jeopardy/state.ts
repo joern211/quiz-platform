@@ -54,6 +54,7 @@ export interface JeopardyBoard {
 }
 
 export interface JeopardyFieldDef {
+  contentId?: string;
   categoryIndex: number; // 0–5
   value: number;
   question: string;
@@ -67,6 +68,8 @@ export interface JeopardyFieldDef {
 // ============================================================
 
 export interface JeopardyGameState {
+  contentRunIndex?: number;
+  lastResolvedFieldKey?: string;
   tieStrategy?: 'ALLOW_TIE';
   lastRoundTransition?: CoreRoundTransition;
   buzzer?: BuzzerState;
@@ -197,6 +200,7 @@ export function markFieldAnswered(
   return {
     ...state,
     openFields: remainingOpenFields,
+    lastResolvedFieldKey: key,
     currentField: null,
     buzzOpen: false,
     buzzWinner: null,

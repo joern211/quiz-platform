@@ -85,6 +85,161 @@ model GameDefinition {
 // Content / Questions
 // ------------------------------------------------------------
 
+model ContentPool {
+  id String @id @default(uuid())
+  gameSlug String
+  name String
+  description String @default("")
+  scope String @default("PRIVATE")
+  ownerId String?
+  editorIdsJson String @default("[]")
+  defaultsJson String @default("{}")
+  status String @default("ACTIVE")
+  revision Int @default(1)
+  forkedFromPoolId String?
+  legacyPackId String? @unique
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  items ContentItem[]
+  @@index([gameSlug, scope, ownerId])
+  @@map("content_pools")
+}
+
+model ContentItem {
+  id String @id @default(uuid())
+  poolId String
+  pool ContentPool @relation(fields: [poolId], references: [id], onDelete: Restrict)
+  gameSlug String
+  title String @default("")
+  payloadJson String
+  language String?
+  difficulty String?
+  tagIdsJson String?
+  source String @default("")
+  sourceUrl String @default("")
+  license String @default("")
+  status String @default("DRAFT")
+  revision Int @default(1)
+  reviewState String @default("NOT_REVIEWED")
+  lockState String @default("EDITABLE")
+  duplicatedFromId String?
+  legacyQuestionId String? @unique
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  revisions ContentRevision[]
+  uses ContentUse[]
+  mediaReferences ContentMediaReference[]
+  @@index([poolId, status])
+  @@map("content_items")
+}
+
+model ContentRevision {
+  id String @id @default(uuid())
+  itemId String
+  item ContentItem @relation(fields: [itemId], references: [id], onDelete: Restrict)
+  revision Int
+  actorId String?
+  kind String
+  changedFieldsJson String
+  snapshotJson String
+  createdAt DateTime @default(now())
+  @@unique([itemId, revision])
+  @@map("content_revisions")
+}
+
+model ContentTag {
+  id String @id @default(uuid())
+  name String
+  slug String @unique
+  description String @default("")
+  category String @default("")
+  aliasesJson String @default("[]")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  @@map("content_tags")
+}
+
+model ContentUse {
+  id String @id @default(uuid())
+  roomId String
+  runIndex Int
+  itemId String
+  item ContentItem @relation(fields: [itemId], references: [id], onDelete: Restrict)
+  itemRevision Int
+  position Int @default(0)
+  snapshotJson String
+  createdAt DateTime @default(now())
+  @@unique([roomId, runIndex, itemId])
+  @@map("content_uses")
+}
+
+model ContentMutationReceipt {
+  id String @id @default(uuid())
+  actorId String
+  commandId String
+  intentHash String
+  responseJson String
+  createdAt DateTime @default(now())
+  @@unique([actorId, commandId])
+  @@map("content_mutation_receipts")
+}
+
+model ContentImportDraft {
+  id String @id @default(uuid())
+  poolId String
+  actorId String
+  rowsJson String
+  previewJson String
+  targetHash String
+  consumedAt DateTime?
+  createdAt DateTime @default(now())
+  expiresAt DateTime
+  @@index([actorId, expiresAt])
+  @@map("content_import_drafts")
+}
+
+model ContentReview {
+  id String @id @default(uuid())
+  poolId String
+  itemId String?
+  actorId String
+  baseRevision Int
+  kind String
+  proposedJson String
+  status String @default("IN_REVIEW")
+  reviewerId String?
+  reason String @default("")
+  createdAt DateTime @default(now())
+  resolvedAt DateTime?
+  @@index([poolId, status])
+  @@map("content_reviews")
+}
+
+model ContentNotification {
+  id String @id @default(uuid())
+  userId String
+  kind String
+  poolId String
+  itemId String?
+  message String
+  readAt DateTime?
+  createdAt DateTime @default(now())
+  @@index([userId, readAt])
+  @@map("content_notifications")
+}
+
+model ContentComment {
+  id String @id @default(uuid())
+  itemId String
+  actorId String
+  message String
+  status String @default("OPEN")
+  createdAt DateTime @default(now())
+  resolvedAt DateTime?
+  @@index([itemId, status])
+  @@map("content_comments")
+}
+
 model QuestionPack {
   id          String   @id @default(uuid())
   gameSlug    String
@@ -154,6 +309,8 @@ model SetupDraft {
 // ------------------------------------------------------------
 
 model Room {
+  setupBlueprintsJson String?
+  contentVisibility String @default("HOST_PREVIEW")
   id                 String   @id @default(uuid())
   code               String   @unique
   roomName           String
@@ -221,6 +378,11 @@ model Room {
   permissionGrants   RoomPermissionGrant[]
   commandReceipts    CommandReceipt[]
   gameEvents         GameDomainEvent[]
+  gameResults        GameResultRecord[]
+  roundResults       RoundResultRecord[]
+  displaySessions DisplaySession[]
+  mediaControl RoomMediaControl?
+  mediaParticipantControls ParticipantMediaControl[]
   viewerSessions     ViewerSession[]
   chatMessages       ChatMessage[]
   scoreEvents        ScoreEvent[]
@@ -373,6 +535,9 @@ model ScoreEvent {
   delta          Int
   reason         String
   source         String   @default("auto") // auto | manual
+  roundKey       String?
+  kind           String   @default("GAME_SCORE")
+  referenceEventId String?
   moderatorId    String?
   moderator      User?    @relation(fields: [moderatorId], references: [id])
   createdAt      DateTime @default(now())
@@ -380,6 +545,50 @@ model ScoreEvent {
   @@index([roomId])
   @@index([participationId])
   @@map("score_events")
+}
+
+// Compact historical results. Engine state remains GAME_END for old clients.
+// Lifecycle and the current revision are separate from immutable result versions.
+model GameResultRecord {
+  id String @id @default(uuid())
+  roomId String
+  room Room @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  runIndex Int
+  gameSlug String
+  engineVersion Int
+  status String @default("GAME_END")
+  revision Int @default(1)
+  configSnapshotJson String?
+  endedAt DateTime
+  finalizedAt DateTime?
+  versions GameResultVersion[]
+  @@unique([roomId, runIndex])
+  @@map("game_results")
+}
+model GameResultVersion {
+  id String @id @default(uuid())
+  resultId String
+  result GameResultRecord @relation(fields: [resultId], references: [id], onDelete: Cascade)
+  revision Int
+  kind String
+  actorId String?
+  reason String?
+  dataJson String
+  createdAt DateTime @default(now())
+  @@unique([resultId, revision])
+  @@map("game_result_versions")
+}
+model RoundResultRecord {
+  id String @id @default(uuid())
+  roomId String
+  room Room @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  runIndex Int
+  roundKey String
+  stateVersion Int
+  dataJson String
+  createdAt DateTime @default(now())
+  @@unique([roomId, runIndex, roundKey])
+  @@map("round_results")
 }
 
 // ------------------------------------------------------------
@@ -447,6 +656,12 @@ model MediaAsset {
   @@unique([assetKey, uploadedBy, visibility])
   @@index([sha256])
   @@index([assetKey])
+
+  processingSources MediaProcessingJob[]
+  variantOriginals MediaAssetVariant[] @relation("VariantOriginal")
+  variantOutputs MediaAssetVariant[] @relation("VariantOutput")
+  variantKind String @default("WEB")
+  contentReferences ContentMediaReference[]
 
   // Note: GeoQuestion holds the forward relation via mediaAssetId
 
@@ -624,4 +839,188 @@ model RoomInvite {
   usedAt DateTime?
   @@index([roomId])
   @@map("room_invites")
+}
+
+// Ephemeral editor presence. A lost tab expires; this is not a write lock.
+model ContentEditorPresence {
+  id String @id @default(uuid())
+  itemId String
+  sessionId String
+  editorKey String
+  userId String
+  lastSeenAt DateTime @default(now())
+  @@unique([itemId, sessionId, editorKey])
+  @@index([itemId, lastSeenAt])
+  @@map("content_editor_presence")
+}
+
+model ContentMediaReference {
+  id String @id @default(uuid())
+  itemId String
+  item ContentItem @relation(fields: [itemId], references: [id], onDelete: Restrict)
+  itemRevision Int
+  assetId String
+  asset MediaAsset @relation(fields: [assetId], references: [id], onDelete: Restrict)
+  authorizedBy String?
+  createdAt DateTime @default(now())
+  @@unique([itemId, itemRevision, assetId])
+  @@index([assetId])
+  @@map("content_media_references")
+}
+
+model ContentTemplate {
+  id String @id @default(uuid())
+  ownerId String
+  gameSlug String
+  name String
+  itemJson String
+  revision Int @default(1)
+  status String @default("ACTIVE")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  @@index([ownerId, gameSlug, status])
+  @@map("content_templates")
+}
+
+model ContentReviewAssignment {
+  id String @id @default(uuid())
+  itemId String
+  poolId String
+  assigneeId String
+  assignedBy String
+  itemRevision Int
+  revision Int @default(1)
+  status String @default("OPEN")
+  note String @default("")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  completedAt DateTime?
+  @@unique([itemId, assigneeId])
+  @@index([assigneeId, status])
+  @@map("content_review_assignments")
+}
+
+model ContentPlaytest {
+  id           String                    @id @default(uuid())
+  code         String                    @unique
+  ownerId      String
+  poolId       String
+  gameSlug     String
+  snapshotJson String
+  position     Int                       @default(0)
+  version      Int                       @default(1)
+  phase        String                    @default("QUESTION")
+  startedAt    DateTime                  @default(now())
+  expiresAt    DateTime
+  createdAt    DateTime                  @default(now())
+  feedback     ContentPlaytestFeedback[]
+
+  @@index([ownerId, expiresAt])
+  @@map("content_playtests")
+}
+
+model ContentPlaytestFeedback {
+  id         String          @id @default(uuid())
+  playtestId String
+  playtest   ContentPlaytest @relation(fields: [playtestId], references: [id], onDelete: Cascade)
+  position   Int
+  clientKey  String
+  kind       String
+  value      String
+  createdAt  DateTime        @default(now())
+
+  @@unique([playtestId, position, clientKey, kind])
+  @@map("content_playtest_feedback")
+}
+
+model ContentDifficultyPreset {
+  id       String @id @default(uuid())
+  ownerId  String
+  gameSlug String
+  name     String
+  planJson String
+  revision Int @default(1)
+  status   String @default("ACTIVE")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([ownerId, gameSlug, status])
+  @@map("content_difficulty_presets")
+}
+
+model SetupBlueprint {
+  id String @id @default(uuid())
+  ownerId String
+  kind String
+  gameSlug String?
+  name String
+  configurationJson String
+  favorite Boolean @default(false)
+  revision Int @default(1)
+  status String @default("ACTIVE")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([ownerId, kind, status])
+  @@map("setup_blueprints")
+}
+
+model RoomMediaControl {
+  roomId String @id
+  room Room @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  revision Int @default(1)
+  policyJson String @default("{}")
+  @@map("room_media_controls")
+}
+model ParticipantMediaControl {
+  id String @id @default(uuid())
+  roomId String
+  room Room @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  participantId String
+  hostMuted Boolean @default(false)
+  cameraHidden Boolean @default(false)
+  @@unique([roomId, participantId])
+  @@map("participant_media_controls")
+}
+
+model DisplaySession {
+  id String @id @default(uuid())
+  roomId String
+  room Room @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  connected Boolean @default(true)
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+  @@index([roomId])
+  @@map("display_sessions")
+}
+
+model MediaProcessingJob {
+  id String @id @default(uuid())
+  ownerId String
+  commandId String
+  inputHash String
+  originalId String
+  original MediaAsset @relation(fields: [originalId], references: [id], onDelete: Restrict)
+  outputId String?
+  status String @default("QUEUED")
+  attempts Int @default(0)
+  leaseToken String?
+  leaseUntil DateTime?
+  errorCode String?
+  retryable Boolean @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  @@unique([ownerId, commandId])
+  @@index([status, leaseUntil])
+  @@map("media_processing_jobs")
+}
+model MediaAssetVariant {
+  id String @id @default(uuid())
+  originalId String
+  original MediaAsset @relation("VariantOriginal", fields: [originalId], references: [id], onDelete: Restrict)
+  assetId String
+  asset MediaAsset @relation("VariantOutput", fields: [assetId], references: [id], onDelete: Restrict)
+  kind String
+  @@unique([originalId, kind])
+  @@map("media_asset_variants")
 }

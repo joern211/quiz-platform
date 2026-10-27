@@ -11,10 +11,10 @@ Spielregeln bleiben offen; bereits festgelegte Regeln nicht erneut abfragen.
 | Punkt | Paket | Stand |
 |---|---|---|
 | 1 | TEAM-ROOM / GitHub #15 abschließen; öffentliche Raumliste reparieren | abgeschlossen, f26e8fb; CI + 20/20 E2E grün |
-| 2 | Gemeinsame Spielaktionen / Rundensteuerung, Planplatz PR15 | in Arbeit, feature/pr16-game-core |
-| 3 | Results / Finalisierung / Recovery, Planplatz PR16 | offen |
-| 4 | Content-Pools / Editor, anschließend Review / Import / Qualität | offen |
-| 5 | Audio / Voice, Kamera / Display; danach weitere Engines | offen |
+| 2 | Gemeinsame Spielaktionen / Rundensteuerung, Planplatz PR15 | abgeschlossen, a1b55eb; CI/E2E grün |
+| 3 | Results / Finalisierung / Recovery, Planplatz PR16 | abgeschlossen, 7316415; vollständige CI/E2E grün |
+| 4 | Content-Pools / Editor, anschließend Review / Import / Qualität | benannte Lücken geschlossen,2319154; CI +29/29 E2E grün; Grenzen in pr18/acceptance.md |
+| 5 | Audio / Voice, Kamera / Display; danach weitere Engines | implementiert; finale Abnahme am aktuellen PR19-Head maßgeblich, Details pr19/acceptance.md |
 
 ## Wiederaufnahme
 
@@ -140,3 +140,140 @@ Runde, zulässige Folgephase und unveränderte Scores; Runtime-Reset und
 85 Webtests, Typecheck/Build/Lint lokal grün. Noch CI/E2E am Folge-Head abnehmen,
 dann Punkt 2 abschließen und Punkt 3 starten. Vollständige Runtime-Abgrenzung
 und Nachweise: ../pr16/acceptance.md. Keine Ergebnisfinalisierung vorgetäuscht.
+
+## Punkt 2 abgeschlossen / Punkt 3 begonnen — 25.10.2026
+
+a1b55eb: 423 Server-/85 Webtests, Typecheck/Build/Lint und komplette CI/E2E
+in Run 40143108619 grün. PR16 Ready for Review, nicht gemergt. Punkt 3 auf
+eigener Folgebranch: persistente Round-/GameResults, Review/Finalisierung,
+kompensierende Ledger-Korrekturen/Amendments, Historie und Replay-Recovery.
+Stand und exakte Fortsetzung: ../pr17/handoff.md. Punkte 4–5 weiterhin offen.
+
+## Wiederaufnahme 25.10.2026 — Punkt 3 fertig / Punkt 4 begonnen
+
+7316415: Run 40147789297 vollständig grün, 20/20 E2E ohne Retry/Flake.
+PR17 Ready for Review, kein Merge. Punkt 4 folgt auf eigener gestapelter
+Branch; Einzelstand und offene Master-Anforderungen: ../pr18/handoff.md.
+Punkt 5 bleibt offen.
+
+
+## Punkt4 — Wiederaufnahme gesichert / Zusammenarbeit ergänzt
+
+9a03c4f: vollständige CI/E2E grün (Run40220311085). Lokaler Folgeteil:
+Sammelbearbeitung mit Impact/Bestätigung/Teilresultaten, Concurrent-Editor-
+Anzeige, interne Kommentare/Locks/Usage-UI, PUBLIC-Privacy-Fix und echte
+konkurrierende Editorwrites. Details/Nachweise in ../pr18/handoff.md.
+Weiterhin kein Abschluss von Punkt4, kein Beginn von Punkt5, kein Merge.
+
+## Punkt4 — Content-Medien weitergeführt
+
+c125c13 ist gesichert; CI grün,22/23 E2E grün. C3-Trace hat einen konkreten
+Beschriftungsfehler geladener Textareas gezeigt; explizite Labels korrigiert.
+Lokaler Folgeteil bindet Medienrefs/Rechte an Editor/Import/READY/Preflight
+und reale Wissensduell-/Jeopardy-Delivery, mit Kontextsignaturen, geschützter
+Historie und additiver Legacy-Migration.463/463 Server,112/112 Web lokal grün.
+Details und ehrliche Restgrenzen stehen im PR18-Handoff. Punkt4 bleibt offen.
+
+## Punkt4 — Vorlagen und Review-Arbeitsschritte
+
+Medienstand cdadb97 vollständig CI/E2E-grün (Run40222792665,23/23 E2E).
+Folgeteil ergänzt private/System-Fragenvorlagen, getrennte versionsgebundene
+Prüfaufgaben, Einzelreview mit Tastatur/Wiederaufnahme und weitere Public-
+Privacy-/Receipt-Fixes. Lokal467 Server/116 Web grün, C4 zusätzlich aktiv.
+Nächste Schritte und verbleibende Grenzen in ../pr18/handoff.md.
+Punkt4 offen, Punkt5 unbegonnen, kein Merge.
+
+## Punkt4 — PLAYTEST und Teststabilität lokal gesichert
+
+Ältere P14-Regressionen erhalten eine eigene Testdatenbank und vollständigen
+Disconnect-Abbau; verspätete room:probe-Antworten schreiben nach Identitäts-
+wechsel nicht mehr. C3 synchronisiert die echte Anwesenheitsregistrierung.
+470 Servertests für diesen Teil grün; lokaler Commit6693b5b.
+
+Danach PLAYTEST aus Editor mit temporärem Gerätecode, vier Perspektiven,
+Auflösung, Testantworten und gesammelten Hinweisen; immutable Snapshot und
+aktive Mediengrenzen. Keine normalen Räume, Stats oder ScoreEvents.
+476 Server-/120 Webtests, beide Builds und Typecheck grün; neue echte
+HTTP-/DB-Abnahmen. Lint0 Fehler/113 bestehende Warnungen. Einzelstand, Browsergrenzen
+und Restumfang in ../pr18/handoff.md. GitHub-Sicherung durch automatische
+Freigabeprüfung blockiert; kein Workaround. Punkt4 offen, Punkt5 unbegonnen.
+
+## Punkt4 — Difficulty-Verläufe weitergeführt
+
+5ac3566 auf GitHub vollständig grün (476 Server/120 Web/25 E2E, Run40226692379).
+Folgeteil: genaue Prozentverteilungen, Rundenbereiche, System-/private Host-
+Schwierigkeitsvorlagen und gemeinsame Difficulty-/Pool-Quoten mit bevorzugten
+ungesehenen Fragen. Echter Engine-/Snapshot-Nachweis,38 gezielte Servertests
+und123 Webtests grün. Vollständig482 Servertests, beide Builds/Typecheck
+grün; Lint0 Fehler/113 bestehende Warnungen. C6 ergänzt Browserweg. Vollständige Spiel-/Room-Vorlagen
+und BLIND_HOST bleiben offen; Einzelabnahme siehe ../pr18/handoff.md.
+
+## Punkt4 — Spiel-/Raumvorlagen lokal geschlossen, BLIND_HOST folgt
+
+Private versionierte/favorisierte Spiel-Presets der beiden Content-Editor-
+Spiele und System-/private Raumvorlagen sind verbunden, mit atomaren Grant-
+und CAS-Prüfungen, expliziten Overrides und unveränderten historischen Werten.
+484 Server/127 Web lokal grün; C7 ergänzt Browserabnahme. Details siehe PR18-
+Handoff. BLIND_HOST ist der nächste unmittelbar offene Teil. Kein Merge.
+
+## Punkt4 — BLIND_HOST implementiert
+
+069bda3 (Spiel-/Raumvorlagen) vollständig CI/E2E-grün,27 Browserfälle.
+BLIND_HOST folgt mit persistiertem Modus, RANDOM-only, getrennten Kontroll-/
+Informationsrechten und Fences über Spiel, Rejoin, Editor, Exporte, alte Setups,
+Media und Playtest-Capabilities.490 Server/128 Web lokal grün, sechs echte
+Gegenproben und C8-Browserfall. Quick-Setup-Assistent ist noch offen; spätere
+Übersetzungs-/Statistik-/Betriebssysteme bleiben getrennt. Kein Merge.
+
+## Wiederaufnahme — Paket4 benannte Lücken geschlossen, Paket5 begonnen
+
+2319154:490 Server-/132 Webtests und29 Browserfälle vollständig auf GitHub
+grün (Run40253379733). Geführter siebenstufiger Schnellstart, vollständige
+Spiel-/Raumvorlagen und BLIND_HOST einschließlich echter Replay-Recovery
+abgenommen. PR18 bleibt Draft und ungemergt; kein pauschales §6-alles-DONE.
+
+Paket5 auf eigener Folgebranch feature/pr19-media-voice. Erster Teil ersetzt
+Audio-Magic-Byte-Akzeptanz durch tatsächliche Decodierung, Loudness-
+Normalisierung, Metadata-Strip und begrenzte Verarbeitung. Details, Tests und
+die konkrete Fortsetzung stehen in ../pr19/handoff.md. Live-Voice/Kamera/
+Display sind weiterhin offene Arbeit innerhalb von Paket5.
+
+## Paket5 — Audio grün, lokaler Gerätecheck ergänzt
+
+0934183 vollständig CI/E2E-grün (30 Fälle, Run40292697356, Wiederholung nach
+Paketdownload-Timeout). Optionaler lokaler Prejoin-/Host-Lobby-Gerätecheck ist
+als nächster Teil implementiert: unabhängige ausdrückliche Permissions,
+Vorschau/Pegel/Testton, Gerätefallback, Filter und sichere Capture-Bereinigung.
+139 Webtests lokal grün, M2/M3 erhöhen Browserabnahme auf32. Live-Übertragung,
+MAIN/TEAM/Host-Mute/PTT und DISPLAY bleiben offen. Details in pr19/handoff.md.
+
+## Paket5 — Live-Transport und DISPLAY weitergeführt
+
+Basis remote d60f078: vollständigeCI505 Server/139 Web/32 E2E grün.
+Lokal folgen echte WebRTC-Verbindungen mit MAIN/TEAM, getrennter Kamera,
+persistenter Hostmoderation, PTT und Live-Gerätewechsel sowie eigener DISPLAY-
+Session/Broadcast. Acht DB-/Socket-Gegenproben, drei Transporttests; M4/M5
+prüfen tatsächliche Übertragung und zwei Displays. Vorher511 Server/142 Web
+lokal grün; vollständige Folgeabnahme mit513 Server/34 E2E noch ausstehend.
+Details in ../pr19/handoff.md. Medienjobs/Varianten bleiben offen; kein Merge.
+
+## Paket5 — lokale Implementierung ergänzt, finale Browserabnahme blockiert
+
+Lokal b9ec43d plus Folgecommit: Live-WebRTC/MAIN/TEAM/Mute/PTT/Kamera, eigener
+DISPLAY-Pfad, persistente Medienjobs mit Original-/Variantenverwaltung und
+Geräte-/Filterwechsel.521 Servertests und147 Webtests grün. Genaue Grenzen und
+finaler Prüfumfang in ../pr19/acceptance.md.34 Browserfälle vorbereitet; deren
+Abnahme bleibt offen. Auto-Review hat neue GitHub-Übertragung blockiert, da die
+letzte ausdrückliche Pushfreigabe nur auf frühere Commits bezogen wurde. Kein
+Workaround. Erneute konkrete Pushfreigabe als nächster Schritt erforderlich.
+Letzter Remote-Head bleibt d60f078. Paket5 nicht als abgeschlossen melden.
+
+## Paket5 — neue Pushfreigabe umgesetzt, Browserkorrektur
+
+Remote17f0a2e enthält beide neuen lokalen Commits mit identischen Dateibäumen.
+Run40341975302: CI521 Server/147 Web grün, Browser32 bestanden; T1 Retry-grün,
+M4 Labelproblem nach erfolgreicher echter Übertragung. Explizite Labels und
+bestätigte Teamwahl vor Ready ergänzt, außerdem veraltete Subscription-Roster
+mit echter Gegenprobe abgesichert. Web148 und gezielt3 Reconnect-Fälle grün.
+Neue Abnahmekorrekturen sind ausdrücklich pushautorisiert; kein erneutes Fragen.
+Finales Ergebnis des Folge-Heads im PR19-Body/Run festhalten. Kein Merge.

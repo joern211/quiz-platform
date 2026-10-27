@@ -1,3 +1,4 @@
+import { RecoveryControl } from '../components/RecoveryControl';
 // ============================================================
 // Jeopardy Moderator Page
 // Full game control: board, question, buzzer, judge, next
@@ -20,7 +21,7 @@ export function JeopardyModeratorPage() {
   const roomCode = code ?? '';
   const core = useGameCore(roomCode);
   const navigate = useNavigate();
-  const { connected, gameState, secretAnswer, error, clearError, actions } =
+  const { refreshMedia, connected, gameState, secretAnswer, error, clearError, actions } =
     useJeopardy(roomCode, 'HOST');
 
   // Redirect to lobby if game not started
@@ -73,7 +74,7 @@ export function JeopardyModeratorPage() {
             Jeopardy – Board {gameState.boardNumber}
           </h1>
           {core.projection && <progress aria-label="Spielfortschritt" max={100} value={core.projection.progress.progressPercent ?? undefined} />}
-          {core.projection?.recoveryRequired && <p role="alert">Der Spielzustand muss geprüft werden. Das Spiel wurde angehalten.</p>}
+          {core.projection?.recoveryRequired && <RecoveryControl projection={core.projection} />}
         </div>
       </div>
 
@@ -152,6 +153,7 @@ export function JeopardyModeratorPage() {
                 categoryIndex={gameState.currentField!.categoryIndex}
                 value={gameState.currentField!.value}
                 question={gameState.currentField!.question}
+                onMediaRefresh={refreshMedia} mediaUrl={gameState.currentField!.mediaUrl} mediaType={gameState.currentField!.mediaType}
                 phase={gameState.phase}
                 buzzWinner={gameState.buzzWinner}
                 stealWinner={gameState.stealWinner}

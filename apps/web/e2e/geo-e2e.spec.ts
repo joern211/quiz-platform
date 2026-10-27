@@ -218,10 +218,10 @@ test('G4-4: Vollständiger Geo-UI-Ablauf mit zwei Spielern', async ({ browser })
     ]);
 
     await expect(playerA.getByRole('heading', { name: /gewonnen|Top 3|Spiel beendet/ })).toBeVisible();
-    await expect(playerA.getByText('Quiz Champion', { exact: false })).toBeVisible();
-    await expect(playerA.getByText(/\d+ pts/).first()).toBeVisible();
-    await expect(playerB.getByText(/\d+ pts/).first()).toBeVisible();
-    await expect(moderator.getByRole('heading', { name: 'Ergebnis' })).toBeVisible();
+    await expect(playerA.getByRole('region', { name: 'Spielergebnis' }).getByRole('listitem').filter({ hasText: 'Quiz Champion' })).toBeVisible();
+    await expect(playerA.getByText(/\d+ Punkte/).first()).toBeVisible();
+    await expect(playerB.getByText(/\d+ Punkte/).first()).toBeVisible();
+    await expect(moderator.getByRole('heading', { name: 'Ergebnis', level: 1, exact: true })).toBeVisible();
     const resultsResponse = await viewer.context().request.get(`${BASE}/api/v1/rooms/${code}/results`);
     expect(resultsResponse.status()).toBe(200);
     expect((await resultsResponse.json()).data.status).toBe('ENDED');

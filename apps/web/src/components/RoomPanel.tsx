@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import type { RoomCoreView, RoomOperation, RoomPolicy } from '@quiz/shared';
 import { Button, Card } from '@quiz/ui';
-import { getSocket, connectSocket, emitCommand } from '../lib/socket';
+import { getSocket, observeSocket, emitCommand } from '../lib/socket';
 import { gamePath } from '../lib/gamePaths';
 import { getSession, setSession } from '../lib/sessionStore';
 import styles from './RoomPanel.module.css';
@@ -23,25 +23,32 @@ export function RoomPanel() {
   useEffect(() => {
     setView(null); setDraft(null); setError(''); setPrivateResult('');
     if (!code) return;
-    const socket = getSocket();
-    const refresh = () => socket.emit('room:core:read', {}, response => {
-      if (response.success && response.view) { setView(response.view); setDraft(old => old ?? response.view!.policy); }
-    });
-    const enter = () => {
-      const session = getSession();
-      socket.emit('room:subscribe', { roomCode: code, rejoinToken: session.role === 'PLAYER' && session.roomCode === code ? session.rejoinToken ?? undefined : undefined }, response => { if (response.success) refresh(); });
+    let socket: ReturnType<typeof getSocket> | null = null, generation = 0, disposed = false;
+    const refresh = () => {
+      const current = getSocket(), expected = generation;
+      current.emit('room:core:read', {}, response => {
+        if (!disposed && current === socket && expected === generation && response.success && response.view) {
+          setView(response.view); setDraft(old => old ?? response.view!.policy);
+        }
+      });
     };
-    // Lobby/game pages own their subscription; result pages need one here.
-    const resultPage = /ergebnis/.test(location.pathname);
-    const connected = () => { if (resultPage) enter(); else refresh(); };
     const toLobby = () => { const session = getSession(); navigate(session.role === 'HOST' ? `/moderator/raum/${code}/lobby` : session.role === 'VIEWER' ? `/zuschauen/${code}/lobby` : `/raum/${code}/lobby`); };
     const closed = () => { setSession({ roomCode: null, participationId: null, rejoinToken: null, role: null }); navigate('/kategorien'); };
     const probe = (ack: () => void) => ack();
-    socket.on('room:probe', probe);
-    socket.on('game:end', refresh); socket.on('room:snapshot', refresh); socket.on('room:core:changed', refresh); socket.on('room:lobby', toLobby); socket.on('room:closed', closed); socket.on('connect', connected);
-    if (resultPage) { connectSocket(); if (socket.connected) enter(); } else refresh();
+    const detach = () => {
+      if (!socket) return;
+      socket.off('room:probe', probe); socket.off('game:end', refresh); socket.off('room:snapshot', refresh);
+      socket.off('room:core:changed', refresh); socket.off('room:lobby', toLobby); socket.off('room:closed', closed); socket.off('connect', refresh);
+    };
+    // Pages own admission. This persistent panel follows client replacement across routes.
+    const stopObserving = observeSocket(current => {
+      detach(); socket = current; ++generation;
+      socket.on('room:probe', probe); socket.on('game:end', refresh); socket.on('room:snapshot', refresh);
+      socket.on('room:core:changed', refresh); socket.on('room:lobby', toLobby); socket.on('room:closed', closed); socket.on('connect', refresh);
+      refresh();
+    });
     const interval = window.setInterval(refresh, 10000);
-    return () => { window.clearInterval(interval); socket.off('room:probe', probe); socket.off('game:end', refresh); socket.off('room:snapshot', refresh); socket.off('room:core:changed', refresh); socket.off('room:lobby', toLobby); socket.off('room:closed', closed); socket.off('connect', connected); };
+    return () => { disposed = true; ++generation; stopObserving(); window.clearInterval(interval); detach(); };
   }, [code, location.pathname, navigate]);
   useEffect(() => {
     if (code && view?.selfAdmission === 'ACTIVE' && ['GAME_ACTIVE', 'PAUSED'].includes(view.lifecycle) && /lobby$/.test(location.pathname) && getSession().role === 'PLAYER') navigate(gamePath(view.gameSlug, 'PLAYER', code));
@@ -63,6 +70,7 @@ export function RoomPanel() {
   return <section className={styles.panel} aria-label="Raum und Teams">
     <Card padding="lg">
       <h2>Raum & Teams</h2>
+    {view.contentVisibility === 'BLIND_HOST' && <p role="status">Blindmoderation: Lösungen erst nach Auflösung. Inhaltseditor und private Vorschauen bleiben bis zum Spielende gesperrt.</p>}
       <p>{view.lifecycle === 'IDLE' ? 'Spiel beendet' : view.lifecycle === 'SCHEDULED' ? 'Geplanter Raum' : view.lifecycle === 'LOBBY_LOCKED' ? 'Lobby gesperrt' : lobby ? 'Lobby geöffnet' : 'Spiel läuft'} · Spiel {view.runIndex}</p>
       {view.scheduledAt && <p>Geplant: {new Date(view.scheduledAt).toLocaleString('de-DE')} — der Host startet das Spiel.</p>}
       {view.hostStatus !== 'ONLINE' && <p role="status">{view.hostStatus === 'HOST_MISSING' ? 'Host fehlt. Ein berechtigter Co-Host kann übernehmen.' : 'Host vorübergehend getrennt.'}</p>}
@@ -104,7 +112,7 @@ export function RoomPanel() {
       </details>}
       {view.canManage && !view.isOwner && view.hostStatus === 'HOST_MISSING' && own?.userId && <Button disabled={pending} onClick={() => send({ type: 'TRANSFER', userId: own.userId!, claim: true })}>Host-Verwaltung übernehmen</Button>}
       {view.canManage && view.teams.length > 0 && <div className={styles.actions}><Button disabled={pending} onClick={() => send({ type: 'TEAMS_ASSIGN', mode: 'RANDOM', override: !lobby })}>Teams zufällig verteilen</Button><Button disabled={pending} onClick={() => send({ type: 'TEAMS_ASSIGN', mode: 'ROTATION', override: !lobby })}>Neue Paarungen bilden</Button></div>}
-      {view.isOwner && view.lifecycle === 'IDLE' && <div className={styles.actions}><Button disabled={pending} onClick={() => send({ type: 'REMATCH' })}>Revanche vorbereiten</Button><Button disabled={pending} onClick={() => send({ type: 'LOBBY' })}>Zurück zur Lobby</Button><label>Vorbereitetes Spiel<select value={sourceRoomId} onChange={e => setSourceRoomId(e.target.value)}><option value="">Wissensduell mit Standard-Pool</option>{view.switchOptions.map(option => <option key={option.id} value={option.id}>{option.roomName} · {option.gameSlug}</option>)}</select></label><Button disabled={pending} onClick={() => send({ type: 'SWITCH_GAME', gameSlug: view.switchOptions.find(o => o.id === sourceRoomId)?.gameSlug ?? 'wissensduell', sourceRoomId: sourceRoomId || undefined })}>Spiel wechseln</Button></div>}
+      {view.isOwner && view.lifecycle === 'IDLE' && <div className={styles.actions}><Button disabled={pending} onClick={() => send({ type: 'REMATCH', runIndex: view.runIndex })}>Revanche vorbereiten</Button><Button disabled={pending} onClick={() => send({ type: 'LOBBY' })}>Zurück zur Lobby</Button><label>Vorbereitetes Spiel<select value={sourceRoomId} onChange={e => setSourceRoomId(e.target.value)}><option value="">Wissensduell mit Standard-Pool</option>{view.switchOptions.map(option => <option key={option.id} value={option.id}>{option.roomName} · {option.gameSlug}</option>)}</select></label><Button disabled={pending} onClick={() => send({ type: 'SWITCH_GAME', gameSlug: view.switchOptions.find(o => o.id === sourceRoomId)?.gameSlug ?? 'wissensduell', sourceRoomId: sourceRoomId || undefined })}>Spiel wechseln</Button></div>}
       {lobby && getSession().role !== 'HOST' && (view.isOwner || view.permissions.includes('GAME_START')) && <Button disabled={pending || view.preflight.blockers.length > 0} onClick={() => { setPending(true); emitCommand(getSocket(), 'game:start', { roomCode: code, overrideReady: view.policy.readyRule === 'HOST_CAN_OVERRIDE', acknowledgeWarnings: view.preflight.warnings.length > 0 && window.confirm('Startwarnungen bestätigen?') }, `${code}:start:${view.runIndex}`, r => { setPending(false); if (!r.success) setError(messages[r.error ?? ''] ?? 'Spielstart nicht möglich.'); }); }}>Spiel starten</Button>}
       {(view.isOwner || view.permissions.includes('GAME_PAUSE')) && ['GAME_ACTIVE', 'PAUSED'].includes(view.lifecycle) && <Button disabled={pending} onClick={() => { setPending(true); emitCommand(getSocket(), view.lifecycle === 'PAUSED' ? 'game:resume' : 'game:pause', { roomCode: code }, `${code}:pause:${view.lifecycle}`, r => { setPending(false); if (!r.success) setError('Pause konnte nicht geändert werden.'); }); }}>{view.lifecycle === 'PAUSED' ? 'Spiel fortsetzen' : 'Spiel pausieren'}</Button>}
       {view.canManage && !lobby && view.lifecycle !== 'IDLE' && <Button variant="danger" disabled={pending} onClick={() => { if (window.confirm('Spiel abbrechen und Punkte behalten?')) send({ type: 'EMERGENCY', action: 'ABORT_GAME', points: 'KEEP_POINTS' }); }}>Spiel abbrechen</Button>}

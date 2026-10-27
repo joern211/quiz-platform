@@ -1,3 +1,5 @@
+import { BroadcastPage } from './pages/BroadcastPage';
+import { LiveMediaPanel } from './components/LiveMediaPanel';
 // ============================================================
 // App Component – v0.2.1 (Clean routes, no redirect loops)
 // ============================================================
@@ -17,6 +19,7 @@ import { CategoriesPage }  from './pages/CategoriesPage';
 import { CategoryPage }    from './pages/CategoryPage';
 import { GamePage }        from './pages/GamePage';
 import { ModeratorLoginPage }  from './pages/ModeratorLoginPage';
+import { QuickSetupPage } from './pages/QuickSetupPage';
 import { ModeratorSetupPage }  from './pages/ModeratorSetupPage';
 import { ModeratorLobbyPage }  from './pages/ModeratorLobbyPage';
 import { ModeratorGamePage }   from './pages/ModeratorGamePage';
@@ -33,6 +36,8 @@ import { RoomsPage }       from './pages/RoomsPage';
 import { ProfilePage }     from './pages/ProfilePage';
 import { AdminPage }       from './pages/AdminPage';
 import { NotFoundPage }    from './pages/NotFoundPage';
+import { ContentPage } from './pages/ContentPage';
+import { ContentPlaytestPage } from './pages/ContentPlaytestPage';
 
 // Jeopardy pages
 import { JeopardyModeratorPage } from './pages/JeopardyModeratorPage';
@@ -68,8 +73,11 @@ export default function App() {
           <Route path="/kategorie/:categorySlug" element={<CategoryPage />} />
           <Route path="/spiel/:gameSlug"         element={<GamePage />} />
           <Route path="/beitreten"               element={<JoinPage />} />
+          <Route path="/inhalte" element={<ContentPage />} />
+          <Route path="/inhalte/playtest/:code" element={<ContentPlaytestPage />} />
 
           {/* ── Moderator ── */}
+          <Route path="/moderator/schnellstart/:gameSlug" element={<QuickSetupPage />} />
           <Route path="/moderator/anmelden"                              element={<ModeratorLoginPage />} />
           <Route path="/moderator/vorbereitung/jeopardy"         element={<JeopardySetupPage />} />
           <Route path="/moderator/vorbereitung/wer-ist-das" element={<WerIstDasSetupPage />} />
@@ -84,6 +92,7 @@ export default function App() {
           <Route path="/moderator/raum/:code/weristdas" element={<WerIstDasGamePage role="HOST" />} />
 
           {/* ── Spieler ── */}
+          <Route path="/raum/:code/broadcast" element={<BroadcastPage />} />
           <Route path="/raum/:code/lobby"     element={<PlayerLobbyPage />} />
           <Route path="/raum/:code/spiel"     element={<PlayerGamePage />} />
           <Route path="/raum/:code/ergebnis"  element={<PlayerResultPage />} />
@@ -108,8 +117,9 @@ export default function App() {
           {/* ── 404 ── */}
           <Route path="*" element={<NotFoundPage />} />
         </Routes>
-        <RoomPanel />
+        {!location.pathname.startsWith('/inhalte/playtest/') && !location.pathname.endsWith('/broadcast') && <RoomPanel />}
       </main>
+      <LiveMediaPanel />
       <Footer />
     </div>
   );

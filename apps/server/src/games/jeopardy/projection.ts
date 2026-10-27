@@ -1,3 +1,4 @@
+import { roomContentMediaUrl } from '../../content/media.js';
 import type { GameRole } from '../core/access.js';
 import { visibleValue } from '../core/visibility.js';
 import { rankScores } from '../core/roundFlow.js';
@@ -6,17 +7,19 @@ import type { JeopardyGameState } from './state.js';
 
 /** Explicit allowlist: saved submissions, future answers and pause snapshots never leave the server. */
 export function projectJeopardyForClient(state: JeopardyGameState, setupInput: unknown, role: GameRole,
-  participants: ReadonlyArray<{ id: string; displayName: string }>) {
+  participants: ReadonlyArray<{ id: string; displayName: string }>, roomId?: string, blindHost = false) {
   const setup = JeopardySetupSchema.partial().parse(setupInput);
   const scores = Object.entries(state.scores).map(([playerId, score]) => ({ playerId,
     playerName: participants.find(p => p.id === playerId)?.displayName ?? state.playerNames[playerId] ?? playerId, score }));
   const fd = state.currentField?.fieldDef;
   const board = state.currentBoard === 1 ? setup.board1 : setup.board2;
   const clue = fd ? board?.categories[fd.categoryIndex]?.clues.find(c => c.value === fd.value) : undefined;
-  const secret = visibleValue({ role }, { scope: 'HOST_PRIVATE' }, () => clue?.answer ?? fd?.answer);
+  const resolved = ['FIELD_DONE', 'BOARD_COMPLETE', 'GAME_END'].includes(state.phase) || String(state.phase) !== 'ERROR_RECOVERY' && !!fd && state.lastResolvedFieldKey === `${state.currentBoard}-${fd.categoryIndex}-${fd.value}`;
+  const secret = visibleValue({ role, blindHost: blindHost && !resolved }, { scope: 'HOST_PRIVATE' }, () => clue?.answer ?? fd?.answer);
   const currentField = fd ? {
     categoryIndex: fd.categoryIndex, value: fd.value, question: fd.question,
     mediaType: clue?.mediaType, mediaAssetId: clue?.mediaAssetId,
+    mediaUrl: roomId ? roomContentMediaUrl(roomId, state.contentRunIndex, typeof clue?.contentId === 'string' ? clue.contentId : undefined, clue?.mediaAssetId) : undefined,
     buzzWinnerId: state.buzzWinner, buzzWinnerName: state.buzzWinner ? state.playerNames[state.buzzWinner] : null,
     firstResponderId: state.currentField?.firstResponderId, phase: state.phase,
     ...(secret !== undefined ? { answer: secret } : {}),

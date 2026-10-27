@@ -21,7 +21,7 @@ export function JeopardyPlayerPage() {
   const session = getSessionData();
   const selfId = session.participationId ?? undefined;
 
-  const { connected, gameState, error, clearError, actions } =
+  const { refreshMedia, connected, gameState, error, clearError, actions } =
     useJeopardy(roomCode, 'PLAYER');
 
   const handleBuzz = () => {
@@ -140,6 +140,7 @@ export function JeopardyPlayerPage() {
               categoryIndex={gameState.currentField!.categoryIndex}
               value={gameState.currentField!.value}
               question={gameState.currentField!.question}
+                onMediaRefresh={refreshMedia} mediaUrl={gameState.currentField!.mediaUrl} mediaType={gameState.currentField!.mediaType}
               phase={gameState.phase}
               buzzWinner={gameState.buzzWinner}
               stealWinner={gameState.stealWinner}

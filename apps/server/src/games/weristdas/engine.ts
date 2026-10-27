@@ -148,7 +148,7 @@ export const werIstDasGame = {
     if (action === 'next') {
       if (state.phase !== WerIstDasPhase.REVEAL) return { success: false, error: 'INVALID_PHASE' };
       if (state.roundIndex + 1 === state.roundCount) {
-        const ended = await werIstDasGame.end(io, auth.room);
+        const ended = await werIstDasGame.end(io, auth.room, 'COMPLETED');
         return { success: true, state: projectWerIstDas(ended.state, setup, auth.actor.role, auth.actor.participationId) };
       }
       state = nextRound(state, setup.rounds[state.roundIndex].id);
@@ -159,12 +159,13 @@ export const werIstDasGame = {
         // A legacy round may already contain wrong-answer exclusions; never clear them on upgrade.
         state.buzzer = { ...roster, excludedPlayerIds: state.buzzer.excludedPlayerIds };
       }
-      await saveGameStateIfRevision(tx, { gameSlug: 'wer-ist-das', roomId, expectedRevision: loaded.revision, state, phase: state.phase });
       if (scoreMutation) await recordScoreMutation(tx, {
         roomId, participationId: scoreMutation.playerId, score: scoreMutation.score,
         delta: scoreMutation.delta, reason: `weristdas:${payload!.result!.toLowerCase()}`,
-        roundIndex: state.roundIndex,
+        roundIndex: state.roundIndex, roundKey: `round:${state.roundIndex}`,
       });
+      await saveGameStateIfRevision(tx, { gameSlug: 'wer-ist-das', roomId, expectedRevision: loaded.revision, state, phase: state.phase });
+
     });
     await sendProjections(io, roomId, state, setup);
     return { success: true, state: projectWerIstDas(state, setup, auth.actor.role, auth.actor.participationId) };
@@ -189,10 +190,10 @@ export const werIstDasGame = {
       participants: [], stateVersion: loaded.revision }) as ReturnType<typeof projectWerIstDas> };
   },
 
-  async end(io: Server, room: { id: string; code: string; setupSnapshotJson: string | null }) {
+  async end(io: Server, room: { id: string; code: string; setupSnapshotJson: string | null }, endReason: 'COMPLETED' | 'HOST_ABORTED' = 'HOST_ABORTED') {
     const setup = WerIstDasSetupSchema.parse(JSON.parse(room.setupSnapshotJson ?? '{}'));
     const result = await finishRunningGame<WerIstDasState>({ gameSlug: 'wer-ist-das',
-      roomId: room.id, nextState: state => {
+      roomId: room.id, endReason, nextState: state => {
         const prepared = { ...state, phase: WerIstDasPhase.GAME_END, answerTurn: null, buzzer: resolveBuzzer(state.buzzer),
           playedRoundIds: state.revealed ? [...state.playedRoundIds, setup.rounds[state.roundIndex].id] : state.playedRoundIds };
         return state.phase === WerIstDasPhase.REVEAL ? transitionRoundState({ gameSlug: 'wer-ist-das', current: state,
