@@ -12,6 +12,7 @@ import { CoreRuntimeProjectionSchema } from '@quiz/shared';
 import { saveGameStateIfRevision } from './state.js';
 import { createTurn } from './roundFlow.js';
 import { applyStateEvent, type EngineStateSnapshot } from '@quiz/game-sdk';
+import { joinPlayer } from '../../rooms/core.js';
 
 let db: PrismaClient, app: ReturnType<typeof createApp>, origin: string, cookie: string, questionId: string, packId: string;
 const hostId = `runtime-${randomUUID()}`, rooms: string[] = [], assets: string[] = [], sockets: Socket[] = [];
@@ -50,7 +51,7 @@ afterAll(async () => {
   await db.mediaAsset.deleteMany({ where: { id: { in: assets } } });
   await db.user.delete({ where: { id: hostId } }); await db.$disconnect(); globalThis.__prisma = undefined;
 });
-async function start(slug: 'wissensduell' | 'jeopardy' | 'wer-ist-das', playerCount = 2, teamMode = false) {
+async function start(slug: 'wissensduell' | 'jeopardy' | 'wer-ist-das', playerCount = 2, teamMode = false, allowLateJoin = false) {
   let imageId: string | undefined;
   if (slug === 'wer-ist-das') {
     const asset = await db.mediaAsset.create({ data: { type: 'image', mimeType: 'image/png', filename: 'runtime.png', originalName: 'runtime.png', fileSize: 12, sha256: randomUUID(), storagePath: '/tmp/runtime.png', uploadedBy: hostId } });
@@ -74,9 +75,46 @@ async function start(slug: 'wissensduell' | 'jeopardy' | 'wer-ist-das', playerCo
     await db.room.update({ where: { id: room.id }, data: { roomPolicyJson: JSON.stringify({ teamMode: 'MANUAL', teamCount: 2, allowTeamReshuffleBetweenRounds: true }) } });
     for (let i = 0; i < players.length; i++) await db.participation.update({ where: { id: players[i].id }, data: { teamId: teams[i < 2 ? 0 : 1].id } });
   }
+  if (allowLateJoin) await db.room.update({ where: { id: room.id }, data: { roomPolicyJson: JSON.stringify({ allowLateJoin: true }) } });
   expect((await gameAck(host, 'game:start', { roomCode: code, commandId: randomUUID() })).success).toBe(true);
   return { room, code, host, players };
 }
+
+it.each(['jeopardy', 'wer-ist-das'] as const)('%s records committed late admission and renames in exact replay, including paused resume', async slug => {
+  const r = await start(slug, 2, false, true);
+  const late = await joinPlayer(r.room.id, { displayName: 'Late original name' });
+  const socket = await connect(); expect((await gameAck(socket, 'room:subscribe', { roomCode: r.code, rejoinToken: late.rejoinToken })).success).toBe(true);
+  const roomCommand = (operation: object, commandId = randomUUID()) => gameAck(r.host, 'room:command', { roomCode: r.code, commandId, protocolVersion: 1, operation });
+  const id = randomUUID();
+  expect((await roomCommand({ type: 'ADMIT', participantId: late.id, approve: true }, id)).success).toBe(true);
+  const afterAdmission = await db.roomGameState.findUniqueOrThrow({ where: { roomId: r.room.id } });
+  expect(JSON.parse(afterAdmission.stateJson).scores[late.id]).toBe(0);
+  expect(await db.gameDomainEvent.findFirst({ where: { roomId: r.room.id, commandId: id } })).toMatchObject({ stateVersion: afterAdmission.revision, type: 'ROOM_PLAYER_ADMITTED' });
+  expect((await roomCommand({ type: 'ADMIT', participantId: late.id, approve: true }, id)).replayed).toBe(true);
+  expect(await db.gameDomainEvent.count({ where: { roomId: r.room.id, commandId: id } })).toBe(1);
+  await assertEventReplay(r.room.id);
+  expect((await roomCommand({ type: 'RENAME', participantId: late.id, name: 'Renamed in round' })).success).toBe(true);
+  await assertEventReplay(r.room.id);
+  expect((await gameAck(r.host, 'game:pause', { roomCode: r.code, commandId: randomUUID() })).success).toBe(true);
+  expect((await roomCommand({ type: 'RENAME', participantId: late.id, name: 'Renamed while paused' })).success).toBe(true);
+  await assertEventReplay(r.room.id);
+  expect((await gameAck(r.host, 'game:resume', { roomCode: r.code, commandId: randomUUID() })).success).toBe(true);
+  expect(JSON.parse((await db.roomGameState.findUniqueOrThrow({ where: { roomId: r.room.id } })).stateJson).playerNames[late.id]).toBe('Renamed while paused');
+  expect((await db.participation.findUniqueOrThrow({ where: { id: late.id } })).displayName).toBe('Renamed while paused');
+  expect(await db.scoreEvent.count({ where: { roomId: r.room.id } })).toBe(0);
+  await assertEventReplay(r.room.id);
+});
+it('rolls admission and its runtime back together if the domain event cannot be persisted', async () => {
+  const r = await start('jeopardy', 2, false, true), late = await joinPlayer(r.room.id, { displayName: 'Must remain pending' });
+  const before = await db.roomGameState.findUniqueOrThrow({ where: { roomId: r.room.id } });
+  await db.$executeRawUnsafe("CREATE TRIGGER review_reject_admission_event BEFORE INSERT ON game_domain_events WHEN NEW.type = 'ROOM_PLAYER_ADMITTED' BEGIN SELECT RAISE(ABORT, 'REVIEW_EVENT_WRITE_FAILURE'); END;");
+  try {
+    expect((await gameAck(r.host, 'room:command', { roomCode: r.code, protocolVersion: 1, commandId: randomUUID(), operation: { type: 'ADMIT', participantId: late.id, approve: true } })).success).toBe(false);
+  } finally { await db.$executeRawUnsafe('DROP TRIGGER review_reject_admission_event'); }
+  expect((await db.participation.findUniqueOrThrow({ where: { id: late.id } })).admission).toBe('PENDING_JOIN');
+  expect(await db.roomGameState.findUniqueOrThrow({ where: { roomId: r.room.id } })).toEqual(before);
+  await assertEventReplay(r.room.id);
+});
 
 it('Wissensduell uses shared timer/submission/judge through real commands, pause and rejoin', async () => {
   const { room, code, host, players } = await start('wissensduell'); const [player] = players;

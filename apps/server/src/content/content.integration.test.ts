@@ -16,6 +16,7 @@ import { createApp } from '../app.js';
 import { cancelGeoTimer, handleGeoGame } from '../games/geo/index.js';
 import { connectGameClient, gameAck } from '../test-socket-harness.js';
 import { exportContent, parseContentImport } from './importExport.js';
+import { readGameResult } from '../games/core/results.js';
 import { contentActor } from './core.js';
 import { socketIdentityMap } from '../http/middleware/auth.js';
 
@@ -683,4 +684,31 @@ it('rejects secret credentials, stale/foreign blueprint use, and revoked pool gr
   await db.contentPool.update({ where: { id: p.id }, data: { editorIdsJson: '[]' } });
   expect((await api(other).post(`/setup-blueprints/${preset.id}/load`, { revision: 1 })).status).toBe(404);
   expect((await create(other, { id: preset.id, revision: 1 })).status).toBe(404); expect(await db.room.count()).toBe(count);
+});
+
+it.each([{ points: 0, risk: false, expected: 0 }, { points: 0, risk: true, expected: 0 }, { points: 100, risk: false, expected: 100 }, { points: undefined, risk: false, expected: 100 }])('scores pinned content points=$points risk=$risk as $expected through the real engine', async ({ points, risk, expected }) => {
+  const p = await pool(), payload = { ...quiz.payload, points };
+  const q = await item(p.id, { ...quiz, payload }); await ready(q.id);
+  const response = await supertest(app.app).post('/api/v1/rooms').set('Cookie', owner).send({ gameSlug: 'wissensduell', roomName: 'Zero points', idempotencyKey: randomUUID(), setupSnapshotJson: { contentSelection: { poolIds: [p.id], count: 1 } } });
+  expect(response.status).toBe(201); const roomId = response.body.data.roomId, code = response.body.data.code; roomIds.push(roomId);
+  const player = await db.participation.create({ data: { roomId, displayName: 'Zero player', normalizedName: 'zero player', role: 'PLAYER', ready: true, connected: true, rejoinToken: randomUUID() } });
+  await db.participation.create({ data: { roomId, displayName: 'Other player', normalizedName: 'other player', role: 'PLAYER', ready: true, connected: true, rejoinToken: randomUUID() } });
+  const host = await connectGameClient(origin, owner), socket = await connectGameClient(origin);
+  try {
+    expect((await gameAck(host, 'room:subscribe', { roomCode: code })).success).toBe(true);
+    expect((await gameAck(socket, 'room:subscribe', { roomCode: code, rejoinToken: player.rejoinToken })).success).toBe(true);
+    expect((await gameAck(host, 'game:start', { roomCode: code, commandId: commandId() })).success).toBe(true);
+    await handleGeoGame.startRound(app.io, code); cancelGeoTimer(roomId);
+    if (risk) expect((await gameAck(socket, 'geo:joker:risk', { roomCode: code, commandId: commandId() })).success).toBe(true);
+    expect((await gameAck(socket, 'geo:answer', { optionId: 'b', commandId: commandId() })).success).toBe(true);
+    expect((await gameAck(host, 'geo:reveal', { roomCode: code, commandId: commandId() })).success).toBe(true);
+    const state = JSON.parse((await db.roomGameState.findUniqueOrThrow({ where: { roomId } })).stateJson);
+    expect(state.scores[player.id]).toBe(expected);
+    expect((await db.participation.findUniqueOrThrow({ where: { id: player.id } })).score).toBe(expected);
+    const ledger = await db.scoreEvent.findMany({ where: { roomId, participationId: player.id } });
+    expect(ledger.reduce((sum, event) => sum + event.delta, 0)).toBe(expected);
+    expect((await gameAck(host, 'geo:next', { roomCode: code, commandId: commandId() })).success).toBe(true);
+    const result = await readGameResult(roomId, 1);
+    expect(result!.summary.result.participants.find(p => p.participantId === player.id)?.score).toBe(expected);
+  } finally { cancelGeoTimer(roomId); host.disconnect(); socket.disconnect(); }
 });
