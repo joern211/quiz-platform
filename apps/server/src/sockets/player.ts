@@ -6,6 +6,7 @@ import { Server, Socket } from 'socket.io';
 import { prisma } from '../persistence/prisma.js';
 import { logger } from '../observability/logger.js';
 import { authorizeGameAction } from '../games/core/access.js';
+import { changed } from '../rooms/socket.js';
 import { roomChannel } from './channel.js';
 
 async function currentPlayer(socket: Socket) {
@@ -17,7 +18,7 @@ async function currentPlayer(socket: Socket) {
       roomId: auth.actor.roomId,
       role: 'PLAYER',
       connected: true,
-      kickedAt: null,
+      kickedAt: null, bannedAt: null, leftAt: null, admission: 'ACTIVE', connectionId: socket.id,
     },
   });
   if (!player) return { ok: false as const, error: 'NO_PARTICIPATION' };
@@ -39,9 +40,11 @@ export const handlePlayerEvents = {
         callback?.({ success: false, error: 'INVALID_PAYLOAD' }); return;
       }
 
-      await prisma.participation.update({
-        where: { id: player.id },
-        data: { ready: data.ready },
+      await prisma.$transaction(async tx => {
+        const room = await tx.room.update({ where: { id: player.roomId }, data: { revision: { increment: 1 } } });
+        if (!['LOBBY', 'CREATED'].includes(room.status)) throw new Error('READY_LOCKED');
+        const updated = await tx.participation.updateMany({ where: { id: player.id, roomId: player.roomId, connectionId: socket.id, connected: true, admission: 'ACTIVE', bannedAt: null, kickedAt: null, leftAt: null }, data: { ready: data.ready } });
+        if (updated.count !== 1) throw new Error('NO_PARTICIPATION');
       });
 
       // Broadcast to room using roomChannel
@@ -50,10 +53,11 @@ export const handlePlayerEvents = {
         ready: data.ready,
       });
 
+      changed(io, player.roomId);
       callback?.({ success: true });
     } catch (error) {
       logger.error('Set ready error', { error });
-      callback?.({ success: false, error: 'INTERNAL_ERROR' });
+      callback?.({ success: false, error: error instanceof Error && ['READY_LOCKED', 'NO_PARTICIPATION'].includes(error.message) ? error.message : 'INTERNAL_ERROR' });
     }
   },
 

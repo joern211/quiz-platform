@@ -3,6 +3,7 @@
 // ============================================================
 
 import { z } from 'zod';
+import { RoomPolicySchema, ParticipantNameSchema } from '@quiz/shared';
 
 // ---- Room Schemas ------------------------------------------------
 
@@ -26,6 +27,7 @@ export const CreateRoomSchema = z.object({
   gameSlug: z.string().min(1).optional(),
   gameDefinitionId: z.string().optional(),
   maxPlayers: z.number().int().min(2).max(100).default(10),
+  roomPolicy: RoomPolicySchema.optional(),
   cameraEnabled: z.boolean().default(false),
   allowViewers: z.boolean().default(true),
   viewerRequiresPin: z.boolean().default(true),
@@ -56,10 +58,8 @@ export const CreateRoomSchema = z.object({
  * - pin: optional, 4–10 digits
  */
 export const JoinRoomSchema = z.object({
-  displayName: z
-    .string({ required_error: 'Name erforderlich.' })
-    .min(1, 'Name darf nicht leer sein.')
-    .max(100, 'Name max. 100 Zeichen.'),
+  inviteToken: z.string().min(16).max(128).optional(),
+  displayName: ParticipantNameSchema,
   pin: z
     .string()
     .optional()

@@ -66,7 +66,7 @@ export const handleJeopardyGame = {
 
     // Get all PLAYER participations
     const participations = await prisma.participation.findMany({
-      where: { roomId: room.id, role: 'PLAYER' },
+      where: { roomId: room.id, role: 'PLAYER', admission: 'ACTIVE', leftAt: null, kickedAt: null, bannedAt: null },
     });
 
     const playerIds = participations.map((p) => p.id);
@@ -168,7 +168,7 @@ export const handleJeopardyGame = {
     socket: Socket,
     data: { boardIndex: 1 | 2; categoryIndex: number; value: number }
   ): Promise<{ success: boolean; error?: string }> {
-    const auth = await authorizeGameContext(socket, { roles: ['HOST'], requireParticipation: true, gameSlug: 'jeopardy', requireRunning: true });
+    const auth = await authorizeGameContext(socket, { roles: ['HOST'], requireParticipation: true, gameSlug: 'jeopardy', requireRunning: true, controlPermission: 'REVEAL_CONTENT', });
     if (!auth.ok) {
       return { success: false, error: auth.error === 'FORBIDDEN' ? 'HOST_ONLY' : auth.error };
     }
@@ -248,7 +248,7 @@ export const handleJeopardyGame = {
     io.to(roomChannel(roomId)).emit('jeopardy:field:open', fieldOpenEvent);
 
     // Emit answer ONLY to the moderator socket (P0-07: sensitive data stays server→moderator)
-    socket.emit('jeopardy:answer:secret', {
+    if (auth.actor.role === 'HOST') socket.emit('jeopardy:answer:secret', {
       categoryIndex: data.categoryIndex,
       value: data.value,
       answer: clue.answer,
@@ -347,7 +347,7 @@ export const handleJeopardyGame = {
     socket: Socket,
     data: { correct: boolean }
   ): Promise<{ success: boolean; error?: string }> {
-    const auth = await authorizeGameContext(socket, { roles: ['HOST'], requireParticipation: true, gameSlug: 'jeopardy', requireRunning: true });
+    const auth = await authorizeGameContext(socket, { roles: ['HOST'], requireParticipation: true, gameSlug: 'jeopardy', requireRunning: true, controlPermission: 'JUDGE_ANSWER', });
     if (!auth.ok) {
       return { success: false, error: auth.error === 'FORBIDDEN' ? 'UNAUTHORIZED' : auth.error };
     }
@@ -478,7 +478,7 @@ export const handleJeopardyGame = {
     socket: Socket,
     data: { correct: boolean }
   ): Promise<{ success: boolean; error?: string }> {
-    const auth = await authorizeGameContext(socket, { roles: ['HOST'], requireParticipation: true, gameSlug: 'jeopardy', requireRunning: true });
+    const auth = await authorizeGameContext(socket, { roles: ['HOST'], requireParticipation: true, gameSlug: 'jeopardy', requireRunning: true, controlPermission: 'JUDGE_ANSWER', });
     if (!auth.ok) {
       return { success: false, error: auth.error === 'FORBIDDEN' ? 'UNAUTHORIZED' : auth.error };
     }
@@ -581,7 +581,7 @@ export const handleJeopardyGame = {
     socket: Socket,
     _data: Record<string, never> = {}
   ): Promise<{ success: boolean; error?: string }> {
-    const auth = await authorizeGameContext(socket, { roles: ['HOST'], requireParticipation: true, gameSlug: 'jeopardy', requireRunning: true });
+    const auth = await authorizeGameContext(socket, { roles: ['HOST'], requireParticipation: true, gameSlug: 'jeopardy', requireRunning: true, controlPermission: 'ROUND_ADVANCE', });
     if (!auth.ok) {
       return { success: false, error: auth.error === 'FORBIDDEN' ? 'UNAUTHORIZED' : auth.error };
     }

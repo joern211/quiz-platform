@@ -73,6 +73,7 @@ const PR14_MIGRATIONS = [
   '20261016130000_receipt_before_state_revision',
   '20261020110000_command_execution_fence',
   '20261020114000_participation_connection_owner',
+  '20261023190000_team_room',
 ];
 
 const SESSION_SECRET = 'ci-test-secret-at-least-32-chars-long';

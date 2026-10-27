@@ -338,7 +338,7 @@ export function registerJeopardyEvents(io: Server, socket: Socket) {
           };
 
           // P0-07: Only include answer for moderator
-          if (identity.role === 'HOST' && clue?.answer) {
+          if (identity.role === 'HOST' && socket.data.userId === room.hostUserId && clue?.answer) {
             currentField.answer = clue.answer;
           }
         }

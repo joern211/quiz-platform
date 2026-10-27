@@ -17,10 +17,11 @@ type Ack = { success: boolean; error?: string; state?: ReturnType<typeof project
 type Action = 'open' | 'buzz' | 'hint' | 'judge' | 'reveal' | 'next';
 
 async function sendProjections(io: Server, roomId: string, state: WerIstDasState, setup: WerIstDasSetup) {
+  const room = await prisma.room.findUniqueOrThrow({ where: { id: roomId } });
   for (const socket of await io.in(roomChannel(roomId)).fetchSockets()) {
     const identity = socket.data as { roomId?: string; role?: string; participationId?: string };
     if (identity.roomId !== roomId || !['HOST', 'PLAYER', 'VIEWER'].includes(identity.role ?? '')) continue;
-    socket.emit('weristdas:update', projectWerIstDas(state, setup, identity.role as GameRole, identity.participationId));
+    socket.emit('weristdas:update', projectWerIstDas(state, setup, identity.role === 'HOST' && socket.data.userId !== room.hostUserId ? 'VIEWER' : identity.role as GameRole, identity.participationId));
   }
 }
 
@@ -98,7 +99,7 @@ export const werIstDasGame = {
       const { bindSnapshotAssetsToRoom } = await import('../../media/lifecycle.js');
       await bindSnapshotAssetsToRoom(prisma, { roomId: room.id, hostUserId: savedRoom.hostUserId, snapshotJson: room.setupSnapshotJson ?? '{}' });
     } catch { /* Bindung ist eine Verbesserung, kein Start-Voraussetzung */ }
-    const players = await prisma.participation.findMany({ where: { roomId: room.id, role: 'PLAYER' } });
+    const players = await prisma.participation.findMany({ where: { roomId: room.id, role: 'PLAYER', admission: 'ACTIVE', leftAt: null, kickedAt: null, bannedAt: null } });
     const names = Object.fromEntries(players.map(p => [p.id, p.displayName]));
     const scores = Object.fromEntries(players.map(p => [p.id, p.score]));
     const roundCount = await loadInitialGameCount(room.id, 'wer-ist-das', 'roundCount');
@@ -113,7 +114,7 @@ export const werIstDasGame = {
   async act(io: Server, socket: Socket, action: Action, payload?: { result?: 'BOTH_CORRECT' | 'ONE_CORRECT' | 'WRONG' }): Promise<Ack> {
     const auth = await authorizeGameContext(socket, {
       gameSlug: resolveCanonicalSlug('wer-ist-das')!, roles: action === 'buzz' ? ['PLAYER'] : ['HOST'],
-      requireParticipation: true, requireRunning: true,
+      requireParticipation: true, requireRunning: true, controlPermission: action === 'buzz' ? undefined : action === 'judge' ? 'JUDGE_ANSWER' : action === 'next' ? 'ROUND_ADVANCE' : action === 'open' ? 'BUZZER_CONTROL' : 'REVEAL_CONTENT',
     });
     if (!auth.ok) return { success: false, error: auth.error };
     const roomId = auth.actor.roomId;

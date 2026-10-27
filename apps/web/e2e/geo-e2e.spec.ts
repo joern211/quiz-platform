@@ -198,7 +198,7 @@ test('G4-4: Vollständiger Geo-UI-Ablauf mit zwei Spielern', async ({ browser })
 
     const answerOptions = playerA.locator('button[class*="option"]');
     await expect(answerOptions.first()).toBeVisible({ timeout: 15_000 });
-    await expect(playerA.getByRole('heading', { level: 2 })).toBeVisible();
+    await expect(playerA.getByRole('region', { name: 'Aktuelle Frage' }).getByRole('heading', { level: 2 })).toBeVisible();
     await answerOptions.first().click();
     await expect(playerA.getByRole('status')).toHaveText('Antwort gespeichert.');
 

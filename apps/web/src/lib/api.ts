@@ -3,6 +3,8 @@
 // All HTTP calls go through here. Central ApiResponse<T> handling.
 // ============================================================
 
+import type { PublicRoomSummary } from '@quiz/shared';
+
 export interface ApiResponse<T> {
   success: boolean;
   data?: T;
@@ -142,7 +144,7 @@ export interface RoomResultsResponse {
 
 export const roomsApi = {
   listPublic: () =>
-    apiFetch<RoomSummary[]>('/rooms/public'),
+    apiFetch<PublicRoomSummary[]>('/rooms/public'),
 
   create: (body: CreateRoomRequest) =>
     apiFetch<CreateRoomResponse>('/rooms', {

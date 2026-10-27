@@ -26,6 +26,7 @@ import {
   type PlatformRole,
 } from '@quiz/shared';
 import type { Socket } from 'socket.io';
+import { roomWaitingChannel } from '../../sockets/channel.js';
 
 export type PermissionCheckResult =
   | { ok: true; roomId: string; actorId: string; role: PlatformRole }
@@ -91,7 +92,19 @@ export async function requireGamePermission(
     // Unbekannte Rolle: keine Rechte, kein Cast.
     return { ok: false, error: 'ROLE_REQUIRED', code: 'ROLE_REQUIRED' };
   }
-  const perms = await loadEffectivePermissions(roomId, role, identity?.userId ?? null);
+  if (socket.rooms.has(roomWaitingChannel(roomId))) return { ok: false, error: 'NOT_AUTHORIZED', code: 'NOT_AUTHORIZED' };
+  const room = await prisma.room.findUnique({ where: { id: roomId } });
+  if (!room || room.status === 'ARCHIVED' || (room.expiresAt && room.expiresAt <= new Date())) return { ok: false, error: 'NOT_IN_ROOM', code: 'NOT_AUTHENTICATED' };
+  let userId = identity?.userId ?? null;
+  const authenticated = (socket as Socket & { user?: { id: string; sessionId?: string } }).user;
+  if (userId && authenticated?.sessionId) {
+    const valid = await prisma.session.findFirst({ where: { id: authenticated.sessionId, userId, revokedAt: null, expiresAt: { gt: new Date() }, user: { disabledAt: null } } });
+    if (!valid) userId = null;
+  }
+  const owner = !!userId && userId === room.hostUserId;
+  const effectiveRole = owner ? 'HOST' : role === 'HOST' ? 'VIEWER' : role;
+  const cohost = room.roomPolicyJson ? JSON.parse(room.roomPolicyJson).coHostEnabled === true : true;
+  const perms = await loadEffectivePermissions(roomId, effectiveRole, owner || cohost ? userId : null);
   if (!hasPermission(perms, permission)) {
     return { ok: false, error: 'NOT_AUTHORIZED', code: 'NOT_AUTHORIZED' };
   }

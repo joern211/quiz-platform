@@ -3,13 +3,16 @@
 // ============================================================
 
 import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { Card, Button, Input } from '@quiz/ui';
 import styles from './ViewerPage.module.css';
 
 export function ViewerPage() {
   const navigate = useNavigate();
-  const [code, setCode] = useState('');
+  const location = useLocation();
+  const query = new URLSearchParams(location.search);
+  const [code, setCode] = useState(query.get('code') ?? '');
+  const [pin, setPin] = useState('');
   const [error, setError] = useState('');
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -20,6 +23,9 @@ export function ViewerPage() {
       return;
     }
     setError('');
+    sessionStorage.setItem(`qp_viewerPin:${clean}`, pin);
+    const invite = query.get('invite');
+    if (invite) sessionStorage.setItem(`qp_viewerInvite:${clean}`, invite);
     navigate(`/zuschauen/${clean}/lobby`);
   };
 
@@ -44,6 +50,7 @@ export function ViewerPage() {
             autoComplete="off"
             spellCheck={false}
           />
+          <Input label="PIN (falls erforderlich)" type="password" value={pin} onChange={e => setPin(e.target.value)} />
           <Button type="submit" variant="primary" size="lg">
             Zuschauen
           </Button>

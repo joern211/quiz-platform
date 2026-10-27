@@ -5,35 +5,30 @@
 import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { Card, Button, Badge } from '@quiz/ui';
+import { PublicRoomSummarySchema, type PublicRoomSummary } from '@quiz/shared';
+import { roomsApi } from '../lib/api';
 import styles from './RoomsPage.module.css';
 
-interface Room {
-  code: string;
-  roomName: string;
-  game: { name: string; slug: string };
-  playerCount: number;
-  maxPlayers: number;
-  status: string;
-  createdAt: string;
-}
+const lifecycleLabels = { SCHEDULED: 'Geplant', LOBBY_OPEN: 'Offen', LOBBY_LOCKED: 'Gesperrt', GAME_ACTIVE: 'Läuft', PAUSED: 'Pausiert' };
 
 export function RoomsPage() {
-  const [rooms, setRooms] = useState<Room[]>([]);
+  const [rooms, setRooms] = useState<PublicRoomSummary[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
 
   useEffect(() => {
     fetchRooms();
   }, []);
 
   const fetchRooms = async () => {
+    setLoading(true);
+    setError('');
     try {
-      const res = await fetch('/api/v1/rooms/public');
-      const json = await res.json();
-      if (json.success && json.data) {
-        setRooms(json.data.rooms || []);
-      }
+      const json = await roomsApi.listPublic();
+      if (!json.success) throw new Error(json.error?.message ?? 'Räume konnten nicht geladen werden.');
+      setRooms(PublicRoomSummarySchema.array().parse(json.data));
     } catch {
-      console.error('Failed to fetch rooms');
+      setError('Räume konnten nicht geladen werden. Bitte erneut versuchen.');
     } finally {
       setLoading(false);
     }
@@ -50,6 +45,8 @@ export function RoomsPage() {
 
       {loading ? (
         <p className={styles.loading}>Laden...</p>
+      ) : error ? (
+        <Card padding="lg"><p role="alert">{error}</p><Button onClick={fetchRooms}>Erneut laden</Button></Card>
       ) : rooms.length === 0 ? (
         <Card padding="lg" className={styles.empty}>
           <h2>Keine aktiven Räume</h2>
@@ -64,8 +61,8 @@ export function RoomsPage() {
             <Card key={room.code} padding="md" className={styles.roomCard}>
               <div className={styles.roomHeader}>
                 <h3>{room.roomName || 'Unbenannter Raum'}</h3>
-                <Badge variant={room.status === 'LOBBY' ? 'success' : 'warning'}>
-                  {room.status === 'LOBBY' ? 'Offen' : 'Läuft'}
+                <Badge variant={room.lifecycle === 'LOBBY_OPEN' ? 'success' : 'warning'}>
+                  {lifecycleLabels[room.lifecycle]}
                 </Badge>
               </div>
               
@@ -73,12 +70,14 @@ export function RoomsPage() {
               
               <div className={styles.roomMeta}>
                 <span>👥 {room.playerCount}/{room.maxPlayers}</span>
-                <span>📅 {new Date(room.createdAt).toLocaleTimeString('de')}</span>
+                {room.allowViewers && <span>{room.viewerCount} Zuschauer</span>}
               </div>
-
-              <Link to={`/beitreten`} state={{ code: room.code }}>
-                <Button fullWidth variant="secondary">Beitreten</Button>
-              </Link>
+              {room.scheduledAt && <p>Geplant: {new Date(room.scheduledAt).toLocaleString('de-DE')}</p>}
+              {room.accessMode === 'PIN_PROTECTED' && <p>PIN erforderlich</p>}
+              {room.accessMode === 'APPROVAL_REQUIRED' && <p>Freigabe durch den Host erforderlich</p>}
+              {room.canJoin ? <Link to={`/beitreten?code=${room.code}`}>
+                <Button fullWidth variant="secondary">{room.waitlist ? 'Auf die Warteliste' : 'Beitreten'}</Button>
+              </Link> : <p>{room.accessMode === 'INVITE_ONLY' ? 'Nur mit Einladung' : room.playerCount >= room.maxPlayers ? 'Raum voll' : 'Beitritt derzeit geschlossen'}</p>}
             </Card>
           ))}
         </div>

@@ -14,6 +14,7 @@ export interface JeopardyQuestionProps {
   question: string;
   /** The current game phase */
   phase:
+    | 'PAUSED'
     | 'INTRO'
     | 'SELECTING'
     | 'BUZZ_OPEN'

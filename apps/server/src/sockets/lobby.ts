@@ -2,6 +2,9 @@
 // Lobby Socket Events
 // ============================================================
 
+import { feed } from '../rooms/core.js';
+import { changed } from '../rooms/socket.js';
+import { requireGamePermission } from '../games/core/permissions.js';
 import { Server, Socket } from 'socket.io';
 import { prisma } from '../persistence/prisma.js';
 import { logger } from '../observability/logger.js';
@@ -30,6 +33,9 @@ export const handleLobbyEvents = {
         callback?.({ success: false, error: 'NOT_IN_ROOM' });
         return;
       }
+
+      const permission = await requireGamePermission(socket, 'PLAYER_MANAGE');
+      if (!permission.ok) { callback?.({ success: false, error: 'CHAT_NOT_ALLOWED' }); return; }
 
       // Validate content
       const content = (data.content || '').trim().slice(0, 300);
@@ -124,7 +130,7 @@ export const handleLobbyEvents = {
 
       await prisma.room.update({
         where: { code: data.roomCode },
-        data: { runPhase: data.locked ? 'LOCKED' : 'OPEN' },
+        data: { lobbyChatEnabled: !data.locked },
       });
 
       io.to(roomChannel(identity.roomId)).emit('lobby:chat:lock', {
@@ -173,11 +179,13 @@ export async function handleDisconnect(io: Server, socket: Socket) {
       disconnectedParticipation = released.count === 1;
     }
 
+    if (disconnectedParticipation) await feed(prisma, roomId, identity.participationId, 'DISCONNECT', identity.role === 'HOST' ? 'Host vorübergehend getrennt' : 'Teilnehmer vorübergehend getrennt');
+
     // Get updated room state for broadcast
     const room = await prisma.room.findUnique({
       where: { id: roomId },
       include: {
-        participations: { where: { role: { not: 'VIEWER' } } },
+        participations: { where: { role: { not: 'VIEWER' }, admission: 'ACTIVE', leftAt: null, kickedAt: null, bannedAt: null } },
         viewerSessions: true,
       },
     });
@@ -206,6 +214,7 @@ export async function handleDisconnect(io: Server, socket: Socket) {
       });
     }
 
+    changed(io, roomId);
     socketIdentityMap.delete(socket.id);
 
     // Clear socket data

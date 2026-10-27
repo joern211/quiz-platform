@@ -2,6 +2,7 @@
 // Socket.IO Handler Setup
 // ============================================================
 
+import { registerRoomCore } from '../rooms/socket.js';
 import { Server, Socket } from 'socket.io';
 import { verifySession } from '../auth/session.js';
 import { config } from '../config/index.js';
@@ -62,6 +63,8 @@ export function setupSocketHandlers(io: Server) {
 
     // P0-08/P0-09: Initialize socket.data to track identity
     socket.data = {};
+
+    registerRoomCore(io, socket);
 
     // Room subscription
     socket.on('room:subscribe', async (data, callback) => {

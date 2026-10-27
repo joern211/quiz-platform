@@ -224,6 +224,47 @@ describe('Rooms API — Create Room', () => {
 });
 
 describe('Rooms API — List & Get Room', () => {
+  it('public discovery hides drafts/expired rooms and projects admission counts and joinability without secrets', async () => {
+    const { request: req, prisma: db, dbUrl } = await createTestApp();
+    try {
+      const result = await seedTestUserWithDb(db, `discovery-${Date.now()}`, 'DiscoveryHost', `discovery-${Date.now()}@test.local`);
+      const code = await createTestRoom({ hostUserId: result.userId, maxPlayers: 2 });
+      const room = await db.room.findUniqueOrThrow({ where: { code } });
+      const { RoomPolicySchema } = await import('@quiz/shared');
+      const game = await getOrCreateStartableGame();
+      await db.room.update({ where: { id: room.id }, data: {
+        gameDefinitionId: game.id,
+        roomPolicyJson: JSON.stringify(RoomPolicySchema.parse({ waitlist: true })),
+      } });
+      for (const [index, admission] of ['ACTIVE', 'ACTIVE', 'WAITLIST', 'PENDING_JOIN', 'REJECTED', 'LEFT', 'KICKED', 'BANNED'].entries()) {
+        await db.participation.create({ data: { roomId: room.id, displayName: `Player ${index}`, normalizedName: `player-${index}`, role: 'PLAYER', admission, connected: index === 0, rejoinToken: `secret-${index}` } });
+      }
+      for (const connected of [true, false]) await db.viewerSession.create({ data: { roomId: room.id, connected } });
+      for (const [index, admission] of ['ACTIVE', 'PENDING_JOIN', 'BANNED'].entries()) await db.participation.create({ data: { roomId: room.id, displayName: `Viewer ${index}`, normalizedName: `viewer-${index}`, role: 'VIEWER', admission, connected: true, rejoinToken: `viewer-secret-${index}` } });
+      const list = async () => {
+        const response = await req.get('/api/v1/rooms/public');
+        expect(response.status, response.text).toBe(200);
+        expect(JSON.stringify(response.body)).not.toMatch(/rejoinToken|pinHash|setupSnapshotJson|secret-/);
+        return response.body.data as Array<Record<string, unknown>>;
+      };
+      expect((await list()).find(r => r.code === code)).toMatchObject({ lifecycle: 'LOBBY_OPEN', playerCount: 2, maxPlayers: 2, viewerCount: 2, canJoin: true, waitlist: true });
+      await db.room.update({ where: { id: room.id }, data: { lifecycle: 'LOBBY_LOCKED', runPhase: 'LOCKED' } });
+      expect((await list()).find(r => r.code === code)).toMatchObject({ lifecycle: 'LOBBY_LOCKED', canJoin: false });
+      await db.room.update({ where: { id: room.id }, data: { lifecycle: 'SCHEDULED', scheduledAt: new Date(Date.now() + 60000) } });
+      expect((await list()).find(r => r.code === code)).toMatchObject({ lifecycle: 'SCHEDULED', canJoin: false });
+      for (const lifecycle of ['DRAFT_ROOM', 'EXPIRED', 'CLOSED']) {
+        await db.room.update({ where: { id: room.id }, data: { lifecycle } });
+        expect((await list()).some(r => r.code === code)).toBe(false);
+      }
+      await db.room.update({ where: { id: room.id }, data: { lifecycle: 'LOBBY_OPEN', expiresAt: new Date(Date.now() - 1000) } });
+      expect((await list()).some(r => r.code === code)).toBe(false);
+      await db.room.update({ where: { id: room.id }, data: { expiresAt: null, roomPolicyJson: JSON.stringify(RoomPolicySchema.parse({})) } });
+      expect((await list()).find(r => r.code === code)).toMatchObject({ canJoin: false, waitlist: false });
+      await db.room.update({ where: { id: room.id }, data: { status: 'RUNNING', runPhase: 'PAUSED', roomPolicyJson: JSON.stringify(RoomPolicySchema.parse({ allowLateJoin: true, waitlist: true })) } });
+      expect((await list()).find(r => r.code === code)).toMatchObject({ lifecycle: 'PAUSED', canJoin: true });
+    } finally { await cleanupTestDataForDb(dbUrl); await db.$disconnect(); }
+  });
+
   it('GET /api/v1/rooms/public — should list public LOBBY rooms', async () => {
     const { request: req, prisma: db, dbUrl } = await createTestApp();
     const ts = Date.now();

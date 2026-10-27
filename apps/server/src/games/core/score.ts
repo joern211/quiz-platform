@@ -24,9 +24,16 @@ export async function recordScoreMutation(
     data: { score: params.score },
   });
   if (updated.count !== 1) throw new Error('PLAYER_NOT_IN_ROOM');
+  const player = await tx.participation.findUniqueOrThrow({ where: { id: params.participationId } });
+  const room = await tx.room.findUniqueOrThrow({ where: { id: params.roomId } });
+  if (player.teamId) {
+    if (room.roomPolicyJson && JSON.parse(room.roomPolicyJson).scoring === 'TEAM_SCORE') {
+      await tx.roomTeam.updateMany({ where: { id: player.teamId, roomId: params.roomId }, data: { score: { increment: params.delta } } });
+    }
+  }
   await tx.scoreEvent.create({
     data: {
-      roomId: params.roomId, participationId: params.participationId,
+      roomId: params.roomId, participationId: params.participationId, teamId: player.teamId, runIndex: room.runIndex,
       roundIndex: params.roundIndex ?? 0, delta: params.delta,
       reason: params.reason, source: 'auto',
     },
