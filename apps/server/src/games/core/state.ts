@@ -85,6 +85,7 @@ export async function saveGameStateIfRevision<TState>(
     state: TState;
     phase: string;
     gameSlug?: string;
+    eventType?: string;
   }
 ): Promise<void> {
   const { roomId, expectedRevision, state, phase } = params;
@@ -95,7 +96,7 @@ export async function saveGameStateIfRevision<TState>(
   if (params.gameSlug) {
     const before = await tx.roomGameState.findUnique({ where: { roomId } });
     if (!before || before.revision !== expectedRevision) throw new GameStateConflictError(roomId);
-    stateJson = await materializeGameEvent(tx, { roomId, gameSlug: params.gameSlug, engineVersion: before.engineVersion, before, nextState: state });
+    stateJson = await materializeGameEvent(tx, { roomId, gameSlug: params.gameSlug, engineVersion: before.engineVersion, before, nextState: state, type: params.eventType });
   }
 
   const result = await tx.roomGameState.updateMany({

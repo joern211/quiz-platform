@@ -2,7 +2,7 @@
 // Room Socket Events
 // ============================================================
 
-import { assertRoomLive, RoomError, joinViewer } from '../rooms/core.js';
+import { assertRoomLive, RoomError, joinViewer, reconnectViewer } from '../rooms/core.js';
 import { changed } from '../rooms/socket.js';
 import { Server, Socket } from 'socket.io';
 import { prisma } from '../persistence/prisma.js';
@@ -14,6 +14,7 @@ import { resolveCanonicalSlug } from '@quiz/shared';
 import { socketIdentityMap, type Role } from '../http/middleware/auth.js';
 import { requireGamePermission } from '../games/core/permissions.js';
 import { roomChannel } from './index.js';
+import { roomWaitingChannel } from './channel.js';
 
 type AuthenticatedSocket = Socket & {
   user?: { id: string; displayName?: string };
@@ -181,7 +182,10 @@ export async function handleRoomSubscription(
     }
 
     // Update to connected
-    await prisma.participation.update({
+    if (participation.role === 'VIEWER') {
+      try { await reconnectViewer(room.id, participation.id, rejoinToken, socket.id); }
+      catch (error) { callback?.({ success: false, error: error instanceof RoomError ? error.code : 'NOT_AUTHORIZED' }); return; }
+    } else await prisma.participation.update({
       where: { id: participation.id },
       data: { connected: true, connectionId: socket.id, lastSeenAt: new Date() },
     });
@@ -302,15 +306,18 @@ export async function handleRoomSubscription(
     roomId: identity.roomId,
   });
 
+  const member = await prisma.participation.findFirst({ where: { id: identity.participationId, roomId: room.id } });
+  const admitted = !member || member.admission === 'ACTIVE';
+  const targetChannel = admitted ? roomChannel(room.id) : roomWaitingChannel(room.id);
   // A socket may belong to one quiz room at a time. Leaving the old channel
   // prevents a valid re-subscription from continuing to receive another room's events.
   for (const joinedRoom of socket.rooms) {
-    if (joinedRoom.startsWith('room_') && joinedRoom !== roomChannel(room.id)) {
+    if (joinedRoom.startsWith('room_') && joinedRoom !== targetChannel) {
       await socket.leave(joinedRoom);
     }
   }
-  // ONLY AFTER identity validated: socket.join(roomChannel(room.id)) (P0-07 fix)
-  await socket.join(roomChannel(room.id));
+  // A pending identity is valid only for its waiting room, never for gameplay.
+  await socket.join(targetChannel);
 
   changed(io, room.id);
 
@@ -325,7 +332,8 @@ export async function handleRoomSubscription(
       slug: room.gameDefinition.slug,
       name: room.gameDefinition.name,
     },
-    players: room.participations.map(p => ({
+    admission: member?.admission ?? 'ACTIVE',
+    players: (admitted ? room.participations : []).map(p => ({
       id: p.id,
       displayName: p.displayName,
       role: p.role,
@@ -335,7 +343,7 @@ export async function handleRoomSubscription(
       avatarMode: p.avatarMode,
       avatarGenerated: p.avatarGenerated ? JSON.parse(p.avatarGenerated) : null,
     })),
-    viewerCount: room.viewerSessions.filter(vs => vs.connected).length,
+    viewerCount: admitted ? room.viewerSessions.filter(vs => vs.connected).length : 0,
     revision: room.revision,
     serverTime: Date.now(),
     gameSlug: room.gameDefinition.slug,
@@ -357,7 +365,7 @@ export async function handleRoomSubscription(
   });
 
   // Emit player join only for actual players (not viewers), only to THIS room
-  if (identity.role !== 'VIEWER' && identity.participationId) {
+  if (admitted && identity.role !== 'VIEWER' && identity.participationId) {
     io.to(roomChannel(room.id)).emit('player:join', {
       player: {
         id: identity.participationId,
