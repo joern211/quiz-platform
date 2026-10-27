@@ -69,13 +69,16 @@ export const ENGINE_VERSIONS: Record<string, { current: number; supported: reado
 // (dokumentierte Kompatibilität, kein stilles Umdenken).
 export const GAME_CONFIG_FIELDS: Record<string, Record<string, ConfigFieldSpec>> = {
   'wissensduell': {
+    tieStrategy: { key: 'tieStrategy', unit: 'string', allowedValues: ['ALLOW_TIE'], changeClass: 'LOCKED_AFTER_START', systemDefault: 'ALLOW_TIE' },
     questionCount: { key: 'questionCount', unit: 'count', minimum: 1, changeClass: 'LOCKED_AFTER_START', systemDefault: 10 },
     timerDurationMs: { key: 'timerDurationMs', unit: 'durationMs', minimum: 1, maximum: 2147483647, changeClass: 'EDITABLE', systemDefault: 20000 },
   },
   'wer-ist-das': {
+    tieStrategy: { key: 'tieStrategy', unit: 'string', allowedValues: ['ALLOW_TIE'], changeClass: 'LOCKED_AFTER_START', systemDefault: 'ALLOW_TIE' },
     roundCount: { key: 'roundCount', unit: 'count', minimum: 1, changeClass: 'LOCKED_AFTER_START', systemDefault: 5 },
   },
   jeopardy: {
+    tieStrategy: { key: 'tieStrategy', unit: 'string', allowedValues: ['ALLOW_TIE'], changeClass: 'LOCKED_AFTER_START', systemDefault: 'ALLOW_TIE' },
     boardCount: { key: 'boardCount', unit: 'count', minimum: 1, maximum: 2, changeClass: 'LOCKED_AFTER_START', systemDefault: 1 },
   },
 };
@@ -235,6 +238,15 @@ export async function loadInitialGameCount(roomId: string, gameSlug: string, key
   if (typeof value !== 'number' || !Number.isInteger(value) || value < 1) {
     throw new ConfigSnapshotError(roomId, `invalid ${key}`);
   }
+  return value;
+}
+/** Existing games historically allowed ties. Other strategies need engine-specific rounds/controls. */
+export async function loadInitialTieStrategy(roomId: string, gameSlug: string): Promise<'ALLOW_TIE'> {
+  const room = await prisma.room.findUniqueOrThrow({ where: { id: roomId } });
+  const loaded = await loadGameConfig(room, gameSlug);
+  const value = loaded?.values.tieStrategy?.value;
+  if (value === undefined) return 'ALLOW_TIE';
+  if (value !== 'ALLOW_TIE') throw new ConfigSnapshotError(roomId, 'tie strategy unsupported by this engine');
   return value;
 }
 
@@ -438,6 +450,9 @@ export async function updateRoomConfig(
           return { ok: false, error: 'INVALID_CONFIG' };
         }
         if (spec.unit === 'bool' && typeof value !== 'boolean') {
+          return { ok: false, error: 'INVALID_CONFIG' };
+        }
+        if (spec.unit === 'string' && typeof value !== 'string' || spec.allowedValues && !spec.allowedValues.includes(value)) {
           return { ok: false, error: 'INVALID_CONFIG' };
         }
         if (typeof value === 'number'

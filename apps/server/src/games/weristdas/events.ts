@@ -4,6 +4,7 @@ import { logger } from '../../observability/logger.js';
 import { gameErrorCode } from '../core/errors.js';
 import { WerIstDasJudgeSchema, WER_IST_DAS_EVENTS } from './contracts.js';
 import { werIstDasGame } from './engine.js';
+import { getGameEngineContract } from '../core/engineContract.js';
 import { InvalidGameAction } from './state.js';
 import { runGuardedCriticalAction, type EngineActionResult } from '../core/receiptedAction.js';
 import type { GamePermission } from '@quiz/shared';
@@ -57,13 +58,14 @@ export function registerWerIstDasEvents(io: Server, socket: Socket) {
         // Guard: wirksames Recht aus der DB + Receipt-Modus (Absichtstoken)
         // + Protokollversions-Check. Die Engine bleibt der Fach-Kontext.
         await runGuardedCriticalAction({
+    gameSlug: 'wer-ist-das',
           io,
           socket,
           action,
           permission: WID_ACTION_PERMISSION[action],
           payload: parsed.data,
           handler: (onResult: (r: EngineActionResult) => void) =>
-            werIstDasGame.act(io, socket, action, action === 'judge' ? (parsed.data as { result?: 'BOTH_CORRECT' | 'ONE_CORRECT' | 'WRONG' }) : undefined)
+            getGameEngineContract('wer-ist-das')!.handleCommand({ io, socket }, { action, payload: parsed.data })
               .then((result) => onResult(result as EngineActionResult))
               .catch((error: unknown) => onResult({ success: false, error: publicError(error) })),
         }, callback as (result: { success: boolean; error?: string; [k: string]: unknown }) => void);

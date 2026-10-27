@@ -8,8 +8,12 @@ import { WerIstDasPhase, WerIstDasSetupSchema, WER_IST_DAS_ENGINE_VERSION, isV2R
   isSupportedEngineVersion,
   type WerIstDasSetup, type WerIstDasRound } from './contracts.js';
 import { projectWerIstDas } from './resync.js';
-import { loadInitialGameCount, ConfigSnapshotError } from '../core/config.js';
+import { openRoundBuzzerForRoom } from '../core/buzzerRoster.js';
+import { loadInitialGameCount, loadInitialTieStrategy, ConfigSnapshotError } from '../core/config.js';
 import { resolveCanonicalSlug } from '@quiz/shared';
+import { transitionRoundState } from '../core/roundTransition.js';
+import { resolveBuzzer } from '../core/buzzer.js';
+import { getGameEngineContract } from '../core/engineContract.js';
 import { activateHint, buzz, createWerIstDasState, judge, nextRound, openRoundBuzzer, revealRound,
   InvalidGameAction, type WerIstDasState } from './state.js';
 
@@ -105,9 +109,10 @@ export const werIstDasGame = {
     const roundCount = await loadInitialGameCount(room.id, 'wer-ist-das', 'roundCount');
     if (roundCount > setup.rounds.length) throw new ConfigSnapshotError(room.id, 'roundCount exceeds setup');
     const state = createWerIstDasState(roundCount, names, scores);
+    state.tieStrategy = await loadInitialTieStrategy(room.id, 'wer-ist-das');
     // engineVersion beim Start pinnen (Regelwerk §5.22): Recovery nutzt die
     // exakt gleiche Version.
-    await upsertGameState({ roomId: room.id, state, phase: state.phase, engineVersion: WER_IST_DAS_ENGINE_VERSION });
+    await upsertGameState({ gameSlug: 'wer-ist-das', roomId: room.id, state, phase: state.phase, engineVersion: WER_IST_DAS_ENGINE_VERSION });
     await sendProjections(io, room.id, state, setup);
   },
 
@@ -149,7 +154,12 @@ export const werIstDasGame = {
       state = nextRound(state, setup.rounds[state.roundIndex].id);
     }
     await prisma.$transaction(async tx => {
-      await saveGameStateIfRevision(tx, { roomId, expectedRevision: loaded.revision, state, phase: state.phase });
+      if (action === 'open' && !loaded.state.buzzer.eligiblePlayerIds) {
+        const roster = await openRoundBuzzerForRoom(tx, roomId, Object.keys(state.playerNames));
+        // A legacy round may already contain wrong-answer exclusions; never clear them on upgrade.
+        state.buzzer = { ...roster, excludedPlayerIds: state.buzzer.excludedPlayerIds };
+      }
+      await saveGameStateIfRevision(tx, { gameSlug: 'wer-ist-das', roomId, expectedRevision: loaded.revision, state, phase: state.phase });
       if (scoreMutation) await recordScoreMutation(tx, {
         roomId, participationId: scoreMutation.playerId, score: scoreMutation.score,
         delta: scoreMutation.delta, reason: `weristdas:${payload!.result!.toLowerCase()}`,
@@ -175,16 +185,19 @@ export const werIstDasGame = {
       throw new InvalidGameAction('UNSUPPORTED_ENGINE_VERSION');
     }
     const setup = WerIstDasSetupSchema.parse(JSON.parse(auth.room.setupSnapshotJson));
-    return { success: true, state: projectWerIstDas(loaded.state, setup, auth.actor.role, auth.actor.participationId) };
+    return { success: true, state: getGameEngineContract('wer-ist-das')!.createProjection({ state: loaded.state, setup, actor: auth.actor,
+      participants: [], stateVersion: loaded.revision }) as ReturnType<typeof projectWerIstDas> };
   },
 
   async end(io: Server, room: { id: string; code: string; setupSnapshotJson: string | null }) {
     const setup = WerIstDasSetupSchema.parse(JSON.parse(room.setupSnapshotJson ?? '{}'));
-    const result = await finishRunningGame<WerIstDasState>({
-      roomId: room.id, nextState: state => ({ ...state, buzzer: { ...state.buzzer, open: false },
-        playedRoundIds: state.revealed
-          ? [...state.playedRoundIds, setup.rounds[state.roundIndex].id]
-          : state.playedRoundIds }),
+    const result = await finishRunningGame<WerIstDasState>({ gameSlug: 'wer-ist-das',
+      roomId: room.id, nextState: state => {
+        const prepared = { ...state, phase: WerIstDasPhase.GAME_END, answerTurn: null, buzzer: resolveBuzzer(state.buzzer),
+          playedRoundIds: state.revealed ? [...state.playedRoundIds, setup.rounds[state.roundIndex].id] : state.playedRoundIds };
+        return state.phase === WerIstDasPhase.REVEAL ? transitionRoundState({ gameSlug: 'wer-ist-das', current: state,
+          prepared, completedRoundId: setup.rounds[state.roundIndex].id }) : prepared;
+      },
     });
     if (result.ended) {
       await sendProjections(io, room.id, result.state, setup);

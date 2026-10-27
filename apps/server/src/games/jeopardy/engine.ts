@@ -6,12 +6,17 @@
 import { Server, Socket } from 'socket.io';
 import { prisma } from '../../persistence/prisma.js';
 import { finishRunningGame, saveGameStateIfRevision, upsertGameState } from '../core/state.js';
-import { loadInitialGameCount, ConfigSnapshotError } from '../core/config.js';
+import { loadInitialGameCount, loadInitialTieStrategy, ConfigSnapshotError } from '../core/config.js';
 import { logger } from '../../observability/logger.js';
 import { roomChannel } from '../../sockets/index.js';
 import { authorizeGameContext } from '../core/access.js';
-import { claimBuzzer } from '../core/buzzer.js';
+import { claimBuzzer, openBuzzer, createBuzzerState, resolveBuzzer } from '../core/buzzer.js';
 import { recordScoreMutation } from '../core/score.js';
+import { createTimer, submitOnce, judgeSubmission, scoreJudgement } from '../core/runtimePrimitives.js';
+import { createTurn, requireWinningTurn, matchAnswer } from '../core/roundFlow.js';
+import { prepareRoundRuntime, transitionRoundState } from '../core/roundTransition.js';
+import { resolveTie } from '../core/tie.js';
+import { openRoundBuzzerForRoom } from '../core/buzzerRoster.js';
 import {
   JEOPARDY_PHASES,
   pointsForCorrect,
@@ -42,6 +47,25 @@ import {
 // ============================================================
 // Entry point: initialize a Jeopardy game in a room
 // ============================================================
+
+function verbalSubmissionKey(state: JeopardyGameState, participantId: string, steal: boolean): string {
+  if (!state.currentField) throw new Error('NO_CURRENT_FIELD');
+  return `${fieldKey(state.currentBoard, state.currentField.categoryIndex, state.currentField.value)}:${steal ? 'steal' : 'first'}:${participantId}`;
+}
+function submitVerbal(state: JeopardyGameState, participantId: string, steal: boolean): void {
+  const now = Date.now(), key = verbalSubmissionKey(state, participantId, steal);
+  state.timer ??= createTimer('UNLIMITED', now);
+  state.submissions ??= {};
+  state.submissions[key] = submitOnce({ previous: state.submissions[key], participantId, roundId: key, value: null, timer: state.timer, now });
+  state.submissions[key].matchStatus = matchAnswer(null, state.currentField!.fieldDef.answer, 'MANUAL_ONLY');
+  state.answerTurn = createTurn([participantId]);
+}
+function judgeVerbal(state: JeopardyGameState, participantId: string, steal: boolean, correct: boolean): void {
+  requireWinningTurn(state.answerTurn, participantId);
+  const key = verbalSubmissionKey(state, participantId, steal), submission = state.submissions?.[key];
+  // Legacy rounds have no trustworthy submission timestamp; do not invent one.
+  if (submission) state.submissions![key] = judgeSubmission(submission, correct ? 'CORRECT' : 'WRONG', Date.now());
+}
 
 export const handleJeopardyGame = {
   /**
@@ -77,6 +101,7 @@ export const handleJeopardyGame = {
 
     // Build initial state
     let state = createJeopardyGameState(1, playerIds, playerNames);
+    state.tieStrategy = await loadInitialTieStrategy(room.id, 'jeopardy');
     state.boardCount = boardCount;
 
     // Register all fields from board 1
@@ -110,7 +135,7 @@ export const handleJeopardyGame = {
     state.phase = JEOPARDY_PHASES.SELECTING;
 
     // Persist through the shared game-state core.
-    await upsertGameState({
+    await upsertGameState({ gameSlug: 'jeopardy',
       roomId: room.id,
       engineVersion: 1,
       phase: JEOPARDY_PHASES.SELECTING,
@@ -219,6 +244,10 @@ export const handleJeopardyGame = {
     // Update state
     state = {
       ...state,
+      timer: createTimer('UNLIMITED', Date.now()),
+      submissions: {},
+      buzzer: openBuzzer(state.buzzer ?? createBuzzerState(), { mode: 'SELECTED', eligiblePlayerIds: Object.keys(state.scores) }),
+      stealBuzzer: createBuzzerState(),
       currentField: {
         categoryIndex: data.categoryIndex,
         value: data.value,
@@ -235,7 +264,10 @@ export const handleJeopardyGame = {
     };
 
     // Persist atomically
-    await prisma.$transaction(async (tx) => saveGameStateIfRevision(tx, { roomId, expectedRevision: gameStateData.revision, state, phase: state.phase }));
+    await prisma.$transaction(async (tx) => {
+      state.buzzer = await openRoundBuzzerForRoom(tx, roomId, Object.keys(state.scores));
+      await saveGameStateIfRevision(tx, { gameSlug: 'jeopardy', roomId, expectedRevision: gameStateData.revision, state, phase: state.phase });
+    });
 
     // Emit question to ALL (no answer — P0-07 fix: using io.to broadcasts to the correct room channel)
     const fieldOpenEvent: JeopardyFieldOpenEvent = {
@@ -305,14 +337,16 @@ export const handleJeopardyGame = {
 
       if (!Object.hasOwn(state.scores, participationId)) throw new Error('PLAYER_NOT_IN_GAME');
       const claim = claimBuzzer(
-        { open: state.buzzOpen, winnerId: state.buzzWinner, excludedPlayerIds: [] },
+        state.buzzer ?? { open: state.buzzOpen, winnerId: state.buzzWinner, excludedPlayerIds: [] },
         participationId
       );
       if (!claim.accepted) throw new Error(claim.error);
+      state.buzzer = claim.state;
+      submitVerbal(state, participationId, false);
       state.buzzOpen = claim.state.open;
       state.buzzWinner = claim.state.winnerId;
       state.phase = JEOPARDY_PHASES.BUZZ_LOCKED;
-      await saveGameStateIfRevision(tx, { roomId, expectedRevision: gameStateData.revision, state, phase: state.phase });
+      await saveGameStateIfRevision(tx, { gameSlug: 'jeopardy', roomId, expectedRevision: gameStateData.revision, state, phase: state.phase });
 
       return { state, displayName: auth.actor.displayName };
     });
@@ -362,19 +396,25 @@ export const handleJeopardyGame = {
       }
       const playerId = state.buzzWinner;
       const { categoryIndex, value, fieldDef } = state.currentField;
-      const delta = data.correct ? pointsForCorrect(value) : pointsForWrongFirst(value);
+      judgeVerbal(state, playerId, false, data.correct);
+      const delta = scoreJudgement(data.correct ? 'CORRECT' : 'WRONG', { correct: pointsForCorrect(value), wrong: pointsForWrongFirst(value) });
       state.scores = applyScoreDelta(state.scores, playerId, delta);
       if (data.correct) {
         state = resetBuzzer(markFieldAnswered(state, categoryIndex, value, playerId, true, delta));
         state.phase = isBoardComplete(state, state.currentBoard) ? JEOPARDY_PHASES.BOARD_COMPLETE : JEOPARDY_PHASES.FIELD_DONE;
       } else {
         state.phase = JEOPARDY_PHASES.STEAL_OPEN;
+        state.answerTurn = null;
         state.currentField!.firstResponderId = playerId;
         state.buzzWinner = null;
         state.buzzOpen = false;
         state.stealOpen = true;
+        state.buzzer = resolveBuzzer(state.buzzer ?? { open: false, winnerId: playerId, excludedPlayerIds: [] }, true);
+        state.stealBuzzer = openBuzzer(createBuzzerState(), { mode: state.buzzer.mode ?? 'SELECTED',
+          eligiblePlayerIds: state.buzzer.eligiblePlayerIds ?? Object.keys(state.scores),
+          teamByPlayer: state.buzzer.teamByPlayer, excludePlayerIds: state.buzzer.excludedPlayerIds });
       }
-      await saveGameStateIfRevision(tx, { roomId, expectedRevision: row.revision, state, phase: state.phase });
+      await saveGameStateIfRevision(tx, { gameSlug: 'jeopardy', roomId, expectedRevision: row.revision, state, phase: state.phase });
       await recordScoreMutation(tx, {
         roomId, participationId: playerId, score: state.scores[playerId], delta,
         reason: data.correct ? 'JEOPARDY_CORRECT' : 'JEOPARDY_WRONG_FIRST',
@@ -385,7 +425,7 @@ export const handleJeopardyGame = {
 
     const { state, playerId, delta, categoryIndex, value, answer } = result;
     if (!data.correct) {
-      io.to(roomChannel(roomId)).emit('jeopardy:steal:open', { categoryIndex, value, scores: state.scores, excludedPlayerId: playerId });
+      io.to(roomChannel(roomId)).emit('jeopardy:steal:open', { categoryIndex, value, scores: state.scores, excludedPlayerId: playerId, excludedPlayerIds: state.stealBuzzer?.excludedPlayerIds });
     } else {
       io.to(roomChannel(roomId)).emit('jeopardy:reveal', {
         answer: '••••••', correct: true, playerId,
@@ -437,7 +477,7 @@ export const handleJeopardyGame = {
 
       if (!Object.hasOwn(state.scores, participationId)) throw new Error('PLAYER_NOT_IN_GAME');
       const claim = claimBuzzer(
-        {
+        state.stealBuzzer ?? {
           open: state.stealOpen,
           winnerId: state.stealWinner,
           excludedPlayerIds: state.currentField?.firstResponderId ? [state.currentField.firstResponderId] : [],
@@ -445,11 +485,13 @@ export const handleJeopardyGame = {
         participationId
       );
       if (!claim.accepted) throw new Error(claim.error);
+      state.stealBuzzer = claim.state;
+      submitVerbal(state, participationId, true);
       state.stealOpen = claim.state.open;
       state.stealWinner = claim.state.winnerId;
       state.phase = JEOPARDY_PHASES.STEAL_LOCKED;
 
-      await saveGameStateIfRevision(tx, { roomId, expectedRevision: gameStateData.revision, state, phase: state.phase });
+      await saveGameStateIfRevision(tx, { gameSlug: 'jeopardy', roomId, expectedRevision: gameStateData.revision, state, phase: state.phase });
 
       return { displayName: auth.actor.displayName };
     });
@@ -504,7 +546,8 @@ export const handleJeopardyGame = {
       const value = state.currentField?.value ?? 0;
       const categoryIndex = state.currentField?.categoryIndex ?? 0;
 
-      const delta = data.correct ? pointsForCorrectSteal(value) : pointsForWrongSteal(value);
+      judgeVerbal(state, stealWinnerId, true, data.correct);
+      const delta = scoreJudgement(data.correct ? 'CORRECT' : 'WRONG', { correct: pointsForCorrectSteal(value), wrong: pointsForWrongSteal(value) });
       state.scores = applyScoreDelta(state.scores, stealWinnerId, delta);
 
       // Mark field as answered
@@ -518,7 +561,7 @@ export const handleJeopardyGame = {
         state.phase = JEOPARDY_PHASES.FIELD_DONE;
       }
 
-      await saveGameStateIfRevision(tx, { roomId, expectedRevision: gameStateData.revision, state, phase: state.phase });
+      await saveGameStateIfRevision(tx, { gameSlug: 'jeopardy', roomId, expectedRevision: gameStateData.revision, state, phase: state.phase });
 
       await recordScoreMutation(tx, {
         roomId, participationId: stealWinnerId, score: state.scores[stealWinnerId], delta,
@@ -598,14 +641,11 @@ export const handleJeopardyGame = {
         throw new Error('PHASE_NOT_FIELD_DONE');
       }
 
-      state = {
-        ...state,
-        currentField: null,
-        phase: JEOPARDY_PHASES.SELECTING,
-      };
-      state = resetBuzzer(state);
+      state = transitionRoundState({ gameSlug: 'jeopardy', current: state,
+        completedRoundId: state.currentField ? fieldKey(state.currentBoard, state.currentField.categoryIndex, state.currentField.value) : `board:${state.currentBoard}`,
+        prepared: resetBuzzer({ ...state, ...prepareRoundRuntime(), currentField: null, phase: JEOPARDY_PHASES.SELECTING }) });
 
-      await saveGameStateIfRevision(tx, { roomId, expectedRevision: gameStateData.revision, state, phase: state.phase });
+      await saveGameStateIfRevision(tx, { gameSlug: 'jeopardy', roomId, expectedRevision: gameStateData.revision, state, phase: state.phase });
     });
 
     io.to(roomChannel(roomId)).emit('jeopardy:next', { phase: JEOPARDY_PHASES.SELECTING });
@@ -648,9 +688,10 @@ export const handleJeopardyGame = {
       }
 
       // Board 2 fields were registered at initialization; never reinsert played fields.
-      const newState = resetBuzzer({ ...state, currentBoard: 2 as const, currentField: null });
-      newState.phase = JEOPARDY_PHASES.SELECTING;
-      await prisma.$transaction(async (tx) => saveGameStateIfRevision(tx, { roomId: room.id, expectedRevision: gameStateData.revision, state: newState, phase: newState.phase }));
+      const newState = transitionRoundState({ gameSlug: 'jeopardy', current: state,
+        completedRoundId: state.currentField ? fieldKey(state.currentBoard, state.currentField.categoryIndex, state.currentField.value) : `board:${state.currentBoard}`,
+        prepared: resetBuzzer({ ...state, ...prepareRoundRuntime(), currentBoard: 2 as const, currentField: null, phase: JEOPARDY_PHASES.SELECTING }) });
+      await prisma.$transaction(async (tx) => saveGameStateIfRevision(tx, { gameSlug: 'jeopardy', roomId: room.id, expectedRevision: gameStateData.revision, state: newState, phase: newState.phase }));
 
       const categories = setup.board2.categories.map((cat) => ({
         name: cat.name,
@@ -687,24 +728,25 @@ export const handleJeopardyGame = {
     _state?: JeopardyGameState,
     manual = false
   ): Promise<{ success: boolean; error?: string; ended?: boolean }> {
-    const result = await finishRunningGame<JeopardyGameState>({
+    const result = await finishRunningGame<JeopardyGameState>({ gameSlug: 'jeopardy',
       roomId: room.id,
-      ...(!manual ? { requiredPhase: JEOPARDY_PHASES.BOARD_COMPLETE } : {}),
+      ...(!manual ? { requiredPhase: JEOPARDY_PHASES.BOARD_COMPLETE, nextState: (state: JeopardyGameState) => transitionRoundState({ gameSlug: 'jeopardy', current: state,
+        completedRoundId: state.currentField ? fieldKey(state.currentBoard, state.currentField.categoryIndex, state.currentField.value) : `board:${state.currentBoard}`,
+        prepared: resetBuzzer({ ...state, ...prepareRoundRuntime(), phase: JEOPARDY_PHASES.GAME_END }) }) } : {}),
     });
     if (!result.ended) return { success: true, ended: false };
     const state = result.state;
 
     const scores = state?.scores ?? {};
-    const finalScores = Object.entries(scores)
+    const tie = resolveTie(Object.entries(scores)
       .map(([playerId, score]) => ({
+        id: playerId,
         playerId,
         playerName: state?.playerNames[playerId] ?? 'Unknown',
         score,
-      }))
-      .sort((a, b) => b.score - a.score);
-
-    const topScore = finalScores[0]?.score ?? 0;
-    const winnerIds = finalScores.filter((s) => s.score === topScore).map((s) => s.playerId);
+      })), state.tieStrategy ?? 'ALLOW_TIE');
+    const finalScores = tie.rankings.map(({ id: _id, ...entry }) => { void _id; return entry; });
+    const winnerIds = tie.winnerIds;
 
     const endEvent: JeopardyGameEndEvent = {
       finalScores,

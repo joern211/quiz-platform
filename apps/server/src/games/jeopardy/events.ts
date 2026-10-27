@@ -14,12 +14,13 @@ import { Server, Socket } from 'socket.io';
 import { z } from 'zod';
 import { prisma } from '../../persistence/prisma.js';
 import { logger } from '../../observability/logger.js';
-import { handleJeopardyGame } from './engine.js';
+import { getGameEngineContract } from '../core/engineContract.js';
 import { JeopardyGameState } from './state.js';
 import { getSocketDataIdentity } from '../../sockets/auth.js';
 import { authorizeGameAction } from '../core/access.js';
 import { gameErrorCode } from '../core/errors.js';
 import { runGuardedCriticalAction, type EngineActionResult } from '../core/receiptedAction.js';
+import { ensureGameStateSafe } from '../core/recovery.js';
 
 // ── Jeopardy Runtime Payload Validation ──────────────────────
 const JeopardyFieldOpenSchema = z.object({
@@ -101,6 +102,7 @@ function runJeopardyCriticalAction(
   callback?: (result: { success: boolean; error?: string; [k: string]: unknown }) => void,
 ): Promise<void> {
   return runGuardedCriticalAction({
+    gameSlug: 'jeopardy',
     io,
     socket,
     action: args.action,
@@ -127,7 +129,7 @@ export function registerJeopardyEvents(io: Server, socket: Socket) {
           action: 'fieldOpen',
           permission: 'BUZZER_CONTROL',
           payload: valid,
-          handler: directHandler(() => handleJeopardyGame.handleFieldOpen(io, socket, valid)),
+          handler: directHandler(() => getGameEngineContract('jeopardy')!.handleCommand({ io, socket }, { action: 'fieldOpen', payload: valid })),
         }, callback);
       } catch (err) {
         logger.error('jeopardy:field:open threw', { err });
@@ -143,7 +145,7 @@ export function registerJeopardyEvents(io: Server, socket: Socket) {
           action: 'fieldOpen',
           permission: 'BUZZER_CONTROL',
           payload: valid,
-          handler: directHandler(() => handleJeopardyGame.handleFieldOpen(io, socket, valid as unknown as { boardIndex: 1 | 2; categoryIndex: number; value: number })),
+          handler: directHandler(() => getGameEngineContract('jeopardy')!.handleCommand({ io, socket }, { action: 'fieldOpen', payload: valid })),
         }, callback);
       } catch (err) {
         logger.error('jeopardy:field:lock threw', { err });
@@ -159,7 +161,7 @@ export function registerJeopardyEvents(io: Server, socket: Socket) {
           action: 'buzz',
           permission: 'BUZZER_CONTROL',
           payload: valid,
-          handler: directHandler(() => handleJeopardyGame.handleBuzz(io, socket, valid as unknown as Record<string, never>)),
+          handler: directHandler(() => getGameEngineContract('jeopardy')!.handleCommand({ io, socket }, { action: 'buzz', payload: valid })),
         }, callback);
       } catch (err) {
         logger.error('jeopardy:buzz threw', { err });
@@ -175,7 +177,7 @@ export function registerJeopardyEvents(io: Server, socket: Socket) {
           action: 'judge',
           permission: 'JUDGE_ANSWER',
           payload: valid,
-          handler: directHandler(() => handleJeopardyGame.handleJudge(io, socket, valid as unknown as { correct: boolean })),
+          handler: directHandler(() => getGameEngineContract('jeopardy')!.handleCommand({ io, socket }, { action: 'judge', payload: valid })),
         }, callback);
       } catch (err) {
         logger.error('jeopardy:judge threw', { err });
@@ -191,7 +193,7 @@ export function registerJeopardyEvents(io: Server, socket: Socket) {
           action: 'stealBuzz',
           permission: 'BUZZER_CONTROL',
           payload: valid,
-          handler: directHandler(() => handleJeopardyGame.handleStealBuzz(io, socket, valid as unknown as Record<string, never>)),
+          handler: directHandler(() => getGameEngineContract('jeopardy')!.handleCommand({ io, socket }, { action: 'stealBuzz', payload: valid })),
         }, callback);
       } catch (err) {
         logger.error('jeopardy:steal:buzz threw', { err });
@@ -207,7 +209,7 @@ export function registerJeopardyEvents(io: Server, socket: Socket) {
           action: 'stealJudge',
           permission: 'JUDGE_ANSWER',
           payload: valid,
-          handler: directHandler(() => handleJeopardyGame.handleStealJudge(io, socket, valid as unknown as { correct: boolean })),
+          handler: directHandler(() => getGameEngineContract('jeopardy')!.handleCommand({ io, socket }, { action: 'stealJudge', payload: valid })),
         }, callback);
       } catch (err) {
         logger.error('jeopardy:steal:judge threw', { err });
@@ -223,7 +225,7 @@ export function registerJeopardyEvents(io: Server, socket: Socket) {
           action: 'next',
           permission: 'ROUND_ADVANCE',
           payload: valid,
-          handler: directHandler(() => handleJeopardyGame.handleNext(io, socket, valid as unknown as Record<string, never>)),
+          handler: directHandler(() => getGameEngineContract('jeopardy')!.handleCommand({ io, socket }, { action: 'next', payload: valid })),
         }, callback);
       } catch (err) {
         logger.error('jeopardy:next threw', { err });
@@ -247,7 +249,9 @@ export function registerJeopardyEvents(io: Server, socket: Socket) {
         if (room.gameDefinition.slug !== 'jeopardy') {
           callback?.({ success: false, error: 'WRONG_GAME' }); return;
         }
+        await ensureGameStateSafe(room.id);
         await runGuardedCriticalAction({
+    gameSlug: 'jeopardy',
           io,
           socket,
           action: 'boardSwitch',
@@ -260,7 +264,7 @@ export function registerJeopardyEvents(io: Server, socket: Socket) {
             if (valid.toBoard !== (currentBoard === 1 ? 2 : 1)) {
               onResult({ success: false, error: 'WRONG_BOARD' }); return;
             }
-            onResult(await handleJeopardyGame.handleBoardSwitch(io, room));
+            onResult(await getGameEngineContract('jeopardy')!.handleCommand({ io, socket }, { action: 'boardSwitch', payload: valid }));
           },
         }, callback);
       } catch (err) {
@@ -292,94 +296,8 @@ export function registerJeopardyEvents(io: Server, socket: Socket) {
         if (!gameStateData) { callback?.({ success: false, error: 'GAME_NOT_FOUND' }); return; }
 
         const state: JeopardyGameState = JSON.parse(gameStateData.stateJson);
-        const setup = JSON.parse(room.setupSnapshotJson ?? '{}') as {
-          board1?: { categories: Array<{ name: string; clues: Array<{ value: number; question: string; answer: string; mediaType?: string; mediaAssetId?: string }> }> };
-          board2?: { categories: Array<{ name: string; clues: Array<{ value: number; question: string; answer: string; mediaType?: string; mediaAssetId?: string }> }> };
-        };
-
-        // Build player scores from state
-        const scores: Array<{ playerId: string; playerName: string; score: number }> = [];
-        for (const [pId, score] of Object.entries(state.scores)) {
-          const part = room.participations.find((p) => p.id === pId);
-          scores.push({ playerId: pId, playerName: part?.displayName ?? pId, score });
-        }
-
-        // Determine if there's an active question
-        let currentField: {
-          categoryIndex: number;
-          value: number;
-          question: string;
-          mediaType?: string;
-          mediaAssetId?: string;
-          answer?: string; // moderator only
-          buzzWinnerId?: string | null;
-          buzzWinnerName?: string | null;
-          firstResponderId?: string;
-          phase: string;
-        } | null = null;
-
-        if (state.currentField?.fieldDef) {
-          const fd = state.currentField.fieldDef;
-          // Get board data for question (already sent to all)
-          const board = state.currentBoard === 1 ? setup.board1 : setup.board2;
-          const cat = board?.categories[fd.categoryIndex];
-          const clue = cat?.clues.find((c) => c.value === fd.value);
-
-          currentField = {
-            categoryIndex: fd.categoryIndex,
-            value: fd.value,
-            question: fd.question,
-            mediaType: clue?.mediaType,
-            mediaAssetId: clue?.mediaAssetId,
-            buzzWinnerId: state.buzzWinner,
-            buzzWinnerName: state.buzzWinner ? state.playerNames[state.buzzWinner] : null,
-            firstResponderId: state.currentField.firstResponderId,
-            phase: state.phase,
-          };
-
-          // P0-07: Only include answer for moderator
-          if (identity.role === 'HOST' && socket.data.userId === room.hostUserId && clue?.answer) {
-            currentField.answer = clue.answer;
-          }
-        }
-
-        // Get played fields (for board rendering)
-        const playedFields: string[] = [];
-        for (const boardNumber of [1, 2] as const) {
-          const board = boardNumber === 1 ? setup.board1 : state.boardCount === 1 ? undefined : setup.board2;
-          board?.categories.forEach((category, categoryIndex) => {
-            category.clues.forEach((clue) => {
-              const key = `${boardNumber}-${categoryIndex}-${clue.value}`;
-              if (!state.openFields[key]) playedFields.push(key);
-            });
-          });
-        }
-
-        // Get board categories
-        const getBoardCategories = (board: typeof setup.board1) =>
-          (board?.categories ?? []).map((c) => ({ name: c.name, clueCount: c.clues.length }));
-
-        const board1Cats = getBoardCategories(setup.board1);
-        const board2Cats = state.boardCount === 1 ? [] : getBoardCategories(setup.board2);
-
-        callback?.({
-          success: true,
-          role: identity.role,
-          currentBoard: state.currentBoard,
-          phase: state.phase,
-          scores,
-          currentField,
-          playedFields,
-          board1Categories: board1Cats,
-          board2Categories: board2Cats,
-          board1Values: (setup.board1?.categories[0]?.clues.map((c) => c.value) ?? []).sort((a, b) => a - b),
-          board2Values: state.boardCount === 1 ? [] : (setup.board2?.categories[0]?.clues.map((c) => c.value) ?? []).sort((a, b) => a - b),
-          gameEnded: state.phase === 'GAME_END',
-          buzzWinnerId: state.buzzWinner,
-          stealWinnerId: state.stealWinner,
-          playerNames: state.playerNames,
-          finalScores: state.phase === 'GAME_END' ? scores.sort((a, b) => b.score - a.score) : undefined,
-        });
+        const informationRole = identity.role === 'HOST' && socket.data.userId === room.hostUserId ? 'HOST' : identity.role === 'PLAYER' ? 'PLAYER' : 'VIEWER';
+        callback?.(getGameEngineContract('jeopardy')!.createProjection({ state, setup: JSON.parse(room.setupSnapshotJson ?? '{}'), actor: { ...auth.actor, role: informationRole }, participants: room.participations, stateVersion: gameStateData.revision }));
       } catch (err) {
         logger.error('jeopardy:resync threw', { err });
         callback?.({ success: false, error: gameErrorCode(err) });

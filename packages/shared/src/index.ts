@@ -1402,6 +1402,7 @@ export interface ConfigFieldSpec<V = unknown> {
   unit?: 'durationMs' | 'bytes' | 'percent' | 'points' | 'count' | 'bool' | 'string';
   changeClass: ConfigChangeClass;
   nullable?: boolean;
+  allowedValues?: readonly unknown[];
   /** Zentraler Default (SYSTEM_DEFAULT). */
   systemDefault: V;
 }
@@ -1539,6 +1540,69 @@ export const PublicRoomSummarySchema = z.object({
   createdAt: z.string().datetime(),
 });
 export type PublicRoomSummary = z.infer<typeof PublicRoomSummarySchema>;
+// Shared game primitives. Absolute server timestamps; no browser-owned clocks.
+export const CoreTimerSchema = z.object({
+  mode: z.enum(['COUNTDOWN', 'COUNTUP', 'UNLIMITED']),
+  status: z.enum(['IDLE', 'RUNNING', 'PAUSED', 'EXPIRED']),
+  startedAtMs: z.number().int().nonnegative().nullable(),
+  endsAtMs: z.number().int().nonnegative().nullable(),
+  pausedAtMs: z.number().int().nonnegative().nullable(),
+  elapsedBeforeMs: z.number().int().nonnegative(),
+  remainingMs: z.number().int().nonnegative().nullable(),
+}).strict();
+export type CoreTimer = z.infer<typeof CoreTimerSchema>;
+export const JudgeDecisionSchema = z.enum(['CORRECT', 'WRONG', 'PARTIAL', 'CANCELLED']);
+export type JudgeDecision = z.infer<typeof JudgeDecisionSchema>;
+export const SubmissionRecordSchema = z.object({
+  participantId: z.string().min(1), roundId: z.string().min(1),
+  value: z.string().max(10000).nullable(),
+  status: z.enum(['DRAFT', 'SUBMITTED', 'LOCKED', 'JUDGED']),
+  submittedAtMs: z.number().int().nonnegative(),
+  judgedAtMs: z.number().int().nonnegative().nullable(),
+  decision: JudgeDecisionSchema.nullable(),
+  matchStatus: z.enum(['MATCH', 'NO_MATCH', 'NEEDS_JUDGE']).optional(),
+}).strict();
+export type SubmissionRecord = z.infer<typeof SubmissionRecordSchema>;
+export const CoreTurnSchema = z.object({
+  mode: z.enum(['FIXED', 'RANDOM', 'ROTATING_START', 'CUSTOM_HOST_ORDER']),
+  order: z.array(z.string().min(1)).min(1), index: z.number().int().nonnegative(),
+  cycle: z.number().int().nonnegative(),
+}).strict().refine(t => new Set(t.order).size === t.order.length && t.index < t.order.length, { message: 'INVALID_TURN' });
+export type CoreTurn = z.infer<typeof CoreTurnSchema>;
+export const CoreTieStrategySchema = z.enum(['ALLOW_TIE', 'SUDDEN_DEATH', 'TIEBREAKER_QUESTION', 'SECONDARY_METRIC', 'HOST_DECIDES']);
+export type CoreTieStrategy = z.infer<typeof CoreTieStrategySchema>;
+export const CoreBuzzerSchema = z.object({
+  open: z.boolean(), winnerId: z.string().nullable(), excludedPlayerIds: z.array(z.string()),
+  // Optional only for explicitly supported pre-core states.
+  status: z.enum(['CLOSED', 'OPEN', 'LOCKED', 'RESOLVED']).optional(),
+  mode: z.enum(['INDIVIDUAL', 'TEAM', 'SELECTED']).optional(), fairness: z.literal('SERVER_ARRIVAL').optional(),
+  eligiblePlayerIds: z.array(z.string()).optional(), teamByPlayer: z.record(z.string()).optional(),
+  winnerTeamId: z.string().nullable().optional(), claimedAtMs: z.number().int().nonnegative().nullable().optional(),
+  overrides: z.array(z.object({ actorId: z.string().min(1), fromPlayerId: z.string().nullable(), toPlayerId: z.string().min(1),
+    reason: z.string().max(300).nullable(), atMs: z.number().int().nonnegative() }).strict()).optional(),
+}).strict().superRefine((state, ctx) => {
+  if (state.status === 'OPEN' && (!state.open || !!state.winnerId) || state.status && state.status !== 'OPEN' && state.open
+    || state.status === 'LOCKED' && !state.winnerId) ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'BUZZER_STATUS_CONFLICT' });
+  if (state.mode === 'TEAM' && (!state.teamByPlayer || state.winnerId && state.winnerTeamId !== state.teamByPlayer[state.winnerId])) ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'BUZZER_TEAM_CONFLICT' });
+});
+export type CoreBuzzer = z.infer<typeof CoreBuzzerSchema>;
+export const CoreActionKeySchema = z.enum(['answer', 'joker5050', 'jokerSpy', 'jokerRisk', 'reveal', 'next', 'fieldOpen', 'buzz', 'judge', 'stealBuzz', 'stealJudge', 'boardSwitch', 'pause', 'resume', 'end', 'open', 'hint', 'buzzerOverride']);
+export type CoreActionKey = z.infer<typeof CoreActionKeySchema>;
+export const CoreGamePhaseSchema = z.enum(['SETUP', 'READY', 'ROUND_PREPARE', 'ROUND_ACTIVE', 'ROUND_RESOLUTION', 'ROUND_END', 'ROUND_TRANSITION', 'GAME_END', 'RESULT_REVIEW', 'FINALIZED', 'PAUSED', 'ABORTED', 'ERROR_RECOVERY']);
+export type CoreGamePhase = z.infer<typeof CoreGamePhaseSchema>;
+export const CoreRoundTransitionSchema = z.object({ completedRoundId: z.string().min(1), nextRoundId: z.string().min(1).nullable(),
+  sequence: z.tuple([z.literal('ROUND_END'), z.literal('ROUND_TRANSITION'), z.enum(['ROUND_PREPARE', 'GAME_END'])]) }).strict();
+export type CoreRoundTransition = z.infer<typeof CoreRoundTransitionSchema>;
+export const CoreRuntimeProjectionSchema = z.object({
+  roomCode: z.string().regex(/^\d{3}-\d{3}$/), runIndex: z.number().int().positive(),
+  gameSlug: z.string(), engineVersion: z.number().int().positive(), stateVersion: z.number().int().nonnegative(),
+  enginePhase: z.string(), corePhase: CoreGamePhaseSchema, informationRole: z.enum(['HOST', 'PLAYER', 'VIEWER', 'DISPLAY']),
+  recoveryRequired: z.boolean().optional(),
+  timer: CoreTimerSchema.nullable(),
+  progress: z.object({ currentRound: z.number().int().nonnegative(), totalRounds: z.number().int().nonnegative().nullable(), remainingRounds: z.number().int().nonnegative().nullable(), progressPercent: z.number().min(0).max(100).nullable() }),
+  availableActions: z.array(z.object({ key: CoreActionKeySchema, event: z.string(), label: z.string() }).strict()),
+}).strict();
+export type CoreRuntimeProjection = z.infer<typeof CoreRuntimeProjectionSchema>;
 export const ParticipantNameSchema = z.string().transform(s => s.normalize('NFKC').trim().replace(/\s+/g, ' '))
   .pipe(z.string().min(1).max(100).refine(s => !/[\p{Cc}\p{Cf}]/u.test(s), 'NAME_INVALID'));
 export function normalizedParticipantName(name: string): string {

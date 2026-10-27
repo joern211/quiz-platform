@@ -1,11 +1,13 @@
-import { createHash, randomInt, randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import argon2 from 'argon2';
 import type { Prisma, Room } from '@prisma/client';
-import { RoomPolicySchema, normalizedParticipantName, ParticipantNameSchema, effectivePermissions, type RoomPolicy, type RoomOperation, type RoomCoreView, type GamePermission } from '@quiz/shared';
+import { RoomPolicySchema, resolveCanonicalSlug, normalizedParticipantName, ParticipantNameSchema, effectivePermissions, type RoomPolicy, type RoomOperation, type RoomCoreView, type GamePermission } from '@quiz/shared';
 import { serializeRoom } from './queue.js';
 import { roomEngineRules } from './engineRules.js';
 import { prisma } from '../persistence/prisma.js';
 import { assertCommandMutation } from '../games/core/commandExecution.js';
+import { shuffleServer } from '../games/core/roundFlow.js';
+import { saveGameStateIfRevision } from '../games/core/state.js';
 
 export class RoomError extends Error { constructor(readonly code: string) { super(code); } }
 export function roomPolicy(room: Pick<Room, 'roomPolicyJson' | 'pinHash' | 'viewerRequiresPin'>): RoomPolicy {
@@ -185,9 +187,7 @@ async function setTeam(tx: Prisma.TransactionClient, room: Room, participantId: 
   await tx.teamMembership.create({ data: { roomId: room.id, participationId: participantId, teamId, runIndex: room.runIndex } });
 }
 function shuffled<T>(values: T[]): T[] {
-  const copy = [...values];
-  for (let i = copy.length - 1; i > 0; i--) { const j = randomInt(i + 1); [copy[i], copy[j]] = [copy[j], copy[i]]; }
-  return copy;
+  return shuffleServer(values);
 }
 export interface RoomActor { connectionId?: string; participantId: string; userId: string | null; sessionId?: string; canManage: boolean; permissions: Set<GamePermission> }
 
@@ -210,8 +210,16 @@ export async function mutateRoom(roomId: string, actor: RoomActor, op: RoomOpera
     if (!ownActions.has(op.type) && !actor.canManage && !(op.type === 'TRANSFER' && op.claim)) throw new RoomError('NOT_AUTHORIZED');
     if (['POLICY', 'SCHEDULE', 'OPEN', 'DRAFT', 'CLOSE', 'TRANSFER', 'COHOST', 'INVITE', 'REMATCH', 'LOBBY', 'SWITCH_GAME'].includes(op.type) && !owner && !(op.type === 'TRANSFER' && op.claim)) throw new RoomError('OWNER_REQUIRED');
     const teamEdit = ['TEAM_SELECT', 'TEAM_EDIT', 'TEAMS_ASSIGN'].includes(op.type);
+    let midWidRound = false;
+    if (teamEdit && resolveCanonicalSlug(room.gameDefinition.slug) === 'wer-ist-das' && room.gameState?.phase === 'ROUND_READY') {
+      try {
+        const buzzer = JSON.parse(room.gameState.stateJson)?.buzzer;
+        midWidRound = !!buzzer?.eligiblePlayerIds || (buzzer?.excludedPlayerIds?.length ?? 0) > 0;
+      }
+      catch { midWidRound = true; } // Fail closed on an unreadable round boundary.
+    }
     if (teamEdit && !actor.permissions.has('TEAM_MANAGE') && op.type !== 'TEAM_SELECT') throw new RoomError('NOT_AUTHORIZED');
-    if (teamEdit && room.status === 'RUNNING' && (!actor.permissions.has('TEAM_MANAGE') || !policy.allowTeamReshuffleBetweenRounds || !boundaryPhases.has(room.gameState?.phase ?? '') || op.type !== 'TEAMS_ASSIGN' || !op.override)) throw new RoomError('TEAMS_LOCKED');
+    if (teamEdit && room.status === 'RUNNING' && (!actor.permissions.has('TEAM_MANAGE') || !policy.allowTeamReshuffleBetweenRounds || !boundaryPhases.has(room.gameState?.phase ?? '') || midWidRound || op.type !== 'TEAMS_ASSIGN' || !op.override)) throw new RoomError('TEAMS_LOCKED');
     if (teamEdit && !['LOBBY', 'RUNNING'].includes(room.status)) throw new RoomError('TEAMS_LOCKED');
     const activePlayers = room.participations.filter(p => p.role === 'PLAYER' && p.admission === 'ACTIVE' && !p.leftAt && !p.kickedAt && !p.bannedAt);
     let result: Record<string, unknown> = {};
@@ -286,7 +294,8 @@ export async function mutateRoom(roomId: string, actor: RoomActor, op: RoomOpera
             const state = JSON.parse(room.gameState.stateJson);
             state.scores = { ...state.scores, [p.id]: 0 };
             if (state.playerNames) state.playerNames = { ...state.playerNames, [p.id]: p.displayName };
-            await tx.roomGameState.update({ where: { roomId }, data: { stateJson: JSON.stringify(state), revision: { increment: 1 } } });
+            await saveGameStateIfRevision(tx, { roomId, expectedRevision: room.gameState.revision,
+              gameSlug: room.gameDefinition.slug, state, phase: room.gameState.phase, eventType: 'ROOM_PLAYER_ADMITTED' });
           }
         } else await tx.participation.update({ where: { id: p.id }, data: { admission: 'REJECTED', leftAt: new Date(), activeNameKey: null } });
         break;
@@ -298,7 +307,16 @@ export async function mutateRoom(roomId: string, actor: RoomActor, op: RoomOpera
         const key = normalizedParticipantName(op.name);
         if (room.participations.some(x => x.id !== p.id && !x.leftAt && normalizedParticipantName(x.displayName) === key)) throw new RoomError('NAME_TAKEN');
         await tx.participation.update({ where: { id: p.id }, data: { displayName: op.name, normalizedName: key, activeNameKey: key, nameHistoryJson: JSON.stringify([...JSON.parse(p.nameHistoryJson), p.displayName]) } });
-        if (room.gameState) { const state = JSON.parse(room.gameState.stateJson); if (state.playerNames) { state.playerNames[p.id] = op.name; await tx.roomGameState.update({ where: { roomId }, data: { stateJson: JSON.stringify(state), revision: { increment: 1 } } }); } }
+        if (room.gameState) {
+          const state = JSON.parse(room.gameState.stateJson);
+          if (state.playerNames) {
+            state.playerNames[p.id] = op.name;
+            // Untimed engines resume this saved inner state, not the paused wrapper.
+            if (state.phase === 'PAUSED' && state._roomPause?.playerNames) state._roomPause.playerNames[p.id] = op.name;
+            await saveGameStateIfRevision(tx, { roomId, expectedRevision: room.gameState.revision,
+              gameSlug: room.gameDefinition.slug, state, phase: room.gameState.phase, eventType: 'ROOM_PLAYER_RENAMED' });
+          }
+        }
         break;
       }
       case 'LEAVE': case 'KICK': case 'BAN': case 'UNBAN': case 'TOKEN_ROTATE': {

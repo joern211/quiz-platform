@@ -96,6 +96,7 @@ export interface GeoResyncResponse {
 }
 
 export type ServerToClientEvents = {
+  'game:core:changed': () => void;
   'room:admission': (data: { admission: 'ACTIVE'; status: string; gameSlug: string }) => void;
   'room:probe': (ack: () => void) => void;
   'room:core:changed': () => void;
@@ -147,7 +148,7 @@ export type ServerToClientEvents = {
   'jeopardy:field:open': (data: { categoryIndex: number; value: number; question: string; mediaType?: string; mediaAssetId?: string }) => void;
   'jeopardy:answer:secret': (data: { answer: string }) => void; // Moderator only
   'jeopardy:reveal': (data: { answer: string; correct: boolean; playerId: string; playerName: string; fieldValue: number; delta: number; scores: Record<string, number> }) => void;
-  'jeopardy:steal:open': (data: { categoryIndex: number; value: number; scores?: Record<string, number>; excludedPlayerId?: string }) => void;
+  'jeopardy:steal:open': (data: { categoryIndex: number; value: number; scores?: Record<string, number>; excludedPlayerId?: string; excludedPlayerIds?: string[] }) => void;
   'jeopardy:steal:close': (data: { answer: string; thiefCorrect: boolean; thiefDelta: number; scores: Record<string, number> }) => void;
   'jeopardy:field:done': (data: { categoryIndex: number; value: number }) => void;
   'jeopardy:next': () => void;
@@ -171,6 +172,7 @@ export interface CommandEnvelopeFields {
 }
 
 export type ClientToServerEvents = {
+  'game:buzzer:override': (data: { participantId: string; reason?: string; gameStateVersion: number; runIndex: number } & CommandEnvelopeFields, ack: (res: { success: boolean; error?: string }) => void) => void;
   'weristdas:buzzer:open': (data: Record<string, never> & CommandEnvelopeFields, ack: (res: { success: boolean; error?: string }) => void) => void;
   'weristdas:buzz': (data: Record<string, never> & CommandEnvelopeFields, ack: (res: { success: boolean; error?: string }) => void) => void;
   'weristdas:hint': (data: Record<string, never> & CommandEnvelopeFields, ack: (res: { success: boolean; error?: string }) => void) => void;
@@ -180,6 +182,7 @@ export type ClientToServerEvents = {
   'weristdas:resync': (data: Record<string, never>, ack: (res: { success: boolean; error?: string; state?: WerIstDasView }) => void) => void;
   'room:command': (data: import('@quiz/shared').RoomCommand, ack: (res: CommandResponse) => void) => void;
   'room:core:read': (data: Record<string, never>, ack: (res: { success: boolean; view?: import('@quiz/shared').RoomCoreView }) => void) => void;
+  'game:core:read': (data: Record<string, never>, ack: (res: { success: boolean; error?: string; projection?: import('@quiz/shared').CoreRuntimeProjection }) => void) => void;
   'room:subscribe': (data: { roomCode: string; rejoinToken?: string; pin?: string; inviteToken?: string; role?: PlayerRole }, ack: (res: { success: boolean; error?: string; snapshot?: RoomState; rejoinToken?: string }) => void) => void;
   'room:resync': (data: { roomCode: string; rejoinToken?: string }, ack: (res: { success: boolean; state?: RoomState }) => void) => void;
   'room:kick': (data: { roomCode: string; playerId: string }, ack: (res: { success: boolean; error?: string }) => void) => void;
@@ -223,6 +226,7 @@ export interface JeopardyResyncResponse {
   board2Values?: number[];
   buzzWinnerId?: string | null;
   stealWinnerId?: string | null;
+  stealExcludedPlayerIds?: string[];
   finalScores?: Array<{ playerId: string; playerName: string; score: number }>;
 }
 

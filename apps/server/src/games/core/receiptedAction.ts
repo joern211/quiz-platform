@@ -26,12 +26,16 @@ import { resolveCommandContextForSocket, type CommandContextResult } from './com
 import { requireGamePermission } from './permissions.js';
 import { wireErrorToAppError } from './appError.js';
 import { gameErrorCode } from './errors.js';
+import { assertCoreActionAllowed } from './actions.js';
+import { roomChannel } from '../../sockets/channel.js';
 
 export interface GuardedActionArgs {
   io: Server;
   socket: Socket;
   /** Engine-Aktionsschlüssel (z.B. 'buzz', 'judge'). */
   action: string;
+  /** Server-owned engine binding; never read this value from client payload. */
+  gameSlug?: string;
   /** Für das Receipt: stable, actionsspezifische Keyliste (fachlich relevante Felder). */
   payload: unknown;
   /**
@@ -121,6 +125,7 @@ export async function runGuardedCriticalAction(
   }
 
   const finish = (result: { success: boolean; error?: string; [k: string]: unknown }, replayed?: boolean) => {
+    if (result.success && !replayed || result.error === 'STATE_INVARIANT_FAILED') args.io.to(roomChannel(perm.roomId)).emit('game:core:changed');
     if (!result.success && result.error) {
       const appError = wireErrorToAppError(String(result.error), { context: { action: args.action } });
       callback?.({ ...result, code: appError.code, messageKey: appError.messageKey, traceId: appError.traceId, ...(replayed ? { replayed: true } : {}) });
@@ -140,7 +145,10 @@ export async function runGuardedCriticalAction(
         // Audit PR14, 14-02/14-03: mitgesendete Versionserwartung wird
         // serverseitig gegen die aktuelle Room-Revision geprüft.
         stateVersion: cmdCtx.ctx.envelope?.stateVersion,
-        mutate: () => awaitEngineResult((onResult) => args.handler(onResult)),
+        mutate: async () => {
+          await assertCoreActionAllowed(args.socket, args.action, args.gameSlug, args.payload);
+          return awaitEngineResult((onResult) => args.handler(onResult));
+        },
         toResponse: (d) => d,
       });
       if (receipted.success) {
@@ -156,7 +164,8 @@ export async function runGuardedCriticalAction(
       }
     } catch (error) {
       logger.error(`receipted action ${args.action} threw`, { error });
-      const wireError = gameErrorCode(error);
+      const wireError = gameErrorCode(error, args.gameSlug);
+      if (wireError === 'STATE_INVARIANT_FAILED') args.io.to(roomChannel(perm.roomId)).emit('game:core:changed');
       const appError = wireErrorToAppError(wireError, { internalDetail: error, context: { action: args.action } });
       callback?.({ success: false, outcomeUnknown: true, error: wireError, code: appError.code, messageKey: appError.messageKey, traceId: appError.traceId });
     }
@@ -165,11 +174,13 @@ export async function runGuardedCriticalAction(
 
   // Legacy-Pfad (kein Absichtstoken): bestehendes Verhalten.
   try {
+    await assertCoreActionAllowed(args.socket, args.action, args.gameSlug, args.payload);
     const result = await awaitEngineResult((onResult) => args.handler(onResult));
     finish(result);
   } catch (error) {
     logger.error(`action ${args.action} threw`, { error });
-    const wireError = gameErrorCode(error);
+    const wireError = gameErrorCode(error, args.gameSlug);
+    if (wireError === 'STATE_INVARIANT_FAILED') args.io.to(roomChannel(perm.roomId)).emit('game:core:changed');
     const appError = wireErrorToAppError(wireError, { internalDetail: error, context: { action: args.action } });
     callback?.({ success: false, error: wireError, code: appError.code, messageKey: appError.messageKey, traceId: appError.traceId });
   }
@@ -179,6 +190,7 @@ export async function runGuardedCriticalAction(
 function toReceiptAction(action: string): import('./commands.js').CriticalCommandAction {
   switch (action) {
     case 'buzz': return 'BUZZ';
+    case 'buzzerOverride': return 'BUZZER_OVERRIDE';
     case 'stealBuzz': case 'steal_buzz': return 'STEAL_BUZZ';
     case 'judge': return 'JUDGE';
     case 'stealJudge': case 'steal_judge': return 'STEAL_JUDGE';

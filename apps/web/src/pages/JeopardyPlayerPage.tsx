@@ -5,6 +5,7 @@
 // ============================================================
 
 import { useParams } from 'react-router-dom';
+import { useGameCore } from '../hooks/useGameCore';
 import { useJeopardy } from '../hooks/useJeopardy';
 import { JeopardyBoard } from '../components/jeopardy/JeopardyBoard';
 import { JeopardyQuestion } from '../components/jeopardy/JeopardyQuestion';
@@ -16,6 +17,7 @@ import styles from './JeopardyPlayerPage.module.css';
 export function JeopardyPlayerPage() {
   const { code } = useParams<{ code: string }>();
   const roomCode = code ?? '';
+  const core = useGameCore(roomCode);
   const session = getSessionData();
   const selfId = session.participationId ?? undefined;
 
@@ -45,8 +47,8 @@ export function JeopardyPlayerPage() {
   const hasCurrentField = gameState.currentField !== null;
 
   // I can buzz if I'm in BUZZ_OPEN phase
-  const canBuzz = isBuzzOpen;
-  const canStealBuzz = isStealOpen && selfId !== gameState.stealExcludedId;
+  const canBuzz = isBuzzOpen && core.can('buzz');
+  const canStealBuzz = isStealOpen && !!selfId && !gameState.stealExcludedIds.includes(selfId) && core.can('stealBuzz');
 
   const myScore = selfId ? gameState.scores[selfId] ?? 0 : 0;
 

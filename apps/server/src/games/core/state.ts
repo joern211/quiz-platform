@@ -6,6 +6,8 @@
 import type { Prisma, RoomGameState } from '@prisma/client';
 import { prisma } from '../../persistence/prisma.js';
 import { assertCommandMutation } from './commandExecution.js';
+import { assertGameInvariants } from './invariants.js';
+import { materializeGameEvent } from './events.js';
 
 export class GameStateConflictError extends Error {
   readonly code = 'STATE_CONFLICT';
@@ -42,12 +44,16 @@ export async function upsertGameState<TState>(params: {
   state: TState;
   phase: string;
   engineVersion?: number;
+  gameSlug?: string;
 }): Promise<void> {
   const { roomId, state, phase, engineVersion = 1 } = params;
-  const stateJson = JSON.stringify(state);
+  if (params.gameSlug) assertGameInvariants(params.gameSlug, state, phase);
 
   await prisma.$transaction(async (tx) => {
     await assertCommandMutation(tx, roomId);
+    const before = params.gameSlug ? await tx.roomGameState.findUnique({ where: { roomId } }) : null;
+    const stateJson = params.gameSlug ? await materializeGameEvent(tx, { roomId, gameSlug: params.gameSlug,
+      engineVersion, before, nextState: state, type: before ? undefined : 'GAME_INITIALIZED' }) : JSON.stringify(state);
     await tx.roomGameState.upsert({
       where: { roomId },
       create: {
@@ -78,16 +84,25 @@ export async function saveGameStateIfRevision<TState>(
     expectedRevision: number;
     state: TState;
     phase: string;
+    gameSlug?: string;
+    eventType?: string;
   }
 ): Promise<void> {
   const { roomId, expectedRevision, state, phase } = params;
 
   await assertCommandMutation(tx, roomId);
+  if (params.gameSlug) assertGameInvariants(params.gameSlug, state, phase);
+  let stateJson = JSON.stringify(state);
+  if (params.gameSlug) {
+    const before = await tx.roomGameState.findUnique({ where: { roomId } });
+    if (!before || before.revision !== expectedRevision) throw new GameStateConflictError(roomId);
+    stateJson = await materializeGameEvent(tx, { roomId, gameSlug: params.gameSlug, engineVersion: before.engineVersion, before, nextState: state, type: params.eventType });
+  }
 
   const result = await tx.roomGameState.updateMany({
     where: { roomId, revision: expectedRevision },
     data: {
-      stateJson: JSON.stringify(state),
+      stateJson,
       phase,
       revision: { increment: 1 },
     },
@@ -104,6 +119,7 @@ export async function finishRunningGame<TState extends { phase: string }>(params
   expectedRevision?: number;
   requiredPhase?: string;
   nextState?: (state: TState) => TState;
+  gameSlug?: string;
 }): Promise<{ ended: boolean; state: TState }> {
   return prisma.$transaction(async (tx) => {
     const room = await tx.room.findUniqueOrThrow({ where: { id: params.roomId } });
@@ -123,6 +139,7 @@ export async function finishRunningGame<TState extends { phase: string }>(params
     const endedState = { ...(params.nextState?.(state) ?? state), phase: 'GAME_END' } as TState;
     await saveGameStateIfRevision(tx, {
       roomId: params.roomId, expectedRevision: row.revision, state: endedState, phase: 'GAME_END',
+      gameSlug: params.gameSlug,
     });
     const updated = await tx.room.updateMany({
       where: { id: params.roomId, status: 'RUNNING', revision: room.revision },

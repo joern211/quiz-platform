@@ -8,9 +8,15 @@ export interface CommandExecution {
   expectedRevision?: number;
   recoverySnapshot?: { roomRevision: number; stateRevision: number | null };
   closed: boolean;
+  actorId?: string;
+  action?: string;
 }
 
 const executions = new AsyncLocalStorage<CommandExecution>();
+export function currentCommandMetadata(): { commandId: string | null; actorId: string | null; action: string | null } {
+  const execution = executions.getStore();
+  return { commandId: execution?.commandId ?? null, actorId: execution?.actorId ?? null, action: execution?.action ?? null };
+}
 
 export class CommandExecutionError extends Error {
   constructor(readonly code: 'COMMAND_OWNERSHIP_LOST' | 'REVISION_CONFLICT' | 'COMMAND_STATE_ADVANCED') {

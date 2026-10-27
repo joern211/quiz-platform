@@ -8,7 +8,7 @@ Heads abnehmen. Kein Merge. Pushes sind im Auftrag autorisiert.
 | --- | --- | --- |
 | 1 | PR15: wartende Zuschauer von Spielkanal und Resync trennen | behoben; 28 Raum-/Sockettests und neuer UI-Fall grün; finale CI nach Befund 2 |
 | 2 | PR15: Zuschauerlimit auch bei Zulassung über beide Modelle zählen | behoben; 31 Raum-/Sockettests grün; finale CI am neuen PR15-Head |
-| 3 | PR16/17: Raumänderungen atomar protokollieren, Recovery ohne Verlust | offen |
+| 3 | PR16/17: Raumänderungen atomar protokollieren, Recovery ohne Verlust | PR16-Eventpfad implementiert; PR17-Recovery-Fence folgt |
 | 4 | PR18: ausdrücklich 0 Punkte in der Runtime erhalten | offen |
 | 5 | PR19: Empfangsverbindungen gemeinsam neu aushandeln | offen |
 
@@ -39,3 +39,9 @@ Head prüfen; PR16–19 erhalten diese Änderungen über ihre Vorgänger.
 CI-Nachlauf PR15: native Socket.IO-Raumunion als Array hält auch die vorhandenen
 Transport-Doubles kompatibel; die drei betroffenen Identitäts-/Reconnectfälle
 sind gezielt grün. Finaler vollständiger CI-Lauf folgt auf diesem Head.
+
+Befund 3 / PR16: ADMIT und Runtime-Namensänderungen nutzen den gemeinsamen
+State-CAS mit Domain-Event in derselben Transaktion. Umbenennen während Pause
+aktualisiert auch den persistierten Resume-Zustand. Neue reale Jeopardy-/WID-
+Fälle prüfen lückenlosen Replay, Receipt-Replay, unveränderte Punkte und den
+vollständigen Rollback bei einem fehlgeschlagenen Eventwrite.

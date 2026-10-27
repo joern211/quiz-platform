@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { activateHint, buzz, createWerIstDasState, judge, nextRound, openRoundBuzzer, revealRound } from './state.js';
+import { createTurn } from '../core/roundFlow.js';
 
 describe('Wer ist das? rules', () => {
   const initial = () => createWerIstDasState(2, { alice: 'Alice', bob: 'Bob' });
@@ -10,6 +11,8 @@ describe('Wer ist das? rules', () => {
     const open = openRoundBuzzer(ready);
     const claimed = buzz(open, 'alice');
     expect(claimed.buzzer).toMatchObject({ open: false, winnerId: 'alice' });
+    expect(claimed.answerTurn).toMatchObject({ order: ['alice'], index: 0 });
+    expect(() => judge({ ...claimed, answerTurn: createTurn(['bob']) }, 'BOTH_CORRECT')).toThrow('TURN_OWNER_CONFLICT');
     expect(() => buzz(claimed, 'bob')).toThrow('INVALID_PHASE');
     const result = judge(claimed, 'BOTH_CORRECT');
     expect(result.delta).toBe(3);

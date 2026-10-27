@@ -1,8 +1,15 @@
-import { claimBuzzer, createBuzzerState, openBuzzer, resetBuzzerState, type BuzzerState } from '../core/buzzer.js';
+import { claimBuzzer, createBuzzerState, openBuzzer, resolveBuzzer, isBuzzerEligible, type BuzzerState } from '../core/buzzer.js';
 import { applyScoreDelta, ensureScoreEntries } from '../core/score.js';
 import { WerIstDasPhase } from './contracts.js';
+import { prepareRoundRuntime, transitionRoundState } from '../core/roundTransition.js';
+import type { CoreTurn, CoreRoundTransition } from '@quiz/shared';
+import { advanceRound, createTurn, requireWinningTurn } from '../core/roundFlow.js';
+import { scoreJudgement } from '../core/runtimePrimitives.js';
 
 export interface WerIstDasState {
+  tieStrategy?: 'ALLOW_TIE';
+  lastRoundTransition?: CoreRoundTransition;
+  answerTurn?: CoreTurn | null;
   phase: WerIstDasPhase;
   roundIndex: number;
   roundCount: number;
@@ -23,6 +30,7 @@ export function createWerIstDasState(
 ): WerIstDasState {
   if (!Number.isInteger(roundCount) || roundCount < 1) throw new Error('INVALID_SETUP');
   return {
+    tieStrategy: 'ALLOW_TIE',
     phase: WerIstDasPhase.ROUND_READY,
     roundIndex: 0,
     roundCount,
@@ -47,11 +55,11 @@ function requirePhase(state: WerIstDasState, ...phases: WerIstDasPhase[]) {
 
 export function openRoundBuzzer(state: WerIstDasState): WerIstDasState {
   requirePhase(state, WerIstDasPhase.ROUND_READY);
-  if (Object.keys(state.playerNames).every(id => state.buzzer.excludedPlayerIds.includes(id))) {
+  if (Object.keys(state.playerNames).every(id => !isBuzzerEligible(state.buzzer, id))) {
     throw new InvalidGameAction('NO_ELIGIBLE_PLAYERS');
   }
   return { ...state, phase: WerIstDasPhase.BUZZ_OPEN,
-    buzzer: openBuzzer(state.buzzer, { excludePlayerIds: state.buzzer.excludedPlayerIds }) };
+    buzzer: openBuzzer(state.buzzer, { excludePlayerIds: state.buzzer.excludedPlayerIds, eligiblePlayerIds: state.buzzer.eligiblePlayerIds ?? Object.keys(state.playerNames), mode: state.buzzer.mode === 'TEAM' ? 'TEAM' : 'SELECTED' }) };
 }
 
 export function buzz(state: WerIstDasState, playerId: string): WerIstDasState {
@@ -59,7 +67,7 @@ export function buzz(state: WerIstDasState, playerId: string): WerIstDasState {
   if (!(playerId in state.playerNames)) throw new InvalidGameAction('PLAYER_NOT_IN_GAME');
   const result = claimBuzzer(state.buzzer, playerId);
   if (!result.accepted) throw new InvalidGameAction(result.error);
-  return { ...state, phase: WerIstDasPhase.ANSWERING, buzzer: result.state };
+  return { ...state, phase: WerIstDasPhase.ANSWERING, buzzer: result.state, answerTurn: createTurn([playerId]) };
 }
 
 export function activateHint(state: WerIstDasState): WerIstDasState {
@@ -73,28 +81,31 @@ export function judge(state: WerIstDasState, result: 'BOTH_CORRECT' | 'ONE_CORRE
   requirePhase(state, WerIstDasPhase.ANSWERING);
   const playerId = state.buzzer.winnerId;
   if (!playerId) throw new InvalidGameAction('BUZZ_CLOSED');
+  requireWinningTurn(state.answerTurn, playerId);
   if (result === 'ONE_CORRECT' && !state.hintActive) throw new InvalidGameAction('HINT_REQUIRED');
-  const delta = result === 'WRONG' ? -1 : result === 'BOTH_CORRECT' ? 3 : 1;
-  const next = { ...state, scores: applyScoreDelta(state.scores, playerId, delta), lastDelta: delta };
+  const delta = scoreJudgement(result === 'WRONG' ? 'WRONG' : result === 'BOTH_CORRECT' ? 'CORRECT' : 'PARTIAL', { correct: 3, wrong: -1, partial: 1 });
+  const next = { ...state, answerTurn: null, scores: applyScoreDelta(state.scores, playerId, delta), lastDelta: delta };
   if (result !== 'WRONG') return {
     state: { ...next, phase: WerIstDasPhase.REVEAL, revealed: true, solvedBy: playerId,
-      buzzer: { ...next.buzzer, open: false } }, delta, playerId,
+      buzzer: resolveBuzzer(next.buzzer) }, delta, playerId,
   };
   return { state: { ...next, phase: WerIstDasPhase.ROUND_READY,
-    buzzer: { open: false, winnerId: null,
-      excludedPlayerIds: [...new Set([...state.buzzer.excludedPlayerIds, playerId])] } }, delta, playerId };
+    buzzer: { ...resolveBuzzer(next.buzzer, true), winnerId: null, winnerTeamId: null } }, delta, playerId };
 }
 
 export function revealRound(state: WerIstDasState): WerIstDasState {
   requirePhase(state, WerIstDasPhase.ROUND_READY, WerIstDasPhase.BUZZ_OPEN);
-  return { ...state, phase: WerIstDasPhase.REVEAL, revealed: true,
-    buzzer: { ...state.buzzer, open: false, winnerId: null } };
+  return { ...state, answerTurn: null, phase: WerIstDasPhase.REVEAL, revealed: true,
+    buzzer: { ...resolveBuzzer(state.buzzer), winnerId: null, winnerTeamId: null } };
 }
 
 export function nextRound(state: WerIstDasState, currentRoundId: string): WerIstDasState {
   requirePhase(state, WerIstDasPhase.REVEAL);
-  if (state.roundIndex + 1 >= state.roundCount) throw new InvalidGameAction('LAST_ROUND');
-  return { ...state, roundIndex: state.roundIndex + 1, phase: WerIstDasPhase.ROUND_READY,
-    playedRoundIds: [...state.playedRoundIds, currentRoundId],
-    buzzer: resetBuzzerState(), hintActive: false, solvedBy: null, lastDelta: null, revealed: false };
+  const transition = advanceRound(state.roundIndex, state.roundCount);
+  if (transition.ended) throw new InvalidGameAction('LAST_ROUND');
+  const runtime = prepareRoundRuntime();
+  return transitionRoundState({ gameSlug: 'wer-ist-das', current: state, completedRoundId: currentRoundId,
+    prepared: { ...state, answerTurn: runtime.answerTurn, roundIndex: transition.nextIndex, phase: WerIstDasPhase.ROUND_READY,
+      playedRoundIds: [...state.playedRoundIds, currentRoundId],
+      buzzer: runtime.buzzer, hintActive: false, solvedBy: null, lastDelta: null, revealed: false } });
 }

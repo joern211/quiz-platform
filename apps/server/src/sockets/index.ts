@@ -2,7 +2,11 @@
 // Socket.IO Handler Setup
 // ============================================================
 
+import { registerBuzzerOverride } from '../games/core/buzzerOverride.js';
 import { registerRoomCore } from '../rooms/socket.js';
+import { projectCoreRuntime } from '../games/core/actions.js';
+import { CoreRuleError } from '../games/core/runtimePrimitives.js';
+import { RoomError } from '../rooms/core.js';
 import { Server, Socket } from 'socket.io';
 import { verifySession } from '../auth/session.js';
 import { config } from '../config/index.js';
@@ -65,6 +69,14 @@ export function setupSocketHandlers(io: Server) {
     socket.data = {};
 
     registerRoomCore(io, socket);
+    registerBuzzerOverride(io, socket);
+    socket.on('game:core:read', async (_data, callback) => {
+      try { callback?.({ success: true, projection: await projectCoreRuntime(socket) }); }
+      catch (error) {
+        const code = error instanceof CoreRuleError || error instanceof RoomError ? error.code : 'RECOVERY_REQUIRED';
+        callback?.({ success: false, error: code, ...wireErrorToAppError(code) });
+      }
+    });
 
     // Room subscription
     socket.on('room:subscribe', async (data, callback) => {

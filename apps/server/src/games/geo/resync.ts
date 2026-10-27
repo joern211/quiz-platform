@@ -4,9 +4,13 @@ import { logger } from '../../observability/logger.js';
 import { authorizeGameAction, type GameActor } from '../core/access.js';
 import { loadGameState } from '../core/state.js';
 import { resolveCanonicalSlug } from '@quiz/shared';
+import { canView, visibleValue } from '../core/visibility.js';
+import { ensureGameStateSafe } from '../core/recovery.js';
+import { getGameEngineContract } from '../core/engineContract.js';
 
 type GeoRound = {
-  question: { id: string; prompt: string; category: string; options: Array<{ id: string; text: string }> };
+  question: { id: string; prompt: string; category: string; mediaType?: string; mediaAssetId?: string; imageUrl?: string;
+    options: Array<{ id: string; text: string; label?: string; imageUrl?: string }> };
   timerEndMs: number | null;
   pauseRemainingMs: number | null;
   revealed: boolean;
@@ -18,17 +22,22 @@ type GeoRound = {
   }>;
 };
 
-type GeoState = {
+export type GeoState = {
   phase: string;
   currentRoundIndex: number;
   questions: Array<{ correctOptionId: string; explanation?: string }>;
   roundStates: Record<number, GeoRound>;
   scores: Record<string, number>;
-  recoveryError?: 'CONFIG_SNAPSHOT_INVALID';
+  recoveryError?: 'CONFIG_SNAPSHOT_INVALID' | 'STATE_INVARIANT_FAILED';
 };
 
 /** Only return public state plus the actor's own data. Never serialize questions[] to a socket. */
 export function projectGeoStateForClient(state: GeoState, actor: GameActor) {
+  if (state.phase === 'ERROR_RECOVERY' && state.recoveryError === 'STATE_INVARIANT_FAILED') return {
+    success: true as const, phase: 'ERROR_RECOVERY', recoveryError: state.recoveryError,
+    question: null, timerEndMs: null, pauseRemainingMs: null, scores: {}, revealed: false,
+    roundIndex: 0, totalQuestions: 0,
+  };
   if (state.phase === 'GAME_END') {
     return {
       success: true as const, phase: 'GAME_END', gameEnded: true,
@@ -38,7 +47,8 @@ export function projectGeoStateForClient(state: GeoState, actor: GameActor) {
     };
   }
   const round = state.roundStates[state.currentRoundIndex];
-  const own = actor.role === 'PLAYER' && actor.participationId
+  const audience = { role: actor.role, participantId: actor.participationId };
+  const own = canView(audience, { scope: 'PLAYER_PRIVATE', ownerParticipantId: actor.participationId }) && actor.participationId
     ? round?.playerStates[actor.participationId] : undefined;
   const revealed = round?.revealed ?? false;
   const answerStats: Record<string, number> = {};
@@ -55,9 +65,12 @@ export function projectGeoStateForClient(state: GeoState, actor: GameActor) {
     roundIndex: state.currentRoundIndex,
     totalQuestions: state.questions.length,
     question: round?.question ? {
-      ...round.question,
-      ...(revealed || actor.role === 'HOST'
-        ? { correctOptionId: state.questions[state.currentRoundIndex]?.correctOptionId } : {}),
+      id: round.question.id, prompt: round.question.prompt, category: round.question.category,
+      mediaType: round.question.mediaType, mediaAssetId: round.question.mediaAssetId, imageUrl: round.question.imageUrl,
+      options: round.question.options.map(option => ({ id: option.id, text: option.text,
+        ...(option.label !== undefined ? { label: option.label } : {}), ...(option.imageUrl !== undefined ? { imageUrl: option.imageUrl } : {}) })),
+      ...((revealed || actor.role === 'HOST') ? { correctOptionId: visibleValue(audience,
+        { scope: 'HOST_PRIVATE', publiclyRevealed: revealed }, () => state.questions[state.currentRoundIndex]?.correctOptionId) } : {}),
     } : null,
     recoveryError: state.recoveryError,
     timerEndMs: ['PAUSED', 'ERROR_RECOVERY'].includes(state.phase) ? null : round?.timerEndMs ?? null,
@@ -85,12 +98,13 @@ export function registerGeoResync(_io: Server, socket: Socket): void {
       if (resolveCanonicalSlug(room.gameDefinition.slug) !== resolveCanonicalSlug('geo')) {
         callback?.({ success: false, error: 'WRONG_GAME' }); return;
       }
+      await ensureGameStateSafe(room.id);
       const loaded = await loadGameState<GeoState>(room.id);
       if (!loaded) { callback?.({ success: false, error: 'GAME_NOT_FOUND' }); return; }
-      callback?.(projectGeoStateForClient(loaded.state, auth.actor));
+      callback?.(getGameEngineContract('wissensduell')!.createProjection({ state: loaded.state, setup: {}, actor: auth.actor, participants: [], stateVersion: loaded.revision }));
     } catch (error) {
       logger.error('geo:resync failed', { error });
-      callback?.({ success: false, error: 'INTERNAL_ERROR' });
+      callback?.({ success: false, error: error instanceof Error && error.message === 'STATE_INVARIANT_FAILED' ? 'STATE_INVARIANT_FAILED' : 'INTERNAL_ERROR' });
     }
   });
 }

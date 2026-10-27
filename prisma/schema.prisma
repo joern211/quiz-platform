@@ -220,6 +220,7 @@ model Room {
   participations     Participation[]
   permissionGrants   RoomPermissionGrant[]
   commandReceipts    CommandReceipt[]
+  gameEvents         GameDomainEvent[]
   viewerSessions     ViewerSession[]
   chatMessages       ChatMessage[]
   scoreEvents        ScoreEvent[]
@@ -232,6 +233,26 @@ model Room {
   // (Wiederholung → gleicher Raum). NULL (kein Token) ist in SQLite distinct.
   @@unique([idempotencyKey, createdByUserId])
   @@map("rooms")
+}
+
+// Server-only immutable transition records; never a public snapshot endpoint.
+model GameDomainEvent {
+  id String @id
+  roomId String
+  room Room @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  runIndex Int
+  gameSlug String
+  engineVersion Int
+  baseStateVersion Int
+  stateVersion Int
+  type String
+  commandId String?
+  actorId String?
+  payloadJson String
+  occurredAt DateTime
+  @@unique([roomId, runIndex, stateVersion])
+  @@index([roomId, runIndex, commandId])
+  @@map("game_domain_events")
 }
 
 // ------------------------------------------------------------
