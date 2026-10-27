@@ -10,6 +10,7 @@ import { connectGameClient, gameAck } from '../../test-socket-harness.js';
 import { cancelGeoTimer, handleGeoGame } from '../geo/index.js';
 import { ensureGameStateSafe } from './recovery.js';
 import { readGameResult } from './results.js';
+import { joinPlayer } from '../../rooms/core.js';
 import { socketIdentityMap } from '../../http/middleware/auth.js';
 
 let db: PrismaClient, app: ReturnType<typeof createApp>, origin: string, cookie: string, questionId: string, packId: string;
@@ -188,4 +189,43 @@ it('records an abort without inventing winners and refuses recovery without vali
   const response = await gameAck(broken.host, 'game:recovery:command', { roomCode: broken.code, runIndex: 1, gameStateVersion: frozen.revision, commandId: randomUUID(), operation: 'RESTORE_REPLAY' });
   expect(response).toMatchObject({ success: false, error: 'RECOVERY_EVIDENCE_MISSING' });
   expect((await db.roomGameState.findUniqueOrThrow({ where: { roomId: broken.room.id } })).stateJson).toBe(frozen.stateJson);
+});
+
+it('preserves an admitted and renamed late player across recovery and accepts their next score', async () => {
+  const r = await start(); await play(r, 'jeopardy', false);
+  await db.room.update({ where: { id: r.room.id }, data: { roomPolicyJson: JSON.stringify({ allowLateJoin: true }) } });
+  await gameAck(r.host, 'jeopardy:next', { commandId: randomUUID() });
+  const late = await joinPlayer(r.room.id, { displayName: 'Late before recovery' });
+  const socket = await connect(); expect((await gameAck(socket, 'room:subscribe', { roomCode: r.code, rejoinToken: late.rejoinToken })).success).toBe(true);
+  const roomCommand = (operation: object) => gameAck(r.host, 'room:command', { roomCode: r.code, commandId: randomUUID(), protocolVersion: 1, operation });
+  expect((await roomCommand({ type: 'ADMIT', participantId: late.id, approve: true })).success).toBe(true);
+  expect((await roomCommand({ type: 'RENAME', participantId: late.id, name: 'Late retained' })).success).toBe(true);
+  const before = await db.roomGameState.findUniqueOrThrow({ where: { roomId: r.room.id } });
+  const ledger = await db.scoreEvent.findMany({ where: { roomId: r.room.id } });
+  await db.roomGameState.update({ where: { roomId: r.room.id }, data: { stateJson: '{broken' } });
+  await expect(ensureGameStateSafe(r.room.id)).rejects.toThrow('STATE_INVARIANT_FAILED');
+  const frozen = await db.roomGameState.findUniqueOrThrow({ where: { roomId: r.room.id } });
+  expect((await gameAck(r.host, 'game:recovery:command', { roomCode: r.code, runIndex: 1, gameStateVersion: frozen.revision, commandId: randomUUID(), operation: 'RESTORE_REPLAY' })).success).toBe(true);
+  expect(JSON.parse((await db.roomGameState.findUniqueOrThrow({ where: { roomId: r.room.id } })).stateJson)).toEqual(JSON.parse(before.stateJson));
+  expect(await db.scoreEvent.findMany({ where: { roomId: r.room.id } })).toEqual(ledger);
+  expect((await db.participation.findUniqueOrThrow({ where: { id: late.id } })).admission).toBe('ACTIVE');
+  expect((await gameAck(r.host, 'jeopardy:field:open', { boardIndex: 1, categoryIndex: 0, value: 200, commandId: randomUUID() })).success).toBe(true);
+  expect((await gameAck(socket, 'jeopardy:buzz', { commandId: randomUUID() })).success).toBe(true);
+  expect((await gameAck(r.host, 'jeopardy:judge', { correct: true, commandId: randomUUID() })).success).toBe(true);
+  expect((await db.participation.findUniqueOrThrow({ where: { id: late.id } })).score).toBe(200);
+});
+it('refuses a valid but stale event tail that omits a legacy room mutation', async () => {
+  const r = await start(); await play(r, 'jeopardy', false);
+  const row = await db.roomGameState.findUniqueOrThrow({ where: { roomId: r.room.id } });
+  // Simulate an older deployed writer that committed a runtime change without an event.
+  const state = JSON.parse(row.stateJson); state.playerNames[r.players[0].id] = 'Unlogged committed name';
+  await db.roomGameState.update({ where: { roomId: r.room.id }, data: { stateJson: JSON.stringify(state), revision: { increment: 1 } } });
+  await db.roomGameState.update({ where: { roomId: r.room.id }, data: { stateJson: '{broken' } });
+  await expect(ensureGameStateSafe(r.room.id)).rejects.toThrow('STATE_INVARIANT_FAILED');
+  const frozen = await db.roomGameState.findUniqueOrThrow({ where: { roomId: r.room.id } });
+  const ledger = await db.scoreEvent.findMany({ where: { roomId: r.room.id } });
+  expect(await gameAck(r.host, 'game:recovery:command', { roomCode: r.code, runIndex: 1, gameStateVersion: frozen.revision, commandId: randomUUID(), operation: 'RESTORE_REPLAY' })).toMatchObject({ success: false, error: 'RECOVERY_EVIDENCE_INVALID' });
+  expect(await db.roomGameState.findUniqueOrThrow({ where: { roomId: r.room.id } })).toEqual(frozen);
+  expect(await db.scoreEvent.findMany({ where: { roomId: r.room.id } })).toEqual(ledger);
+  expect(await db.auditLog.count({ where: { resourceId: r.room.id, action: 'RECOVERY_RESTORED' } })).toBe(0);
 });

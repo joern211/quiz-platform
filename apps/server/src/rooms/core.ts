@@ -7,6 +7,7 @@ import { roomEngineRules } from './engineRules.js';
 import { prisma } from '../persistence/prisma.js';
 import { assertCommandMutation } from '../games/core/commandExecution.js';
 import { shuffleServer } from '../games/core/roundFlow.js';
+import { saveGameStateIfRevision } from '../games/core/state.js';
 
 export class RoomError extends Error { constructor(readonly code: string) { super(code); } }
 export function roomPolicy(room: Pick<Room, 'roomPolicyJson' | 'pinHash' | 'viewerRequiresPin'>): RoomPolicy {
@@ -51,6 +52,25 @@ export async function checkAccess(room: Room, role: 'PLAYER' | 'VIEWER', pin?: s
   return mode;
 }
 
+/** Both viewer models share one capacity, checked under the room writer lock. */
+export async function activeViewerCount(db: Prisma.TransactionClient, roomId: string, excludeParticipantId?: string): Promise<number> {
+  return await db.viewerSession.count({ where: { roomId, connected: true } })
+    + await db.participation.count({ where: { roomId, role: 'VIEWER', connected: true, admission: 'ACTIVE',
+      leftAt: null, kickedAt: null, bannedAt: null, ...(excludeParticipantId ? { id: { not: excludeParticipantId } } : {}) } });
+}
+
+export async function reconnectViewer(roomId: string, participantId: string, rejoinToken: string, connectionId: string) {
+  return prisma.$transaction(async tx => {
+    await writeLock(tx, roomId);
+    const room = await tx.room.findUniqueOrThrow({ where: { id: roomId } }); assertRoomLive(room);
+    const participant = await tx.participation.findFirst({ where: { id: participantId, roomId, rejoinToken,
+      role: 'VIEWER', leftAt: null, kickedAt: null, bannedAt: null } });
+    if (!participant) throw new RoomError('NO_PARTICIPATION');
+    if (participant.admission === 'ACTIVE' && await activeViewerCount(tx, roomId, participant.id) >= room.viewerLimit) throw new RoomError('VIEWER_LIMIT_REACHED');
+    return tx.participation.update({ where: { id: participant.id }, data: { connected: true, connectionId, lastSeenAt: new Date() } });
+  });
+}
+
 /** Viewer capacity and invite consumption use the same serialized write as admission. */
 export async function joinViewer(roomId: string, connectionId: string, input: { pin?: string; inviteToken?: string; userId?: string; displayName?: string }) {
   const initial = await prisma.room.findUniqueOrThrow({ where: { id: roomId } });
@@ -63,8 +83,8 @@ export async function joinViewer(roomId: string, connectionId: string, input: { 
     if (room.roomPolicyJson !== initial.roomPolicyJson || room.pinHash !== initial.pinHash) throw new RoomError('ROOM_CHANGED');
     if (input.userId && await tx.participation.findFirst({ where: { roomId, userId: input.userId, bannedAt: { not: null } } })) throw new RoomError('BANNED');
     const existing = input.userId ? await tx.participation.findFirst({ where: { roomId, userId: input.userId, role: 'VIEWER', leftAt: null, kickedAt: null, bannedAt: null } }) : null;
-    const count = await tx.viewerSession.count({ where: { roomId, connected: true } }) + await tx.participation.count({ where: { roomId, role: 'VIEWER', connected: true, admission: 'ACTIVE', bannedAt: null, leftAt: null } });
-    if ((!existing || !existing.connected) && count >= room.viewerLimit) throw new RoomError('VIEWER_LIMIT_REACHED');
+    const admission = existing?.admission ?? (mode === 'APPROVAL_REQUIRED' ? 'PENDING_JOIN' : 'ACTIVE');
+    if (admission === 'ACTIVE' && await activeViewerCount(tx, roomId, existing?.id) >= room.viewerLimit) throw new RoomError('VIEWER_LIMIT_REACHED');
     if (mode === 'INVITE_ONLY') {
       const consumed = await tx.roomInvite.updateMany({ where: { roomId, tokenHash: tokenHash(input.inviteToken!), role: 'VIEWER', usedAt: null, expiresAt: { gt: new Date() } }, data: { usedAt: new Date() } });
       if (consumed.count !== 1) throw new RoomError('INVITE_REQUIRED');
@@ -180,6 +200,8 @@ export async function mutateRoom(roomId: string, actor: RoomActor, op: RoomOpera
     if (actor.userId && (!actor.sessionId || !await tx.session.findFirst({ where: { id: actor.sessionId, userId: actor.userId, revokedAt: null, expiresAt: { gt: new Date() }, user: { disabledAt: null } } }))) throw new RoomError('NOT_AUTHENTICATED');
     const owner = actor.userId === room.hostUserId, policy = roomPolicy(room);
     const self = room.participations.find(p => p.id === actor.participantId);
+    if (actor.connectionId && (!self || !self.connected || self.connectionId !== actor.connectionId || self.leftAt || self.kickedAt || self.bannedAt)) throw new RoomError('NO_PARTICIPATION');
+    if (self && self.admission !== 'ACTIVE' && op.type !== 'LEAVE') throw new RoomError('ADMISSION_REQUIRED');
     const grants = actor.userId ? await tx.roomPermissionGrant.findMany({ where: { roomId, userId: actor.userId, revokedAt: null } }) : [];
     const permissions = effectivePermissions(owner ? 'HOST' : self?.role === 'PLAYER' ? 'PLAYER' : 'VIEWER', policy.coHostEnabled || owner ? grants.filter(g => g.direction === 'GRANT').map(g => g.permission as GamePermission) : [], grants.filter(g => g.direction === 'REVOKE').map(g => g.permission as GamePermission));
     actor = { ...actor, permissions, canManage: permissions.has('PLAYER_MANAGE') || permissions.has('TEAM_MANAGE') || owner };
@@ -265,14 +287,15 @@ export async function mutateRoom(roomId: string, actor: RoomActor, op: RoomOpera
           if (p.role === 'PLAYER' && activePlayers.length >= Math.min(room.maxPlayers, room.gameDefinition.maxPlayers)) throw new RoomError('ROOM_FULL');
           if (room.status === 'RUNNING' && (!policy.allowLateJoin || !boundaryPhases.has(room.gameState?.phase ?? ''))) throw new RoomError('ROUND_BOUNDARY_REQUIRED');
           if (p.role === 'PLAYER' && policy.teamMode !== 'OFF' && !(!op.teamId && policy.teamMode === 'SELF_SELECT') && (!op.teamId || !room.teams.some(t => t.id === op.teamId) || activePlayers.filter(x => x.teamId === op.teamId).length >= policy.maxTeamSize)) throw new RoomError('TEAM_CONFIGURATION_INVALID');
+          if (p.role === 'VIEWER' && p.connected && await activeViewerCount(tx, roomId, p.id) >= room.viewerLimit) throw new RoomError('VIEWER_LIMIT_REACHED');
           await tx.participation.update({ where: { id: p.id }, data: { admission: 'ACTIVE', ready: false } });
-          if (p.role === 'VIEWER' && room.participations.filter(x => x.role === 'VIEWER' && x.connected && x.admission === 'ACTIVE').length >= room.viewerLimit) throw new RoomError('VIEWER_LIMIT_REACHED');
           if (op.teamId && p.role === 'PLAYER') await setTeam(tx, room, p.id, op.teamId);
           if (p.role === 'PLAYER' && room.gameState && room.status === 'RUNNING') {
             const state = JSON.parse(room.gameState.stateJson);
             state.scores = { ...state.scores, [p.id]: 0 };
             if (state.playerNames) state.playerNames = { ...state.playerNames, [p.id]: p.displayName };
-            await tx.roomGameState.update({ where: { roomId }, data: { stateJson: JSON.stringify(state), revision: { increment: 1 } } });
+            await saveGameStateIfRevision(tx, { roomId, expectedRevision: room.gameState.revision,
+              gameSlug: room.gameDefinition.slug, state, phase: room.gameState.phase, eventType: 'ROOM_PLAYER_ADMITTED' });
           }
         } else await tx.participation.update({ where: { id: p.id }, data: { admission: 'REJECTED', leftAt: new Date(), activeNameKey: null } });
         break;
@@ -284,7 +307,16 @@ export async function mutateRoom(roomId: string, actor: RoomActor, op: RoomOpera
         const key = normalizedParticipantName(op.name);
         if (room.participations.some(x => x.id !== p.id && !x.leftAt && normalizedParticipantName(x.displayName) === key)) throw new RoomError('NAME_TAKEN');
         await tx.participation.update({ where: { id: p.id }, data: { displayName: op.name, normalizedName: key, activeNameKey: key, nameHistoryJson: JSON.stringify([...JSON.parse(p.nameHistoryJson), p.displayName]) } });
-        if (room.gameState) { const state = JSON.parse(room.gameState.stateJson); if (state.playerNames) { state.playerNames[p.id] = op.name; await tx.roomGameState.update({ where: { roomId }, data: { stateJson: JSON.stringify(state), revision: { increment: 1 } } }); } }
+        if (room.gameState) {
+          const state = JSON.parse(room.gameState.stateJson);
+          if (state.playerNames) {
+            state.playerNames[p.id] = op.name;
+            // Untimed engines resume this saved inner state, not the paused wrapper.
+            if (state.phase === 'PAUSED' && state._roomPause?.playerNames) state._roomPause.playerNames[p.id] = op.name;
+            await saveGameStateIfRevision(tx, { roomId, expectedRevision: room.gameState.revision,
+              gameSlug: room.gameDefinition.slug, state, phase: room.gameState.phase, eventType: 'ROOM_PLAYER_RENAMED' });
+          }
+        }
         break;
       }
       case 'LEAVE': case 'KICK': case 'BAN': case 'UNBAN': case 'TOKEN_ROTATE': {
@@ -379,6 +411,13 @@ export async function roomView(roomId: string, actor: RoomActor): Promise<RoomCo
   const room = await prisma.room.findUniqueOrThrow({ where: { id: roomId }, include: { gameDefinition: true, participations: true, teams: true, feed: { orderBy: { createdAt: 'desc' }, take: 50 } } });
   const self = room.participations.find(p => p.id === actor.participantId);
   const host = room.participations.find(p => p.userId === room.hostUserId || p.role === 'HOST');
+  if (self && self.admission !== 'ACTIVE') return {
+    gameSlug: room.gameDefinition.slug, history: [], switchOptions: [], revision: room.revision,
+    lifecycle: lifecycle(room), policy: roomPolicy(room), scheduledAt: room.scheduledAt?.toISOString() ?? null,
+    hostStatus: host?.connected ? 'ONLINE' : 'HOST_MISSING', permissions: [], canManage: false, isOwner: false,
+    selfId: self.id, selfAdmission: self.admission, participants: [], teams: [], feed: [],
+    preflight: { status: 'BLOCKED', blockers: ['ADMISSION_REQUIRED'], warnings: [] }, runIndex: room.runIndex,
+  };
   return {
     gameSlug: room.gameDefinition.slug,
     history: (await prisma.roomRun.findMany({ where: { roomId }, orderBy: { runIndex: 'desc' }, take: 20 })).map(run => ({ runIndex: run.runIndex, endedAt: run.endedAt.toISOString(), players: (JSON.parse(run.scoresJson) as Array<{ displayName: string; score: number }>).map(p => ({ displayName: p.displayName, score: p.score })) })),
