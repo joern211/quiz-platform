@@ -29,7 +29,7 @@ export async function ensureGameStateSafe(roomId: string): Promise<void> {
       stateJson: JSON.stringify({ ...(state && typeof state === 'object' && !Array.isArray(state) ? state : {}),
         phase: 'ERROR_RECOVERY', recoveryError: 'STATE_INVARIANT_FAILED',
         // Server-only evidence. Projections must never serialize this object.
-        recoverySnapshotJson: row.stateJson, recoveryIssues: issues }),
+        recoverySnapshotJson: row.stateJson, recoveryIssues: issues, recoveryBaseStateVersion: row.revision }),
     } });
     if (!frozen.count) throw new CoreRuleError('STATE_CONFLICT');
     const updated = await tx.room.updateMany({ where: { id: roomId, revision: room.revision, status: 'RUNNING' },

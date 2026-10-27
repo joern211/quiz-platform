@@ -3,7 +3,7 @@ import { blindRoom } from '../content/blindHost.js';
 // Room Socket Events
 // ============================================================
 
-import { assertRoomLive, RoomError, joinViewer } from '../rooms/core.js';
+import { assertRoomLive, RoomError, joinViewer, reconnectViewer } from '../rooms/core.js';
 import { serializeRoom } from '../rooms/queue.js';
 import { changed } from '../rooms/socket.js';
 import { Server, Socket } from 'socket.io';
@@ -16,6 +16,7 @@ import { resolveCanonicalSlug } from '@quiz/shared';
 import { socketIdentityMap, type Role } from '../http/middleware/auth.js';
 import { requireGamePermission } from '../games/core/permissions.js';
 import { roomChannel } from './index.js';
+import { roomWaitingChannel } from './channel.js';
 
 type AuthenticatedSocket = Socket & {
   user?: { id: string; displayName?: string };
@@ -195,7 +196,10 @@ async function subscribeInRoom(
     }
 
     // Update to connected
-    await prisma.participation.update({
+    if (participation.role === 'VIEWER') {
+      try { await reconnectViewer(room.id, participation.id, rejoinToken, socket.id); }
+      catch (error) { callback?.({ success: false, error: error instanceof RoomError ? error.code : 'NOT_AUTHORIZED' }); return; }
+    } else await prisma.participation.update({
       where: { id: participation.id },
       data: { connected: true, connectionId: socket.id, lastSeenAt: new Date() },
     });
@@ -292,6 +296,7 @@ async function subscribeInRoom(
       if (oldSocket) {
         oldSocket.emit('session:replaced');
         await oldSocket.leave(roomChannel(room.id));
+        await oldSocket.leave(roomWaitingChannel(room.id));
         oldSocket.data = {};
       }
       socketIdentityMap.delete(oldId);
@@ -317,15 +322,18 @@ async function subscribeInRoom(
     roomId: identity.roomId,
   });
 
+  const member = await prisma.participation.findFirst({ where: { id: identity.participationId, roomId: room.id } });
+  const admitted = !member || member.admission === 'ACTIVE';
+  const targetChannel = admitted ? roomChannel(room.id) : roomWaitingChannel(room.id);
   // A socket may belong to one quiz room at a time. Leaving the old channel
   // prevents a valid re-subscription from continuing to receive another room's events.
   for (const joinedRoom of socket.rooms) {
-    if (joinedRoom.startsWith('room_') && joinedRoom !== roomChannel(room.id)) {
+    if (joinedRoom.startsWith('room_') && joinedRoom !== targetChannel) {
       await socket.leave(joinedRoom);
     }
   }
-  // ONLY AFTER identity validated: socket.join(roomChannel(room.id)) (P0-07 fix)
-  await socket.join(roomChannel(room.id));
+  // A pending identity is valid only for its waiting room, never for gameplay.
+  await socket.join(targetChannel);
 
   // Admission/rejoin may await writes while readiness changes independently.
   // Project the committed roster now, never the one loaded before admission.
@@ -346,7 +354,8 @@ async function subscribeInRoom(
       slug: latest.gameDefinition.slug,
       name: latest.gameDefinition.name,
     },
-    players: latest.participations.map(p => ({
+    admission: member?.admission ?? 'ACTIVE',
+    players: (admitted ? latest.participations : []).map(p => ({
       id: p.id,
       displayName: p.displayName,
       role: p.role,
@@ -356,7 +365,7 @@ async function subscribeInRoom(
       avatarMode: p.avatarMode,
       avatarGenerated: p.avatarGenerated ? JSON.parse(p.avatarGenerated) : null,
     })),
-    viewerCount: latest.viewerSessions.filter(vs => vs.connected).length,
+    viewerCount: admitted ? latest.viewerSessions.filter(vs => vs.connected).length : 0,
     revision: latest.revision,
     serverTime: Date.now(),
     gameSlug: latest.gameDefinition.slug,
@@ -376,7 +385,7 @@ async function subscribeInRoom(
   changed(io, latest.id);
 
   // Emit player join only for actual players (not viewers), only to THIS room
-  if (identity.role !== 'VIEWER' && identity.participationId) {
+  if (admitted && identity.role !== 'VIEWER' && identity.participationId) {
     io.to(roomChannel(room.id)).emit('player:join', {
       player: {
         id: identity.participationId,

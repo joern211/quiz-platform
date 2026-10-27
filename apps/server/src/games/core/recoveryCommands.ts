@@ -46,7 +46,11 @@ export function registerRecoveryCommands(io: Server, socket: Socket) {
             if (checkpoint < 0) throw new CoreRuleError('RECOVERY_EVIDENCE_MISSING');
             let replay: EngineStateSnapshot = { roomId, runIndex: data.runIndex, gameSlug: slug, engineVersion: row.engineVersion, stateVersion: events[checkpoint].baseStateVersion, state: {} };
             for (const event of events.slice(checkpoint)) replay = applyStateEvent(replay, JSON.parse(event.payloadJson));
-            if (replay.stateVersion >= row.revision || replay.state.phase === 'ERROR_RECOVERY' || replay.state.phase === 'GAME_END') throw new CoreRuleError('RECOVERY_EVIDENCE_INVALID');
+            // A valid older tail can still omit a committed admission or rename.
+            // Restore only evidence that reaches the exact pre-freeze revision.
+            const frozen = JSON.parse(row.stateJson);
+            const expectedVersion = frozen.recoveryBaseStateVersion ?? row.revision - 1;
+            if (!Number.isSafeInteger(expectedVersion) || expectedVersion !== row.revision - 1 || replay.stateVersion !== expectedVersion || replay.state.phase === 'ERROR_RECOVERY' || replay.state.phase === 'GAME_END') throw new CoreRuleError('RECOVERY_EVIDENCE_INVALID');
             assertGameInvariants(slug, replay.state, String(replay.state.phase));
             const ledger = await tx.scoreEvent.findMany({ where: { roomId, runIndex: data.runIndex } });
             const totals: Record<string, number> = {};

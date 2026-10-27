@@ -8,6 +8,11 @@ test('M4: live audio and independent camera reach a viewer; host mute, release a
     const created = await host.request.post(`${BASE}/api/v1/rooms`, { data: { gameSlug: 'wissensduell', roomName: `Live ${crypto.randomUUID()}`, cameraEnabled: true, viewerRequiresPin: false, idempotencyKey: crypto.randomUUID(), setupSnapshotJson: {} } });
     expect(created.status()).toBe(201); const code = (await created.json()).data.code;
     const h = await host.newPage(), p = await player.newPage(), v = await viewer.newPage();
+    await p.addInitScript(() => {
+      const counter = window as unknown as { reviewMediaOffers: number }; counter.reviewMediaOffers = 0;
+      const createOffer = RTCPeerConnection.prototype.createOffer;
+      RTCPeerConnection.prototype.createOffer = function (...args) { counter.reviewMediaOffers++; return createOffer.apply(this, args); };
+    });
     await h.goto(`${BASE}/moderator/raum/${code}/lobby`);
     await p.goto(`${BASE}/beitreten?code=${code}`); await p.getByLabel('Anzeigename').fill('Live Alice'); await p.getByRole('button', { name: 'Beitreten', exact: true }).click();
     await v.goto(`${BASE}/zuschauen/${code}/lobby`);
@@ -22,6 +27,21 @@ test('M4: live audio and independent camera reach a viewer; host mute, release a
     const audio = vp.getByLabel('Liveaudio Live Alice', { exact: true });
     await expect.poll(() => audio.evaluate((element: HTMLVideoElement) => element.readyState)).toBeGreaterThanOrEqual(2);
     await expect.poll(() => audio.evaluate((element: HTMLVideoElement) => element.currentTime)).toBeGreaterThan(0);
+    // Break only the receiver's tracks. A local close/recreate cannot fix this:
+    // the existing sender must receive fresh routes and produce new offers.
+    const offers = await p.evaluate(() => (window as unknown as { reviewMediaOffers: number }).reviewMediaOffers);
+    for (const media of [audio, camera]) await media.evaluate((element: HTMLMediaElement) => {
+      element.dataset.reviewOldRoute = 'true';
+      (element.srcObject as MediaStream).getTracks().forEach(track => track.stop());
+    });
+    await vp.getByRole('button', { name: 'Medien neu verbinden', exact: true }).click();
+    await expect.poll(() => p.evaluate(() => (window as unknown as { reviewMediaOffers: number }).reviewMediaOffers)).toBeGreaterThan(offers);
+    await expect(audio).not.toHaveAttribute('data-review-old-route', 'true');
+    await expect(camera).not.toHaveAttribute('data-review-old-route', 'true');
+    await expect.poll(() => camera.evaluate((element: HTMLVideoElement) => element.videoWidth)).toBeGreaterThan(0);
+    await expect.poll(() => audio.evaluate((element: HTMLMediaElement) => (element.srcObject as MediaStream).getAudioTracks()[0]?.readyState)).toBe('live');
+    const restartedAt = await audio.evaluate((element: HTMLMediaElement) => element.currentTime);
+    await expect.poll(() => audio.evaluate((element: HTMLMediaElement) => element.currentTime)).toBeGreaterThan(restartedAt);
     await hp.getByRole('button', { name: 'Mikrofon sperren: Live Alice', exact: true }).click();
     await expect(audio).toHaveCount(0); await expect(camera).toBeVisible();
     await expect(pp.getByRole('button', { name: 'Mikrofon einschalten', exact: true })).toBeDisabled();

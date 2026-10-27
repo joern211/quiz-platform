@@ -34,3 +34,24 @@ it('exposes an exact channel label and sends the selected channel without changi
   await userEvent.selectOptions(screen.getByLabelText('Raumsprachkanal', { exact: true }), 'TEAM');
   expect(state.emit).toHaveBeenCalledWith('media:control', { expectedRevision: 3, policy: { channel: 'TEAM' } }, expect.any(Function)); view.unmount();
 });
+
+it('requests an authorized restart for a receive-only viewer and reports a rejected restart', async () => {
+  state.emit.mockImplementation((event, _data, ack) => ack?.(event === 'media:restart' ? { success: false } : { success: true }));
+  const self = { id: 'viewer', name: 'Viewer', role: 'VIEWER', teamId: null, hostMuted: false, cameraHidden: false, mic: false, camera: false };
+  const snapshot: LiveMediaSnapshot = { roomCode: '123-456', selfId: self.id, revision: 1, self, members: [self], routes: [], iceServers: [], canManage: false, policy: LiveMediaPolicySchema.parse({}) };
+  const view = render(<MemoryRouter initialEntries={['/zuschauen/123-456/lobby']}><LiveMediaPanel /></MemoryRouter>);
+  await act(async () => state.handlers.get('media:snapshot')?.(snapshot));
+  await userEvent.click(screen.getByRole('button', { name: 'Medien neu verbinden' }));
+  expect(state.emit).toHaveBeenCalledWith('media:restart', {}, expect.any(Function));
+  expect(screen.getByText('Medien konnten nicht neu verbunden werden. Bitte erneut versuchen.')).toBeVisible(); view.unmount();
+});
+
+it('retries media membership after the waiting viewer is admitted', async () => {
+  let admitted = false;
+  state.emit.mockImplementation((event, _data, ack) => ack?.({ success: event !== 'media:join' || admitted }));
+  const view = render(<MemoryRouter initialEntries={['/zuschauen/123-456/lobby']}><LiveMediaPanel /></MemoryRouter>);
+  expect(state.emit.mock.calls.filter(call => call[0] === 'media:join')).toHaveLength(1);
+  admitted = true;
+  await act(async () => state.handlers.get('room:admission')?.({ admission: 'ACTIVE' }));
+  expect(state.emit.mock.calls.filter(call => call[0] === 'media:join')).toHaveLength(2); view.unmount();
+});

@@ -42,6 +42,7 @@ export interface RoomState {
   status: string;
   runPhase: string;
   gameSlug?: string; // sent by server to enable game-specific navigation
+  admission?: string;
   players: Array<{
     id: string;
     displayName: string;
@@ -101,6 +102,7 @@ export type ServerToClientEvents = {
   'media:closed': () => void;
   'game:result:changed': () => void;
   'game:core:changed': () => void;
+  'room:admission': (data: { admission: 'ACTIVE'; status: string; gameSlug: string }) => void;
   'room:probe': (ack: () => void) => void;
   'room:core:changed': () => void;
   'room:lobby': (data: { roomCode: string }) => void;
@@ -179,6 +181,7 @@ export type ClientToServerEvents = {
   'media:display-link': (data: object, ack: (r: { success: boolean; error?: string; data?: { path: string } }) => void) => void;
   'room:display:subscribe': (data: { roomCode: string; token: string }, ack: (r: { success: boolean; error?: string; data?: { sessionType: 'DISPLAY'; gameSlug: string; roomName: string } }) => void) => void;
   'media:join': (data: object, ack: (r: { success: boolean; error?: string }) => void) => void;
+  'media:restart': (data: object, ack: (r: { success: boolean; error?: string }) => void) => void;
   'media:leave': (data: object, ack?: (r: { success: boolean; error?: string }) => void) => void;
   'media:self': (data: { mic: boolean; camera: boolean; talking: boolean; teamListen: string | null }, ack: (r: { success: boolean; error?: string }) => void) => void;
   'media:control': (data: { expectedRevision: number; policy?: Partial<LiveMediaPolicy>; targetId?: string; hostMuted?: boolean; cameraHidden?: boolean; muteAll?: boolean }, ack: (r: { success: boolean; error?: string }) => void) => void;

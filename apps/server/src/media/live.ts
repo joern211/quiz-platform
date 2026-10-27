@@ -104,7 +104,19 @@ export function setupLiveMedia(io: Server) {
       const hash = JSON.stringify(state); if (snapshots.get(m.id) !== hash) { snapshots.set(m.id, hash); m.socket.emit('media:snapshot', state); }
     }
   }
-  function refresh() { const run = refreshTail.then(refreshInner); refreshTail = run.catch(() => {}); return run; }
+  function refresh(restartSocket?: Socket) {
+    const run = refreshTail.then(async () => {
+      if (restartSocket) {
+        // Rotate both ends together, using current membership and policy. Keeping
+        // consent avoids a reconnect silently enabling or disabling hardware.
+        await member(restartSocket);
+        if (!consent.has(restartSocket.id)) throw new RoomError('MEDIA_NOT_JOINED');
+        for (const [key, route] of routes) if (route.from === restartSocket.id || route.to === restartSocket.id) routes.delete(key);
+      }
+      await refreshInner();
+    });
+    refreshTail = run.catch(() => {}); return run;
+  }
   refreshers.set(io, refresh);
   const timer = setInterval(() => { if (consent.size) void refresh().catch(error => logger.error('Live media refresh failed', { error })); }, 1000); timer.unref();
   io.httpServer?.once('close', () => clearInterval(timer));
@@ -116,6 +128,7 @@ export function setupLiveMedia(io: Server) {
       catch (error) { ack?.({ success: false, error: error instanceof RoomError ? error.code : error instanceof z.ZodError ? 'INVALID_PAYLOAD' : 'MEDIA_UNAVAILABLE' }); }
     });
     register('media:join', 20, async () => { const m = await member(socket); consent.set(socket.id, { roomId: m.roomId, mic: false, camera: false, talking: false, teamListen: null }); snapshots.delete(socket.id); await refresh(); return {}; });
+    register('media:restart', 20, async raw => { z.object({}).strict().parse(raw); await refresh(socket); return {}; });
     register('media:self', 60, async raw => {
       const self = selfSchema.parse(raw), m = await member(socket);
       if (!consent.has(socket.id)) throw new RoomError('MEDIA_NOT_JOINED');

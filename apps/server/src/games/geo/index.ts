@@ -965,7 +965,7 @@ export const handleGeoGame = {
 
           if (isCorrect) {
             // Points with potential risk multiplier
-            let questionPoints = question.points || 100;
+            let questionPoints = question.points ?? 100;
             if (ps.jokers.usedRisk) {
               questionPoints *= 2;
               bonus = questionPoints / 2;

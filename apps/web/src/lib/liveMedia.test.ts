@@ -42,3 +42,23 @@ it('ignores a stale signal after revocation and cannot create an outgoing connec
   transport.update(snapshot('receiver')); transport.update(snapshot('receiver', [])); transport.signal({ routeId: route.id, description: { type: 'offer', sdp: 'late' } });
   await Promise.resolve(); expect(send).not.toHaveBeenCalled(); expect(peers[0].remoteDescription).toBeNull(); transport.close();
 });
+
+it('replaces both peers for rotated route IDs and negotiates a new receive-only stream', async () => {
+  const send = vi.fn(), receive = vi.fn(), remote = vi.fn();
+  const source = new LiveMediaTransport(send, vi.fn(), vi.fn()), receiver = new LiveMediaTransport(receive, remote, vi.fn());
+  source.setStream('audio', stream('same-device')); source.update(snapshot('source')); receiver.update(snapshot('receiver'));
+  await vi.waitFor(() => expect(send).toHaveBeenCalledOnce());
+  receiver.signal(send.mock.calls[0][0]); await vi.waitFor(() => expect(receive).toHaveBeenCalledOnce());
+  const oldPeers = [...peers], replacement = { ...route, id: 'route-restarted' };
+  source.update(snapshot('source', [replacement])); receiver.update(snapshot('receiver', [replacement]));
+  for (const peer of oldPeers) expect(peer.close).toHaveBeenCalledOnce();
+  await vi.waitFor(() => expect(send).toHaveBeenCalledTimes(2));
+  expect(send.mock.calls[1][0]).toMatchObject({ routeId: replacement.id, description: { type: 'offer' } });
+  receiver.signal({ routeId: route.id, description: { type: 'offer', sdp: 'stale' } });
+  receiver.signal(send.mock.calls[1][0]); await vi.waitFor(() => expect(receive).toHaveBeenCalledTimes(2));
+  expect(receive.mock.calls[1][0]).toMatchObject({ routeId: replacement.id, description: { type: 'answer' } });
+  expect(peers[3].getSenders()).toEqual([]);
+  const incoming = stream('restored-remote'); peers[3].ontrack?.({ streams: [incoming] });
+  expect(remote).toHaveBeenLastCalledWith(replacement.id, incoming, replacement);
+  source.close(); receiver.close();
+});

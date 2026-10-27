@@ -160,3 +160,33 @@ it.each(['wissensduell', 'jeopardy'])('derives optional TEAM/PTT phase rules fro
     await self(f.host); expect(views.get(f.host.id!)!.policy).toMatchObject({ channel: 'MAIN', forcePushToTalk: false });
   } finally { cancelGeoTimer(f.room.id); }
 });
+
+it('restarts a receive-only viewer on both ends, isolates other routes and rejects stale signaling', async () => {
+  const f = await fixture(), a = await f.player(), viewer = await socket(), unjoined = await socket();
+  await gameAck(viewer, 'room:subscribe', { roomCode: f.room.code }); await f.enter(viewer); await f.enter(a.client);
+  await gameAck(unjoined, 'room:subscribe', { roomCode: f.room.code });
+  expect((await gameAck(unjoined, 'media:restart', {})).error).toBe('MEDIA_NOT_JOINED');
+  await self(a.client, { mic: true, camera: true });
+  const oldAudio = route(a.client, viewer)!, oldVideo = route(a.client, viewer, 'video')!, unaffected = route(a.client, f.host)!;
+  const policy = views.get(viewer.id!)!.policy;
+  expect((await gameAck(viewer, 'media:restart', { targetId: a.client.id })).error).toBe('INVALID_PAYLOAD');
+  expect((await gameAck(viewer, 'media:restart', {})).success).toBe(true);
+  const audio = route(a.client, viewer)!, video = route(a.client, viewer, 'video')!;
+  expect(audio.id).not.toBe(oldAudio.id); expect(video.id).not.toBe(oldVideo.id);
+  await vi.waitFor(() => expect(views.get(viewer.id!)!.routes.map(r => r.id)).toEqual(expect.arrayContaining([audio.id, video.id])));
+  expect(route(a.client, f.host)!.id).toBe(unaffected.id);
+  expect(views.get(viewer.id!)!.policy).toEqual(policy);
+  expect(views.get(viewer.id!)!.self).toMatchObject({ role: 'VIEWER', mic: false, camera: false });
+  const received: unknown[] = []; viewer.on('media:signal', data => received.push(data));
+  expect((await gameAck(a.client, 'media:signal', { routeId: oldAudio.id, candidate: { candidate: 'old-ice' } })).error).toBe('MEDIA_ROUTE_REVOKED');
+  expect((await gameAck(a.client, 'media:signal', { routeId: audio.id, description: { type: 'offer', sdp: 'v=0\r\nm=audio 9 UDP/TLS/RTP/SAVPF 111\r\na=sendonly\r\n' } })).success).toBe(true);
+  await vi.waitFor(() => expect(received).toHaveLength(1));
+  await f.control({ policy: { channel: 'TEAM' } });
+  expect((await gameAck(viewer, 'media:restart', {})).success).toBe(true); expect(route(a.client, viewer)).toBeUndefined(); expect(route(a.client, viewer, 'video')).toBeDefined();
+  await f.control({ targetId: a.client.id, hostMuted: true, cameraHidden: true });
+  expect((await gameAck(a.client, 'media:restart', {})).success).toBe(true);
+  expect(views.get(a.client.id!)!.routes).toHaveLength(0);
+  expect(views.get(a.client.id!)!.self).toMatchObject({ mic: false, camera: false, hostMuted: true, cameraHidden: true });
+  await db.participation.update({ where: { id: a.p.id }, data: { kickedAt: new Date() } });
+  expect((await gameAck(a.client, 'media:restart', {})).success).toBe(false);
+});
