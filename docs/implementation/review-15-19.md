@@ -35,3 +35,7 @@ Kombinierter PR15-Stand lokal: 31/31 Raum-/Sockettests, neuer Viewer-UI-Fall,
 vollständiger Typecheck sowie Server- und Web-Build grün, Lint ohne Fehler.
 Befund 1 auf GitHub als 94e43ba gesichert. Nach dem zweiten Push CI am neuen
 Head prüfen; PR16–19 erhalten diese Änderungen über ihre Vorgänger.
+
+CI-Nachlauf PR15: native Socket.IO-Raumunion als Array hält auch die vorhandenen
+Transport-Doubles kompatibel; die drei betroffenen Identitäts-/Reconnectfälle
+sind gezielt grün. Finaler vollständiger CI-Lauf folgt auf diesem Head.

@@ -44,13 +44,13 @@ export function revokeParticipantSockets(io: Server, roomId: string, ids: string
   }
 }
 export function closeRoomSockets(io: Server, roomId: string) {
-  io.to(roomChannel(roomId)).to(roomWaitingChannel(roomId)).emit('room:closed');
+  io.to([roomChannel(roomId), roomWaitingChannel(roomId)]).emit('room:closed');
   for (const socket of io.sockets.sockets.values()) if (socket.data.roomId === roomId) {
     void socket.leave(roomChannel(roomId)); void socket.leave(roomWaitingChannel(roomId)); socketIdentityMap.delete(socket.id); socket.data = {};
   }
 }
 export function changed(io: Server, roomId: string) {
-  io.to(roomChannel(roomId)).to(roomWaitingChannel(roomId)).emit('room:core:changed');
+  io.to([roomChannel(roomId), roomWaitingChannel(roomId)]).emit('room:core:changed');
   void prisma.room.findUnique({ where: { id: roomId }, include: {
     participations: { where: { role: { not: 'VIEWER' }, admission: 'ACTIVE', kickedAt: null, bannedAt: null, leftAt: null } },
   } }).then(room => {
