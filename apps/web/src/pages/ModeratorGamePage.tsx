@@ -1,3 +1,4 @@
+import { RecoveryControl } from '../components/RecoveryControl';
 // ============================================================
 // Moderator Game Page (Geo Quiz)
 // ============================================================
@@ -37,12 +38,7 @@ export function ModeratorGamePage() {
     socketRef.current = getSocket();
     const socket = socketRef.current;
 
-    const subscribe = () => {
-      socket.emit('room:subscribe', { roomCode, role: 'HOST' }, (response) => {
-        if (!response.success) {
-          setActionError(`Raumverbindung fehlgeschlagen: ${response.error ?? 'Unbekannter Fehler'}`);
-          return;
-        }
+    const refresh = () => {
         socket.emit('geo:resync', {}, (res) => {
           if (!res.success) return;
           if (res.phase === 'GAME_END') {
@@ -50,7 +46,7 @@ export function ModeratorGamePage() {
             return;
           }
           setRecoveryError(Boolean(res.recoveryError));
-          if (res.recoveryError) setActionError(recoveryMessage);
+          if (res.recoveryError) setActionError(recoveryMessage); else setActionError('');
           if (res.question) setQuestion(res.question);
           setEndsAt(res.timerEndMs ?? 0);
           setRevealed(res.revealed ?? false);
@@ -61,9 +57,18 @@ export function ModeratorGamePage() {
           setCorrectOptionId(res.question?.correctOptionId ?? null);
           setAnswerStats(res.answerStats ?? {});
         });
+    };
+    const subscribe = () => {
+      socket.emit('room:subscribe', { roomCode, role: 'HOST' }, (response) => {
+        if (!response.success) {
+          setActionError(`Raumverbindung fehlgeschlagen: ${response.error ?? 'Unbekannter Fehler'}`);
+          return;
+        }
+        refresh();
       });
     };
 
+    socket.on('game:core:changed', refresh);
     socket.on('connect', () => {
       setConnected(true);
       subscribe();
@@ -123,6 +128,7 @@ export function ModeratorGamePage() {
     });
 
     return () => {
+      socket.off('game:core:changed', refresh);
       disconnectSocket();
     };
   }, [navigate, roomCode]);
@@ -244,7 +250,7 @@ export function ModeratorGamePage() {
 
       <div className={styles.actions}>
         {core.projection && <progress aria-label="Spielfortschritt" max={100} value={core.projection.progress.progressPercent ?? undefined} />}
-        {core.projection?.recoveryRequired && <p role="alert">Der Spielzustand muss geprüft werden. Das Spiel wurde angehalten.</p>}
+        {core.projection?.recoveryRequired && <RecoveryControl projection={core.projection} />}
         {!recoveryError && (!revealed ? (
           <>
             <Button variant="secondary" disabled={!core.can(timerPaused ? 'resume' : 'pause')} onClick={timerPaused ? handleResumeTimer : handlePauseTimer}>

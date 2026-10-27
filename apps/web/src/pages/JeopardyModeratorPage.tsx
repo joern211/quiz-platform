@@ -1,3 +1,4 @@
+import { RecoveryControl } from '../components/RecoveryControl';
 // ============================================================
 // Jeopardy Moderator Page
 // Full game control: board, question, buzzer, judge, next
@@ -73,7 +74,7 @@ export function JeopardyModeratorPage() {
             Jeopardy – Board {gameState.boardNumber}
           </h1>
           {core.projection && <progress aria-label="Spielfortschritt" max={100} value={core.projection.progress.progressPercent ?? undefined} />}
-          {core.projection?.recoveryRequired && <p role="alert">Der Spielzustand muss geprüft werden. Das Spiel wurde angehalten.</p>}
+          {core.projection?.recoveryRequired && <RecoveryControl projection={core.projection} />}
         </div>
       </div>
 

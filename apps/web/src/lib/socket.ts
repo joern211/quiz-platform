@@ -96,6 +96,7 @@ export interface GeoResyncResponse {
 }
 
 export type ServerToClientEvents = {
+  'game:result:changed': () => void;
   'game:core:changed': () => void;
   'room:admission': (data: { admission: 'ACTIVE'; status: string; gameSlug: string }) => void;
   'room:probe': (ack: () => void) => void;
@@ -172,6 +173,7 @@ export interface CommandEnvelopeFields {
 }
 
 export type ClientToServerEvents = {
+  'game:result:read': (data: import('zod').z.infer<typeof import('@quiz/shared').ResultReadSchema>, ack: (res: { success: boolean; data?: unknown; error?: string }) => void) => void;
   'game:buzzer:override': (data: { participantId: string; reason?: string; gameStateVersion: number; runIndex: number } & CommandEnvelopeFields, ack: (res: { success: boolean; error?: string }) => void) => void;
   'weristdas:buzzer:open': (data: Record<string, never> & CommandEnvelopeFields, ack: (res: { success: boolean; error?: string }) => void) => void;
   'weristdas:buzz': (data: Record<string, never> & CommandEnvelopeFields, ack: (res: { success: boolean; error?: string }) => void) => void;
@@ -298,12 +300,21 @@ export function getActiveRoomCode(): string | null {
 
 let socket: Socket<ServerToClientEvents, ClientToServerEvents> | null = null;
 
+type SharedSocket = Socket<ServerToClientEvents, ClientToServerEvents>;
+const socketObservers = new Set<(socket: SharedSocket) => void>();
+/** Persistent views follow the current client when a page disposes and recreates it. */
+export function observeSocket(listener: (socket: SharedSocket) => void): () => void {
+  const current = getSocket(); socketObservers.add(listener); listener(current);
+  return () => { socketObservers.delete(listener); };
+}
+
 export function getSocket(): Socket<ServerToClientEvents, ClientToServerEvents> {
   if (!socket) {
     socket = io('/', {
       transports: ['websocket', 'polling'],
       autoConnect: false,
     });
+    for (const observer of socketObservers) observer(socket);
   }
   return socket;
 }

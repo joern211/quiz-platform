@@ -67,6 +67,7 @@ export interface JeopardyFieldDef {
 // ============================================================
 
 export interface JeopardyGameState {
+  lastResolvedFieldKey?: string;
   tieStrategy?: 'ALLOW_TIE';
   lastRoundTransition?: CoreRoundTransition;
   buzzer?: BuzzerState;
@@ -197,6 +198,7 @@ export function markFieldAnswered(
   return {
     ...state,
     openFields: remainingOpenFields,
+    lastResolvedFieldKey: key,
     currentField: null,
     buzzOpen: false,
     buzzWinner: null,

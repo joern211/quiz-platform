@@ -75,6 +75,7 @@ const PR14_MIGRATIONS = [
   '20261020114000_participation_connection_owner',
   '20261023190000_team_room',
   '20261024180000_game_domain_events',
+  '20261025010000_results_history',
 ];
 
 const SESSION_SECRET = 'ci-test-secret-at-least-32-chars-long';

@@ -369,6 +369,7 @@ export async function mutateRoom(roomId: string, actor: RoomActor, op: RoomOpera
       case 'MESSAGE': break;
       case 'LOBBY': case 'REMATCH': case 'SWITCH_GAME': {
         if (room.status !== 'ENDED') throw new RoomError('GAME_NOT_ENDED');
+        if (op.type === 'REMATCH' && op.runIndex !== undefined && op.runIndex !== room.runIndex) throw new RoomError('STATE_CONFLICT');
         await tx.roomRun.upsert({ where: { roomId_runIndex: { roomId, runIndex: room.runIndex } }, update: {}, create: {
           roomId, runIndex: room.runIndex, gameDefinitionId: room.gameDefinitionId, engineVersion: room.gameState?.engineVersion,
           configSnapshotJson: room.gameConfigSnapshotJson, stateJson: room.gameState?.stateJson, scoresJson: JSON.stringify(room.participations.map(p => ({ id: p.id, displayName: p.displayName, score: p.score, teamId: p.teamId }))), teamsJson: JSON.stringify(room.teams),

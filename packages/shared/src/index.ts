@@ -1629,7 +1629,7 @@ export const RoomOperationSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('INVITE'), role: z.enum(['PLAYER', 'VIEWER']) }),
   z.object({ type: z.literal('MESSAGE'), message: z.string().trim().min(1).max(300) }),
   z.object({ type: z.literal('LOBBY') }),
-  z.object({ type: z.literal('REMATCH') }),
+  z.object({ type: z.literal('REMATCH'), runIndex: z.number().int().positive().optional() }),
   z.object({ type: z.literal('SWITCH_GAME'), gameSlug: z.string(), sourceRoomId: z.string().optional() }),
   z.object({ type: z.literal('CLOSE') }),
   z.object({ type: z.literal('EMERGENCY'), action: z.enum(['ABORT_ROUND', 'RESTART_ROUND', 'SKIP_ROUND', 'ABORT_GAME']), points: z.enum(['KEEP_POINTS', 'ROLLBACK_ROUND_POINTS']) }),
@@ -1664,3 +1664,31 @@ export interface RoomCoreView {
   preflight: { status: 'READY_TO_START' | 'WARNINGS' | 'BLOCKED'; blockers: string[]; warnings: string[] };
   runIndex: number;
 }
+
+// Results lifecycle is separate from the engine's terminal GAME_END subphase.
+export const ResultLifecycleSchema = z.enum(['GAME_END', 'RESULT_REVIEW', 'FINALIZED']);
+export const ResultOperationSchema = z.discriminatedUnion('type', [
+  z.object({ type: z.literal('REVIEW') }).strict(),
+  z.object({ type: z.literal('FINALIZE') }).strict(),
+  z.object({ type: z.enum(['ADJUST', 'AMEND']), participantId: z.string().min(1).max(128), delta: z.number().int().min(-1000000).max(1000000).refine(v => v !== 0), reason: z.string().trim().min(1).max(500), referenceEventId: z.string().min(1).max(128).optional() }).strict(),
+  z.object({ type: z.literal('ROLLBACK'), referenceEventId: z.string().min(1).max(128), reason: z.string().trim().min(1).max(500) }).strict(),
+]);
+export const ResultCommandSchema = z.object({ roomCode: z.string().regex(/^\d{3}-\d{3}$/), runIndex: z.number().int().positive(), resultRevision: z.number().int().positive(),
+  commandId: z.string().min(1).max(128), protocolVersion: z.literal(1).default(1), operation: ResultOperationSchema }).strict();
+export type ResultOperation = z.infer<typeof ResultOperationSchema>;
+export type ResultCommand = z.infer<typeof ResultCommandSchema>;
+export const RecoveryCommandSchema = z.object({ roomCode: z.string().regex(/^\d{3}-\d{3}$/), runIndex: z.number().int().positive(), gameStateVersion: z.number().int().positive(),
+  commandId: z.string().min(1).max(128), protocolVersion: z.literal(1).default(1), operation: z.literal('RESTORE_REPLAY') }).strict();
+export const PublicResultViewSchema = z.object({
+  roomCode: z.string(), roomName: z.string(), status: z.string(), runPhase: z.string(), runIndex: z.number().int().positive(),
+  resultRevision: z.number().int().positive().nullable(), resultStatus: ResultLifecycleSchema.nullable(),
+  game: z.object({ slug: z.string(), name: z.string() }),
+  scores: z.array(z.object({ rank: z.number().int().positive(), participationId: z.string(), displayName: z.string(), role: z.string(), score: z.number().int(), teamId: z.string().nullable().optional() })),
+  teams: z.array(z.object({ id: z.string(), name: z.string(), score: z.number().int(), rank: z.number().int().positive() })).default([]),
+  scoring: z.enum(['INDIVIDUAL_SCORE', 'TEAM_SCORE']).optional(), requiresReview: z.boolean().optional(),
+  endReason: z.string().optional(), aborted: z.boolean().optional(),
+  versions: z.array(z.object({ revision: z.number().int().positive(), kind: z.string(), createdAt: z.string() })).default([]),
+  endedAt: z.string().nullable(),
+});
+export type PublicResultView = z.infer<typeof PublicResultViewSchema>;
+export const ResultReadSchema = z.object({ roomCode: z.string().regex(/^\d{3}-\d{3}$/), runIndex: z.number().int().positive().optional(), revision: z.number().int().positive().optional() }).strict();

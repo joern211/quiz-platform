@@ -221,6 +221,8 @@ model Room {
   permissionGrants   RoomPermissionGrant[]
   commandReceipts    CommandReceipt[]
   gameEvents         GameDomainEvent[]
+  gameResults        GameResultRecord[]
+  roundResults       RoundResultRecord[]
   viewerSessions     ViewerSession[]
   chatMessages       ChatMessage[]
   scoreEvents        ScoreEvent[]
@@ -373,6 +375,9 @@ model ScoreEvent {
   delta          Int
   reason         String
   source         String   @default("auto") // auto | manual
+  roundKey       String?
+  kind           String   @default("GAME_SCORE")
+  referenceEventId String?
   moderatorId    String?
   moderator      User?    @relation(fields: [moderatorId], references: [id])
   createdAt      DateTime @default(now())
@@ -380,6 +385,50 @@ model ScoreEvent {
   @@index([roomId])
   @@index([participationId])
   @@map("score_events")
+}
+
+// Compact historical results. Engine state remains GAME_END for old clients.
+// Lifecycle and the current revision are separate from immutable result versions.
+model GameResultRecord {
+  id String @id @default(uuid())
+  roomId String
+  room Room @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  runIndex Int
+  gameSlug String
+  engineVersion Int
+  status String @default("GAME_END")
+  revision Int @default(1)
+  configSnapshotJson String?
+  endedAt DateTime
+  finalizedAt DateTime?
+  versions GameResultVersion[]
+  @@unique([roomId, runIndex])
+  @@map("game_results")
+}
+model GameResultVersion {
+  id String @id @default(uuid())
+  resultId String
+  result GameResultRecord @relation(fields: [resultId], references: [id], onDelete: Cascade)
+  revision Int
+  kind String
+  actorId String?
+  reason String?
+  dataJson String
+  createdAt DateTime @default(now())
+  @@unique([resultId, revision])
+  @@map("game_result_versions")
+}
+model RoundResultRecord {
+  id String @id @default(uuid())
+  roomId String
+  room Room @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  runIndex Int
+  roundKey String
+  stateVersion Int
+  dataJson String
+  createdAt DateTime @default(now())
+  @@unique([roomId, runIndex, roundKey])
+  @@map("round_results")
 }
 
 // ------------------------------------------------------------
