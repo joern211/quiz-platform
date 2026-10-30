@@ -39,6 +39,9 @@ export interface GuardedActionArgs {
   gameSlug?: string;
   /** Für das Receipt: stable, actionsspezifische Keyliste (fachlich relevante Felder). */
   payload: unknown;
+  /** Keep an existing receipt fingerprint when a formerly ignored wire locator is added.
+   * Scope and validation always use the full payload above. */
+  receiptPayload?: unknown;
   /**
    * Das für die Aktion erforderliche Recht (§2.3). Default:
    * BUZZER_CONTROL (spielerische Basisaktion — PLAYER/HOST-Paket).
@@ -89,6 +92,14 @@ export function awaitEngineResult(
       }
     });
   });
+}
+
+/** These adapters historically stripped roomCode before fingerprinting. The
+ * server-owned roomId and the explicit scope guard still bind the command. */
+export function receiptPayloadWithoutRoomCode(payload: object): object {
+  const { roomCode: _scope, ...intent } = payload as Record<string, unknown>;
+  void _scope;
+  return intent;
 }
 
 export async function runGuardedCriticalAction(
@@ -152,7 +163,7 @@ export async function runGuardedCriticalAction(
         commandId: cmdCtx.ctx.commandId!,
         actor: { actorId: cmdCtx.ctx.actorId, actorRole: perm.role },
         action: toReceiptAction(args.action),
-        payload: args.payload,
+        payload: args.receiptPayload ?? args.payload,
         // Audit PR14, 14-02/14-03: mitgesendete Versionserwartung wird
         // serverseitig gegen die aktuelle Room-Revision geprüft.
         stateVersion: cmdCtx.ctx.envelope?.stateVersion,

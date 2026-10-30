@@ -37,7 +37,10 @@ Gleiche ID + gleicher Akteur + gleiche Absicht liefert die gespeicherte Antwort.
 Gleiche ID mit anderer Aktion/Payload/Akteur ergibt `COMMAND_CONFLICT`.
 Aktuelle Membership/Rechte werden **vor Replay** geprüft; fachliche Phasen erst
 bei neuer Ausführung, damit eine erfolgreiche Absicht nach dem Phasenwechsel
-weiter replaybar bleibt. Die Engine schreibt mit eigener Transaktion/CAS und
+weiter replaybar bleibt. Bei Geo-Antworten, Jeopardy und WID bleibt der früher
+weggeparste Raumcode nach der Scope-Prüfung aus dem Receipt-Fingerprint ausgenommen.
+Dadurch bleiben vor G1 gespeicherte Absichten replaybar; ein fremder Raum wird
+auch bei vorhandenem Erfolg vor dem Replay abgewiesen. Die Engine schreibt mit eigener Transaktion/CAS und
 Command-Fence. Receipt und Engine sind nicht pauschal eine einzige Transaktion:
 bei verlorener Quittung nach bereits beobachteter Zustandsänderung folgt
 `COMMAND_STATE_ADVANCED`/Resync statt erneuter Ausführung.
@@ -102,6 +105,27 @@ ERROR_RECOVERY persistieren; sie führen dabei keine Spielaktion/Neuwertung aus.
 Unbekannte gepinnte Engine-Versionen werden nicht umgeschrieben. Normale
 Projektionen veröffentlichen weder Recovery-Snapshot noch interne Fehlerevidenz.
 
+## Anschlüsse über `room:command`
+
+Diese registrierte API benötigt C, commandId und Protokoll 1; optionales
+stateVersion meint Room.revision. Receipt-Aktion ist ROOM_COMMAND, Payload ist
+die diskriminierte `RoomOperationSchema`-Operation. Aktuelle Membership gilt auch
+vor Replay; `mutateRoom` prüft Rechte/Sitzung/Gerät erneut in seiner Transaktion.
+
+| Operation | Guard und Phase | Persistierte Wirkung / Verbraucher |
+| --- | --- | --- |
+| EMERGENCY / ABORT_GAME / KEEP_POINTS | GAME_ABORT vor Replay und vor neuer Ausführung, RUNNING, realer Engine-Handler | Engine-Ende + Audit/Feed; RoomPanel nutzt Core `end` und GAME_ABORT, kein zusätzliches PLAYER_MANAGE erforderlich. Andere Emergency-/Punktevarianten bleiben ENGINE_ACTION_UNSUPPORTED |
+| LOBBY / REMATCH / SWITCH_GAME | aktueller Owner; ENDED; ggf. erwartete Partie; nur startbare Engine mit gültigem Setup | Archiviert Partie, erhöht runIndex, entfernt aktuellen State, setzt Punkte/Ready/Config zurück; RoomPanel |
+| CLOSE | Owner; laufendes Spiel zuerst beenden | Archiviert, beendet alle Teilnahme-/Viewer-/Display-Sitzungen; RoomPanel |
+| ADMIT | PLAYER_MANAGE; Kapazität, Zulassung/Team-/Rundengrenze | Teilnahme und bei spätem Einstieg S / ROOM_PLAYER_ADMITTED; RoomPanel |
+| RENAME | PLAYER_MANAGE oder eigene Teilnahme in der Lobby; eindeutiger Name | Name + ggf. S / ROOM_PLAYER_RENAMED, einschließlich gespeichertem Pause-State; RoomPanel |
+| TEAM_SELECT / TEAM_EDIT / TEAMS_ASSIGN | eigenes zulässiges Team oder TEAM_MANAGE; Policy/Roster/Rundengrenzen | Teamzuordnung/-daten, Room-Revision und spätere Engine-Rosterübernahme; RoomPanel |
+| TOKEN_ROTATE / INVITE | PLAYER_MANAGE bzw. aktueller Owner **vor Replay**; Mutationsguard erneut in TX | Geräte-/Einladungscredential nur an aktuell Berechtigten; gespeicherte private Receipt-Antwort wird nach Entzug nicht herausgegeben |
+
+Übrige Raumoperationen (Policy, Planung, Sperren, Nachrichten, Moderation,
+Co-Host/Transfer und Verlassen) behalten den geschlossenen Raumvertrag in
+`rooms/core.ts`. Sie erzeugen keine zusätzliche Spiel-Engine.
+
 ## UI-Abgleich und belegte Korrekturen
 
 `availableCoreActions` und `assertCoreActionAllowed` verwenden dasselbe
@@ -118,7 +142,8 @@ Neue Regressionen: `commandBoundary.integration.test.ts` prüft alle 20
 Engine-Wiremutationen mit fremdem Raumcode jeweils mit/ohne Receipt (40
 Ablehnungen mit unverändertem Room/State/Event/Score/Receipt), aktuelle Geräte,
 Pending, Sitzungsentzug, ViewerSession, private Reads, zwei echte Verbraucher
-für Replay und Rechteentzug, Pause/Resume und ERROR_RECOVERY. Eine künstlich
+für Replay und Rechteentzug, Pause/Resume und ERROR_RECOVERY. Hinzu kommen
+Abbruch über die Raumsteuerung sowie Schutz gespeicherter privater Credentials. Eine künstlich
 verzögerte reale Receipt-Übernahme belegt den erneuten Start-Guard nach Entzug.
 `lifecycleBoundary.test.ts` prüft fehlerhafte Nutzdaten und Fehlerprioritäten.
 UI-Nachweise liegen in RoomPanel-, useGameCore-, GeoRecovery- und
@@ -138,7 +163,7 @@ Absichtstoken ist kein Drosselmechanismus. Begründete Limits pro Aktion,
 insbesondere Reads/Spam/Receipt-Wachstum, gehören in G4; es wird kein gemeinsames
 NAT-IP-Limit als vermeintliche Lösung eingeführt.
 
-Raumverwaltung (`room:command`, Kick, Ready, Profil, Lobbychat), HTTP-Editoren
+Weitere Raumverwaltung (Kick, Ready, Profil, Lobbychat), HTTP-Editoren
 und Medienaktionen behalten ihre eigenen Verträge; sie sind keine zusätzlichen
 Spiel-Engine-Befehle. G1 ersetzt diese nicht durch einen Universaldispatcher.
 G2–G5 und die späteren Mechanikcluster bleiben separat offen. Nicht registrierte

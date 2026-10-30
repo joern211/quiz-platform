@@ -18,7 +18,7 @@ import { getGameEngineContract } from '../core/engineContract.js';
 import { JeopardyGameState } from './state.js';
 import { authorizeGameAction, authorizeGameContext } from '../core/access.js';
 import { gameErrorCode } from '../core/errors.js';
-import { runGuardedCriticalAction, type EngineActionResult } from '../core/receiptedAction.js';
+import { runGuardedCriticalAction, receiptPayloadWithoutRoomCode, type EngineActionResult } from '../core/receiptedAction.js';
 import { ensureGameStateSafe } from '../core/recovery.js';
 
 // ── Jeopardy Runtime Payload Validation ──────────────────────
@@ -112,6 +112,7 @@ function runJeopardyCriticalAction(
     action: args.action,
     permission: args.permission,
     payload: args.payload,
+    receiptPayload: receiptPayloadWithoutRoomCode(args.payload as object),
     handler: args.handler,
   }, callback);
 }
@@ -261,6 +262,7 @@ export function registerJeopardyEvents(io: Server, socket: Socket) {
           action: 'boardSwitch',
           permission: 'ROUND_ADVANCE',
           payload: valid,
+          receiptPayload: receiptPayloadWithoutRoomCode(valid),
           handler: async (onResult) => {
             const gameStateRow = await prisma.roomGameState.findUnique({ where: { roomId: room.id } });
             if (!gameStateRow) { onResult({ success: false, error: 'GAME_NOT_FOUND' }); return; }

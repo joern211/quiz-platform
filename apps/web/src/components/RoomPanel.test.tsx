@@ -70,3 +70,12 @@ it('does not offer a start control after GAME_START was revoked from the owner',
   mount();
   expect(screen.queryByRole('button', { name: 'Spiel starten' })).not.toBeInTheDocument();
 });
+
+it('offers abort to the delegated GAME_ABORT actor without unrelated player management', async () => {
+  transport.read = view({ lifecycle: 'GAME_ACTIVE', permissions: ['GAME_ABORT'], canManage: false }); transport.coreActions = ['end'];
+  mount();
+  expect(await screen.findByRole('button', { name: 'Spiel abbrechen' })).toBeEnabled();
+  transport.coreActions = [];
+  await act(async () => transport.replaceSocket?.());
+  expect(screen.getByRole('button', { name: 'Spiel abbrechen' })).toBeDisabled();
+});

@@ -85,12 +85,18 @@ export function registerRoomCore(io: Server, socket: Socket) {
       if (socket.rooms.has(roomWaitingChannel(roomId)) && data.operation.type !== 'LEAVE') throw new RoomError('ADMISSION_REQUIRED');
       const room = await prisma.room.findUniqueOrThrow({ where: { id: roomId }, include: { gameDefinition: true } });
       if (room.code !== data.roomCode) throw new RoomError('WRONG_ROOM');
+      // Replays may return credentials or a control result. Revalidate these
+      // authorities before reading a saved response, not only inside mutateRoom.
+      if (data.operation.type === 'EMERGENCY' && !actor.permissions.has('GAME_ABORT')
+        || data.operation.type === 'TOKEN_ROTATE' && !actor.permissions.has('PLAYER_MANAGE')) throw new RoomError('NOT_AUTHORIZED');
+      if (data.operation.type === 'INVITE' && actor.userId !== room.hostUserId) throw new RoomError('OWNER_REQUIRED');
       const response = await runReceipted<Record<string, unknown> & { success: boolean }>(prisma, {
         roomId, commandId: data.commandId, actor: { actorId: actor.participantId || actor.userId!, actorRole: socket.data.role }, action: 'ROOM_COMMAND', payload: data.operation, stateVersion: data.stateVersion,
         mutate: async () => {
           try {
             if (data.operation.type === 'EMERGENCY') {
-              if (!actor.permissions.has('GAME_ABORT')) throw new RoomError('NOT_AUTHORIZED');
+              const current = await socketRoomActor(socket);
+              if (!current.actor.permissions.has('GAME_ABORT')) throw new RoomError('NOT_AUTHORIZED');
               assertRoomLive(room);
               // Engines only advertise safe implemented emergency actions.
               if (data.operation.action !== 'ABORT_GAME' || data.operation.points !== 'KEEP_POINTS') throw new RoomError('ENGINE_ACTION_UNSUPPORTED');

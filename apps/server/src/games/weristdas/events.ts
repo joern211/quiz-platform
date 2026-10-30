@@ -6,7 +6,7 @@ import { WerIstDasJudgeSchema, WER_IST_DAS_EVENTS } from './contracts.js';
 import { werIstDasGame } from './engine.js';
 import { getGameEngineContract } from '../core/engineContract.js';
 import { InvalidGameAction } from './state.js';
-import { runGuardedCriticalAction, type EngineActionResult } from '../core/receiptedAction.js';
+import { runGuardedCriticalAction, receiptPayloadWithoutRoomCode, type EngineActionResult } from '../core/receiptedAction.js';
 import type { GamePermission } from '@quiz/shared';
 
 type Ack = (result: { success: boolean; error?: string; state?: unknown }) => void;
@@ -65,6 +65,7 @@ export function registerWerIstDasEvents(io: Server, socket: Socket) {
           action,
           permission: WID_ACTION_PERMISSION[action],
           payload: parsed.data,
+          receiptPayload: receiptPayloadWithoutRoomCode(parsed.data),
           handler: (onResult: (r: EngineActionResult) => void) =>
             getGameEngineContract('wer-ist-das')!.handleCommand({ io, socket }, { action, payload: parsed.data })
               .then((result) => onResult(result as EngineActionResult))

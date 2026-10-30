@@ -208,3 +208,42 @@ it('rechecks lifecycle authority after an asynchronous receipt claim', async () 
     expect(after.state).toEqual(before.state); expect(after.room.status).toBe('LOBBY'); expect(after.events).toBe(before.events); expect(after.scores).toBe(before.scores);
   } finally { release(); await response; beforeReceipt = undefined; }
 });
+
+it.each(['wissensduell', 'jeopardy', 'wer-ist-das'] as const)('%s preserves pre-G1 receipt fingerprints when a retry carries the newly retained locator', async slug => {
+  const f = await fixture(slug);
+  const event = slug === 'wissensduell' ? 'geo:answer' : slug === 'jeopardy' ? 'jeopardy:field:open' : 'weristdas:buzzer:open';
+  const client = slug === 'wissensduell' ? f.players[0].client : f.host;
+  const payload = { ...(slug === 'wissensduell' ? { optionId: 'a' } : slug === 'jeopardy' ? { boardIndex: 1, categoryIndex: 0, value: 100 } : {}), commandId: randomUUID() };
+  expect((await gameAck(client, event, payload)).success).toBe(true);
+  const after = await evidence(f.room.id);
+  expect(await gameAck(client, event, { ...payload, roomCode: f.code })).toMatchObject({ success: true, replayed: true });
+  expect(await evidence(f.room.id)).toEqual(after);
+  expect(await gameAck(client, event, { ...payload, roomCode: '999-999' })).toMatchObject({ success: false, error: 'WRONG_ROOM' });
+  expect(await evidence(f.room.id)).toEqual(after);
+});
+
+it.each(['jeopardy', 'wer-ist-das'] as const)('%s applies current abort authority to the room emergency route, including receipt replay', async slug => {
+  const f = await fixture(slug);
+  const payload = { roomCode: f.code, commandId: randomUUID(), protocolVersion: 1, operation: { type: 'EMERGENCY', action: 'ABORT_GAME', points: 'KEEP_POINTS' } };
+  expect((await gameAck(f.host, 'room:command', payload)).success).toBe(true);
+  const after = await evidence(f.room.id); expect(after.room.status).toBe('ENDED');
+  expect(await gameAck(f.host, 'room:command', payload)).toMatchObject({ success: true, replayed: true });
+  await db.roomPermissionGrant.create({ data: { roomId: f.room.id, userId: hostId, permission: 'GAME_ABORT', direction: 'REVOKE', grantedBy: hostId } });
+  expect(await gameAck(f.host, 'room:command', payload)).toMatchObject({ success: false, error: 'NOT_AUTHORIZED' });
+  expect(await evidence(f.room.id)).toEqual(after);
+});
+
+it('does not return saved credentials after permission or ownership is lost', async () => {
+  const f = await fixture('jeopardy', false);
+  const payload = { roomCode: f.code, commandId: randomUUID(), protocolVersion: 1, operation: { type: 'TOKEN_ROTATE', participantId: f.players[0].id } };
+  const issued = await gameAck(f.host, 'room:command', payload); expect(issued.success).toBe(true); expect(issued.rejoinToken).toBeTypeOf('string');
+  await db.roomPermissionGrant.create({ data: { roomId: f.room.id, userId: hostId, permission: 'PLAYER_MANAGE', direction: 'REVOKE', grantedBy: hostId } });
+  const denied = await gameAck(f.host, 'room:command', payload);
+  expect(denied).toMatchObject({ success: false, error: 'NOT_AUTHORIZED' }); expect(denied).not.toHaveProperty('rejoinToken');
+  const invite = { roomCode: f.code, commandId: randomUUID(), protocolVersion: 1, operation: { type: 'INVITE', role: 'VIEWER' } };
+  expect((await gameAck(f.host, 'room:command', invite)).success).toBe(true);
+  const owner = await db.user.create({ data: { role: 'HOST', displayName: 'New owner', passwordHash: 'unused' } });
+  await db.room.update({ where: { id: f.room.id }, data: { hostUserId: owner.id } });
+  const oldOwner = await gameAck(f.host, 'room:command', invite);
+  expect(oldOwner).toMatchObject({ success: false, error: 'OWNER_REQUIRED' }); expect(oldOwner).not.toHaveProperty('inviteToken');
+});
