@@ -142,7 +142,9 @@ export async function restoreActiveTimers(io: Server): Promise<void> {
       try {
         await serializeRoom(candidate.id, async () => {
         const room = await prisma.room.findFirst({ where: { id: candidate.id, status: 'RUNNING', gameDefinition: { slug: { in: slugFilter } } }, include: { gameState: true } });
-        if (!room?.gameState) return;
+        // A paused room must never acquire a live timer, even if its legacy
+        // engine checkpoint still describes INPUT_OPEN and an old deadline.
+        if (!room?.gameState || room.runPhase === 'PAUSED') return;
         await ensureGameStateSafe(room.id);
         const state: GeoGameState = JSON.parse(room.gameState.stateJson);
         if (['INTRO', 'PROMPT'].includes(state.phase)) {
@@ -155,7 +157,7 @@ export async function restoreActiveTimers(io: Server): Promise<void> {
             { runIndex: room.runIndex, roundIndex: state.currentRoundIndex, endsAtMs: round.timerEndMs });
           return;
         }
-        if (state.phase !== 'INPUT_OPEN') return;
+        if (room.runPhase !== 'ROUND_ACTIVE' || state.phase !== 'INPUT_OPEN') return;
         if (!round) return;
         const timer = legacyRoundTimer(round, state.phase);
         if (timer.status !== 'RUNNING' || timer.endsAtMs === null) return;

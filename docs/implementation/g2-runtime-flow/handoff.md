@@ -16,7 +16,8 @@ Kein Merge durch Codex. Voller Umfang und Grenzen: [Matrix](matrix.md).
   Raumwarteschlange bis einschließlich Timerinstallation/-abbruch. Wiederherstellen
   liest den aktuellen State innerhalb dieser Lease; DB-Fences bleiben maßgeblich.
 - Wiederherstellung deckt INTRO, alte PROMPT-Checkpoints, laufende Deadlines und
-  abgelaufene INPUT_LOCKED-Checkpoints ab. PAUSED bewahrt sein Budget.
+  abgelaufene INPUT_LOCKED-Checkpoints ab. PAUSED bewahrt sein Budget; ein
+  pausierter Raum erhält auch bei einem alten INPUT_OPEN-Checkpoint keinen Timer.
 - 5050/Risk prüfen ihre Deadline an der eigenen Persistenzgrenze.
 
 ## Verbraucher und Abnahme
@@ -32,6 +33,9 @@ Kein Merge durch Codex. Voller Umfang und Grenzen: [Matrix](matrix.md).
   separat ausgeführt. Typecheck, Lint (0 Fehler) und beide Builds geprüft.
 - Zwischenstand `550c2c8` früh gepusht; dessen CI meldete zwei ungenutzte Variablen,
   die im anschließenden Verbraucher-/Abnahmestand bereinigt sind.
+- Die volle CI am folgenden Stand deckte die fehlende Prüfung des pausierten
+  Raumstatus bei der Wiederherstellung auf. Dieser Grenzfall ist behoben; der
+  bestehende Socket-Regressionstest bleibt unverändert.
 - Verbindlich für die Freigabe ist die CI/E2E am letzten Head von PR23; ein
   früherer grüner Lauf ist keine Abnahme für einen späteren Code-Head.
 
