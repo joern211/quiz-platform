@@ -60,7 +60,7 @@ const geoHandle: GameHandle = {
   afterStart({ io, room }) {
     // Geo owns its intro-to-first-round transition. Keeping this lifecycle
     // hook in the adapter prevents generic socket code from knowing Geo rules.
-    scheduleGeoIntro(room.id, async () => {
+    return scheduleGeoIntro(room.id, async () => {
       await handleGeoGame.startRound(io, room.code).catch(error => {
         logger.error('Geo intro transition failed', { roomId: room.id, error });
       });
