@@ -17,6 +17,26 @@ import { randomUUID } from 'node:crypto';
 import { logger } from '../../observability/logger.js';
 import type { AppError, ErrorCode } from '@quiz/shared';
 
+const TYPED_ERRORS = new Set(['CoreRuleError', 'RoomError', 'InvalidGameAction', 'GameStateConflictError', 'ConfigSnapshotError']);
+const MESSAGE_KEY = /^[A-Z][A-Z0-9_]{1,63}$/;
+
+/**
+ * Diagnostic-safe description of a failure for the server log. Typed application errors
+ * carry a stable code as their message; for anything else (database, library, runtime) only
+ * the class name and a short machine code are kept — their messages can embed query
+ * arguments, file paths, tokens or answers, and "only in the server log" is no excuse.
+ */
+export function describeInternal(detail: unknown): Record<string, unknown> {
+  if (!(detail instanceof Error)) return { type: typeof detail };
+  const { code } = detail as { code?: unknown };
+  const kind = detail.constructor?.name ?? detail.name;
+  return {
+    name: kind,
+    ...(typeof code === 'string' && MESSAGE_KEY.test(code) ? { code } : {}),
+    ...(TYPED_ERRORS.has(kind) && MESSAGE_KEY.test(detail.message) ? { message: detail.message } : {}),
+  };
+}
+
 /**
  * Erzeugt einen AppError und loggt ihn kontrolliert (traceId verbindet
  * Antwort und Serverlog; der Client erhält dadurch KEINE zusätzlichen
@@ -36,8 +56,11 @@ export function buildAppError(
   } = {},
 ): AppError {
   const traceId = opts.traceId ?? randomUUID();
-  logger.warn(`[APP_ERROR] ${code} ${messageKey}`, { traceId, ...opts.context, ...(opts.internalDetail !== undefined ? { internalDetail: opts.internalDetail } : {}) });
-  const error: AppError = { code, messageKey, traceId };
+  // The wire never carries free text: a message key is a stable identifier or nothing.
+  const safeKey = MESSAGE_KEY.test(messageKey) ? messageKey : messageKey.startsWith('VALIDATION_ERROR') ? 'INVALID_PAYLOAD' : 'INTERNAL_ERROR';
+  const logLine = `[APP_ERROR] ${code} ${safeKey}`, meta = { traceId, ...opts.context, ...(opts.internalDetail !== undefined ? { internalDetail: describeInternal(opts.internalDetail) } : {}) };
+  if (code === 'INTERNAL_ERROR') logger.error(logLine, meta); else logger.warn(logLine, meta);
+  const error: AppError = { code, messageKey: safeKey, traceId };
   if (opts.message !== undefined) error.message = opts.message;
   if (opts.details !== undefined) error.details = opts.details;
   if (opts.retryable !== undefined) error.retryable = opts.retryable;
@@ -115,7 +138,7 @@ export function wireErrorToAppError(
   wireCode: string,
   opts: { context?: Record<string, unknown>; internalDetail?: unknown } = {},
 ): AppError {
-  const code = WIRE_TO_ERROR_CODE[wireCode] ?? 'INTERNAL_ERROR';
+  const code = WIRE_TO_ERROR_CODE[wireCode] ?? (wireCode.startsWith('VALIDATION_ERROR') ? 'INVALID_PAYLOAD' : 'INTERNAL_ERROR');
   const publishable = WIRE_TO_ERROR_CODE[wireCode] !== undefined || wireCode in WIRE_TO_ERROR_CODE;
   return buildAppError(code, wireCode, {
     context: opts.context,

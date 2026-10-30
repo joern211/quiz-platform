@@ -86,7 +86,7 @@ export function setupSocketHandlers(io: Server) {
       try { callback?.({ success: true, projection: await projectCoreRuntime(socket, _data?.roomCode) }); }
       catch (error) {
         const code = error instanceof CoreRuleError || error instanceof RoomError ? error.code : 'RECOVERY_REQUIRED';
-        callback?.({ success: false, error: code, ...wireErrorToAppError(code) });
+        callback?.({ success: false, error: code, ...wireErrorToAppError(code, { internalDetail: error instanceof CoreRuleError || error instanceof RoomError ? undefined : error, context: { action: 'core:read' } }) });
       }
     });
 

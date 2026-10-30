@@ -75,8 +75,7 @@ export function registerRecoveryCommands(io: Server, socket: Socket) {
         } else ack?.(response);
       } catch (error) {
         const code = error instanceof CoreRuleError ? error.code : 'RECOVERY_EVIDENCE_INVALID';
-        logger.warn('Recovery request rejected', { code });
-        ack?.({ success: false, error: code, ...wireErrorToAppError(code) });
+        ack?.({ success: false, error: code, ...wireErrorToAppError(code, { internalDetail: error instanceof CoreRuleError ? undefined : error, context: { action: 'recovery:command' } }) });
       }
     })();
   });

@@ -18,6 +18,7 @@ const sockets: Socket[] = [], roomIds: string[] = [];
 let nextCode = 750000;
 let failEventForRoom: string | undefined;
 let failScoreEventNth: { roomId: string; nth: number } | undefined;
+let failResultVersionOnce = false;
 let questionOverride: string[] | undefined, roomExtras: Record<string, unknown> = {};
 afterEach(() => vi.restoreAllMocks());
 async function connect(auth?: string) { const s = await connectGameClient(origin, auth); sockets.push(s); return s; }
@@ -27,6 +28,9 @@ beforeAll(async () => {
   db.$use(async (params, next) => {
     if (params.model === 'GameDomainEvent' && params.action === 'create' && params.args.data.roomId === failEventForRoom) {
       failEventForRoom = undefined; throw Error('G2_INJECTED_EVENT_FAILURE');
+    }
+    if (params.model === 'GameResultVersion' && params.action === 'create' && failResultVersionOnce) {
+      failResultVersionOnce = false; throw Error('G4_INJECTED_SECRET_sk_live_0123456789abcdef');
     }
     if (params.model === 'ScoreEvent' && params.action === 'create' && failScoreEventNth?.roomId === params.args.data.roomId && --failScoreEventNth!.nth === 0) {
       failScoreEventNth = undefined; throw Error('G4_INJECTED_SCORE_FAILURE');
@@ -185,4 +189,43 @@ it('Limits: buzz spam of a player never stops the host from judging', async () =
   exhaust(f.room.id, alice.id);
   expect(await gameAck(alice.client, 'weristdas:buzz', intent(f.code))).toMatchObject({ error: 'RATE_LIMITED' });
   expect((await gameAck(f.host, 'weristdas:judge', { result: 'WRONG', ...intent(f.code) })).success).toBe(true);
+});
+
+// ── G4 E: failure diagnostics ────────────────────────────────────────────────
+/** Result commands carry the room code, run, revision and a typed operation. */
+const resultCommand = (f: { code: string }, runIndex: number, resultRevision: number, operation: object) =>
+  ({ roomCode: f.code, commandId: randomUUID(), protocolVersion: 1, runIndex, resultRevision, operation });
+async function finishedGame(slug: 'wissensduell' | 'jeopardy' | 'wer-ist-das') {
+  const f = await fixture(slug), [alice] = f.players;
+  if (slug === 'wissensduell') {
+    expect((await gameAck(alice.client, 'geo:answer', { optionId: 'a', ...intent(f.code) })).success).toBe(true);
+    expect((await gameAck(f.host, 'geo:reveal', intent(f.code))).success).toBe(true);
+  } else if (slug === 'jeopardy') {
+    expect((await gameAck(f.host, 'jeopardy:field:open', { boardIndex: 1, categoryIndex: 0, value: 100, ...intent(f.code) })).success).toBe(true);
+    expect((await gameAck(alice.client, 'jeopardy:buzz', intent(f.code))).success).toBe(true);
+    expect((await gameAck(f.host, 'jeopardy:judge', { correct: true, ...intent(f.code) })).success).toBe(true);
+  } else {
+    expect((await gameAck(f.host, 'weristdas:buzzer:open', intent(f.code))).success).toBe(true);
+    expect((await gameAck(alice.client, 'weristdas:buzz', intent(f.code))).success).toBe(true);
+    expect((await gameAck(f.host, 'weristdas:judge', { result: 'BOTH_CORRECT', ...intent(f.code) })).success).toBe(true);
+  }
+  expect((await gameAck(f.host, 'game:end', intent(f.code))).success).toBe(true);
+  return f;
+}
+const logLines = () => (vi.mocked(console.warn).mock.calls.concat(vi.mocked(console.error).mock.calls, vi.mocked(console.info).mock.calls)).map(c => c.join(' '));
+
+it('Errors: an unexpected result-write failure rolls back, answers with a trace id that finds the diagnostic line, and leaks nothing', async () => {
+  const f = await finishedGame('wissensduell');
+  const before = await effects(f.room.id), versions = await db.gameResultVersion.count();
+  vi.spyOn(console, 'warn'); vi.spyOn(console, 'error'); vi.spyOn(console, 'info');
+  failResultVersionOnce = true;
+  const failed = await gameAck(f.host, 'game:result:command', resultCommand(f, 1, 1, { type: 'REVIEW' }));
+  expect(failed).toMatchObject({ success: false, code: 'INTERNAL_ERROR', traceId: expect.any(String) });
+  expect(JSON.stringify(failed)).not.toMatch(/G4_INJECTED|sk_live/);
+  const lines = logLines();
+  expect(lines.filter(l => l.includes(String(failed.traceId))).some(l => l.includes('internalDetail'))).toBe(true); // the detail line carries the same trace id
+  expect(lines.join('\n')).not.toMatch(/G4_INJECTED|sk_live/);
+  expect(await effects(f.room.id)).toEqual(before);
+  expect(await db.gameResultVersion.count()).toBe(versions);
+  expect((await gameAck(f.host, 'game:result:command', resultCommand(f, 1, 1, { type: 'REVIEW' }))).success).toBe(true);
 });

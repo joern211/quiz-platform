@@ -3,7 +3,7 @@ import type { Prisma } from '@prisma/client';
 import { ResultCommandSchema, ResultReadSchema, effectivePermissions, type ResultCommand, type GamePermission } from '@quiz/shared';
 import { prisma } from '../../persistence/prisma.js';
 import { socketRoomActor, changed } from '../../rooms/socket.js';
-import { audit, feed, roomPolicy, type RoomActor } from '../../rooms/core.js';
+import { audit, feed, roomPolicy, RoomError, type RoomActor } from '../../rooms/core.js';
 import { roomChannel } from '../../sockets/channel.js';
 import { assertCommandMutation } from './commandExecution.js';
 import { runReceipted } from './commands.js';
@@ -12,7 +12,6 @@ import { saveGameStateIfRevision } from './state.js';
 import { StoredGameResultSchema, readGameResult, publicResultView } from './results.js';
 import { rankScores } from './roundFlow.js';
 import { wireErrorToAppError } from './appError.js';
-import { logger } from '../../observability/logger.js';
 import { isOwnKnownIntent, limitAction, limitSocketRead } from './limitGuard.js';
 
 async function assertResultPermission(tx: Prisma.TransactionClient, roomId: string, actor: RoomActor) {
@@ -123,7 +122,11 @@ export function registerResultCommands(io: Server, socket: Socket) {
         const read = await readGameResult(roomId, parsed.data.runIndex ?? room.runIndex, parsed.data.revision);
         if (!read) throw new CoreRuleError('RESULT_NOT_FOUND');
         ack?.({ success: true, data: publicResultView(room.code, read) });
-      } catch (error) { ack?.({ success: false, error: error instanceof CoreRuleError ? error.code : 'RESULT_NOT_FOUND' }); }
+      } catch (error) {
+        // Unexpected failures are no "not found": they get a diagnostic line under the answer's trace id.
+        const code = error instanceof CoreRuleError || error instanceof RoomError ? error.code : 'INTERNAL_ERROR';
+        ack?.({ success: false, error: code, ...wireErrorToAppError(code, { internalDetail: error, context: { action: 'result:read' } }) });
+      }
     })();
   });
 
@@ -147,9 +150,8 @@ export function registerResultCommands(io: Server, socket: Socket) {
           if (!response.replayed) { io.to(roomChannel(roomId)).emit('game:result:changed'); io.to(roomChannel(roomId)).emit('game:core:changed'); changed(io, roomId); }
         } else ack?.(response);
       } catch (error) {
-        const code = error instanceof CoreRuleError ? error.code : 'INTERNAL_ERROR';
-        if (code === 'INTERNAL_ERROR') logger.error('Result command failed', { error });
-        ack?.({ success: false, error: code, ...wireErrorToAppError(code) });
+        const code = error instanceof CoreRuleError || error instanceof RoomError ? error.code : 'INTERNAL_ERROR';
+        ack?.({ success: false, error: code, ...wireErrorToAppError(code, { internalDetail: error, context: { action: 'result:command' } }) });
       }
     })();
   });
