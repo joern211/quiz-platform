@@ -35,13 +35,20 @@ neuen Eingabeoptionen, Tabellen, Editoren; kein UI-Redesign; SKILL.md unverände
 - Fachliche DEC-Punkte aus Matrix E (LMS, SAM, SCH, HOL, SLF, TIM, WOF, MIL, SPI, SNG,
   DDF-01…06) sind Entscheidungen des Nutzers, nichts davon wurde festgelegt.
 
-## Prüfstand
+## Prüfstand (lokal, Code-Head ohne spätere Doku-Änderungen)
 
-Siehe PR-Beschreibung für Befehle, Zahlen und CI-Head. Lokal ausgeführt wird die
-Gesamtabnahme erst am letzten Code-Head; ältere Läufe gelten nicht für spätere
-Commits. Vorbestehend: `rate-limiter.integration.test.ts` startet einen
-Kindprozess und scheitert bei hoher paralleler Last mit „Server startup timed out“
-(im Basislauf ohne G3-Änderung aufgetreten, isoliert grün — siehe PR).
+- `pnpm typecheck` sauber; `pnpm lint` 0 Fehler (111 vorbestehende Warnungen).
+- `pnpm build` erfolgreich.
+- `pnpm --filter @quiz/server test`: 625 bestanden, 3 übersprungen, 1 Datei
+  fehlgeschlagen: `http/rate-limiter.integration.test.ts` („Server startup timed
+  out“, Produktions-Kindprozess). **Vorbestehend:** identisch im Basislauf auf
+  unverändertem main `3d28d6f` und isoliert reproduzierbar; Ursache hier nicht
+  untersucht (vermutlich Sandbox). Die CI muss dies bestätigen.
+- `pnpm --filter @quiz/web test`: 161 bestanden.
+- Playwright-E2E (Befehl gemäß ci.yml, frische Test-DB): 34 bestanden.
+- Neue Tests: 19 + 3 + 3 (siehe Matrix), alle grün.
+- **Remote/CI offen:** Push war beim Erstellen mit 403 (GitHub-Zugriff der Session)
+  nicht möglich; es gibt keinen CI-Lauf für diesen Head.
 
 ## Unmittelbar nächster Schritt
 
