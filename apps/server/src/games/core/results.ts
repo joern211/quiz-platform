@@ -114,10 +114,17 @@ export async function readGameResult(roomId: string, runIndex: number, revision?
   return { row, version, summary };
 }
 
+/** Result status a stored revision had when it was written (the record's own status is always the latest one). */
+const STATUS_AT_REVISION: Record<string, 'GAME_END' | 'RESULT_REVIEW' | 'FINALIZED'> = {
+  GAME_ENDED: 'GAME_END', REVIEW: 'RESULT_REVIEW', ADJUST: 'RESULT_REVIEW', ROLLBACK: 'RESULT_REVIEW', FINALIZE: 'FINALIZED', RESULT_AMENDMENT: 'FINALIZED',
+};
+
 export function publicResultView(roomCode: string, read: NonNullable<Awaited<ReturnType<typeof readGameResult>>>) {
   const { row, summary, version } = read;
   return { roomCode, roomName: summary.roomName, status: 'ENDED', runPhase: row.status,
     runIndex: row.runIndex, resultRevision: version.revision, resultStatus: row.status,
+    // `resultStatus` is always the record's CURRENT status; these say what the addressed revision itself was.
+    latestRevision: row.revision, isLatestRevision: version.revision === row.revision, revisionKind: version.kind, statusAtRevision: STATUS_AT_REVISION[version.kind] ?? null,
     game: { slug: row.gameSlug, name: summary.gameName }, engineVersion: row.engineVersion,
     scores: summary.result.participants.map(p => ({ rank: p.rank, participationId: p.participantId, displayName: p.displayName, role: 'PLAYER', score: p.score, delta: p.delta, teamId: p.teamId })),
     teams: summary.teams, scoring: summary.scoring,

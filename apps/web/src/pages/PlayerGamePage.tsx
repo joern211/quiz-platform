@@ -1,3 +1,4 @@
+import { failureText } from '../lib/commandErrors';
 import { useGameCore } from '../hooks/useGameCore';
 import { ContentMedia } from '../components/ContentMedia';
 // ============================================================
@@ -177,7 +178,7 @@ export function PlayerGamePage() {
       } else {
         setSelectedOption(null);
         setLocked(false);
-        setActionError(response.error === 'STALE_ROUND' ? 'Die Frage hat gewechselt. Deine Antwort wurde nicht gezählt.' : 'Antwort konnte nicht gespeichert werden.');
+        setActionError(response.error === 'STALE_ROUND' ? 'Die Frage hat gewechselt. Deine Antwort wurde nicht gezählt.' : failureText(response, 'Antwort konnte nicht gespeichert werden.'));
       }
     });
   };
@@ -189,7 +190,7 @@ export function PlayerGamePage() {
     emitCommand(socketRef.current, 'geo:joker:5050', {
       roomCode,
     }, `${roomCode}:geo:joker:5050:${question?.id ?? 'q'}`, (response) => {
-      if (!response.success) setActionError(`50:50-Joker fehlgeschlagen: ${response.error ?? 'Unbekannter Fehler'}`);
+      if (!response.success) setActionError(failureText(response, `50:50-Joker fehlgeschlagen: ${response.error ?? 'Unbekannter Fehler'}`));
     });
   };
 
@@ -200,7 +201,7 @@ export function PlayerGamePage() {
     emitCommand(socketRef.current, 'geo:joker:spy', {
       roomCode,
     }, `${roomCode}:geo:joker:spy:${question?.id ?? 'q'}`, (response) => {
-      if (!response.success) setActionError(`Spy-Joker fehlgeschlagen: ${response.error ?? 'Unbekannter Fehler'}`);
+      if (!response.success) setActionError(failureText(response, `Spy-Joker fehlgeschlagen: ${response.error ?? 'Unbekannter Fehler'}`));
     });
   };
 
@@ -211,7 +212,7 @@ export function PlayerGamePage() {
     emitCommand(socketRef.current, 'geo:joker:risk', {
       roomCode,
     }, `${roomCode}:geo:joker:risk:${question?.id ?? 'q'}`, (response) => {
-      if (!response.success) setActionError(`Risk-Joker fehlgeschlagen: ${response.error ?? 'Unbekannter Fehler'}`);
+      if (!response.success) setActionError(failureText(response, `Risk-Joker fehlgeschlagen: ${response.error ?? 'Unbekannter Fehler'}`));
     });
   };
 

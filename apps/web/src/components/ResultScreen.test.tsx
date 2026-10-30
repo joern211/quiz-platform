@@ -65,3 +65,26 @@ it('shows one shared rematch control and pins its intent to the displayed run', 
   const buttons = screen.getAllByRole('button', { name: 'Revanche vorbereiten' }); expect(buttons).toHaveLength(1);
   await userEvent.click(buttons[0]); expect(transport.command.mock.calls[0][2].operation).toEqual({ type: 'REMATCH', runIndex: 1 });
 });
+
+it('explains a refused result command as protection, not as an unconfirmed correction, and allows a later retry', async () => {
+  transport.permissions = ['SCORE_ADJUST']; mount(); const button = await screen.findByRole('button', { name: 'Ergebnisprüfung beginnen' });
+  await userEvent.click(button);
+  await act(async () => transport.command.mock.calls[0][4]({ success: false, error: 'RATE_LIMITED', code: 'RATE_LIMITED', retryable: true, details: { retryAfterMs: 800 } }));
+  expect(screen.getByRole('alert')).toHaveTextContent('Zu viele Aktionen');
+  expect(screen.getByRole('alert')).not.toHaveTextContent('Aktion nicht bestätigt');
+  expect(button).not.toBeDisabled();
+});
+
+it('separates a historical revision from the live status and never offers corrections on it', async () => {
+  transport.permissions = ['SCORE_ADJUST'];
+  vi.mocked(fetch).mockImplementation(async (url) => ({ ok: true, json: async () => ({ success: true, data: String(url).includes('revision=1')
+    ? { ...data, resultRevision: 1, resultStatus: 'FINALIZED', latestRevision: 3, isLatestRevision: false, statusAtRevision: 'GAME_END', revisionKind: 'GAME_ENDED',
+        versions: [{ revision: 1, kind: 'GAME_ENDED', createdAt: '' }, { revision: 2, kind: 'FINALIZE', createdAt: '' }, { revision: 3, kind: 'RESULT_AMENDMENT', createdAt: '' }] }
+    : { ...data, resultRevision: 3, resultStatus: 'FINALIZED', latestRevision: 3, isLatestRevision: true, statusAtRevision: 'FINALIZED', revisionKind: 'RESULT_AMENDMENT',
+        versions: [{ revision: 1, kind: 'GAME_ENDED', createdAt: '' }, { revision: 2, kind: 'FINALIZE', createdAt: '' }, { revision: 3, kind: 'RESULT_AMENDMENT', createdAt: '' }] } }) }) as Response);
+  mount(); await screen.findByText('Verbindlich bestätigt');
+  await userEvent.selectOptions(screen.getByLabelText('Ergebnisversion'), '1');
+  expect(await screen.findByText(/Historische Version 1 von 3 · damals: Spiel beendet, noch nicht bestätigt/)).toBeInTheDocument();
+  expect(screen.queryByText('Verbindlich bestätigt')).not.toBeInTheDocument();
+  expect(screen.queryByRole('button', { name: 'Korrektur speichern' })).not.toBeInTheDocument();
+});

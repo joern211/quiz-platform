@@ -1683,6 +1683,8 @@ export const RecoveryCommandSchema = z.object({ roomCode: z.string().regex(/^\d{
 export const PublicResultViewSchema = z.object({
   roomCode: z.string(), roomName: z.string(), status: z.string(), runPhase: z.string(), runIndex: z.number().int().positive(),
   resultRevision: z.number().int().positive().nullable(), resultStatus: ResultLifecycleSchema.nullable(),
+  latestRevision: z.number().int().positive().optional(), isLatestRevision: z.boolean().optional(),
+  revisionKind: z.string().optional(), statusAtRevision: ResultLifecycleSchema.nullable().optional(),
   game: z.object({ slug: z.string(), name: z.string() }),
   scores: z.array(z.object({ rank: z.number().int().positive(), participationId: z.string(), displayName: z.string(), role: z.string(), score: z.number().int(), teamId: z.string().nullable().optional() })),
   teams: z.array(z.object({ id: z.string(), name: z.string(), score: z.number().int(), rank: z.number().int().positive() })).default([]),

@@ -3,6 +3,7 @@
 // Phase 5: Unified hook for moderator, player, spectator
 // ============================================================
 
+import { failureText } from '../lib/commandErrors';
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { getSocket, connectSocket, disconnectSocket, getSessionData, emitCommand, type PlayerRole, type JeopardyResyncResponse } from '../lib/socket';
 
@@ -403,7 +404,7 @@ export function useJeopardy(roomCode: string, role: PlayerRole) {
     // zulässige Absicht erhält ein frisches Token.
     emitCommand(socketRef.current, 'jeopardy:buzz', {}, `${roomCode}:jp:buzz:${fieldKey()}`, (res: { success: boolean; error?: string }) => {
       if (!res.success && res.error !== 'BUZZER_ALREADY_WON') {
-        setError(`Buzzer fehlgeschlagen: ${res.error}`);
+        setError(failureText(res, `Buzzer fehlgeschlagen: ${res.error}`));
       }
     });
   }, [roomCode]);
@@ -419,7 +420,7 @@ export function useJeopardy(roomCode: string, role: PlayerRole) {
         { correct, ...(attemptId ? { attemptId } : {}) },
         `${roomCode}:jp:judge:${fieldKey()}:${attemptId ?? ''}:${correct}`,
         (res: { success: boolean; error?: string }) => {
-          if (!res.success) setError(`Urteil fehlgeschlagen: ${res.error}`);
+          if (!res.success) setError(failureText(res, `Urteil fehlgeschlagen: ${res.error}`));
         }
       );
     },
@@ -435,7 +436,7 @@ export function useJeopardy(roomCode: string, role: PlayerRole) {
       `${roomCode}:jp:stealBuzz:${fieldKey()}`,
       (res: { success: boolean; error?: string }) => {
         if (!res.success && res.error !== 'STEAL_ALREADY_WON') {
-          setError(`Abstauber-Buzzer fehlgeschlagen: ${res.error}`);
+          setError(failureText(res, `Abstauber-Buzzer fehlgeschlagen: ${res.error}`));
         }
       }
     );
@@ -451,7 +452,7 @@ export function useJeopardy(roomCode: string, role: PlayerRole) {
         { correct, ...(attemptId ? { attemptId } : {}) },
         `${roomCode}:jp:stealJudge:${fieldKey()}:${attemptId ?? ''}:${correct}`,
         (res: { success: boolean; error?: string }) => {
-          if (!res.success) setError(`Abstauber-Urteil fehlgeschlagen: ${res.error}`);
+          if (!res.success) setError(failureText(res, `Abstauber-Urteil fehlgeschlagen: ${res.error}`));
         }
       );
     },

@@ -247,27 +247,29 @@ async function totals(roomId: string, runIndex: number) {
 }
 
 /** Plays a game to its regular end (COMPLETED); returns the expected final scores. */
-async function completedGame(slug: Slug, scoreless = false) {
-  const f = await fixture(slug), [alice, bob] = f.players, ok = async (client: Socket, event: string, payload: object = {}) =>
+async function completedGame(slug: Slug, scoreless = false, teams = false) {
+  const f = await fixture(slug, true, true, teams), [alice, bob] = f.players, ok = async (client: Socket, event: string, payload: object = {}) =>
     expect((await gameAck(client, event, { ...payload, ...intent(f.code) })).success, event).toBe(true);
+  if (teams) await db.room.update({ where: { id: f.room.id }, data: { roomPolicyJson: JSON.stringify({ ...JSON.parse((await db.room.findUniqueOrThrow({ where: { id: f.room.id } })).roomPolicyJson!), scoring: 'TEAM_SCORE' }) } });
   let expected: Record<string, number>;
   if (slug === 'wissensduell') {
     if (!scoreless) await ok(alice.client, 'geo:answer', { optionId: 'a' });
     await ok(f.host, 'geo:reveal'); await ok(f.host, 'geo:next');
     if (!scoreless) await ok(bob.client, 'geo:answer', { optionId: 'b' });
     await ok(f.host, 'geo:reveal'); await ok(f.host, 'geo:next');
-    expected = { [alice.id]: scoreless ? 0 : 100, [bob.id]: 0 };
+    expected = { ...Object.fromEntries(f.players.map(p => [p.id, 0])), [alice.id]: scoreless ? 0 : 100 };
   } else if (slug === 'jeopardy') {
     await ok(f.host, 'jeopardy:field:open', { boardIndex: 1, categoryIndex: 0, value: 100 }); await ok(alice.client, 'jeopardy:buzz'); await ok(f.host, 'jeopardy:judge', { correct: true }); await ok(f.host, 'jeopardy:next');
     await ok(f.host, 'jeopardy:field:open', { boardIndex: 1, categoryIndex: 0, value: 200 }); await ok(bob.client, 'jeopardy:buzz'); await ok(f.host, 'jeopardy:judge', { correct: false });
-    await ok(alice.client, 'jeopardy:steal:buzz'); await ok(f.host, 'jeopardy:steal:judge', { correct: true }); await ok(f.host, 'jeopardy:board:switch', { toBoard: 2 }); // last field of the only board ends the game
-    expected = { [alice.id]: 200, [bob.id]: -100 };
+    // a wrong answer closes the whole team for the steal, so with teams the other team steals
+    const stealer = teams ? f.players[2] : alice; await ok(stealer.client, 'jeopardy:steal:buzz'); await ok(f.host, 'jeopardy:steal:judge', { correct: true }); await ok(f.host, 'jeopardy:board:switch', { toBoard: 2 }); // last field of the only board ends the game
+    expected = { ...Object.fromEntries(f.players.map(p => [p.id, 0])), [alice.id]: teams ? 100 : 200, [bob.id]: -100, ...(teams ? { [f.players[2].id]: 100 } : {}) };
   } else {
     await ok(f.host, 'weristdas:buzzer:open'); if (!scoreless) { await ok(alice.client, 'weristdas:buzz'); await ok(f.host, 'weristdas:judge', { result: 'BOTH_CORRECT' }); } else await ok(f.host, 'weristdas:reveal');
     await ok(f.host, 'weristdas:next');
     await ok(f.host, 'weristdas:buzzer:open'); if (!scoreless) { await ok(bob.client, 'weristdas:buzz'); await ok(f.host, 'weristdas:judge', { result: 'WRONG' }); }
     await ok(f.host, 'weristdas:reveal'); await ok(f.host, 'weristdas:next');
-    expected = { [alice.id]: scoreless ? 0 : 3, [bob.id]: scoreless ? 0 : -1 };
+    expected = { ...Object.fromEntries(f.players.map(p => [p.id, 0])), [alice.id]: scoreless ? 0 : 3, [bob.id]: scoreless ? 0 : -1 };
   }
   expect((await db.room.findUniqueOrThrow({ where: { id: f.room.id } })).status).toBe('ENDED');
   return { ...f, expected };
@@ -318,4 +320,127 @@ it.each(SLUGS)('%s: a failing result write ends nothing — no GAME_END, no resu
   expect((await gameAck(f.host, 'game:end', intent(f.code))).success).toBe(true);
   expect(await db.gameResultRecord.count({ where: { roomId: f.room.id } })).toBe(1);
   expect(await db.gameResultVersion.count({ where: { result: { roomId: f.room.id } } })).toBe(1);
+});
+
+const command = async (client: Socket, f: { code: string }, runIndex: number, resultRevision: number, operation: object) =>
+  gameAck(client, 'game:result:command', resultCommand(f, runIndex, resultRevision, operation)) as Promise<Record<string, any>>;
+const versions = async (roomId: string, runIndex: number) => (await db.gameResultVersion.findMany({ where: { result: { roomId, runIndex } }, orderBy: { revision: 'asc' } })).map(v => [v.revision, v.kind]);
+
+it.each(SLUGS)('%s TEAM_SCORE: team ranking, winner and caches use the same evidence; a later team change rewrites neither history nor corrections', async slug => {
+  const f = await completedGame(slug, false, true), [alice, bob, cara, dan] = f.players;
+  const [teamA, teamB] = await db.roomTeam.findMany({ where: { roomId: f.room.id }, orderBy: { name: 'asc' } });
+  const a = f.expected[alice.id] + f.expected[bob.id], b = f.expected[cara.id] + f.expected[dan.id];
+  expect(a).not.toBe(b);
+  const ranked: Array<[string, number]> = ([[teamA.id, a], [teamB.id, b]] as Array<[string, number]>).sort((x, y) => y[1] - x[1]), winner = ranked[0][0];
+  const first = await readResult(f.host, f);
+  expect(first.data).toMatchObject({ scoring: 'TEAM_SCORE', winnerIds: [winner], aborted: false });
+  expect(first.data.teams.map((t: { id: string; score: number; rank: number }) => [t.id, t.score, t.rank])).toEqual([[ranked[0][0], ranked[0][1], 1], [ranked[1][0], ranked[1][1], 2]]);
+  expect((await db.roomTeam.findUniqueOrThrow({ where: { id: teamA.id } })).score).toBe(a);
+  expect((await db.roomTeam.findUniqueOrThrow({ where: { id: teamB.id } })).score).toBe(b);
+  // Alice changes team after the game: the stored result and its ledger rows stay where they were
+  await db.participation.update({ where: { id: alice.id }, data: { teamId: teamB.id } });
+  const after = await readResult(f.host, f);
+  expect(after.data.teams).toEqual(first.data.teams); expect(after.data.scores).toEqual(first.data.scores); expect(after.data.winnerIds).toEqual([winner]);
+  expect((await db.scoreEvent.findMany({ where: { roomId: f.room.id, participationId: alice.id } })).every(e => e.teamId === teamA.id)).toBe(true);
+  // corrections follow the historical team of the origin / target
+  expect((await command(f.host, f, 1, 1, { type: 'REVIEW' })).success).toBe(true);
+  expect((await command(f.host, f, 1, 2, { type: 'ADJUST', participantId: bob.id, delta: 10, reason: 'Korrektur Bob' })).success).toBe(true);
+  const origin = (await db.scoreEvent.findMany({ where: { roomId: f.room.id, participationId: alice.id }, orderBy: { createdAt: 'asc' } }))[0];
+  expect((await command(f.host, f, 1, 3, { type: 'ROLLBACK', referenceEventId: origin.id, reason: 'Rücknahme Alice' })).success).toBe(true);
+  const rolled = await db.scoreEvent.findFirstOrThrow({ where: { roomId: f.room.id, kind: 'ROLLBACK' } });
+  expect(rolled).toMatchObject({ participationId: alice.id, teamId: teamA.id, delta: -origin.delta, referenceEventId: origin.id });
+  const final = await readResult(f.host, f);
+  expect(final.data.teams.map((t: { id: string; score: number }) => [t.id, t.score])).toEqual(([[teamA.id, a + 10 - origin.delta], [teamB.id, b]] as Array<[string, number]>).sort((x, y) => y[1] - x[1]));
+  expect((await db.roomTeam.findUniqueOrThrow({ where: { id: teamA.id } })).score).toBe(a + 10 - origin.delta);
+  expect((await db.roomTeam.findUniqueOrThrow({ where: { id: teamB.id } })).score).toBe(b);
+  expect(await versions(f.room.id, 1)).toEqual([[1, 'GAME_ENDED'], [2, 'REVIEW'], [3, 'ADJUST'], [4, 'ROLLBACK']]);
+  // an older revision stays readable and unchanged
+  expect((await readResult(f.host, f, { revision: 1 })).data.teams).toEqual(first.data.teams);
+});
+
+it('Corrections: two corrections on one revision cannot both win; the ledger and the versions show exactly one', async () => {
+  const f = await completedGame('wer-ist-das'), [, bob] = f.players;
+  expect((await command(f.host, f, 1, 1, { type: 'REVIEW' })).success).toBe(true);
+  const results = await Promise.all([5, 7].map(delta => command(f.host, f, 1, 2, { type: 'ADJUST', participantId: bob.id, delta, reason: `Korrektur ${delta}` })));
+  expect(results.filter(r => r.success)).toHaveLength(1);
+  expect(results.find(r => !r.success)).toMatchObject({ error: expect.stringMatching(/REVISION_CONFLICT|INVALID_PHASE|STATE_CONFLICT/) });
+  expect((await ledger(f.room.id)).filter(e => e.kind === 'HOST_ADJUSTMENT')).toHaveLength(1);
+  expect(await versions(f.room.id, 1)).toEqual([[1, 'GAME_ENDED'], [2, 'REVIEW'], [3, 'ADJUST']]);
+  const stored = (await readResult(f.host, f)).data.scores.find((x: { participationId: string }) => x.participationId === bob.id).score;
+  expect(stored).toBe(f.expected[bob.id] + (results[0].success ? 5 : 7));
+});
+
+it('Corrections: the same origin cannot be reversed twice, nor an event of another run or room', async () => {
+  const f = await completedGame('jeopardy'), other = await completedGame('wer-ist-das');
+  expect((await command(f.host, f, 1, 1, { type: 'REVIEW' })).success).toBe(true);
+  const origin = (await db.scoreEvent.findMany({ where: { roomId: f.room.id }, orderBy: { createdAt: 'asc' } }))[0];
+  expect((await command(f.host, f, 1, 2, { type: 'ROLLBACK', referenceEventId: origin.id, reason: 'zurück' })).success).toBe(true);
+  expect(await command(f.host, f, 1, 3, { type: 'ROLLBACK', referenceEventId: origin.id, reason: 'nochmal' })).toMatchObject({ success: false, error: 'SCORE_EVENT_ALREADY_REVERSED' });
+  const foreign = (await db.scoreEvent.findMany({ where: { roomId: other.room.id } }))[0];
+  expect(await command(f.host, f, 1, 3, { type: 'ROLLBACK', referenceEventId: foreign.id, reason: 'fremd' })).toMatchObject({ success: false, error: 'SCORE_EVENT_NOT_FOUND' });
+  expect(await command(f.host, f, 1, 3, { type: 'ADJUST', participantId: other.players[0].id, delta: 1, reason: 'fremder Spieler' })).toMatchObject({ success: false, error: 'PLAYER_NOT_IN_GAME' });
+  expect(await versions(f.room.id, 1)).toEqual([[1, 'GAME_ENDED'], [2, 'REVIEW'], [3, 'ROLLBACK']]);
+  expect(await totals(other.room.id, 1)).toMatchObject({ [other.players[0].id]: 3 });
+});
+
+it('Corrections: a failing write after the score and cache writes leaves points, team cache, state and result exactly as they were', async () => {
+  const f = await completedGame('wissensduell', false, true), [alice] = f.players;
+  const [teamA] = await db.roomTeam.findMany({ where: { roomId: f.room.id }, orderBy: { name: 'asc' } });
+  expect((await command(f.host, f, 1, 1, { type: 'REVIEW' })).success).toBe(true);
+  const snapshot = async () => ({ state: (await db.roomGameState.findUniqueOrThrow({ where: { roomId: f.room.id } })).stateJson, ledger: await ledger(f.room.id),
+    participants: (await db.participation.findMany({ where: { roomId: f.room.id }, orderBy: { id: 'asc' } })).map(p => [p.id, p.score]),
+    team: (await db.roomTeam.findUniqueOrThrow({ where: { id: teamA.id } })).score, room: (await db.room.findUniqueOrThrow({ where: { id: f.room.id } })).revision,
+    versions: await versions(f.room.id, 1), record: (await db.gameResultRecord.findFirstOrThrow({ where: { roomId: f.room.id } })).revision });
+  const before = await snapshot();
+  failResultVersionOnce = true;
+  const failed = await command(f.host, f, 1, 2, { type: 'ADJUST', participantId: alice.id, delta: 25, reason: 'scheitert' });
+  expect(failed).toMatchObject({ success: false, code: 'INTERNAL_ERROR' });
+  expect(failResultVersionOnce).toBe(false);
+  expect(await snapshot()).toEqual(before);
+  expect((await command(f.host, f, 1, 2, { type: 'ADJUST', participantId: alice.id, delta: 25, reason: 'zweiter Versuch' })).success).toBe(true);
+  expect((await ledger(f.room.id)).filter(e => e.kind === 'HOST_ADJUSTMENT')).toHaveLength(1);
+  expect((await db.roomTeam.findUniqueOrThrow({ where: { id: teamA.id } })).score).toBe(before.team + 25);
+});
+
+it('Corrections: amending run one while run two is playing, and after it ended, changes nothing of run two', async () => {
+  const f = await completedGame('wissensduell'), [alice, bob] = f.players;
+  expect((await command(f.host, f, 1, 1, { type: 'REVIEW' })).success).toBe(true);
+  expect((await command(f.host, f, 1, 2, { type: 'FINALIZE' })).success).toBe(true);
+  expect((await gameAck(f.host, 'room:command', { ...intent(f.code), protocolVersion: 1, operation: { type: 'REMATCH' } })).success).toBe(true);
+  for (const p of f.players) expect((await gameAck(p.client, 'player:ready:set', { roomCode: f.code, ready: true })).success).toBe(true);
+  expect((await gameAck(f.host, 'game:start', intent(f.code))).success).toBe(true);
+  cancelGeoTimer(f.room.id); await handleGeoGame.startRound(app.io, f.code);
+  expect((await gameAck(bob.client, 'geo:answer', { optionId: 'a', questionIndex: 0, runIndex: 2, ...intent(f.code) })).success).toBe(true);
+  const run2 = async () => ({ state: (await db.roomGameState.findUniqueOrThrow({ where: { roomId: f.room.id } })).stateJson,
+    room: await db.room.findUniqueOrThrow({ where: { id: f.room.id } }), players: (await db.participation.findMany({ where: { roomId: f.room.id }, orderBy: { id: 'asc' } })).map(p => [p.id, p.score, p.teamId]),
+    run2Ledger: (await ledger(f.room.id)).filter(e => e.runIndex === 2) });
+  const before = await run2();
+  const amended = await command(f.host, f, 1, 3, { type: 'AMEND', participantId: bob.id, delta: 50, reason: 'Nachtrag Partie 1' });
+  expect(amended).toMatchObject({ success: true, resultStatus: 'FINALIZED' });
+  expect(await run2()).toEqual(before);
+  expect((await readResult(f.host, f, { runIndex: 1 })).data.scores.find((x: { participationId: string }) => x.participationId === bob.id).score).toBe(50);
+  expect(await versions(f.room.id, 1)).toEqual([[1, 'GAME_ENDED'], [2, 'REVIEW'], [3, 'FINALIZE'], [4, 'RESULT_AMENDMENT']]);
+  // run two ends: its result never includes the amendment, run one stays amended, older revisions stay readable
+  expect((await gameAck(f.host, 'geo:reveal', intent(f.code))).success).toBe(true);
+  expect((await gameAck(f.host, 'game:end', intent(f.code))).success).toBe(true);
+  const second = await readResult(f.host, f, { runIndex: 2 });
+  expect(second.data.scores.map((x: { participationId: string; score: number }) => [x.participationId, x.score]).sort()).toEqual([[alice.id, 0], [bob.id, 100]].sort());
+  expect(await command(f.host, f, 1, 4, { type: 'AMEND', participantId: alice.id, delta: 5, reason: 'noch ein Nachtrag' })).toMatchObject({ success: true });
+  expect((await readResult(f.host, f, { runIndex: 2 })).data.scores.find((x: { participationId: string }) => x.participationId === alice.id).score).toBe(0);
+  expect((await readResult(f.host, f, { runIndex: 1, revision: 2 })).data.resultStatus).toBe('FINALIZED');
+  expect((await readResult(f.host, f, { runIndex: 1, revision: 1 })).data.scores.find((x: { participationId: string }) => x.participationId === bob.id).score).toBe(0);
+});
+
+it('Results: the view says what each revision was and which one is current, so history cannot pass for the live status', async () => {
+  const f = await completedGame('wissensduell');
+  expect((await command(f.host, f, 1, 1, { type: 'REVIEW' })).success).toBe(true);
+  expect((await command(f.host, f, 1, 2, { type: 'FINALIZE' })).success).toBe(true);
+  expect((await command(f.host, f, 1, 3, { type: 'AMEND', participantId: f.players[1].id, delta: 5, reason: 'Nachtrag' })).success).toBe(true);
+  const expected: Array<[number, string, string]> = [[1, 'GAME_ENDED', 'GAME_END'], [2, 'REVIEW', 'RESULT_REVIEW'], [3, 'FINALIZE', 'FINALIZED'], [4, 'RESULT_AMENDMENT', 'FINALIZED']];
+  for (const [revision, kind, status] of expected) {
+    for (const view of [(await readResult(f.host, f, { revision })).data, (await httpResult(f, `?revision=${revision}`)).data]) {
+      expect(view).toMatchObject({ resultRevision: revision, revisionKind: kind, statusAtRevision: status, latestRevision: 4, isLatestRevision: revision === 4, resultStatus: 'FINALIZED' });
+    }
+  }
+  expect((await readResult(f.host, f)).data).toMatchObject({ resultRevision: 4, isLatestRevision: true });
 });
