@@ -125,6 +125,16 @@ export async function runGuardedCriticalAction(
     return;
   }
 
+  // An explicit locator is an assertion, never a hint to be rewritten by an
+  // engine adapter. Check before claiming a receipt (including legacy calls).
+  if (data?.roomCode !== undefined) {
+    const room = await prisma.room.findUnique({ where: { id: perm.roomId }, select: { code: true } });
+    if (!room || room.code !== data.roomCode) {
+      callback?.({ success: false, error: 'WRONG_ROOM' });
+      return;
+    }
+  }
+
   const finish = (result: { success: boolean; error?: string; [k: string]: unknown }, replayed?: boolean) => {
     if (result.success && !replayed || result.error === 'STATE_INVARIANT_FAILED') { args.io.to(roomChannel(perm.roomId)).emit('game:core:changed'); void refreshLiveMedia(args.io); }
     if (!result.success && result.error) {

@@ -20,6 +20,7 @@ const empty = z.object({});
 // Legacy-Kompatibilität = Feld FEHLT (optional); vorhandene ungültige
 // Werte werden abgelehnt, nicht als Legacy gedeutet.
 const emptyEnveloped = z.object({
+  roomCode: z.string().regex(/^\d{3}-\d{3}$/).optional(),
   commandId: z.string().min(1).max(128).optional(),
   requestId: z.string().min(1).max(128).optional(),
   protocolVersion: z.number().int().optional(),

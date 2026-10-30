@@ -1,12 +1,9 @@
 import { roomContentMediaUrl } from '../../content/media.js';
 import type { Server, Socket } from 'socket.io';
-import { prisma } from '../../persistence/prisma.js';
 import { logger } from '../../observability/logger.js';
-import { authorizeGameAction, type GameActor } from '../core/access.js';
+import { authorizeGameContext, type GameActor } from '../core/access.js';
 import { loadGameState } from '../core/state.js';
-import { resolveCanonicalSlug } from '@quiz/shared';
 import { canView, visibleValue } from '../core/visibility.js';
-import { ensureGameStateSafe } from '../core/recovery.js';
 import { getGameEngineContract } from '../core/engineContract.js';
 
 type GeoRound = {
@@ -92,16 +89,9 @@ export function projectGeoStateForClient(state: GeoState, actor: GameActor) {
 export function registerGeoResync(_io: Server, socket: Socket): void {
   socket.on('geo:resync', async (_data, callback) => {
     try {
-      const auth = authorizeGameAction(socket, { roles: ['HOST', 'PLAYER', 'VIEWER'] });
+      const auth = await authorizeGameContext(socket, { roles: ['HOST', 'PLAYER', 'VIEWER'], gameSlug: 'wissensduell', requireParticipation: true });
       if (!auth.ok) { callback?.({ success: false, error: auth.error }); return; }
-      const room = await prisma.room.findUnique({
-        where: { id: auth.actor.roomId }, include: { gameDefinition: true },
-      });
-      if (!room) { callback?.({ success: false, error: 'ROOM_NOT_FOUND' }); return; }
-      if (resolveCanonicalSlug(room.gameDefinition.slug) !== resolveCanonicalSlug('geo')) {
-        callback?.({ success: false, error: 'WRONG_GAME' }); return;
-      }
-      await ensureGameStateSafe(room.id);
+      const { room } = auth;
       const loaded = await loadGameState<GeoState>(room.id);
       if (!loaded) { callback?.({ success: false, error: 'GAME_NOT_FOUND' }); return; }
       callback?.(getGameEngineContract('wissensduell')!.createProjection({ state: loaded.state, setup: JSON.parse(room.setupSnapshotJson ?? '{}'), actor: { ...auth.actor, blindHost: room.contentVisibility === 'BLIND_HOST' }, participants: [], stateVersion: loaded.revision }));

@@ -1,3 +1,4 @@
+import { currentSocketMembership } from '../../rooms/membership.js';
 import { blindRoom } from '../../content/blindHost.js';
 // ============================================================
 // Shared Game Authorization
@@ -108,15 +109,7 @@ export async function authorizeGameContext(
   if (options.requireRunning && room.status !== 'RUNNING') {
     return { ok: false, error: 'GAME_NOT_RUNNING' };
   }
-  if (options.requireParticipation && auth.actor.role !== 'VIEWER') {
-    const participant = await prisma.participation.findFirst({
-      where: {
-        id: auth.actor.participationId, roomId: room.id,
-        role: auth.actor.role, connected: true, kickedAt: null, bannedAt: null, leftAt: null, admission: 'ACTIVE', connectionId: socket.id,
-      }, select: { id: true },
-    });
-    if (!participant) return { ok: false, error: 'NO_PARTICIPATION' };
-  }
+  if (!await currentSocketMembership(socket)) return { ok: false, error: 'NO_PARTICIPATION' };
   await ensureGameStateSafe(room.id);
   return { ...auth, room };
 }

@@ -30,6 +30,7 @@ const roomAction = z.object({
   expectedRevision: z.number().int().optional(),
 });
 const answerAction = z.object({
+  roomCode: z.string().regex(/^\d{3}-\d{3}$/).optional(),
   optionId: z.string().min(1),
   questionIndex: z.number().int().nonnegative().optional(),
   commandId: z.string().min(1).max(128).optional(),

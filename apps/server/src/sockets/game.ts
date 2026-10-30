@@ -14,6 +14,7 @@
 //     (§5.24). Live-/Legacy-Änderungen rückwirken nicht.
 // ============================================================
 
+import { z } from 'zod';
 import { changed } from '../rooms/socket.js';
 import { Server, Socket } from 'socket.io';
 import { prisma } from '../persistence/prisma.js';
@@ -30,6 +31,14 @@ import { resolveCanonicalSlug } from '@quiz/shared';
 import { wireErrorToAppError } from '../games/core/appError.js';
 import { roomChannel } from './index.js';
 
+// Required runtime fields are checked separately from command metadata so that
+// incompatible protocols and conflicting aliases keep their established errors.
+const lifecyclePayload = z.object({
+  roomCode: z.string().regex(/^\d{3}-\d{3}$/),
+  overrideReady: z.boolean().optional(),
+  acknowledgeWarnings: z.boolean().optional(),
+}).passthrough();
+
 export const handleGameEvents = {
   // ============================================================
   // Generic Game Events
@@ -41,8 +50,6 @@ export const handleGameEvents = {
     data: { roomCode: string; commandId?: string; requestId?: string; protocolVersion?: number; overrideReady?: boolean; acknowledgeWarnings?: boolean },
     callback?: (result: any) => void
   ) {
-    logger.info('game:start received', { socketId: socket.id, roomCode: data.roomCode, socketData: socket.data });
-
     try {
       // Audit PR14, 14-03: Command-Gültigkeit VOR der roomCode-Auflösung
       // prüfen (Version + Feld-Widersprüche) — ungültiges Command erhält
@@ -50,6 +57,10 @@ export const handleGameEvents = {
       const preCtx = resolveCommandContextForSocket(data, socket);
       if (!preCtx.ok && (preCtx.error === 'CLIENT_VERSION_UNSUPPORTED' || preCtx.error === 'INVALID_PAYLOAD')) {
         callback?.({ success: false, error: preCtx.error });
+        return;
+      }
+      if (!lifecyclePayload.safeParse(data).success) {
+        callback?.({ success: false, error: 'INVALID_PAYLOAD' });
         return;
       }
       const room = await prisma.room.findUnique({
@@ -279,6 +290,10 @@ export const handleGameEvents = {
         return;
       }
 
+      if (!lifecyclePayload.safeParse(data).success) {
+        callback?.({ success: false, error: 'INVALID_PAYLOAD' });
+        return;
+      }
       const room = await prisma.room.findUnique({
         where: { code: data.roomCode },
         include: { gameDefinition: true },
@@ -388,6 +403,10 @@ export const handleGameEvents = {
         return;
       }
 
+      if (!lifecyclePayload.safeParse(data).success) {
+        callback?.({ success: false, error: 'INVALID_PAYLOAD' });
+        return;
+      }
       const room = await prisma.room.findUnique({
         where: { code: data.roomCode },
         include: { gameDefinition: true },
@@ -497,6 +516,10 @@ export const handleGameEvents = {
         return;
       }
 
+      if (!lifecyclePayload.safeParse(data).success) {
+        callback?.({ success: false, error: 'INVALID_PAYLOAD' });
+        return;
+      }
       const room = await prisma.room.findUnique({
         where: { code: data.roomCode },
       });
