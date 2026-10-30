@@ -23,7 +23,7 @@ beforeAll(async () => {
   await new Promise<void>(resolve => app.httpServer.listen(0, '127.0.0.1', resolve)); const address = app.httpServer.address(); if (!address || typeof address === 'string') throw Error('NO_PORT'); origin = `http://127.0.0.1:${address.port}`;
 });
 afterAll(async () => { const ids = clients.map(s => s.id).filter(Boolean); for (const socket of clients) socket.disconnect(); await new Promise<void>(resolve => app.io.close(() => resolve())); await vi.waitFor(() => expect(ids.some(id => socketIdentityMap.has(id!))).toBe(false)); await db.$disconnect(); globalThis.__prisma = previous; await rm(dir, { recursive: true, force: true }); });
-async function socket(cookie?: string) { const client = await connectGameClient(origin, cookie); clients.push(client); client.on('media:snapshot', (s: LiveMediaSnapshot) => views.set(client.id!, s)); return client; }
+async function socket(cookie?: string) { const client = await connectGameClient(origin, cookie); clients.push(client); client.on('media:snapshot', (s: LiveMediaSnapshot) => views.set(client.id!, s)); client.on('media:closed', () => views.delete(client.id!)); return client; }
 async function fixture(slug = 'wissensduell') {
   const user = await db.user.create({ data: { role: 'HOST', displayName: randomUUID(), passwordHash: 'unused' } });
   const session = await db.session.create({ data: { userId: user.id, expiresAt: new Date(Date.now() + 3600000) } }); const cookie = createSessionCookie(session.id, config.sessionSecret);
@@ -32,7 +32,21 @@ async function fixture(slug = 'wissensduell') {
   const host = await socket(cookie); expect((await gameAck(host, 'room:subscribe', { roomCode: room.code })).success).toBe(true);
   async function player(teamId?: string) { const p = await db.participation.create({ data: { roomId: room.id, role: 'PLAYER', teamId, displayName: randomUUID(), normalizedName: randomUUID(), rejoinToken: randomUUID(), connected: true, ready: true } }); const client = await socket(); expect((await gameAck(client, 'room:subscribe', { roomCode: room.code, rejoinToken: p.rejoinToken })).success).toBe(true); return { client, p }; }
   async function enter(client: Socket) { expect((await gameAck(client, 'media:join')).success).toBe(true); await vi.waitFor(() => expect(views.has(client.id!)).toBe(true)); }
-  async function control(change: object) { const result = await gameAck(host, 'media:control', { expectedRevision: views.get(host.id!)!.revision, ...change }); expect(result.success).toBe(true); }
+  async function control(change: object) {
+    const expectedRevision = views.get(host.id!)!.revision;
+    const observers = clients.filter(client => client.connected && views.get(client.id!)?.roomCode === room.code);
+    const result = await gameAck(host, 'media:control', { expectedRevision, ...change });
+    expect(result.success).toBe(true);
+    // ACK and snapshots on the host socket cannot order delivery on other sockets.
+    // Observe the committed moderation revision on every joined client first.
+    await vi.waitFor(() => {
+      for (const client of observers) {
+        // Rejoin can revoke the old connection's media without closing its socket.
+        const snapshot = views.get(client.id!);
+        if (client.connected && snapshot) expect(snapshot.revision).toBe(expectedRevision + 1);
+      }
+    });
+  }
   await enter(host); return { user, session, cookie, room, host, player, enter, control };
 }
 const self = (client: Socket, values: object = {}) => gameAck(client, 'media:self', { mic: false, camera: false, talking: false, teamListen: null, ...values });
@@ -74,6 +88,34 @@ it('persists host mute across rejoin, prevents self-unmute, and release never en
   expect(views.get(again.id!)!.self.hostMuted).toBe(true); expect((await self(again, { mic: true })).error).toBe('HOST_MUTED');
   await f.control({ targetId: again.id, hostMuted: false }); expect(route(again, f.host)).toBeUndefined(); expect((await self(again, { mic: true })).success).toBe(true);
   expect((await db.participantMediaControl.findUniqueOrThrow({ where: { roomId_participantId: { roomId: f.room.id, participantId: a.p.id } } })).hostMuted).toBe(false);
+});
+it('observes host moderation on the affected client even when its snapshot arrives after the host ACK', async () => {
+  const f = await fixture(), a = await f.player(); await f.enter(a.client);
+  await self(a.client, { mic: true });
+  const old = route(a.client, f.host)!;
+  expect(old).toBeDefined();
+  const revision = views.get(f.host.id!)!.revision + 1;
+  const remember = a.client.listeners('media:snapshot')[0] as (snapshot: LiveMediaSnapshot) => void;
+  let pending: LiveMediaSnapshot | undefined;
+  const hold = (snapshot: LiveMediaSnapshot) => { pending = snapshot; };
+  a.client.off('media:snapshot', remember); a.client.on('media:snapshot', hold);
+  let completed = false;
+  const moderation = f.control({ targetId: a.client.id, hostMuted: true }).then(() => { completed = true; });
+  try {
+    await vi.waitFor(() => {
+      expect(views.get(f.host.id!)!.revision).toBe(revision);
+      expect(pending?.revision).toBe(revision);
+    });
+    // The server has revoked the route while this client's cached view is old.
+    expect((await gameAck(a.client, 'media:signal', { routeId: old.id, candidate: { candidate: 'stale-after-mute' } })).error).toBe('MEDIA_ROUTE_REVOKED');
+    expect(completed).toBe(false);
+  } finally {
+    a.client.off('media:snapshot', hold); a.client.on('media:snapshot', remember);
+    if (pending) remember(pending);
+    await moderation;
+  }
+  expect(views.get(a.client.id!)!.self.hostMuted).toBe(true);
+  expect(route(a.client, f.host)).toBeUndefined();
 });
 it('gates push-to-talk and viewer audio independently, rejects stale controls and foreign moderation targets', async () => {
   const f = await fixture(), other = await fixture(), a = await f.player(), viewer = await socket();
