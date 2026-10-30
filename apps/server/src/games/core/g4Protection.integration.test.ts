@@ -29,7 +29,7 @@ beforeAll(async () => {
     if (params.model === 'GameDomainEvent' && params.action === 'create' && params.args.data.roomId === failEventForRoom) {
       failEventForRoom = undefined; throw Error('G2_INJECTED_EVENT_FAILURE');
     }
-    if (params.model === 'GameResultVersion' && params.action === 'create' && failResultVersionOnce) {
+    if ((params.model === 'GameResultVersion' || params.model === 'GameResultRecord') && params.action === 'create' && failResultVersionOnce) {
       failResultVersionOnce = false; throw Error('G4_INJECTED_SECRET_sk_live_0123456789abcdef');
     }
     if (params.model === 'ScoreEvent' && params.action === 'create' && failScoreEventNth?.roomId === params.args.data.roomId && --failScoreEventNth!.nth === 0) {
@@ -228,4 +228,94 @@ it('Errors: an unexpected result-write failure rolls back, answers with a trace 
   expect(await effects(f.room.id)).toEqual(before);
   expect(await db.gameResultVersion.count()).toBe(versions);
   expect((await gameAck(f.host, 'game:result:command', resultCommand(f, 1, 1, { type: 'REVIEW' }))).success).toBe(true);
+});
+
+// ── G4 A/B/C: results, team scoring and corrections with all three consumers ──
+type Slug = 'wissensduell' | 'jeopardy' | 'wer-ist-das';
+const SLUGS: Slug[] = ['wissensduell', 'jeopardy', 'wer-ist-das'];
+const ALICE_POINTS: Record<Slug, number> = { wissensduell: 100, jeopardy: 100, 'wer-ist-das': 3 };
+const SECRET = /G4_PRIVATE_|correctOptionId|G4 question|"answer"/;
+const readResult = (client: Socket, f: { code: string }, extra: object = {}) => gameAck(client, 'game:result:read', { roomCode: f.code, ...extra }) as Promise<{ success: boolean; data: Record<string, any> }>;
+async function httpResult(f: { code: string }, query = '') {
+  const res = await fetch(`${origin}/api/v1/rooms/${f.code}/results${query}`, { headers: { Cookie: cookie } });
+  return (await res.json()) as { success: boolean; data: Record<string, any> };
+}
+async function totals(roomId: string, runIndex: number) {
+  const out: Record<string, number> = {};
+  for (const e of await db.scoreEvent.findMany({ where: { roomId, runIndex } })) out[e.participationId] = (out[e.participationId] ?? 0) + e.delta;
+  return out;
+}
+
+/** Plays a game to its regular end (COMPLETED); returns the expected final scores. */
+async function completedGame(slug: Slug, scoreless = false) {
+  const f = await fixture(slug), [alice, bob] = f.players, ok = async (client: Socket, event: string, payload: object = {}) =>
+    expect((await gameAck(client, event, { ...payload, ...intent(f.code) })).success, event).toBe(true);
+  let expected: Record<string, number>;
+  if (slug === 'wissensduell') {
+    if (!scoreless) await ok(alice.client, 'geo:answer', { optionId: 'a' });
+    await ok(f.host, 'geo:reveal'); await ok(f.host, 'geo:next');
+    if (!scoreless) await ok(bob.client, 'geo:answer', { optionId: 'b' });
+    await ok(f.host, 'geo:reveal'); await ok(f.host, 'geo:next');
+    expected = { [alice.id]: scoreless ? 0 : 100, [bob.id]: 0 };
+  } else if (slug === 'jeopardy') {
+    await ok(f.host, 'jeopardy:field:open', { boardIndex: 1, categoryIndex: 0, value: 100 }); await ok(alice.client, 'jeopardy:buzz'); await ok(f.host, 'jeopardy:judge', { correct: true }); await ok(f.host, 'jeopardy:next');
+    await ok(f.host, 'jeopardy:field:open', { boardIndex: 1, categoryIndex: 0, value: 200 }); await ok(bob.client, 'jeopardy:buzz'); await ok(f.host, 'jeopardy:judge', { correct: false });
+    await ok(alice.client, 'jeopardy:steal:buzz'); await ok(f.host, 'jeopardy:steal:judge', { correct: true }); await ok(f.host, 'jeopardy:board:switch', { toBoard: 2 }); // last field of the only board ends the game
+    expected = { [alice.id]: 200, [bob.id]: -100 };
+  } else {
+    await ok(f.host, 'weristdas:buzzer:open'); if (!scoreless) { await ok(alice.client, 'weristdas:buzz'); await ok(f.host, 'weristdas:judge', { result: 'BOTH_CORRECT' }); } else await ok(f.host, 'weristdas:reveal');
+    await ok(f.host, 'weristdas:next');
+    await ok(f.host, 'weristdas:buzzer:open'); if (!scoreless) { await ok(bob.client, 'weristdas:buzz'); await ok(f.host, 'weristdas:judge', { result: 'WRONG' }); }
+    await ok(f.host, 'weristdas:reveal'); await ok(f.host, 'weristdas:next');
+    expected = { [alice.id]: scoreless ? 0 : 3, [bob.id]: scoreless ? 0 : -1 };
+  }
+  expect((await db.room.findUniqueOrThrow({ where: { id: f.room.id } })).status).toBe('ENDED');
+  return { ...f, expected };
+}
+
+it.each(SLUGS)('%s: score map, participant cache, ledger, stored result, rank and winners come from one evidence, over socket and HTTP', async slug => {
+  const f = await completedGame(slug), [alice, bob] = f.players;
+  expect((await state(f.room.id)).value.scores).toEqual(f.expected);
+  expect(await totals(f.room.id, 1)).toMatchObject(Object.fromEntries(Object.entries(f.expected).filter(([, v]) => v !== 0)));
+  for (const p of f.players) expect((await db.participation.findUniqueOrThrow({ where: { id: p.id } })).score).toBe(f.expected[p.id]);
+  const viaSocket = await readResult(bob.client, f), viaHttp = await httpResult(f);
+  expect(viaSocket.success).toBe(true); expect(viaHttp.success).toBe(true);
+  const strip = ({ versions: _v, ...rest }: Record<string, unknown>) => JSON.parse(JSON.stringify(rest));
+  expect(strip(viaSocket.data)).toEqual(strip(viaHttp.data));
+  expect(viaSocket.data.scores.map((x: { participationId: string; rank: number; score: number }) => [x.participationId, x.rank, x.score])).toEqual([[alice.id, 1, f.expected[alice.id]], [bob.id, 2, f.expected[bob.id]]]);
+  expect(viaSocket.data).toMatchObject({ winnerIds: [alice.id], resultRevision: 1, resultStatus: 'GAME_END', requiresReview: false, aborted: false, endReason: 'COMPLETED', runIndex: 1 });
+  expect(JSON.stringify([viaSocket.data, viaHttp.data])).not.toMatch(SECRET);
+});
+
+it.each(['wissensduell', 'wer-ist-das'] as const)('%s: nobody scored — every player shares first place, all are winners, nothing is drawn at random', async slug => {
+  const f = await completedGame(slug, true);
+  const result = await readResult(f.host, f);
+  expect(result.data.scores.map((x: { rank: number; score: number }) => [x.rank, x.score])).toEqual([[1, 0], [1, 0]]);
+  expect(new Set(result.data.winnerIds)).toEqual(new Set(f.players.map(p => p.id)));
+  expect(result.data).toMatchObject({ aborted: false, endReason: 'COMPLETED' });
+});
+
+it.each(SLUGS)('%s: a host abort keeps its end reason and the points, ranks them, and invents no winner', async slug => {
+  const f = await fixture(slug), [alice] = f.players;
+  if (slug === 'wissensduell') { await gameAck(alice.client, 'geo:answer', { optionId: 'a', ...intent(f.code) }); await gameAck(f.host, 'geo:reveal', intent(f.code)); }
+  expect((await gameAck(f.host, 'game:end', intent(f.code))).success).toBe(true);
+  const result = await readResult(f.host, f);
+  expect(result.data).toMatchObject({ aborted: true, endReason: 'HOST_ABORTED', winnerIds: [], resultStatus: 'GAME_END' });
+  expect(result.data.scores.map((x: { participationId: string; score: number }) => [x.participationId, x.score])).toEqual(
+    slug === 'wissensduell' ? [[alice.id, 100], [f.players[1].id, 0]] : expect.any(Array));
+  expect(await totals(f.room.id, 1)).toEqual(slug === 'wissensduell' ? { [alice.id]: 100 } : {});
+});
+
+it.each(SLUGS)('%s: a failing result write ends nothing — no GAME_END, no result row, no partial effect — and the retry ends once', async slug => {
+  const f = await fixture(slug);
+  const before = await effects(f.room.id);
+  failResultVersionOnce = true;
+  expect((await gameAck(f.host, 'game:end', intent(f.code))).success).toBe(false);
+  expect(failResultVersionOnce).toBe(false); // the injected failure really happened at the result boundary
+  expect(await effects(f.room.id)).toEqual(before);
+  expect(await db.gameResultRecord.count({ where: { roomId: f.room.id } })).toBe(0);
+  expect((await db.room.findUniqueOrThrow({ where: { id: f.room.id } })).status).toBe('RUNNING');
+  expect((await gameAck(f.host, 'game:end', intent(f.code))).success).toBe(true);
+  expect(await db.gameResultRecord.count({ where: { roomId: f.room.id } })).toBe(1);
+  expect(await db.gameResultVersion.count({ where: { result: { roomId: f.room.id } } })).toBe(1);
 });
