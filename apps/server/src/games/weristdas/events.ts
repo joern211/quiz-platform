@@ -10,7 +10,7 @@ import { runGuardedCriticalAction, type EngineActionResult } from '../core/recei
 import type { GamePermission } from '@quiz/shared';
 
 type Ack = (result: { success: boolean; error?: string; state?: unknown }) => void;
-const empty = z.object({});
+const readPayload = z.object({ roomCode: z.string().regex(/^\d{3}-\d{3}$/).optional() });
 // Audit PR14, 14-03 (Nacharbeit): Die Envelope-Felder werden VOLLSTÄNDIG
 // ERLAUBT UND ERHALTEN — nie still entfernt. Die zentrale Prüfung
 // (resolveCommandContextForSocket → CommandEnvelope-Schema) validiert
@@ -78,8 +78,9 @@ export function registerWerIstDasEvents(io: Server, socket: Socket) {
     });
   }
   socket.on(WER_IST_DAS_EVENTS.RESYNC, async (data: unknown, callback?: Ack) => {
-    if (!empty.safeParse(data).success) { callback?.({ success: false, error: 'INVALID_PAYLOAD' }); return; }
-    try { callback?.(await werIstDasGame.resync(socket)); }
+    const parsed = readPayload.safeParse(data);
+    if (!parsed.success) { callback?.({ success: false, error: 'INVALID_PAYLOAD' }); return; }
+    try { callback?.(await werIstDasGame.resync(socket, parsed.data.roomCode)); }
     catch (error) {
       logger.error('weristdas:resync failed', { error });
       callback?.({ success: false, error: publicError(error) });

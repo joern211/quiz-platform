@@ -15,6 +15,7 @@
 // ============================================================
 
 import { z } from 'zod';
+import { assertCoreActionAllowed } from '../games/core/actions.js';
 import { changed } from '../rooms/socket.js';
 import { Server, Socket } from 'socket.io';
 import { prisma } from '../persistence/prisma.js';
@@ -138,6 +139,8 @@ export const handleGameEvents = {
       // erzeugt keine zweite Wirkung (CAS + Receipt).
       type StartResult = { success: boolean; error?: string; gameSlug?: string; required?: number; current?: number };
       const performStart = async (): Promise<StartResult> => {
+        const current = await requireGamePermission(socket, 'GAME_START');
+        if (!current.ok) return { success: false, error: 'UNAUTHORIZED' };
         // Business preconditions belong to NEW execution, never to replay.
         if (room.status !== 'LOBBY') return { success: false, error: 'GAME_ALREADY_STARTED' };
         const preflight = await gameHandler.contract.preflightCheck({ roomId: room.id, overrideReady: data.overrideReady === true });
@@ -346,13 +349,16 @@ export const handleGameEvents = {
         return;
       }
 
-      const perform = () => new Promise<any>((resolve, reject) => {
-        let done = false;
-        gameHandler.pause!({
-          io, socket, roomCode: room.code,
-          callback: (res: any) => { if (!done) { done = true; if (res && res.success) resolve(res); else reject(new Error(res?.error ?? 'PAUSE_FAILED')); } },
-        }).catch(reject);
-      });
+      const perform = async () => {
+        await assertCoreActionAllowed(socket, 'pause', room.gameDefinition.slug, data);
+        return new Promise<any>((resolve, reject) => {
+          let done = false;
+          gameHandler.pause!({
+            io, socket, roomCode: room.code,
+            callback: (res: any) => { if (!done) { done = true; if (res && res.success) resolve(res); else reject(new Error(res?.error ?? 'PAUSE_FAILED')); } },
+          }).catch(reject);
+        });
+      };
 
       if (cmdCtx.ok && cmdCtx.ctx.commandMode) {
         try {
@@ -459,13 +465,16 @@ export const handleGameEvents = {
         return;
       }
 
-      const perform = () => new Promise<any>((resolve, reject) => {
-        let done = false;
-        gameHandler.resume!({
-          io, socket, roomCode: room.code,
-          callback: (res: any) => { if (!done) { done = true; if (res && res.success) resolve(res); else reject(new Error(res?.error ?? 'RESUME_FAILED')); } },
-        }).catch(reject);
-      });
+      const perform = async () => {
+        await assertCoreActionAllowed(socket, 'resume', room.gameDefinition.slug, data);
+        return new Promise<any>((resolve, reject) => {
+          let done = false;
+          gameHandler.resume!({
+            io, socket, roomCode: room.code,
+            callback: (res: any) => { if (!done) { done = true; if (res && res.success) resolve(res); else reject(new Error(res?.error ?? 'RESUME_FAILED')); } },
+          }).catch(reject);
+        });
+      };
 
       if (cmdCtx.ok && cmdCtx.ctx.commandMode) {
         try {
@@ -570,6 +579,8 @@ export const handleGameEvents = {
       if (!handler) { callback?.({ success: false, error: 'UNSUPPORTED_GAME' }); return; }
 
       const perform = async () => {
+        const current = await requireGamePermission(socket, 'GAME_ABORT');
+        if (!current.ok) throw new Error('FORBIDDEN');
         const result = await handler.end({ io, room });
         if (result.ended) handler.cleanup?.(room.id);
         return { ended: result.ended };

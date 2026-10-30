@@ -153,7 +153,7 @@ describe('E: Config-Resolver + Start-Snapshot + Revision', () => {
     cleanupPackIds.push(pack.id);
     const q1 = await testPrisma.geoQuestion.create({ data: { packId: pack.id, prompt: 'A?', category: 'G', options: JSON.stringify([{ id: 'a', text: 'x' }, { id: 'b', text: 'y' }]), correctOptionId: 'a' } });
     const q2 = await testPrisma.geoQuestion.create({ data: { packId: pack.id, prompt: 'B?', category: 'G', options: JSON.stringify([{ id: 'a', text: 'x' }, { id: 'b', text: 'y' }]), correctOptionId: 'b' } });
-    const roomCode = `E4${Math.floor(Math.random() * 900000 + 100000)}`.replace(/(\d{3})(\d{3})/, '$1-$2');
+    const roomCode = `${Math.floor(Math.random() * 900000 + 100000)}`.replace(/(\d{3})(\d{3})/, '$1-$2');
     const room = await testPrisma.room.create({
       data: {
         code: roomCode, roomName: 'E Start',

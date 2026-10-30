@@ -89,7 +89,7 @@ export function projectGeoStateForClient(state: GeoState, actor: GameActor) {
 export function registerGeoResync(_io: Server, socket: Socket): void {
   socket.on('geo:resync', async (_data, callback) => {
     try {
-      const auth = await authorizeGameContext(socket, { roles: ['HOST', 'PLAYER', 'VIEWER'], gameSlug: 'wissensduell', requireParticipation: true });
+      const auth = await authorizeGameContext(socket, { roles: ['HOST', 'PLAYER', 'VIEWER'], gameSlug: 'wissensduell', roomCode: _data?.roomCode, requireParticipation: true });
       if (!auth.ok) { callback?.({ success: false, error: auth.error }); return; }
       const { room } = auth;
       const loaded = await loadGameState<GeoState>(room.id);

@@ -263,7 +263,7 @@ export function ModeratorGamePage() {
         ) : (
           <Button disabled={!core.can('next')} onClick={handleNextQuestion}>Nächste Frage →</Button>
         ))}
-        <Button variant="danger" onClick={handleEndGame}>Spiel beenden</Button>
+        <Button variant="danger" disabled={!core.can('end')} onClick={handleEndGame}>Spiel beenden</Button>
       </div>
     </div>
     </GameShell>

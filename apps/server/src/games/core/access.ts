@@ -76,13 +76,14 @@ export async function authorizeGameContext(
   options: {
     roles: readonly GameRole[];
     gameSlug: string;
+    roomCode?: unknown;
     requireParticipation?: boolean;
     requireRunning?: boolean;
     controlPermission?: GamePermission;
   }
 ): Promise<
   | { ok: true; actor: GameActor; room: Room & { gameDefinition: GameDefinition } }
-  | { ok: false; error: 'NOT_IN_ROOM' | 'FORBIDDEN' | 'NO_PARTICIPATION' | 'ROOM_NOT_FOUND' | 'WRONG_GAME' | 'GAME_NOT_RUNNING' }
+  | { ok: false; error: 'NOT_IN_ROOM' | 'FORBIDDEN' | 'NO_PARTICIPATION' | 'ROOM_NOT_FOUND' | 'WRONG_GAME' | 'WRONG_ROOM' | 'GAME_NOT_RUNNING' }
 > {
   let auth = authorizeGameAction(socket, options);
   if (!auth.ok && options.controlPermission) {
@@ -94,6 +95,7 @@ export async function authorizeGameContext(
     where: { id: auth.actor.roomId }, include: { gameDefinition: true },
   });
   if (!room) return { ok: false, error: 'ROOM_NOT_FOUND' };
+  if (options.roomCode !== undefined && options.roomCode !== room.code) return { ok: false, error: 'WRONG_ROOM' };
   auth.actor.blindHost = blindRoom(room);
   if (auth.actor.role === 'HOST' && socket.data.userId !== room.hostUserId) {
     auth.actor.role = 'VIEWER';

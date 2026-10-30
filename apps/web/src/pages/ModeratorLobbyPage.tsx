@@ -1,3 +1,4 @@
+import type { RoomCoreView } from '@quiz/shared';
 import { MediaDeviceCheck } from '../components/MediaDeviceCheck';
 // ============================================================
 // Moderator Lobby Page - v0.3.0
@@ -16,6 +17,7 @@ export function ModeratorLobbyPage() {
   const roomCode = code ?? '';
   const navigate = useNavigate();
   const socketRef = useRef<ReturnType<typeof getSocket> | null>(null);
+  const [control, setControl] = useState<RoomCoreView | null>(null);
   const [connected, setConnected] = useState(false);
   const [players, setPlayers] = useState<any[]>([]);
   const [chatEnabled, setChatEnabled] = useState(true);
@@ -39,6 +41,16 @@ export function ModeratorLobbyPage() {
 
     connectSocket();
 
+    let disposed = false, request = 0;
+    setControl(null);
+    const refreshControl = () => {
+      const current = ++request;
+      socket.emit('room:core:read', {}, response => {
+        if (!disposed && current === request) setControl(response.success && response.view ? response.view : null);
+      });
+    };
+    socket.on('room:core:changed', refreshControl);
+
     // E2E-Fix + App-Quality: room:subscribe MUSS nach jedem Page-Reload neu gesendet werden.
     // Problem: socket.io-client Singleton → nach page.reload() ist das Socket bereits
     // verbunden, das 'connect'-Event wird NICHT mehr gefeuert → room:subscribe wird nicht
@@ -46,6 +58,7 @@ export function ModeratorLobbyPage() {
     // Fix: room:subscribe direkt aufrufen wenn das Socket bereits verbunden ist.
     const doSubscribe = () => {
       socket.emit('room:subscribe', { roomCode, role: 'HOST' }, (response) => {
+        refreshControl();
         if (!response.success) {
           setKickError(`Raumverbindung fehlgeschlagen: ${response.error ?? 'Unbekannter Fehler'}`);
         }
@@ -62,6 +75,7 @@ export function ModeratorLobbyPage() {
     });
 
     socket.on('room:snapshot', (data) => {
+      refreshControl();
       setPlayers(data.players || []);
       setChatEnabled(data.runPhase !== 'LOCKED');
 
@@ -74,6 +88,7 @@ export function ModeratorLobbyPage() {
     });
 
     socket.on('room:updated', (data) => {
+      refreshControl();
       setPlayers(data.players || []);
     });
 
@@ -108,10 +123,12 @@ export function ModeratorLobbyPage() {
     });
 
     socket.on('disconnect', () => {
-      setConnected(false);
+      setConnected(false); ++request; setControl(null);
     });
 
     return () => {
+      disposed = true; ++request;
+      socket.off('room:core:changed', refreshControl);
       disconnectSocket();
     };
   }, [navigate, roomCode]);
@@ -150,7 +167,7 @@ export function ModeratorLobbyPage() {
         setKickError('Socket-Verbindung ist nicht verfügbar.');
         return;
       }
-      emitCommand(socketRef.current, 'game:start', { roomCode, overrideReady: true, acknowledgeWarnings: true }, `${roomCode}:game:start:override`, (response) => {
+      emitCommand(socketRef.current, 'game:start', { roomCode, overrideReady: control?.policy.readyRule === 'HOST_CAN_OVERRIDE', acknowledgeWarnings: true }, `${roomCode}:game:start:override`, (response) => {
         setLoading(false);
         if (response.success) {
           const gameSlug = (response.gameSlug as string | undefined) ?? '';
@@ -202,7 +219,8 @@ export function ModeratorLobbyPage() {
 
   const connectedCount = players.filter(p => p.role === 'PLAYER' && p.connected).length;
   const readyCount = players.filter(p => p.role === 'PLAYER' && p.ready && p.connected).length;
-  const canStart = connectedCount >= 2 && readyCount === connectedCount;
+  const canControlStart = control?.permissions.includes('GAME_START') && control.preflight.blockers.length === 0;
+  const canStart = canControlStart && control?.preflight.warnings.length === 0;
 
   // Generate QR code URL for room link
   const roomUrl = typeof window !== 'undefined'
@@ -334,8 +352,8 @@ export function ModeratorLobbyPage() {
             <Button onClick={handleStart} disabled={!canStart || loading}>
               {loading ? 'Startet...' : 'Spiel starten'}
             </Button>
-            {connectedCount >= 1 && (
-              <Button variant="secondary" onClick={handleForceStart}>
+            {canControlStart && (control?.preflight.warnings.length ?? 0) > 0 && (
+              <Button variant="secondary" disabled={loading} onClick={handleForceStart}>
                 Erzwingen
               </Button>
             )}

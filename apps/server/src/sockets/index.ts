@@ -80,7 +80,7 @@ export function setupSocketHandlers(io: Server) {
     registerRecoveryCommands(io, socket);
     registerBuzzerOverride(io, socket);
     socket.on('game:core:read', async (_data, callback) => {
-      try { callback?.({ success: true, projection: await projectCoreRuntime(socket) }); }
+      try { callback?.({ success: true, projection: await projectCoreRuntime(socket, _data?.roomCode) }); }
       catch (error) {
         const code = error instanceof CoreRuleError || error instanceof RoomError ? error.code : 'RECOVERY_REQUIRED';
         callback?.({ success: false, error: code, ...wireErrorToAppError(code) });

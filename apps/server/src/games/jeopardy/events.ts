@@ -281,7 +281,7 @@ export function registerJeopardyEvents(io: Server, socket: Socket) {
     // Jeopardy game state resync (P0-11: full rejoin)
     socket.on('jeopardy:resync', async (_data, callback) => {
       try {
-        const auth = await authorizeGameContext(socket, { roles: ['HOST', 'PLAYER', 'VIEWER'], gameSlug: 'jeopardy', requireParticipation: true });
+        const auth = await authorizeGameContext(socket, { roles: ['HOST', 'PLAYER', 'VIEWER'], gameSlug: 'jeopardy', roomCode: _data?.roomCode, requireParticipation: true });
         if (!auth.ok) { callback?.({ success: false, error: auth.error }); return; }
         const { room } = auth;
         const participations = await prisma.participation.findMany({ where: { roomId: room.id } });
