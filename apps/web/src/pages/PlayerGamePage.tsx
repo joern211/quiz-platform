@@ -1,3 +1,4 @@
+import { useGameCore } from '../hooks/useGameCore';
 import { ContentMedia } from '../components/ContentMedia';
 // ============================================================
 // Player Game Page (Geo Quiz)
@@ -16,6 +17,7 @@ import styles from './PlayerGamePage.module.css';
 export function PlayerGamePage() {
   const { code } = useParams<{ code: string }>();
   const roomCode = code ?? '';
+  const core = useGameCore(roomCode);
   const navigate = useNavigate();
   const socketRef = useRef<ReturnType<typeof getSocket> | null>(null);
   const [connected, setConnected] = useState(false);
@@ -144,7 +146,7 @@ export function PlayerGamePage() {
   }, [navigate, participationId, rejoinToken, roomCode]);
 
   const handleSelectOption = (optionId: string) => {
-    if (locked || phase !== 'INPUT_OPEN') return;
+    if (!core.can('answer') || locked || phase !== 'INPUT_OPEN') return;
     if (!socketRef.current) {
       setActionError('Socket-Verbindung ist nicht verfügbar.');
       return;
@@ -169,7 +171,7 @@ export function PlayerGamePage() {
   };
 
   const handle5050 = () => {
-    if (jokers.used5050 || locked || phase !== 'INPUT_OPEN') return;
+    if (jokers.used5050 || locked || !core.can('joker5050')) return;
     if (!socketRef.current) return setActionError('Socket-Verbindung ist nicht verfügbar.');
 
     emitCommand(socketRef.current, 'geo:joker:5050', {
@@ -180,7 +182,7 @@ export function PlayerGamePage() {
   };
 
   const handleSpy = () => {
-    if (jokers.usedSpy || phase !== 'INPUT_OPEN') return;
+    if (jokers.usedSpy || !core.can('jokerSpy')) return;
     if (!socketRef.current) return setActionError('Socket-Verbindung ist nicht verfügbar.');
 
     emitCommand(socketRef.current, 'geo:joker:spy', {
@@ -191,7 +193,7 @@ export function PlayerGamePage() {
   };
 
   const handleRisk = () => {
-    if (jokers.usedRisk || locked || phase !== 'INPUT_OPEN') return;
+    if (jokers.usedRisk || locked || !core.can('jokerRisk')) return;
     if (!socketRef.current) return setActionError('Socket-Verbindung ist nicht verfügbar.');
 
     emitCommand(socketRef.current, 'geo:joker:risk', {
@@ -243,7 +245,7 @@ export function PlayerGamePage() {
                   key={option.id}
                   className={`${styles.option} ${isSelected ? styles.selected : ''} ${isCorrect ? styles.correct : ''} ${isWrong ? styles.wrong : ''} ${eliminated ? styles.eliminated : ''}`}
                   onClick={() => handleSelectOption(option.id)}
-                  disabled={phase !== 'INPUT_OPEN' || locked || revealed || eliminated}
+                  disabled={!core.can('answer') || phase !== 'INPUT_OPEN' || locked || revealed || eliminated}
                   aria-label={eliminated ? `${label}: ausgeschieden` : undefined}
                 >
                   <span className={styles.optionLetter}>
@@ -265,21 +267,21 @@ export function PlayerGamePage() {
         <div className={styles.jokers}>
           <Button 
             variant={jokers.used5050 ? 'ghost' : 'secondary'}
-            disabled={phase !== 'INPUT_OPEN' || jokers.used5050 || locked}
+            disabled={!core.can('joker5050') || jokers.used5050 || locked}
             onClick={handle5050}
           >
             50:50 {jokers.used5050 && '✓'}
           </Button>
           <Button 
             variant={jokers.usedSpy ? 'ghost' : 'secondary'}
-            disabled={phase !== 'INPUT_OPEN' || jokers.usedSpy}
+            disabled={!core.can('jokerSpy') || jokers.usedSpy}
             onClick={handleSpy}
           >
             Spy {jokers.usedSpy && '✓'}
           </Button>
           <Button 
             variant={jokers.usedRisk ? 'ghost' : 'secondary'}
-            disabled={phase !== 'INPUT_OPEN' || jokers.usedRisk || locked}
+            disabled={!core.can('jokerRisk') || jokers.usedRisk || locked}
             onClick={handleRisk}
           >
             Risk ×2 {jokers.usedRisk && '✓'}

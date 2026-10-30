@@ -171,9 +171,9 @@ export const werIstDasGame = {
     return { success: true, state: projectWerIstDas(state, setup, auth.actor.role, auth.actor.participationId) };
   },
 
-  async resync(socket: Socket): Promise<Ack> {
+  async resync(socket: Socket, roomCode?: unknown): Promise<Ack> {
     const auth = await authorizeGameContext(socket, {
-      gameSlug: resolveCanonicalSlug('wer-ist-das')!, roles: ['HOST', 'PLAYER', 'VIEWER'],
+      roomCode, gameSlug: resolveCanonicalSlug('wer-ist-das')!, roles: ['HOST', 'PLAYER', 'VIEWER'],
       requireParticipation: true,
     });
     if (!auth.ok) return { success: false, error: auth.error };

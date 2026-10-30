@@ -6,11 +6,11 @@ import { WerIstDasJudgeSchema, WER_IST_DAS_EVENTS } from './contracts.js';
 import { werIstDasGame } from './engine.js';
 import { getGameEngineContract } from '../core/engineContract.js';
 import { InvalidGameAction } from './state.js';
-import { runGuardedCriticalAction, type EngineActionResult } from '../core/receiptedAction.js';
+import { runGuardedCriticalAction, receiptPayloadWithoutRoomCode, type EngineActionResult } from '../core/receiptedAction.js';
 import type { GamePermission } from '@quiz/shared';
 
 type Ack = (result: { success: boolean; error?: string; state?: unknown }) => void;
-const empty = z.object({});
+const readPayload = z.object({ roomCode: z.string().regex(/^\d{3}-\d{3}$/).optional() });
 // Audit PR14, 14-03 (Nacharbeit): Die Envelope-Felder werden VOLLSTÄNDIG
 // ERLAUBT UND ERHALTEN — nie still entfernt. Die zentrale Prüfung
 // (resolveCommandContextForSocket → CommandEnvelope-Schema) validiert
@@ -20,6 +20,7 @@ const empty = z.object({});
 // Legacy-Kompatibilität = Feld FEHLT (optional); vorhandene ungültige
 // Werte werden abgelehnt, nicht als Legacy gedeutet.
 const emptyEnveloped = z.object({
+  roomCode: z.string().regex(/^\d{3}-\d{3}$/).optional(),
   commandId: z.string().min(1).max(128).optional(),
   requestId: z.string().min(1).max(128).optional(),
   protocolVersion: z.number().int().optional(),
@@ -64,6 +65,7 @@ export function registerWerIstDasEvents(io: Server, socket: Socket) {
           action,
           permission: WID_ACTION_PERMISSION[action],
           payload: parsed.data,
+          receiptPayload: receiptPayloadWithoutRoomCode(parsed.data),
           handler: (onResult: (r: EngineActionResult) => void) =>
             getGameEngineContract('wer-ist-das')!.handleCommand({ io, socket }, { action, payload: parsed.data })
               .then((result) => onResult(result as EngineActionResult))
@@ -77,8 +79,9 @@ export function registerWerIstDasEvents(io: Server, socket: Socket) {
     });
   }
   socket.on(WER_IST_DAS_EVENTS.RESYNC, async (data: unknown, callback?: Ack) => {
-    if (!empty.safeParse(data).success) { callback?.({ success: false, error: 'INVALID_PAYLOAD' }); return; }
-    try { callback?.(await werIstDasGame.resync(socket)); }
+    const parsed = readPayload.safeParse(data);
+    if (!parsed.success) { callback?.({ success: false, error: 'INVALID_PAYLOAD' }); return; }
+    try { callback?.(await werIstDasGame.resync(socket, parsed.data.roomCode)); }
     catch (error) {
       logger.error('weristdas:resync failed', { error });
       callback?.({ success: false, error: publicError(error) });

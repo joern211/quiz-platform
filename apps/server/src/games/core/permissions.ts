@@ -15,6 +15,7 @@
 // dieser Core liefert die Berechtigung, die Projektionen nutzen sie.
 // ============================================================
 
+import { currentSocketMembership } from '../../rooms/membership.js';
 import { prisma } from '../../persistence/prisma.js';
 import { getSocketDataIdentity } from '../../sockets/auth.js';
 import { getSocketIdentity } from '../../http/middleware/auth.js';
@@ -96,12 +97,9 @@ export async function requireGamePermission(
   if (socket.rooms.has(roomWaitingChannel(roomId))) return { ok: false, error: 'NOT_AUTHORIZED', code: 'NOT_AUTHORIZED' };
   const room = await prisma.room.findUnique({ where: { id: roomId } });
   if (!room || room.status === 'ARCHIVED' || (room.expiresAt && room.expiresAt <= new Date())) return { ok: false, error: 'NOT_IN_ROOM', code: 'NOT_AUTHENTICATED' };
-  let userId = identity?.userId ?? null;
-  const authenticated = (socket as Socket & { user?: { id: string; sessionId?: string } }).user;
-  if (userId && authenticated?.sessionId) {
-    const valid = await prisma.session.findFirst({ where: { id: authenticated.sessionId, userId, revokedAt: null, expiresAt: { gt: new Date() }, user: { disabledAt: null } } });
-    if (!valid) userId = null;
-  }
+  const membership = await currentSocketMembership(socket);
+  if (!membership) return { ok: false, error: 'NOT_IN_ROOM', code: 'NOT_AUTHENTICATED' };
+  const { userId } = membership;
   const owner = !!userId && userId === room.hostUserId;
   const effectiveRole = owner ? 'HOST' : role === 'HOST' ? 'VIEWER' : role;
   const cohost = room.roomPolicyJson ? JSON.parse(room.roomPolicyJson).coHostEnabled === true : true;

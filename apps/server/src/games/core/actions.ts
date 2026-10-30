@@ -34,8 +34,9 @@ export async function assertCoreActionAllowed(socket: Socket, key: string, expec
   const result = getGameEngineContract(context.gameSlug)!.validateCommand(context, { action: key, payload: payload ?? {} });
   if (!result.success) throw new CoreRuleError(result.error);
 }
-export async function projectCoreRuntime(socket: Socket): Promise<CoreRuntimeProjection> {
+export async function projectCoreRuntime(socket: Socket, roomCode?: unknown): Promise<CoreRuntimeProjection> {
   let loaded = await loadContext(socket);
+  if (roomCode !== undefined && roomCode !== loaded.room.code) throw new CoreRuleError('WRONG_ROOM');
   try { await ensureGameStateSafe(loaded.room.id); }
   catch (error) {
     if (!(error instanceof CoreRuleError) || error.code !== 'STATE_INVARIANT_FAILED') throw error;

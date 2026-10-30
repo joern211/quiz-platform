@@ -95,6 +95,12 @@ export function resolveCommandContextForSocket(
     return { ok: false, error: 'INVALID_PAYLOAD' };
   }
 
+  // Alias conflicts are malformed input even before a socket joins a room.
+  if (checked.data.commandId !== undefined && checked.data.requestId !== undefined && checked.data.commandId !== checked.data.requestId
+    || checked.data.stateVersion !== undefined && checked.data.expectedRevision !== undefined && checked.data.stateVersion !== checked.data.expectedRevision) {
+    return { ok: false, error: 'INVALID_PAYLOAD' };
+  }
+
   // Serverseitige Identität (nie client-behauptet):
   const d = socket?.data ?? {};
   const roomId = typeof d.roomId === 'string' ? d.roomId : undefined;

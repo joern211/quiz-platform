@@ -16,14 +16,14 @@ import { prisma } from '../../persistence/prisma.js';
 import { logger } from '../../observability/logger.js';
 import { getGameEngineContract } from '../core/engineContract.js';
 import { JeopardyGameState } from './state.js';
-import { getSocketDataIdentity } from '../../sockets/auth.js';
-import { authorizeGameAction } from '../core/access.js';
+import { authorizeGameAction, authorizeGameContext } from '../core/access.js';
 import { gameErrorCode } from '../core/errors.js';
-import { runGuardedCriticalAction, type EngineActionResult } from '../core/receiptedAction.js';
+import { runGuardedCriticalAction, receiptPayloadWithoutRoomCode, type EngineActionResult } from '../core/receiptedAction.js';
 import { ensureGameStateSafe } from '../core/recovery.js';
 
 // ── Jeopardy Runtime Payload Validation ──────────────────────
 const JeopardyFieldOpenSchema = z.object({
+  roomCode: z.string().regex(/^\d{3}-\d{3}$/).optional(),
   boardIndex: z.union([z.literal(1), z.literal(2)]),
   categoryIndex: z.number().int().min(0).max(5),
   value: z.number().int().positive(),
@@ -36,6 +36,7 @@ const JeopardyFieldOpenSchema = z.object({
 });
 
 const JeopardyBuzzSchema = z.object({
+  roomCode: z.string().regex(/^\d{3}-\d{3}$/).optional(),
   commandId: z.string().min(1).max(128).optional(),
   requestId: z.string().min(1).max(128).optional(),
   protocolVersion: z.number().int().optional(),
@@ -44,6 +45,7 @@ const JeopardyBuzzSchema = z.object({
 });
 
 const JeopardyJudgeSchema = z.object({
+  roomCode: z.string().regex(/^\d{3}-\d{3}$/).optional(),
   correct: z.boolean(),
   rejoinToken: z.string().optional(),
   commandId: z.string().min(1).max(128).optional(),
@@ -54,6 +56,7 @@ const JeopardyJudgeSchema = z.object({
 });
 
 const JeopardyNextSchema = z.object({
+  roomCode: z.string().regex(/^\d{3}-\d{3}$/).optional(),
   rejoinToken: z.string().optional(),
   commandId: z.string().min(1).max(128).optional(),
   requestId: z.string().min(1).max(128).optional(),
@@ -63,6 +66,7 @@ const JeopardyNextSchema = z.object({
 });
 
 const JeopardyBoardSwitchSchema = z.object({
+  roomCode: z.string().regex(/^\d{3}-\d{3}$/).optional(),
   toBoard: z.union([z.literal(1), z.literal(2)]),
   rejoinToken: z.string().optional(),
   commandId: z.string().min(1).max(128).optional(),
@@ -108,6 +112,7 @@ function runJeopardyCriticalAction(
     action: args.action,
     permission: args.permission,
     payload: args.payload,
+    receiptPayload: receiptPayloadWithoutRoomCode(args.payload as object),
     handler: args.handler,
   }, callback);
 }
@@ -257,6 +262,7 @@ export function registerJeopardyEvents(io: Server, socket: Socket) {
           action: 'boardSwitch',
           permission: 'ROUND_ADVANCE',
           payload: valid,
+          receiptPayload: receiptPayloadWithoutRoomCode(valid),
           handler: async (onResult) => {
             const gameStateRow = await prisma.roomGameState.findUnique({ where: { roomId: room.id } });
             if (!gameStateRow) { onResult({ success: false, error: 'GAME_NOT_FOUND' }); return; }
@@ -277,27 +283,18 @@ export function registerJeopardyEvents(io: Server, socket: Socket) {
     // Jeopardy game state resync (P0-11: full rejoin)
     socket.on('jeopardy:resync', async (_data, callback) => {
       try {
-        const auth = authorizeGameAction(socket, { roles: ['HOST', 'PLAYER', 'VIEWER'] });
+        const auth = await authorizeGameContext(socket, { roles: ['HOST', 'PLAYER', 'VIEWER'], gameSlug: 'jeopardy', roomCode: _data?.roomCode, requireParticipation: true });
         if (!auth.ok) { callback?.({ success: false, error: auth.error }); return; }
-        const identity = getSocketDataIdentity(socket);
-
-        const room = await prisma.room.findUnique({
-          where: { id: identity.roomId },
-          include: { participations: true, gameDefinition: true },
-        });
-        if (!room) { callback?.({ success: false, error: 'ROOM_NOT_FOUND' }); return; }
-        if (room.gameDefinition.slug !== 'jeopardy') {
-          callback?.({ success: false, error: 'WRONG_GAME' }); return;
-        }
+        const { room } = auth;
+        const participations = await prisma.participation.findMany({ where: { roomId: room.id } });
 
         const gameStateData = await prisma.roomGameState.findUnique({
-          where: { roomId: identity.roomId },
+          where: { roomId: room.id },
         });
         if (!gameStateData) { callback?.({ success: false, error: 'GAME_NOT_FOUND' }); return; }
 
         const state: JeopardyGameState = JSON.parse(gameStateData.stateJson);
-        const informationRole = identity.role === 'HOST' && socket.data.userId === room.hostUserId ? 'HOST' : identity.role === 'PLAYER' ? 'PLAYER' : 'VIEWER';
-        callback?.(getGameEngineContract('jeopardy')!.createProjection({ state, setup: JSON.parse(room.setupSnapshotJson ?? '{}'), actor: { ...auth.actor, role: informationRole, blindHost: room.contentVisibility === 'BLIND_HOST' }, participants: room.participations, stateVersion: gameStateData.revision }));
+        callback?.(getGameEngineContract('jeopardy')!.createProjection({ state, setup: JSON.parse(room.setupSnapshotJson ?? '{}'), actor: { ...auth.actor, blindHost: room.contentVisibility === 'BLIND_HOST' }, participants: participations, stateVersion: gameStateData.revision }));
       } catch (err) {
         logger.error('jeopardy:resync threw', { err });
         callback?.({ success: false, error: gameErrorCode(err) });

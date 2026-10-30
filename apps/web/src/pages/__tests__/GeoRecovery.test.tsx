@@ -9,6 +9,8 @@ import { ViewerGamePage } from '../ViewerGamePage';
 const transport = vi.hoisted(() => ({
   handlers: new Map<string, (data: unknown) => void>(),
   recovery: true,
+  phase: 'INPUT_OPEN',
+  actions: [] as string[],
   hasQuestion: true,
   command: vi.fn(),
 }));
@@ -24,10 +26,11 @@ vi.mock('../../lib/socket', () => {
     off: (event: string, handler: (data: unknown) => void) => { if (transport.handlers.get(event) === handler) transport.handlers.delete(event); },
     disconnect: vi.fn(),
     emit: (event: string, _data: unknown, ack: (data: unknown) => void) => {
+      if (event === 'game:core:read') ack({ success: true, projection: { roomCode: '123-456', runIndex: 1, gameSlug: 'wissensduell', engineVersion: 1, stateVersion: 2, enginePhase: transport.phase, corePhase: 'ROUND_ACTIVE', informationRole: 'PLAYER', timer: null, progress: { currentRound: 1, totalRounds: 2, remainingRounds: 2, progressPercent: 0 }, availableActions: transport.actions.map(key => ({ key, event: `geo:${key}`, label: key })) } });
       if (event === 'room:subscribe') ack({ success: true });
       if (event === 'geo:resync') ack({
         success: true,
-        phase: transport.recovery ? 'ERROR_RECOVERY' : 'INPUT_OPEN',
+        phase: transport.recovery ? 'ERROR_RECOVERY' : transport.phase,
         recoveryError: transport.recovery ? 'CONFIG_SNAPSHOT_INVALID' : undefined,
         timerEndMs: null, scores: {},
         question: transport.hasQuestion ? { id: 'q1', prompt: 'Beispielfrage', options: [{ id: 'a', text: 'Antwort A' }] } : null,
@@ -36,6 +39,7 @@ vi.mock('../../lib/socket', () => {
   };
   return {
     getSocket: () => socket,
+    observeSocket: (listener: (s: typeof socket) => void) => { listener(socket); return () => {}; },
     connectSocket: vi.fn(), disconnectSocket: vi.fn(),
     emitCommand: transport.command,
     __testSocket: socket,
@@ -53,7 +57,7 @@ const roles = [
 
 beforeEach(() => {
   transport.handlers.clear();
-  transport.recovery = true;
+  transport.recovery = true; transport.phase = 'INPUT_OPEN'; transport.actions = [];
   transport.hasQuestion = true;
   transport.command.mockReset();
 });
@@ -92,4 +96,22 @@ describe('Geo configuration recovery across roles', () => {
     );
     expect(screen.queryByRole('button', { name: /Auflösen/ })).not.toBeInTheDocument();
   });
+});
+
+it('Player keeps an open answer disabled after the server removes the action', async () => {
+  transport.recovery = false;
+  render(<MemoryRouter initialEntries={['/123-456']}><Routes><Route path=":code" element={<PlayerGamePage />} /></Routes></MemoryRouter>);
+  const answer = await screen.findByRole('button', { name: /Antwort A/ });
+  expect(answer).toBeDisabled();
+  transport.actions = ['answer'];
+  await act(async () => transport.handlers.get('game:core:changed')?.({}));
+  expect(answer).toBeEnabled();
+});
+it('Player can use the server-approved Spy action after input locks', async () => {
+  transport.recovery = false; transport.phase = 'INPUT_LOCKED'; transport.actions = ['jokerSpy'];
+  render(<MemoryRouter initialEntries={['/123-456']}><Routes><Route path=":code" element={<PlayerGamePage />} /></Routes></MemoryRouter>);
+  const spy = await screen.findByRole('button', { name: 'Spy' }); expect(spy).toBeEnabled();
+  await userEvent.click(spy);
+  expect(transport.command).toHaveBeenCalledWith(expect.anything(), 'geo:joker:spy', expect.objectContaining({ roomCode: '123-456' }), expect.any(String), expect.any(Function));
+  expect(screen.getByRole('button', { name: /Antwort A/ })).toBeDisabled();
 });

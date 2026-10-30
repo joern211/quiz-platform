@@ -13,7 +13,7 @@ import { z } from 'zod';
 import { getGameEngineContract } from '../core/engineContract.js';
 import { getSocketDataIdentity } from '../../sockets/auth.js';
 import { registerGeoResync } from './resync.js';
-import { runGuardedCriticalAction } from '../core/receiptedAction.js';
+import { runGuardedCriticalAction, receiptPayloadWithoutRoomCode } from '../core/receiptedAction.js';
 import { prisma } from '../../persistence/prisma.js';
 
 // Audit PR14, 14-03 (Nacharbeit): Envelope-Felder (stateVersion/
@@ -30,6 +30,7 @@ const roomAction = z.object({
   expectedRevision: z.number().int().optional(),
 });
 const answerAction = z.object({
+  roomCode: z.string().regex(/^\d{3}-\d{3}$/).optional(),
   optionId: z.string().min(1),
   questionIndex: z.number().int().nonnegative().optional(),
   commandId: z.string().min(1).max(128).optional(),
@@ -92,6 +93,7 @@ export const handleGeoEvents = {
       action: 'answer',
       permission: 'BUZZER_CONTROL',
       payload: data,
+      receiptPayload: receiptPayloadWithoutRoomCode(data),
       handler: async (onResult) => {
         // VIEWER role check: only PLAYER and HOST can answer (Rollen-Grenze).
         const identity = getSocketDataIdentity(socket);

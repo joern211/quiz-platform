@@ -39,6 +39,9 @@ export interface GuardedActionArgs {
   gameSlug?: string;
   /** Für das Receipt: stable, actionsspezifische Keyliste (fachlich relevante Felder). */
   payload: unknown;
+  /** Keep an existing receipt fingerprint when a formerly ignored wire locator is added.
+   * Scope and validation always use the full payload above. */
+  receiptPayload?: unknown;
   /**
    * Das für die Aktion erforderliche Recht (§2.3). Default:
    * BUZZER_CONTROL (spielerische Basisaktion — PLAYER/HOST-Paket).
@@ -91,6 +94,14 @@ export function awaitEngineResult(
   });
 }
 
+/** These adapters historically stripped roomCode before fingerprinting. The
+ * server-owned roomId and the explicit scope guard still bind the command. */
+export function receiptPayloadWithoutRoomCode(payload: object): object {
+  const { roomCode: _scope, ...intent } = payload as Record<string, unknown>;
+  void _scope;
+  return intent;
+}
+
 export async function runGuardedCriticalAction(
   args: GuardedActionArgs,
   callback?: (result: { success: boolean; error?: string; [k: string]: unknown }) => void,
@@ -125,6 +136,16 @@ export async function runGuardedCriticalAction(
     return;
   }
 
+  // An explicit locator is an assertion, never a hint to be rewritten by an
+  // engine adapter. Check before claiming a receipt (including legacy calls).
+  if (data?.roomCode !== undefined) {
+    const room = await prisma.room.findUnique({ where: { id: perm.roomId }, select: { code: true } });
+    if (!room || room.code !== data.roomCode) {
+      callback?.({ success: false, error: 'WRONG_ROOM' });
+      return;
+    }
+  }
+
   const finish = (result: { success: boolean; error?: string; [k: string]: unknown }, replayed?: boolean) => {
     if (result.success && !replayed || result.error === 'STATE_INVARIANT_FAILED') { args.io.to(roomChannel(perm.roomId)).emit('game:core:changed'); void refreshLiveMedia(args.io); }
     if (!result.success && result.error) {
@@ -142,7 +163,7 @@ export async function runGuardedCriticalAction(
         commandId: cmdCtx.ctx.commandId!,
         actor: { actorId: cmdCtx.ctx.actorId, actorRole: perm.role },
         action: toReceiptAction(args.action),
-        payload: args.payload,
+        payload: args.receiptPayload ?? args.payload,
         // Audit PR14, 14-02/14-03: mitgesendete Versionserwartung wird
         // serverseitig gegen die aktuelle Room-Revision geprüft.
         stateVersion: cmdCtx.ctx.envelope?.stateVersion,

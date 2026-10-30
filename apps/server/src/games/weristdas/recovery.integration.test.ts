@@ -169,7 +169,7 @@ async function seedRunningRoom(version: 1 | 2): Promise<SeededRoom> {
     gameDefId = gd.id; gameDefIds.push(gameDefId);
   }
 
-  const code = `${version}${Math.floor(100000 + Math.random() * 900000)}`;
+  const code = `${version}${Math.floor(10000 + Math.random() * 90000)}`.replace(/(\d{3})(\d{3})/, '$1-$2');
   // Medien-Assets (echte DB-Zeilen, damit die Signed-URLs auf existierende
   // Assets zeigen; die Dateien werden im Recovery-Pfad NICHT gelesen).
   let gameImageAssetId: string;

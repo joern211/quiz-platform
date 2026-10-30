@@ -14,6 +14,7 @@ import { wireErrorToAppError } from '../games/core/appError.js';
 import { updateRoomConfig, GAME_CONFIG_FIELDS } from '../games/core/config.js';
 import { resolveCanonicalSlug } from '@quiz/shared';
 import { socketIdentityMap, type Role } from '../http/middleware/auth.js';
+import { currentSocketMembership } from '../rooms/membership.js';
 import { requireGamePermission } from '../games/core/permissions.js';
 import { roomChannel } from './index.js';
 import { roomWaitingChannel } from './channel.js';
@@ -549,6 +550,10 @@ export const handleRoomEvents = {
       callback?.({ success: false, error: 'ROLE_REQUIRED' });
       return;
     }
+    if (!await currentSocketMembership(socket)) {
+      callback?.({ success: false, error: 'NOT_IN_ROOM' });
+      return;
+    }
     const unknownFields = Object.keys(parsed.data.changes).filter((k) => !Object.hasOwn(GAME_CONFIG_FIELDS[resolveCanonicalSlug(room.gameDefinition.slug) ?? ''] ?? {}, k));
     if (unknownFields.length > 0) {
       callback?.({ success: false, error: 'INVALID_CONFIG', details: { fields: unknownFields } });
@@ -604,6 +609,11 @@ export const handleRoomEvents = {
     }
     if (room.code !== data.roomCode) {
       callback?.({ success: false, error: 'WRONG_ROOM' });
+      return;
+    }
+
+    if (!await currentSocketMembership(socket)) {
+      callback?.({ success: false, error: 'NOT_IN_ROOM' });
       return;
     }
 
