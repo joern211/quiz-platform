@@ -19,7 +19,7 @@ let nextCode = 750000;
 let failEventForRoom: string | undefined;
 let failScoreEventNth: { roomId: string; nth: number } | undefined;
 let failResultVersionOnce = false;
-let questionOverride: string[] | undefined, roomExtras: Record<string, unknown> = {};
+let questionOverride: string[] | undefined;
 afterEach(() => vi.restoreAllMocks());
 async function connect(auth?: string) { const s = await connectGameClient(origin, auth); sockets.push(s); return s; }
 beforeAll(async () => {
@@ -61,7 +61,7 @@ async function fixture(slug: 'wissensduell' | 'jeopardy' | 'wer-ist-das' = 'jeop
     const image = await db.mediaAsset.create({ data: { type: 'image', mimeType: 'image/png', filename: 'g1.png', originalName: 'g1.png', fileSize: 12, sha256: randomUUID(), storagePath: '/tmp/g1.png', uploadedBy: hostId } });
     setup = { rounds: [{ id: 'g1', imageAssetId: image.id, person1: 'G4_PRIVATE_A', person2: 'G4_PRIVATE_B' }, { id: 'g2-next', imageAssetId: image.id, person1: 'G4_PRIVATE_C', person2: 'G4_PRIVATE_D' }] };
   }
-  const room = await db.room.create({ data: { code, roomName: 'G4', hostUserId: hostId, gameDefinitionId: game.id, status: 'LOBBY', runPhase: 'OPEN', viewerRequiresPin: false, setupSnapshotJson: JSON.stringify(setup), ...roomExtras } }); roomIds.push(room.id);
+  const room = await db.room.create({ data: { code, roomName: 'G4', hostUserId: hostId, gameDefinitionId: game.id, status: 'LOBBY', runPhase: 'OPEN', viewerRequiresPin: false, setupSnapshotJson: JSON.stringify(setup) } }); roomIds.push(room.id);
   const host = await connect(cookie); expect((await gameAck(host, 'room:subscribe', { roomCode: code })).success).toBe(true);
   const players = [];
   for (const name of (teamMode ? ['Alice', 'Bob', 'Cara', 'Dan'] : ['Alice', 'Bob'])) {
@@ -212,12 +212,14 @@ async function finishedGame(slug: 'wissensduell' | 'jeopardy' | 'wer-ist-das') {
   expect((await gameAck(f.host, 'game:end', intent(f.code))).success).toBe(true);
   return f;
 }
-const logLines = () => (vi.mocked(console.warn).mock.calls.concat(vi.mocked(console.error).mock.calls, vi.mocked(console.info).mock.calls)).map(c => c.join(' '));
+const logSpies: Array<{ mock: { calls: unknown[][] } }> = [];
+const spyOnLogs = () => { logSpies.length = 0; for (const level of ['warn', 'error', 'info'] as const) logSpies.push(vi.spyOn(console, level)); };
+const logLines = () => logSpies.flatMap(spy => spy.mock.calls).map(c => c.join(' '));
 
 it('Errors: an unexpected result-write failure rolls back, answers with a trace id that finds the diagnostic line, and leaks nothing', async () => {
   const f = await finishedGame('wissensduell');
   const before = await effects(f.room.id), versions = await db.gameResultVersion.count();
-  vi.spyOn(console, 'warn'); vi.spyOn(console, 'error'); vi.spyOn(console, 'info');
+  spyOnLogs();
   failResultVersionOnce = true;
   const failed = await gameAck(f.host, 'game:result:command', resultCommand(f, 1, 1, { type: 'REVIEW' }));
   expect(failed).toMatchObject({ success: false, code: 'INTERNAL_ERROR', traceId: expect.any(String) });
@@ -231,14 +233,15 @@ it('Errors: an unexpected result-write failure rolls back, answers with a trace 
 });
 
 // ── G4 A/B/C: results, team scoring and corrections with all three consumers ──
+/** Loosely typed read of a wire payload; assertions below state the exact shape. */
+type ResultField = any; // eslint-disable-line @typescript-eslint/no-explicit-any
 type Slug = 'wissensduell' | 'jeopardy' | 'wer-ist-das';
 const SLUGS: Slug[] = ['wissensduell', 'jeopardy', 'wer-ist-das'];
-const ALICE_POINTS: Record<Slug, number> = { wissensduell: 100, jeopardy: 100, 'wer-ist-das': 3 };
 const SECRET = /G4_PRIVATE_|correctOptionId|G4 question|"answer"/;
-const readResult = (client: Socket, f: { code: string }, extra: object = {}) => gameAck(client, 'game:result:read', { roomCode: f.code, ...extra }) as Promise<{ success: boolean; data: Record<string, any> }>;
+const readResult = (client: Socket, f: { code: string }, extra: object = {}) => gameAck(client, 'game:result:read', { roomCode: f.code, ...extra }) as Promise<{ success: boolean; data: Record<string, ResultField> }>;
 async function httpResult(f: { code: string }, query = '') {
   const res = await fetch(`${origin}/api/v1/rooms/${f.code}/results${query}`, { headers: { Cookie: cookie } });
-  return (await res.json()) as { success: boolean; data: Record<string, any> };
+  return (await res.json()) as { success: boolean; data: Record<string, ResultField> };
 }
 async function totals(roomId: string, runIndex: number) {
   const out: Record<string, number> = {};
@@ -323,7 +326,7 @@ it.each(SLUGS)('%s: a failing result write ends nothing — no GAME_END, no resu
 });
 
 const command = async (client: Socket, f: { code: string }, runIndex: number, resultRevision: number, operation: object) =>
-  gameAck(client, 'game:result:command', resultCommand(f, runIndex, resultRevision, operation)) as Promise<Record<string, any>>;
+  gameAck(client, 'game:result:command', resultCommand(f, runIndex, resultRevision, operation)) as Promise<Record<string, ResultField>>;
 const versions = async (roomId: string, runIndex: number) => (await db.gameResultVersion.findMany({ where: { result: { roomId, runIndex } }, orderBy: { revision: 'asc' } })).map(v => [v.revision, v.kind]);
 
 it.each(SLUGS)('%s TEAM_SCORE: team ranking, winner and caches use the same evidence; a later team change rewrites neither history nor corrections', async slug => {
