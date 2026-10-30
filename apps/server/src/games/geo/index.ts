@@ -533,6 +533,9 @@ export const handleGeoGame = {
         const parsed: GeoGameState = JSON.parse(existing.stateJson);
         const roundState = parsed.roundStates[parsed.currentRoundIndex];
         if (parsed.phase !== 'INPUT_OPEN' || !roundState || roundState.revealed) throw new Error('INVALID_PHASE');
+        // An explicit round locator is an assertion, not a hint: option ids repeat
+        // across questions, so a delayed answer must never land in a newer round.
+        if (data.questionIndex !== undefined && data.questionIndex !== parsed.currentRoundIndex) throw new Error('STALE_ROUND');
         const ps = roundState.playerStates[participationId];
 
         // P0-16: Check timer hasn't expired
@@ -614,6 +617,10 @@ export const handleGeoGame = {
       }
       if (msg === 'INVALID_OPTION') {
         callback?.({ success: false, error: 'INVALID_OPTION' });
+        return;
+      }
+      if (msg === 'STALE_ROUND') {
+        callback?.({ success: false, error: 'STALE_ROUND' });
         return;
       }
       logger.error('Geo answer error', { error });

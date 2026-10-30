@@ -23,6 +23,7 @@ export function PlayerGamePage() {
   const [connected, setConnected] = useState(false);
   const [phase, setPhase] = useState<string>('WAITING');
   const [question, setQuestion] = useState<any>(null);
+  const [roundIndex, setRoundIndex] = useState<number | null>(null);
   const [selectedOption, setSelectedOption] = useState<string | null>(null);
   const [locked, setLocked] = useState(false);
   const [endsAt, setEndsAt] = useState<number>(0);
@@ -62,6 +63,7 @@ export function PlayerGamePage() {
           }
           if (res.recoveryError) setActionError('Das Spiel ist angehalten. Bitte warte auf den Host.');
           if (res.question) setQuestion(res.question);
+          if (typeof res.roundIndex === 'number') setRoundIndex(res.roundIndex);
           setEndsAt(res.timerEndMs ?? 0);
           setRevealed(res.revealed ?? false);
           setPhase(res.phase ?? 'WAITING');
@@ -95,6 +97,7 @@ export function PlayerGamePage() {
 
     socket.on('geo:question', (data) => {
       setQuestion(data.question);
+      if (typeof data.roundIndex === 'number') setRoundIndex(data.roundIndex);
       setEndsAt(data.timerEndMs);
       setSelectedOption(null);
       setLocked(false);
@@ -158,6 +161,7 @@ export function PlayerGamePage() {
     emitCommand(socketRef.current, 'geo:answer', {
       roomCode,
       optionId,
+      ...(roundIndex !== null ? { questionIndex: roundIndex } : {}),
       rejoinToken: rejoinToken ?? undefined,
     }, `${roomCode}:geo:answer:${question?.id ?? 'q'}`, (response) => {
       if (response.success) {
@@ -165,7 +169,7 @@ export function PlayerGamePage() {
       } else {
         setSelectedOption(null);
         setLocked(false);
-        setActionError('Antwort konnte nicht gespeichert werden.');
+        setActionError(response.error === 'STALE_ROUND' ? 'Die Frage hat gewechselt. Deine Antwort wurde nicht gezählt.' : 'Antwort konnte nicht gespeichert werden.');
       }
     });
   };

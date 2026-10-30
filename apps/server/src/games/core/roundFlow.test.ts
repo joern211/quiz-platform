@@ -27,3 +27,14 @@ it('preserves random choices as an independent permutation and enforces round bo
   expect(advanceRound(1, 2)).toEqual({ nextIndex: 2, ended: true });
   expect(() => advanceRound(2, 2)).toThrow('INVALID_ROUND_INDEX');
 });
+
+it('G3: only EXACT can accept automatically in production; MANUAL_ONLY never accepts and similarity never exceeds a judge proposal', () => {
+  expect(matchAnswer('Berlin', 'Berlin', 'MANUAL_ONLY')).toBe('NEEDS_JUDGE');
+  expect(matchAnswer(null, 'Berlin', 'EXACT')).toBe('NO_MATCH');
+  expect(matchAnswer('Berlin ', 'Berlin', 'EXACT')).toBe('NO_MATCH');
+  expect(matchAnswer('Hamburg', 'Berlin', 'FUZZY')).toBe('NO_MATCH');
+  expect(matchAnswer('x'.repeat(300), 'y'.repeat(300), 'FUZZY')).toBe('NEEDS_JUDGE');
+  expect(() => matchAnswer('x'.repeat(10001), 'y', 'EXACT')).toThrow('ANSWER_TOO_LONG');
+  // Near misses of any length are never an accepted answer on their own.
+  for (const near of ['Berln', 'Berlinn', 'berlín', 'Berlin!']) expect(matchAnswer(near, 'Berlin', 'FUZZY')).not.toBe('MATCH');
+});

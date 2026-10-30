@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { createTimer, extendTimer, judgeSubmission, legacyRoundTimer, pauseTimer, resumeTimer, scoreJudgement, submitOnce, timerAcceptsInput, timerElapsed, timerRemaining } from './runtimePrimitives.js';
+import { createTimer, extendTimer, judgeSubmission, legacyRoundTimer, lockSubmission, pauseTimer, resumeTimer, scoreJudgement, submitOnce, timerAcceptsInput, timerElapsed, timerRemaining } from './runtimePrimitives.js';
 
 describe('shared runtime: persisted deadlines, submissions and judging', () => {
   it('preserves countdown time across serialization, long pause and restart', () => {
@@ -61,4 +61,27 @@ it('caps elapsed countdown time at its deadline and never resumes a zero paused 
   expect(timerElapsed(timer, 99999)).toBe(1000);
   expect(pauseTimer(timer, 99999)).toMatchObject({ status: 'EXPIRED', remainingMs: 0, elapsedBeforeMs: 1000 });
   expect(() => resumeTimer({ ...pauseTimer(timer, 1500), remainingMs: 0 }, 5000)).toThrow('TIME_EXPIRED');
+});
+
+it('G3: a 0 outcome is a real outcome, partial 0 is supported, undefined/fractional/non-finite values are refused', () => {
+  expect(scoreJudgement('CORRECT', { correct: 0, wrong: 0 })).toBe(0);
+  expect(scoreJudgement('WRONG', { correct: 100, wrong: 0 })).toBe(0);
+  expect(scoreJudgement('PARTIAL', { correct: 100, wrong: -50, partial: 0 })).toBe(0);
+  expect(scoreJudgement('CANCELLED', { correct: 100, wrong: -50 })).toBe(0);
+  expect(scoreJudgement('WRONG', { correct: 100, wrong: -50 })).toBe(-50);
+  for (const bad of [0.5, NaN, Infinity]) expect(() => scoreJudgement('CORRECT', { correct: bad, wrong: 0 })).toThrow('JUDGE_DECISION_UNSUPPORTED');
+});
+it('G3: submit, lock and judge follow one order; a lock never reopens or re-judges and a judged record cannot be submitted over', () => {
+  const timer = createTimer('COUNTDOWN', 0, 1000);
+  const submitted = submitOnce({ participantId: 'p', roundId: 'r', value: 'a', timer, now: 10 });
+  const locked = lockSubmission(submitted);
+  expect(locked).toMatchObject({ status: 'LOCKED', value: 'a', submittedAtMs: 10 });
+  expect(lockSubmission(locked)).toEqual(locked);
+  expect(() => submitOnce({ previous: locked, participantId: 'p', roundId: 'r', value: 'b', timer, now: 20 })).toThrow('ALREADY_ANSWERED');
+  const judged = judgeSubmission(locked, 'WRONG', 30);
+  expect(lockSubmission(judged)).toEqual(judged);
+  expect(() => submitOnce({ previous: judged, participantId: 'p', roundId: 'r', value: 'b', timer, now: 40 })).toThrow('ALREADY_ANSWERED');
+  // another participant or round is a different record, not an overwrite
+  expect(submitOnce({ previous: judged, participantId: 'q', roundId: 'r', value: 'b', timer, now: 40 }).participantId).toBe('q');
+  expect(submitOnce({ previous: judged, participantId: 'p', roundId: 's', value: 'b', timer, now: 40 }).roundId).toBe('s');
 });

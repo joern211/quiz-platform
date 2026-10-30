@@ -2,7 +2,7 @@ import { GameStateConflictError } from './state.js';
 
 // Wire codes kept stable for existing clients; internal messages are never returned.
 const PUBLIC_CODES = new Set([
-  'ALREADY_ANSWERED', 'BUZZ_CLOSED', 'GAME_NOT_FOUND', 'INVALID_OPTION',
+  'ALREADY_ANSWERED', 'STALE_ROUND', 'BUZZ_CLOSED', 'GAME_NOT_FOUND', 'INVALID_OPTION',
   'NO_QUESTIONS', 'NO_STEAL_WINNER', 'PHASE_NOT_BUZZ_LOCKED',
   'PHASE_NOT_BUZZ_OPEN', 'PHASE_NOT_FIELD_DONE', 'PHASE_NOT_STEAL_LOCKED',
   'PHASE_NOT_STEAL_OPEN', 'PLAYER_NOT_IN_GAME', 'STATE_CONFLICT',
