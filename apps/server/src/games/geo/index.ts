@@ -602,12 +602,10 @@ export const handleGeoGame = {
         answered: true,
       });
       if (room.contentVisibility !== 'BLIND_HOST') {
-        for (const moderator of await currentRoomSockets(io, room.id)) {
-          if (moderator.data.role === 'HOST' && moderator.data.userId === room.hostUserId) {
-            moderator.emit('geo:answered:moderator', {
-              questionIndex: roundIndex, participantId: participationId, optionId: data.optionId,
-            });
-          }
+        for (const moderator of await currentRoomSockets(io, room.id, s => s.data.role === 'HOST' && s.data.userId === room.hostUserId)) {
+          moderator.emit('geo:answered:moderator', {
+            questionIndex: roundIndex, participantId: participationId, optionId: data.optionId,
+          });
         }
       }
 

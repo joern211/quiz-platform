@@ -558,3 +558,17 @@ it("Wer ist das?: a revoked host session and a removed player stop receiving pro
     for (const seen of [hostSeen, aliceSeen]) expect(seen.filter(e => (e as unknown[])[0] === 'weristdas:update')).toEqual([]);
   } finally { await db.session.update({ where: { id: session.id }, data: { revokedAt: null } }); }
 });
+
+it("Jeopardy: the buzz events carry exactly the attempt the projection and the judgement use", async () => {
+  const f = await fixture('jeopardy'), [alice, bob] = f.players, hostSeen = record(f.host);
+  await jeopardyField(f);
+  expect((await gameAck(alice.client, 'jeopardy:buzz', intent(f.code))).success).toBe(true);
+  const won = await vi.waitFor(() => { const e = hostSeen.find(x => (x as unknown[])[0] === 'jeopardy:buzz:won'); expect(e).toBeDefined(); return (e as [string, { attemptId: string }])[1]; });
+  expect(won.attemptId).toBe(await attemptOf(f, 'jeopardy'));
+  expect((await gameAck(f.host, 'jeopardy:judge', { correct: false, attemptId: won.attemptId, ...intent(f.code) })).success).toBe(true);
+  expect((await gameAck(bob.client, 'jeopardy:steal:buzz', intent(f.code))).success).toBe(true);
+  const stolen = await vi.waitFor(() => { const e = hostSeen.find(x => (x as unknown[])[0] === 'jeopardy:steal:buzz:won'); expect(e).toBeDefined(); return (e as [string, { attemptId: string }])[1]; });
+  expect(stolen.attemptId).toBe(await attemptOf(f, 'jeopardy'));
+  expect(stolen.attemptId).not.toBe(won.attemptId);
+  expect((await gameAck(f.host, 'jeopardy:steal:judge', { correct: true, attemptId: stolen.attemptId, ...intent(f.code) })).success).toBe(true);
+});
