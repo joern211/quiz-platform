@@ -5,6 +5,7 @@ import { authorizeGameContext, type GameActor } from '../core/access.js';
 import { loadGameState } from '../core/state.js';
 import { canView, visibleValue } from '../core/visibility.js';
 import { getGameEngineContract } from '../core/engineContract.js';
+import { limitSocketRead } from '../core/limitGuard.js';
 
 type GeoRound = {
   question: { id: string; prompt: string; category: string; mediaType?: string; mediaAssetId?: string; imageUrl?: string;
@@ -89,6 +90,8 @@ export function projectGeoStateForClient(state: GeoState, actor: GameActor) {
 
 export function registerGeoResync(_io: Server, socket: Socket): void {
   socket.on('geo:resync', async (_data, callback) => {
+    const limited = limitSocketRead(socket, 'geo:resync');
+    if (limited) { callback?.({ ...limited }); return; }
     try {
       const auth = await authorizeGameContext(socket, { roles: ['HOST', 'PLAYER', 'VIEWER'], gameSlug: 'wissensduell', roomCode: _data?.roomCode, requireParticipation: true });
       if (!auth.ok) { callback?.({ success: false, error: auth.error }); return; }

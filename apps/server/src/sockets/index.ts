@@ -21,6 +21,7 @@ import { handleRoomSubscription, handleRoomEvents, handleKickPlayer } from './ro
 import { handlePlayerEvents } from './player.js';
 import { handleLobbyEvents, handleDisconnect } from './lobby.js';
 import { handleGameEvents } from './game.js';
+import { limitSocketRead } from '../games/core/limitGuard.js';
 import { registerGameSocketHandlers } from '../games/registry.js';
 
 export { roomChannel } from './channel.js';
@@ -80,6 +81,8 @@ export function setupSocketHandlers(io: Server) {
     registerRecoveryCommands(io, socket);
     registerBuzzerOverride(io, socket);
     socket.on('game:core:read', async (_data, callback) => {
+      const limited = limitSocketRead(socket, 'core:read');
+      if (limited) { callback?.({ ...limited }); return; }
       try { callback?.({ success: true, projection: await projectCoreRuntime(socket, _data?.roomCode) }); }
       catch (error) {
         const code = error instanceof CoreRuleError || error instanceof RoomError ? error.code : 'RECOVERY_REQUIRED';

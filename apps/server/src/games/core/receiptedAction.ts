@@ -29,6 +29,8 @@ import { wireErrorToAppError } from './appError.js';
 import { gameErrorCode } from './errors.js';
 import { assertCoreActionAllowed } from './actions.js';
 import { roomChannel } from '../../sockets/channel.js';
+import { limitGroupForAction } from './actionLimits.js';
+import { isOwnKnownIntent, limitAction } from './limitGuard.js';
 
 export interface GuardedActionArgs {
   io: Server;
@@ -144,6 +146,15 @@ export async function runGuardedCriticalAction(
       callback?.({ success: false, error: 'WRONG_ROOM' });
       return;
     }
+  }
+
+  // Request protection (G4 D): after authorisation, before any receipt claim or mutation. Keyed by the
+  // server-resolved participant, so tabs, reconnects and fresh command ids share one budget; a retry of an
+  // own already-known command is not a new intent and is never refused here.
+  const commandId = cmdCtx.ok && cmdCtx.ctx.commandMode ? cmdCtx.ctx.commandId : undefined;
+  if (!(commandId && await isOwnKnownIntent(perm.roomId, commandId, perm.actorId))) {
+    const limited = limitAction(perm.roomId, perm.actorId, limitGroupForAction(args.action), args.action);
+    if (limited) { callback?.({ ...limited }); return; }
   }
 
   const finish = (result: { success: boolean; error?: string; [k: string]: unknown }, replayed?: boolean) => {

@@ -1,0 +1,188 @@
+import { randomUUID } from 'node:crypto';
+import { mkdtemp, rm } from 'node:fs/promises';
+import { join } from 'node:path';
+import { tmpdir } from 'node:os';
+import { afterAll, afterEach, beforeAll, expect, it, vi } from 'vitest';
+import { PrismaClient } from '@prisma/client';
+import type { Socket } from 'socket.io-client';
+import { createApp } from '../../app.js';
+import { createTestDatabase } from '../../test-helpers.js';
+import { createSessionCookie } from '../../auth/session.js';
+import { config } from '../../config/index.js';
+import { connectGameClient, gameAck } from '../../test-socket-harness.js';
+import { socketIdentityMap } from '../../http/middleware/auth.js';
+import { cancelGeoTimer, handleGeoGame } from '../geo/index.js';
+
+let db: PrismaClient, previous: PrismaClient | undefined, dir: string, app: ReturnType<typeof createApp>, origin: string, cookie: string, hostId: string, questionIds: string[];
+const sockets: Socket[] = [], roomIds: string[] = [];
+let nextCode = 750000;
+let failEventForRoom: string | undefined;
+let failScoreEventNth: { roomId: string; nth: number } | undefined;
+let questionOverride: string[] | undefined, roomExtras: Record<string, unknown> = {};
+afterEach(() => vi.restoreAllMocks());
+async function connect(auth?: string) { const s = await connectGameClient(origin, auth); sockets.push(s); return s; }
+beforeAll(async () => {
+  dir = await mkdtemp(join(tmpdir(), 'quiz-g4-')); const url = `file:${join(dir, 'test.db')}`;
+  await createTestDatabase(url); db = new PrismaClient({ datasourceUrl: url }); previous = globalThis.__prisma; globalThis.__prisma = db;
+  db.$use(async (params, next) => {
+    if (params.model === 'GameDomainEvent' && params.action === 'create' && params.args.data.roomId === failEventForRoom) {
+      failEventForRoom = undefined; throw Error('G2_INJECTED_EVENT_FAILURE');
+    }
+    if (params.model === 'ScoreEvent' && params.action === 'create' && failScoreEventNth?.roomId === params.args.data.roomId && --failScoreEventNth!.nth === 0) {
+      failScoreEventNth = undefined; throw Error('G4_INJECTED_SCORE_FAILURE');
+    }
+    return next(params);
+  });
+  const user = await db.user.create({ data: { role: 'HOST', displayName: 'G4 Host', passwordHash: 'unused' } }); hostId = user.id;
+  const session = await db.session.create({ data: { userId: hostId, expiresAt: new Date(Date.now() + 3600000) } }); cookie = createSessionCookie(session.id, config.sessionSecret);
+  for (const slug of ['wissensduell', 'jeopardy', 'wer-ist-das']) await db.gameDefinition.create({ data: { slug, name: slug, category: 'test', status: 'BETA', minPlayers: 2 } });
+  const pack = await db.questionPack.create({ data: { gameSlug: 'wissensduell', title: 'G4' } });
+  questionIds = [];
+  for (let i = 0; i < 2; i++) { const q = await db.geoQuestion.create({ data: { packId: pack.id, prompt: 'G4 question', category: 'G4', options: JSON.stringify([{ id: 'a', text: 'A' }, { id: 'b', text: 'B' }, { id: 'c', text: 'C' }, { id: 'd', text: 'D' }]), correctOptionId: 'a', durationMs: 600000 } }); questionIds.push(q.id); }
+  app = createApp(); await new Promise<void>(resolve => app.httpServer.listen(0, '127.0.0.1', resolve));
+  const address = app.httpServer.address(); if (!address || typeof address === 'string') throw Error('NO_PORT'); origin = `http://127.0.0.1:${address.port}`;
+});
+afterAll(async () => {
+  for (const id of roomIds) cancelGeoTimer(id); for (const s of sockets) s.disconnect();
+  if (app) await new Promise<void>(resolve => app.io.close(() => resolve()));
+  await vi.waitFor(() => expect([...socketIdentityMap.values()].filter(i => roomIds.includes(i.roomId ?? ''))).toHaveLength(0), { timeout: 10000 });
+  await db?.$disconnect(); globalThis.__prisma = previous; if (dir) await rm(dir, { recursive: true, force: true });
+});
+async function fixture(slug: 'wissensduell' | 'jeopardy' | 'wer-ist-das' = 'jeopardy', running = true, openGeo = true, teamMode = false) {
+  const game = await db.gameDefinition.findUniqueOrThrow({ where: { slug } });
+  const code = String(nextCode++).replace(/(\d{3})(\d{3})/, '$1-$2');
+  let setup: object = { selectedQuestionIds: questionOverride ?? questionIds, timerDuration: 600 };
+  if (slug === 'jeopardy') setup = { board1: { categories: [{ name: 'G4', clues: [{ value: 100, question: 'Question', answer: 'G4_PRIVATE_SOLUTION' }, { value: 200, question: 'Question 2', answer: 'G4_PRIVATE_SECOND' }] }] } };
+  if (slug === 'wer-ist-das') {
+    const image = await db.mediaAsset.create({ data: { type: 'image', mimeType: 'image/png', filename: 'g1.png', originalName: 'g1.png', fileSize: 12, sha256: randomUUID(), storagePath: '/tmp/g1.png', uploadedBy: hostId } });
+    setup = { rounds: [{ id: 'g1', imageAssetId: image.id, person1: 'G4_PRIVATE_A', person2: 'G4_PRIVATE_B' }, { id: 'g2-next', imageAssetId: image.id, person1: 'G4_PRIVATE_C', person2: 'G4_PRIVATE_D' }] };
+  }
+  const room = await db.room.create({ data: { code, roomName: 'G4', hostUserId: hostId, gameDefinitionId: game.id, status: 'LOBBY', runPhase: 'OPEN', viewerRequiresPin: false, setupSnapshotJson: JSON.stringify(setup), ...roomExtras } }); roomIds.push(room.id);
+  const host = await connect(cookie); expect((await gameAck(host, 'room:subscribe', { roomCode: code })).success).toBe(true);
+  const players = [];
+  for (const name of (teamMode ? ['Alice', 'Bob', 'Cara', 'Dan'] : ['Alice', 'Bob'])) {
+    const p = await db.participation.create({ data: { roomId: room.id, displayName: name, normalizedName: name.toLowerCase(), role: 'PLAYER', ready: true, rejoinToken: randomUUID() } });
+    const client = await connect(); expect((await gameAck(client, 'room:subscribe', { roomCode: code, rejoinToken: p.rejoinToken })).success).toBe(true);
+    await gameAck(client, 'player:ready:set', { roomCode: code, ready: true }); players.push({ ...p, client });
+  }
+  if (teamMode) {
+    const teams = await Promise.all(['A', 'B'].map(name => db.roomTeam.create({ data: { roomId: room.id, name, color: '#2563eb', icon: name } })));
+    await db.room.update({ where: { id: room.id }, data: { roomPolicyJson: JSON.stringify({ teamMode: 'MANUAL', teamCount: 2, allowTeamReshuffleBetweenRounds: true }) } });
+    for (let i = 0; i < players.length; i++) await db.participation.update({ where: { id: players[i].id }, data: { teamId: teams[i < 2 ? 0 : 1].id } });
+  }
+  if (running) {
+    const result = await gameAck(host, 'game:start', { roomCode: code, commandId: randomUUID() }); expect(result.success, JSON.stringify(result)).toBe(true);
+    if (slug === 'wissensduell') {
+      cancelGeoTimer(room.id);
+      if (openGeo) await handleGeoGame.startRound(app.io, code);
+    }
+  }
+  return { room, code, host, players };
+}
+async function evidence(roomId: string) {
+  return { room: await db.room.findUniqueOrThrow({ where: { id: roomId } }), state: await db.roomGameState.findUnique({ where: { roomId } }),
+    events: await db.gameDomainEvent.count({ where: { roomId } }), scores: await db.scoreEvent.count({ where: { roomId } }), receipts: await db.commandReceipt.count({ where: { roomId } }) };
+}
+
+/** A rejected command stores a failure receipt (replayable); every other persisted effect must stay identical. */
+async function effects(roomId: string) { const { receipts: _receipts, ...rest } = await evidence(roomId); void _receipts; return rest; }
+
+async function state(roomId: string) {
+  const row = await db.roomGameState.findUniqueOrThrow({ where: { roomId } });
+  return { row, value: JSON.parse(row.stateJson) };
+}
+const intent = (roomCode: string) => ({ roomCode, commandId: randomUUID() });
+
+async function lateJoiner(roomId: string, code: string, role: 'PLAYER' | 'VIEWER', name: string, extra: Record<string, unknown> = {}) {
+  const p = await db.participation.create({ data: { roomId, displayName: name, normalizedName: name.toLowerCase(), role, ready: true, rejoinToken: randomUUID(), ...extra } });
+  const client = await connect(); expect((await gameAck(client, 'room:subscribe', { roomCode: code, rejoinToken: p.rejoinToken })).success).toBe(true);
+  return { ...p, client };
+}
+async function ledger(roomId: string) { return (await db.scoreEvent.findMany({ where: { roomId }, orderBy: { createdAt: 'asc' } })).map(e => ({ participationId: e.participationId, delta: e.delta, kind: e.kind, runIndex: e.runIndex })); }
+
+// ── G4 D: action limits on the real sockets ──────────────────────────────────
+import { actionLimiter, ACTION_LIMITS } from './actionLimits.js';
+const resyncOf = (slug: string) => slug === 'wissensduell' ? 'geo:resync' : slug === 'jeopardy' ? 'jeopardy:resync' : 'weristdas:resync';
+/** One burst on the wire: all requests arrive before any token can refill. */
+const spam = (client: Socket, count: number, make: () => object, event = 'geo:answer') =>
+  Promise.all(Array.from({ length: count }, () => gameAck(client, event, make())));
+
+it('Limits: normal fast play stays far below the budget, for every player of a shared connection', async () => {
+  const f = await fixture('wissensduell');
+  const results = await Promise.all(f.players.flatMap(p => [0, 1, 2, 3, 4].map(() => gameAck(p.client, 'geo:resync', { roomCode: f.code }))));
+  expect(results.every(r => r.success === true)).toBe(true);
+  expect((await gameAck(f.players[0].client, 'geo:answer', { optionId: 'a', ...intent(f.code) })).success).toBe(true);
+});
+
+/** Puts one identity into the exhausted state without waiting on wall-clock refill (the wiring itself is proven by the burst test). */
+const exhaust = (roomId: string, participantId: string, group: 'PLAYER_INPUT' | 'READ' = 'PLAYER_INPUT') => { while (actionLimiter.consume(roomId, participantId, group).ok); };
+
+it('Limits: a real burst of fresh command ids is cut off with the contractual refusal, not by the engine', async () => {
+  const f = await fixture('wissensduell'), [spammer] = f.players;
+  const results = await spam(spammer.client, ACTION_LIMITS.PLAYER_INPUT.capacity + 30, () => ({ optionId: 'b', ...intent(f.code) }));
+  const limited = results.filter(r => r.error === 'RATE_LIMITED');
+  expect(results.filter(r => r.success === true)).toHaveLength(1);
+  expect(limited.length).toBeGreaterThan(0);
+  for (const r of limited) expect(r).toMatchObject({ success: false, code: 'RATE_LIMITED', messageKey: 'RATE_LIMITED', retryable: true, traceId: expect.any(String), details: { retryAfterMs: expect.any(Number) } });
+  expect((await state(f.room.id)).value.roundStates[0].playerStates[spammer.id]).toMatchObject({ answered: true, selectedOptionId: 'b' });
+});
+
+it('Limits: an exhausted player is refused without any effect while the other player, the host and another room keep working', async () => {
+  const f = await fixture('wissensduell'), other = await fixture('wissensduell'), [spammer, bystander] = f.players;
+  exhaust(f.room.id, spammer.id);
+  const before = await effects(f.room.id);
+  expect(await gameAck(spammer.client, 'geo:answer', { optionId: 'b', ...intent(f.code) })).toMatchObject({ success: false, error: 'RATE_LIMITED' });
+  expect(await effects(f.room.id)).toEqual(before);
+  expect((await gameAck(bystander.client, 'geo:answer', { optionId: 'a', ...intent(f.code) })).success).toBe(true);
+  expect((await gameAck(other.players[0].client, 'geo:answer', { optionId: 'a', ...intent(other.code) })).success).toBe(true);
+  expect((await gameAck(f.host, 'geo:reveal', intent(f.code))).success).toBe(true);
+});
+
+it('Limits: more tabs, a reconnect or fresh command ids do not create a fresh budget', async () => {
+  const f = await fixture('wissensduell'), [spammer] = f.players;
+  exhaust(f.room.id, spammer.id);
+  const tab = await connect(); expect((await gameAck(tab, 'room:subscribe', { roomCode: f.code, rejoinToken: spammer.rejoinToken })).success).toBe(true);
+  expect(await gameAck(tab, 'geo:answer', { optionId: 'c', ...intent(f.code) })).toMatchObject({ success: false, error: 'RATE_LIMITED' });
+  // the earlier connection of the same identity is replaced by the new one (device binding), it cannot act either
+  expect((await gameAck(spammer.client, 'geo:answer', { optionId: 'c', ...intent(f.code) })).success).toBe(false);
+  expect(await gameAck(tab, 'geo:resync', { roomCode: f.code })).toMatchObject({ success: true }); // another group: reading is separate
+});
+
+it('Limits: a retry of an accepted command is never refused, even with an empty budget; a refused intent leaves no receipt', async () => {
+  const f = await fixture('wissensduell'), [spammer] = f.players, accepted = { optionId: 'b', ...intent(f.code) };
+  expect((await gameAck(spammer.client, 'geo:answer', accepted)).success).toBe(true);
+  exhaust(f.room.id, spammer.id);
+  const refusedId = intent(f.code);
+  expect(await gameAck(spammer.client, 'geo:answer', { optionId: 'c', ...refusedId })).toMatchObject({ error: 'RATE_LIMITED' });
+  expect(await db.commandReceipt.count({ where: { roomId: f.room.id, commandId: refusedId.commandId } })).toBe(0);
+  expect(await gameAck(spammer.client, 'geo:answer', accepted)).toMatchObject({ success: true, replayed: true });
+});
+
+it('Limits: unauthorised or invalid commands neither consume a budget nor create tracking entries', async () => {
+  const f = await fixture('jeopardy'), viewer = await lateJoiner(f.room.id, f.code, 'VIEWER', 'Viewer');
+  const before = actionLimiter.size();
+  for (let i = 0; i < 40; i++) expect((await gameAck(viewer.client, 'jeopardy:judge', { correct: true, ...intent(f.code) })).error).not.toBe('RATE_LIMITED');
+  for (let i = 0; i < 40; i++) expect((await gameAck(f.players[0].client, 'jeopardy:judge', { correct: true, ...intent(f.code) })).error).not.toBe('RATE_LIMITED');
+  for (let i = 0; i < 40; i++) expect((await gameAck(f.host, 'jeopardy:judge', { correct: 'yes', ...intent(f.code) })).error).not.toBe('RATE_LIMITED');
+  expect(actionLimiter.size()).toBe(before);
+});
+
+it('Limits: resync reads are bounded per participant and do not touch the other participant', async () => {
+  const f = await fixture('wer-ist-das'), [reader, other] = f.players;
+  const reads = await spam(reader.client, ACTION_LIMITS.READ.capacity + 40, () => ({ roomCode: f.code }), resyncOf('wer-ist-das'));
+  expect(reads.filter(r => r.error === 'RATE_LIMITED').length).toBeGreaterThan(0);
+  expect(reads.filter(r => r.success === true).length).toBeGreaterThan(0);
+  exhaust(f.room.id, reader.id, 'READ');
+  expect(await gameAck(reader.client, 'weristdas:resync', { roomCode: f.code })).toMatchObject({ error: 'RATE_LIMITED' });
+  expect((await gameAck(other.client, 'weristdas:resync', { roomCode: f.code })).success).toBe(true);
+  expect((await gameAck(f.host, 'weristdas:resync', { roomCode: f.code })).success).toBe(true);
+});
+
+it('Limits: buzz spam of a player never stops the host from judging', async () => {
+  const f = await fixture('wer-ist-das'), [alice] = f.players;
+  expect((await gameAck(f.host, 'weristdas:buzzer:open', intent(f.code))).success).toBe(true);
+  expect((await gameAck(alice.client, 'weristdas:buzz', intent(f.code))).success).toBe(true);
+  exhaust(f.room.id, alice.id);
+  expect(await gameAck(alice.client, 'weristdas:buzz', intent(f.code))).toMatchObject({ error: 'RATE_LIMITED' });
+  expect((await gameAck(f.host, 'weristdas:judge', { result: 'WRONG', ...intent(f.code) })).success).toBe(true);
+});

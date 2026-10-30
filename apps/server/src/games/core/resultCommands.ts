@@ -13,6 +13,7 @@ import { StoredGameResultSchema, readGameResult, publicResultView } from './resu
 import { rankScores } from './roundFlow.js';
 import { wireErrorToAppError } from './appError.js';
 import { logger } from '../../observability/logger.js';
+import { isOwnKnownIntent, limitAction, limitSocketRead } from './limitGuard.js';
 
 async function assertResultPermission(tx: Prisma.TransactionClient, roomId: string, actor: RoomActor) {
   const room = await tx.room.findUniqueOrThrow({ where: { id: roomId } });
@@ -114,6 +115,8 @@ export function registerResultCommands(io: Server, socket: Socket) {
       const parsed = ResultReadSchema.safeParse(raw);
       if (!parsed.success) { ack?.({ success: false, error: 'INVALID_PAYLOAD' }); return; }
       try {
+        const limited = limitSocketRead(socket, 'result:read');
+        if (limited) { ack?.({ ...limited }); return; }
         const { roomId } = await socketRoomActor(socket);
         const room = await prisma.room.findUniqueOrThrow({ where: { id: roomId } });
         if (room.code !== parsed.data.roomCode) throw new CoreRuleError('WRONG_ROOM');
@@ -132,6 +135,10 @@ export function registerResultCommands(io: Server, socket: Socket) {
         const { roomId, actor } = await socketRoomActor(socket);
         if (!actor.permissions.has('SCORE_ADJUST')) throw new CoreRuleError('FORBIDDEN');
         const command = parsed.data;
+        if (!await isOwnKnownIntent(roomId, command.commandId, actor.participantId)) {
+          const limited = limitAction(roomId, actor.participantId, 'RESULT_COMMAND', 'result:command');
+          if (limited) { ack?.({ ...limited }); return; }
+        }
         const response = await runReceipted(prisma, { roomId, commandId: command.commandId,
           actor: { actorId: actor.participantId, actorRole: socket.data.role }, action: 'RESULT_COMMAND', payload: { runIndex: command.runIndex, resultRevision: command.resultRevision, operation: command.operation },
           mutate: () => mutateResult(roomId, actor, command), toResponse: value => value });
