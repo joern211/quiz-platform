@@ -15,7 +15,8 @@ export function createTimer(mode: CoreTimer['mode'], now: number, durationMs?: n
 }
 export function timerElapsed(timer: CoreTimer, now: number): number {
   clock(now);
-  return timer.elapsedBeforeMs + (timer.status === 'RUNNING' && timer.startedAtMs !== null ? Math.max(0, now - timer.startedAtMs) : 0);
+  const observed = timer.mode === 'COUNTDOWN' && timer.endsAtMs !== null ? Math.min(now, timer.endsAtMs) : now;
+  return timer.elapsedBeforeMs + (timer.status === 'RUNNING' && timer.startedAtMs !== null ? Math.max(0, observed - timer.startedAtMs) : 0);
 }
 export function timerRemaining(timer: CoreTimer, now: number): number | null {
   clock(now);
@@ -35,13 +36,17 @@ export function pauseTimer(timer: CoreTimer, now: number): CoreTimer {
 export function resumeTimer(timer: CoreTimer, now: number): CoreTimer {
   clock(now);
   if (timer.status !== 'PAUSED') throw new CoreRuleError('TIMER_NOT_PAUSED');
+  if (timer.mode === 'COUNTDOWN' && (timer.remainingMs ?? 0) <= 0) throw new CoreRuleError('TIME_EXPIRED');
   return { ...timer, status: 'RUNNING', startedAtMs: now, pausedAtMs: null, endsAtMs: timer.mode === 'COUNTDOWN' ? now + (timer.remainingMs ?? 0) : null };
 }
 export function extendTimer(timer: CoreTimer, deltaMs: number, now: number): CoreTimer {
   if (timer.mode !== 'COUNTDOWN' || !['RUNNING', 'PAUSED'].includes(timer.status) || !Number.isSafeInteger(deltaMs)) throw new CoreRuleError('INVALID_TIMER_CHANGE');
-  const remainingMs = Math.max(0, (timerRemaining(timer, now) ?? 0) + deltaMs);
+  const current = timerRemaining(timer, now) ?? 0;
+  if (current <= 0) throw new CoreRuleError('TIME_EXPIRED');
+  const remainingMs = Math.max(0, current + deltaMs);
   if (remainingMs > 2147483647) throw new CoreRuleError('INVALID_TIMER_DURATION');
-  return { ...timer, remainingMs, endsAtMs: timer.status === 'RUNNING' ? now + remainingMs : null, status: remainingMs === 0 ? 'EXPIRED' : timer.status };
+  if (remainingMs === 0) return endTimer(timer, now);
+  return { ...timer, remainingMs, endsAtMs: timer.status === 'RUNNING' ? now + remainingMs : null };
 }
 export function endTimer(timer: CoreTimer, now: number): CoreTimer {
   return { ...timer, status: 'EXPIRED', elapsedBeforeMs: timerElapsed(timer, now), remainingMs: timer.mode === 'COUNTDOWN' ? 0 : null, startedAtMs: null, endsAtMs: null, pausedAtMs: null };

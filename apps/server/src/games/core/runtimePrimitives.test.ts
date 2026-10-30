@@ -41,3 +41,9 @@ describe('shared runtime: persisted deadlines, submissions and judging', () => {
     expect(() => legacyRoundTimer({}, 'INPUT_OPEN')).toThrow('INVALID_TIMER_STATE');
   });
 });
+
+it('refuses to extend an expired persisted deadline even before its timeout callback ran', () => {
+  const running = JSON.parse(JSON.stringify(createTimer('COUNTDOWN', 1000, 1000)));
+  expect(() => extendTimer(running, 5000, 2000)).toThrow('TIME_EXPIRED');
+  expect(() => extendTimer(running, 5000, 9999)).toThrow('TIME_EXPIRED');
+});
