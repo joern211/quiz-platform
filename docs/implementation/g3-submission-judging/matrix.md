@@ -13,11 +13,25 @@ vollständige Laufzeitintegration; **O** = im gemeinsamen Kern nicht vorhanden;
 
 | Spiel / Aktion | Guard (serverseitig) | Reihenfolge und Wiederholung | Persistierte Wirkung | Stufe |
 | --- | --- | --- | --- | --- |
-| Wissensduell `geo:answer` | PLAYER + BUZZER_CONTROL, aktive Teilnahme, Raumcode, laufende Partie, `INPUT_OPEN`, Rundenzustand des Spielers, Frist (`now < endsAt`), gültige Option, **ausdrückliche Runde (`questionIndex`) = aktuelle Runde** | Submit (`SUBMITTED`) → Lock bei Fristende (`LOCKED`) → Judge beim Reveal (`JUDGED`). Gleiche Absicht = gespeicherte Antwort (`replayed`); gleiche ID mit anderer Option = `COMMAND_CONFLICT`; neue ID nach Abgabe = `ALREADY_ANSWERED`; parallele Abgaben = genau eine | State-CAS in einer Transaktion; Punkte erst beim Reveal | R |
+| Wissensduell `geo:answer` | PLAYER + BUZZER_CONTROL, aktive Teilnahme, Raumcode, laufende Partie, `INPUT_OPEN`, Rundenzustand des Spielers, Frist (`now < endsAt`), gültige Option, **ausdrücklicher Ort (`runIndex` + `questionIndex`, nur zusammen) = Partie und Runde des gespeicherten Zustands**, geprüft an der Schreibgrenze | Submit (`SUBMITTED`) → Lock bei Fristende (`LOCKED`) → Judge beim Reveal (`JUDGED`). Gleiche Absicht = gespeicherte Antwort (`replayed`); gleiche ID mit anderer Option = `COMMAND_CONFLICT`; neue ID nach Abgabe = `ALREADY_ANSWERED`; parallele Abgaben = genau eine | State-CAS in einer Transaktion; Punkte erst beim Reveal | R |
 | Wissensduell Reveal / Fristablauf | REVEAL_CONTENT bzw. Serverfrist | EXACT-Vergleich je Abgabe, `judgeSubmission`, Punkte, Ledger, Raumphase, State-CAS in **einer** Transaktion; Reveal ist einmalig | Punkte/`ScoreEvent` je beantwortendem Spieler; nicht Antwortende erhalten keine Zeile | R |
 | Jeopardy Buzz → verbale Abgabe | PLAYER + BUZZER_CONTROL, `BUZZ_OPEN`/`STEAL_OPEN`, Teilnehmer im Spiel | Abgabe-Datensatz (`value:null`, `matchStatus: NEEDS_JUDGE`) je Person und Stufe (first/steal), nie überschrieben | State-CAS/Event | R |
-| Jeopardy `judge` / `steal:judge` | JUDGE_ANSWER; nur boolesches `correct`; Antwortzug des Gewinners | `SUBMITTED` → `JUDGED`; gleiche Absicht = Replay, gleiche ID mit anderem Urteil = `COMMAND_CONFLICT`, neue ID in anderer Phase = Phasenfehler | Score, `ScoreEvent`, State, Event atomar; bewertete Datensätze bleiben je Person erhalten | R |
-| WID `judge` | JUDGE_ANSWER; `BOTH_CORRECT`/`ONE_CORRECT`/`WRONG`; Antwortzug; `ONE_CORRECT` nur mit Hinweis | Replay/Konflikt wie oben; zweites Urteil in `REVEAL` abgewiesen | Score (+3 / +1 / −1), `ScoreEvent`, State, Event atomar | R |
+| Jeopardy `judge` / `steal:judge` | JUDGE_ANSWER; nur boolesches `correct`; Antwortzug des Gewinners; **`attemptId` = aktueller Antwortversuch** (Feld, Stufe, Besitzer, Claim-Zeit, Anzahl Overrides) | `SUBMITTED` → `JUDGED`; gleiche Absicht = Replay, gleiche ID mit anderem Urteil = `COMMAND_CONFLICT`, neue ID in anderer Phase = Phasenfehler | Score, `ScoreEvent`, State, Event atomar; bewertete Datensätze bleiben je Person erhalten | R |
+| WID `judge` | JUDGE_ANSWER; `BOTH_CORRECT`/`ONE_CORRECT`/`WRONG`; Antwortzug; **`attemptId`** (Runde, Besitzer, Claim-Zeit, Overrides); `ONE_CORRECT` nur mit Hinweis | Replay/Konflikt wie oben; zweites Urteil in `REVEAL` abgewiesen | Score (+3 / +1 / −1), `ScoreEvent`, State, Event atomar | R |
+
+**Kontextbindung (Nachbesserung nach unabhängigem Prüfbericht):** Der Server leitet
+die Versuchskennung nur aus gespeichertem Zustand ab; Clients geben sie aus der
+Projektion bzw. dem Buzz-Ereignis zurück. Abweichung → `STALE_ATTEMPT` (Urteil) bzw.
+`STALE_ROUND` (Abgabe) ohne State-/Score-/Ledger-/Eventwirkung. Ein fehlendes Feld
+bleibt der dokumentierte **Legacy-Pfad** (alte Clients ohne Kontext); ein vorhandenes
+falsch typisiertes oder unvollständiges Feld wird abgewiesen, nie als Legacy gedeutet
+(`attemptId` falscher Typ, `questionIndex` ohne `runIndex` und umgekehrt). Die
+Kennung ist kein Geheimnis (Gewinner ist öffentlich) und keine globale Revision:
+Antworten anderer Spieler erzeugen keine Konflikte. Receipts sind nicht partie-
+gebunden; da Absicht-IDs clientseitig zufällig sind, steht der Ort im Receipt-
+Fingerprint — dieselbe ID in einer anderen Partie ergibt `COMMAND_CONFLICT`, nie
+einen falschen Erfolg. Der Client verwirft Bestätigungen, die nicht mehr zum aktuellen
+Frage-/Partie-Kontext gehören.
 
 Rejoin, Resync und Neustart entsperren keine Abgabe, erzeugen keine neue Frist und
 keine zweite Punktewirkung (siehe Nachweise). Eine Ablehnung speichert ein
@@ -61,7 +75,12 @@ der erneute Reveal wirkt genau einmal (Test mit Fehler beim 2. Ledger-Write).
 | WID: Personen | nein | nein bis Reveal | ja | — | Resync, Rejoin, Pause, Judge; nach Reveal sichtbar |
 | Host-Receipt nach Rechteentzug | — | — | Replay wird abgewiesen, keine Daten | — | WID-Judge mit `REVOKE JUDGE_ANSWER` |
 
-Verwaltungsrechte (GAME_*/JUDGE_*) ändern keine Informationsrolle; die Sichtbarkeit
+Private Ausgaben an einzelne Sockets (Geo-Hostereignis `geo:answered:moderator`,
+WID-Projektionen `weristdas:update`) gehen über `currentRoomSockets`: Sitzung,
+Gerätebindung und Teilnahme werden **je Auslieferung** neu geprüft (wie bei Resync und
+Receipt-Replay). Ein widerrufener Host oder entfernter Spieler erhält sie ohne
+Reconnect nicht mehr. Jeopardy sendet private Inhalte nur an den eben autorisierten
+Aufrufer. Verwaltungsrechte (GAME_*/JUDGE_*) ändern keine Informationsrolle; die Sichtbarkeit
 läuft über `core/visibility.ts` und die Engine-Projektion. Entfernte/verlassene
 Teilnehmer verlieren Abgabe und Resync sofort (Test mit weiter verbundenem Socket).
 Display: `authorizeGameContext` bildet DISPLAY auf die öffentliche Viewer-Projektion
@@ -86,21 +105,28 @@ Es wurden keine Tabellen, Editoren, Schemas oder UI-Optionen dafür angelegt.
 
 ## Nachweise (neu in G3)
 
-- `games/core/g3Submission.integration.test.ts` — 19 echte Socket/DB/Engine-Fälle.
+- `games/core/g3Submission.integration.test.ts` — echte Socket/DB/Engine-Fälle
+  (Abgabe, Bewertung, Punkte, Rollback, Sichtbarkeit, Display, Antwortversuch,
+  Partie-Bindung, widerrufene Sitzung).
 - `games/core/g3Restart.integration.test.ts` — 3 Fälle mit wirklich beendeten und
   frisch gestarteten Serverprozessen.
-- 2 Unit-Tests in `runtimePrimitives.test.ts`, 1 in `roundFlow.test.ts`.
+- Unit: `runtimePrimitives.test.ts` (2), `roundFlow.test.ts` (1).
+- Web: `GeoRecovery.test.tsx` — Bestätigungen gelten nur im ursprünglichen Kontext,
+  der Client sendet Partie und Runde.
+- Genaue Zahlen und Läufe: PR-Beschreibung.
 
 ## Befunde und Behebung
 
 | Befund | Beleg | Behebung |
 | --- | --- | --- |
-| `geo:answer` akzeptierte `questionIndex`, prüfte ihn nicht (G1-Matrix sprach von „gültiger Runde“). Option-IDs wiederholen sich je Frage, eine verspätete Antwort einer alten Runde hätte in der neuen Runde gezählt. | Test schlug gegen unveränderten Code mit `success:true` fehl | Server weist abweichende Runde mit `STALE_ROUND` ohne Mutation ab (Wire-Code → `STALE_STATE`); Web-Client sendet die Rundennummer mit |
+| `geo:answer` prüfte `questionIndex` nicht (Option-IDs wiederholen sich je Frage) | Test schlug gegen unveränderten Code fehl | `STALE_ROUND` ohne Mutation |
+| **R3** Rundennummer allein reicht nicht: sie beginnt in jeder Partie bei 0, eine Antwort aus Partie 1 wurde in Partie 2 angenommen | unabhängige Reproduktion | Ort = `runIndex` + `questionIndex`, an der Schreibgrenze gegen den Zustands-Snapshot; Projektion/Event liefern `runIndex` |
+| **R1** Privates Hostereignis (und WID-Projektionen) gingen an Sockets mit widerrufener Sitzung bzw. entferntem Spieler | unabhängige Reproduktion; WID-Test schlägt ohne Fix fehl | `currentRoomSockets` prüft je Auslieferung |
+| **R2** Ein altes Host-Urteil bewertete nach einem Override den neuen Antwortbesitzer (Jeopardy +100, WID +3) | unabhängige Reproduktion beider Engines | `attemptId`-Bindung in Schema, Guard, Projektion, Buzz-Ereignis, Hooks und Receipt-Fingerprint |
+| **R4** Alte Antwort-Bestätigungen markierten/entsperrten die neue Frage | zwei React-Tests | Bestätigung wirkt nur im Kontext, für den sie gesendet wurde |
 
-Geprüft und ohne Änderungsbedarf (nur als Regression abgesichert): späte Teilnahme
-nach Rundenstart (`PLAYER_NOT_IN_ROUND`), Rechteentzug bei verbundenem Socket,
-Receipt-Replay nach Rechteentzug, 0-Punkte-Pfade, Teilurteil WID, Auto-Reveal bei
-Fristablauf (G2).
+Die frühere Aussage „alles Übrige war korrekt“ gilt eingeschränkt: Sie beschrieb
+nur die damals getesteten Pfade; die obigen vier Bereiche waren nicht abgedeckt.
 
 ## Grenzen / bewusst offen
 
@@ -110,5 +136,8 @@ Fristablauf (G2).
   verbale Abgabe/Bewertung hat Jeopardy und WID. Kein fachfremder Verbraucher wurde
   eingebaut; die Abnahme der Auswahlabgabe als gemeinsamer Core bleibt offen bis
   zu einem zweiten Auswahl-Spiel (Wahr oder Fake?/Millionenfrage).
+- Legacy-Grenze: Judge-/Answer-Befehle **ohne** Kontextfeld (alte Clients) bleiben
+  zulässig und sind nicht an einen Versuch/eine Partie gebunden. Der mitgelieferte
+  Web-Client sendet den Kontext immer, sobald die Projektion ihn liefert.
 - G4 (Ergebnis-Amendments, Limits pro Aktion, Fehlerdiagnose) und G5 nicht begonnen.
 - Rate-Limit pro Spielaktion: nicht Teil von G3 (G4).
