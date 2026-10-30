@@ -1,7 +1,7 @@
 import type { GameRole } from '../core/access.js';
 import { buildSignedMediaUrl } from '../../media/signedUrl.js';
 import { normalizeRound, type WerIstDasSetup } from './contracts.js';
-import type { WerIstDasState } from './state.js';
+import { wirAttemptId, type WerIstDasState } from './state.js';
 import { canView, visibleValue } from '../core/visibility.js';
 
 /**
@@ -41,6 +41,7 @@ export function projectWerIstDas(
     playerNames: state.playerNames,
     buzzerOpen: state.buzzer.open,
     winnerId: state.buzzer.winnerId,
+    attemptId: state.phase === 'ANSWERING' ? wirAttemptId(state) : null,
     winnerName: state.buzzer.winnerId ? state.playerNames[state.buzzer.winnerId] : null,
     hintActive: state.hintActive,
     excludedPlayerIds: role === 'HOST' ? state.buzzer.excludedPlayerIds : undefined,

@@ -5,6 +5,7 @@ import { prepareRoundRuntime, transitionRoundState } from '../core/roundTransiti
 import type { CoreTurn, CoreRoundTransition } from '@quiz/shared';
 import { advanceRound, createTurn, requireWinningTurn } from '../core/roundFlow.js';
 import { scoreJudgement } from '../core/runtimePrimitives.js';
+import { answerAttemptId, assertCurrentAttempt } from '../core/answerAttempt.js';
 
 export interface WerIstDasState {
   tieStrategy?: 'ALLOW_TIE';
@@ -62,6 +63,11 @@ export function openRoundBuzzer(state: WerIstDasState): WerIstDasState {
     buzzer: openBuzzer(state.buzzer, { excludePlayerIds: state.buzzer.excludedPlayerIds, eligiblePlayerIds: state.buzzer.eligiblePlayerIds ?? Object.keys(state.playerNames), mode: state.buzzer.mode === 'TEAM' ? 'TEAM' : 'SELECTED' }) };
 }
 
+/** Identity of the concrete answer attempt of the current round (null while nobody owns the answer). */
+export function wirAttemptId(state: WerIstDasState): string | null {
+  return answerAttemptId(`round:${state.roundIndex}`, state.buzzer);
+}
+
 export function buzz(state: WerIstDasState, playerId: string): WerIstDasState {
   requirePhase(state, WerIstDasPhase.BUZZ_OPEN);
   if (!(playerId in state.playerNames)) throw new InvalidGameAction('PLAYER_NOT_IN_GAME');
@@ -76,12 +82,13 @@ export function activateHint(state: WerIstDasState): WerIstDasState {
   return { ...state, hintActive: true };
 }
 
-export function judge(state: WerIstDasState, result: 'BOTH_CORRECT' | 'ONE_CORRECT' | 'WRONG'):
+export function judge(state: WerIstDasState, result: 'BOTH_CORRECT' | 'ONE_CORRECT' | 'WRONG', attemptId?: string):
   { state: WerIstDasState; delta: number; playerId: string } {
   requirePhase(state, WerIstDasPhase.ANSWERING);
   const playerId = state.buzzer.winnerId;
   if (!playerId) throw new InvalidGameAction('BUZZ_CLOSED');
   requireWinningTurn(state.answerTurn, playerId);
+  assertCurrentAttempt(wirAttemptId(state), attemptId);
   if (result === 'ONE_CORRECT' && !state.hintActive) throw new InvalidGameAction('HINT_REQUIRED');
   const delta = scoreJudgement(result === 'WRONG' ? 'WRONG' : result === 'BOTH_CORRECT' ? 'CORRECT' : 'PARTIAL', { correct: 3, wrong: -1, partial: 1 });
   const next = { ...state, answerTurn: null, scores: applyScoreDelta(state.scores, playerId, delta), lastDelta: delta };

@@ -105,6 +105,8 @@ export type WerIstDasSetup = z.infer<typeof WerIstDasSetupSchema>;
 
 export const WerIstDasJudgeSchema = z.object({
   result: z.enum(['BOTH_CORRECT', 'ONE_CORRECT', 'WRONG']),
+  // Echo of the attempt shown in the projection; modern clients always send it.
+  attemptId: z.string().min(1).max(256).optional(),
 });
 export type WerIstDasJudgeResult = z.infer<typeof WerIstDasJudgeSchema>;
 

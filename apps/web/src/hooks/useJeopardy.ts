@@ -28,6 +28,8 @@ export interface JeopardyFieldOpenPayload {
 export interface JeopardyBuzzWonPayload {
   playerId: string;
   playerName: string;
+  /** Server identity of this answer attempt; echoed by the judgement. */
+  attemptId?: string | null;
 }
 
 export interface JeopardyRevealPayload {
@@ -172,8 +174,8 @@ export function useJeopardy(roomCode: string, role: PlayerRole) {
               playerNames,
               phase: res.phase!,
               currentField: res.currentField ? { categoryIndex: res.currentField.categoryIndex, value: res.currentField.value, question: res.currentField.question, mediaType: res.currentField.mediaType, mediaUrl: res.currentField.mediaUrl } : null,
-              buzzWinner: res.buzzWinnerId ? { playerId: res.buzzWinnerId, playerName: playerNames[res.buzzWinnerId] ?? '' } : null,
-              stealWinner: res.stealWinnerId ? { playerId: res.stealWinnerId, playerName: playerNames[res.stealWinnerId] ?? '' } : null,
+              buzzWinner: res.buzzWinnerId ? { playerId: res.buzzWinnerId, playerName: playerNames[res.buzzWinnerId] ?? '', attemptId: res.phase === 'BUZZ_LOCKED' ? res.currentField?.attemptId : undefined } : null,
+              stealWinner: res.stealWinnerId ? { playerId: res.stealWinnerId, playerName: playerNames[res.stealWinnerId] ?? '', attemptId: res.phase === 'STEAL_LOCKED' ? res.currentField?.attemptId : undefined } : null,
               stealExcludedId: res.currentField?.firstResponderId ?? null,
               stealExcludedIds: res.stealExcludedPlayerIds ?? (res.currentField?.firstResponderId ? [res.currentField.firstResponderId] : []),
               playedFields: (res.playedFields ?? []).filter((key) => key.startsWith(`${res.currentBoard}-`)).map((key) => key.slice(2)),
@@ -265,11 +267,11 @@ export function useJeopardy(roomCode: string, role: PlayerRole) {
       setSecretAnswer(data.answer);
     });
 
-    socket.on('jeopardy:buzz:won', (data: { playerId: string; playerName: string }) => {
+    socket.on('jeopardy:buzz:won', (data: { playerId: string; playerName: string; attemptId?: string | null }) => {
       setGameState((prev) => ({
         ...prev,
         phase: 'BUZZ_LOCKED',
-        buzzWinner: { playerId: data.playerId, playerName: data.playerName },
+        buzzWinner: { playerId: data.playerId, playerName: data.playerName, attemptId: data.attemptId },
       }));
     });
 
@@ -295,11 +297,11 @@ export function useJeopardy(roomCode: string, role: PlayerRole) {
       }));
     });
 
-    socket.on('jeopardy:steal:buzz:won', (data: { playerId: string; playerName: string }) => {
+    socket.on('jeopardy:steal:buzz:won', (data: { playerId: string; playerName: string; attemptId?: string | null }) => {
       setGameState((prev) => ({
         ...prev,
         phase: 'STEAL_LOCKED',
-        stealWinner: { playerId: data.playerId, playerName: data.playerName },
+        stealWinner: { playerId: data.playerId, playerName: data.playerName, attemptId: data.attemptId },
       }));
     });
 
@@ -409,12 +411,13 @@ export function useJeopardy(roomCode: string, role: PlayerRole) {
   const judge = useCallback(
     (correct: boolean) => {
       if (!socketRef.current) return;
-      // Andere Bewertung (correct/!correct) = andere Absicht → eigener Key.
+      // Andere Bewertung (correct/!correct) oder anderer Antwortversuch = andere Absicht → eigener Key.
+      const attemptId = gameStateRef.current.buzzWinner?.attemptId ?? undefined;
       emitCommand(
         socketRef.current,
         'jeopardy:judge',
-        { correct },
-        `${roomCode}:jp:judge:${fieldKey()}:${correct}`,
+        { correct, ...(attemptId ? { attemptId } : {}) },
+        `${roomCode}:jp:judge:${fieldKey()}:${attemptId ?? ''}:${correct}`,
         (res: { success: boolean; error?: string }) => {
           if (!res.success) setError(`Urteil fehlgeschlagen: ${res.error}`);
         }
@@ -441,11 +444,12 @@ export function useJeopardy(roomCode: string, role: PlayerRole) {
   const stealJudge = useCallback(
     (correct: boolean) => {
       if (!socketRef.current) return;
+      const attemptId = gameStateRef.current.stealWinner?.attemptId ?? undefined;
       emitCommand(
         socketRef.current,
         'jeopardy:steal:judge',
-        { correct },
-        `${roomCode}:jp:stealJudge:${fieldKey()}:${correct}`,
+        { correct, ...(attemptId ? { attemptId } : {}) },
+        `${roomCode}:jp:stealJudge:${fieldKey()}:${attemptId ?? ''}:${correct}`,
         (res: { success: boolean; error?: string }) => {
           if (!res.success) setError(`Abstauber-Urteil fehlgeschlagen: ${res.error}`);
         }

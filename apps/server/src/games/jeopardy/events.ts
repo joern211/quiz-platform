@@ -47,6 +47,7 @@ const JeopardyBuzzSchema = z.object({
 const JeopardyJudgeSchema = z.object({
   roomCode: z.string().regex(/^\d{3}-\d{3}$/).optional(),
   correct: z.boolean(),
+  attemptId: z.string().min(1).max(256).optional(),
   rejoinToken: z.string().optional(),
   commandId: z.string().min(1).max(128).optional(),
   requestId: z.string().min(1).max(128).optional(),
