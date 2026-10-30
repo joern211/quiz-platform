@@ -47,3 +47,18 @@ it('refuses to extend an expired persisted deadline even before its timeout call
   expect(() => extendTimer(running, 5000, 2000)).toThrow('TIME_EXPIRED');
   expect(() => extendTimer(running, 5000, 9999)).toThrow('TIME_EXPIRED');
 });
+
+it('extends only a live budget and preserves paused elapsed time instead of charging the pause', () => {
+  const timer = createTimer('COUNTDOWN', 1000, 1000);
+  expect(extendTimer(timer, 5000, 1999).endsAtMs).toBe(7000);
+  const paused = extendTimer(pauseTimer(timer, 1500), 500, 90000);
+  expect(paused).toMatchObject({ status: 'PAUSED', remainingMs: 1000, elapsedBeforeMs: 500 });
+  const resumed = resumeTimer(paused, 100000);
+  expect(resumed.endsAtMs).toBe(101000); expect(timerElapsed(resumed, 100100)).toBe(600);
+});
+it('caps elapsed countdown time at its deadline and never resumes a zero paused budget', () => {
+  const timer = createTimer('COUNTDOWN', 1000, 1000);
+  expect(timerElapsed(timer, 99999)).toBe(1000);
+  expect(pauseTimer(timer, 99999)).toMatchObject({ status: 'EXPIRED', remainingMs: 0, elapsedBeforeMs: 1000 });
+  expect(() => resumeTimer({ ...pauseTimer(timer, 1500), remainingMs: 0 }, 5000)).toThrow('TIME_EXPIRED');
+});

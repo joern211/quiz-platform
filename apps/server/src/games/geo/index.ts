@@ -65,7 +65,7 @@ interface GeoGameState {
   recoveryError?: 'CONFIG_SNAPSHOT_INVALID';
 }
 
-// Store active timer handles per roomCode (for cancellation)
+// Store active timer handles by persistent roomId (for cancellation).
 const activeTimers = new Map<string, NodeJS.Timeout>();
 
 export function cancelGeoTimer(roomId: string): void {
@@ -76,6 +76,7 @@ export function cancelGeoTimer(roomId: string): void {
 
 /** Intro transitions share the same cancellable lifecycle as round timers. */
 export async function scheduleGeoIntro(roomId: string, start: () => Promise<void>): Promise<void> {
+  return serializeRoom(roomId, async () => {
   const room = await prisma.room.findUnique({ where: { id: roomId }, include: { gameState: true } });
   if (!room || room.status !== 'RUNNING' || room.gameState?.phase !== 'INTRO') return;
   cancelGeoTimer(roomId);
@@ -89,6 +90,7 @@ export async function scheduleGeoIntro(roomId: string, start: () => Promise<void
     }).catch(error => logger.error('Geo intro failed', { roomId, error }));
   }, 3000));
   activeTimers.set(roomId, handle);
+  });
 }
 
 /** Keep native timer installation/cancellation in the same room lease as its
@@ -136,25 +138,33 @@ export async function restoreActiveTimers(io: Server): Promise<void> {
 
     logger.info('P0-16: Restauriere aktive Timer', { count: roomsWithActiveRound.length });
 
-    for (const room of roomsWithActiveRound) {
+    for (const candidate of roomsWithActiveRound) {
       try {
-        if (!room.gameState) continue;
+        await serializeRoom(candidate.id, async () => {
+        const room = await prisma.room.findFirst({ where: { id: candidate.id, status: 'RUNNING', gameDefinition: { slug: { in: slugFilter } } }, include: { gameState: true } });
+        if (!room?.gameState) return;
         await ensureGameStateSafe(room.id);
         const state: GeoGameState = JSON.parse(room.gameState.stateJson);
         if (['INTRO', 'PROMPT'].includes(state.phase)) {
           await handleGeoGame.startRound(io, room);
-          continue;
+          return;
         }
-        if (state.phase !== 'INPUT_OPEN') continue;
         const round = state.roundStates[state.currentRoundIndex];
-        if (!round) continue;
+        if (state.phase === 'INPUT_LOCKED' && round && !round.revealed && typeof round.timerEndMs === 'number' && round.timerEndMs <= Date.now()) {
+          await handleGeoGame.handleReveal(io, null as unknown as Socket, { roomCode: room.code }, undefined,
+            { runIndex: room.runIndex, roundIndex: state.currentRoundIndex, endsAtMs: round.timerEndMs });
+          return;
+        }
+        if (state.phase !== 'INPUT_OPEN') return;
+        if (!round) return;
         const timer = legacyRoundTimer(round, state.phase);
-        if (timer.status !== 'RUNNING' || timer.endsAtMs === null) continue;
+        if (timer.status !== 'RUNNING' || timer.endsAtMs === null) return;
         const deadline = { runIndex: room.runIndex, roundIndex: state.currentRoundIndex, endsAtMs: timer.endsAtMs };
         if (timer.endsAtMs <= Date.now()) await handleGeoGame.handleTimerExpired(io, room, deadline);
         else scheduleGeoDeadline(io, room, deadline);
+        });
       } catch (error) {
-        logger.error('P0-16: Fehler beim Restaurieren eines Raum-Timers', { roomId: room.id, error });
+        logger.error('P0-16: Fehler beim Restaurieren eines Raum-Timers', { roomId: candidate.id, error });
       }
     }
   } catch (error) {
@@ -286,9 +296,8 @@ export const handleGeoGame = {
       phase: initialPhase,
     });
 
-    // P0-09: DO NOT call startRound() here - only the INTRO timeout should trigger startRound()
-    // The setTimeout in handleGameStart() for 'after 3 seconds' is the ONLY startRound trigger
-    // Removed: await this.startRound(io, room);
+    // Initialization persists INTRO. The registry owns its live delay; restart
+    // restoration may open an interrupted INTRO without repeating initialization.
 
     logger.info('Geo game initialized', { roomId: room.id, questionCount: questions.length });
   },
@@ -1272,7 +1281,6 @@ export const handleGeoGame = {
 
       // P0-20: Capture remaining time BEFORE clearing pause state
       roundState.timer = resumeTimer(legacyRoundTimer(roundState, state.phase), Date.now());
-      const remainingTime = roundState.timer.remainingMs!;
       roundState.pauseRemainingMs = null;
       const newTimerEndMs = roundState.timer.endsAtMs!;
       roundState.timerEndMs = newTimerEndMs;
