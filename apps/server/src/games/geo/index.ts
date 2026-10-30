@@ -16,7 +16,7 @@ import { ensureGameStateSafe } from '../core/recovery.js';
 import { finishRunningGame, saveGameStateIfRevision, upsertGameState } from '../core/state.js';
 import { withoutCommandExecution } from '../core/commandExecution.js';
 import { loadGameConfig, loadInitialGameCount, loadInitialTieStrategy } from '../core/config.js';
-import { authorizeGameContext } from '../core/access.js';
+import { authorizeGameContext, currentRoomSockets } from '../core/access.js';
 import { gameErrorCode } from '../core/errors.js';
 import { serializeRoom } from '../../rooms/queue.js';
 import { feed } from '../../rooms/core.js';
@@ -437,6 +437,7 @@ export const handleGeoGame = {
     await refreshLiveMedia(io);
     io.to(roomChannelName).emit('geo:question', {
       roundIndex: state.currentRoundIndex,
+      runIndex: state.contentRunIndex,
       totalQuestions: state.questions.length,
       question: {
         id: question.id,
@@ -511,7 +512,7 @@ export const handleGeoGame = {
   async handleAnswer(
     io: Server,
     socket: Socket,
-    data: { questionIndex?: number; optionId: string },
+    data: { questionIndex?: number; runIndex?: number; optionId: string },
     callback?: (result: any) => void
   ) {
     return serializeGeoAction(socket, async () => {
@@ -535,7 +536,12 @@ export const handleGeoGame = {
         if (parsed.phase !== 'INPUT_OPEN' || !roundState || roundState.revealed) throw new Error('INVALID_PHASE');
         // An explicit round locator is an assertion, not a hint: option ids repeat
         // across questions, so a delayed answer must never land in a newer round.
-        if (data.questionIndex !== undefined && data.questionIndex !== parsed.currentRoundIndex) throw new Error('STALE_ROUND');
+        // Round numbers restart in every run (rematch), so the locator is run + round
+        // and is checked against the same state snapshot that is about to be written.
+        if (data.questionIndex !== undefined) {
+          const run = parsed.contentRunIndex ?? (await tx.room.findUniqueOrThrow({ where: { id: room.id }, select: { runIndex: true } })).runIndex;
+          if (data.questionIndex !== parsed.currentRoundIndex || data.runIndex !== run) throw new Error('STALE_ROUND');
+        }
         const ps = roundState.playerStates[participationId];
 
         // P0-16: Check timer hasn't expired
@@ -595,12 +601,13 @@ export const handleGeoGame = {
         participantId: participationId,
         answered: true,
       });
-      const roomSockets = await io.in(roomChannel(room.id)).fetchSockets();
-      for (const moderator of roomSockets) {
-        if (room.contentVisibility !== 'BLIND_HOST' && moderator.data.role === 'HOST' && moderator.data.roomId === room.id && moderator.data.userId === room.hostUserId) {
-          moderator.emit('geo:answered:moderator', {
-            questionIndex: roundIndex, participantId: participationId, optionId: data.optionId,
-          });
+      if (room.contentVisibility !== 'BLIND_HOST') {
+        for (const moderator of await currentRoomSockets(io, room.id)) {
+          if (moderator.data.role === 'HOST' && moderator.data.userId === room.hostUserId) {
+            moderator.emit('geo:answered:moderator', {
+              questionIndex: roundIndex, participantId: participationId, optionId: data.optionId,
+            });
+          }
         }
       }
 

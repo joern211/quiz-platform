@@ -23,6 +23,8 @@ export interface WerIstDasView {
   buzzerOpen: boolean;
   winnerId: string | null;
   winnerName: string | null;
+  /** Server identity of the current answer attempt (null unless a player owns the answer). */
+  attemptId?: string | null;
   hintActive: boolean;
   excludedPlayerIds?: string[];
   excluded?: boolean;
@@ -78,6 +80,8 @@ export interface GeoResyncResponse {
   gameEnded?: boolean;
   recoveryError?: string;
   roundIndex?: number;
+  /** Run (Partie) of this round; together with roundIndex it locates an answer. */
+  runIndex?: number;
   totalQuestions?: number;
   question?: {
     id: string; prompt: string; category: string; mediaUrl?: string; mediaType?: string;
@@ -123,6 +127,7 @@ export type ServerToClientEvents = {
   'game:end': (data: { roomCode: string; status: string; runPhase: string; finalScores?: Array<{ participationId: string; displayName: string; score: number }> }) => void;
   'geo:question': (data: {
     roundIndex: number;
+    runIndex?: number;
     totalQuestions: number;
     question: {
       id: string;
@@ -158,8 +163,8 @@ export type ServerToClientEvents = {
   'jeopardy:steal:close': (data: { answer: string; thiefCorrect: boolean; thiefDelta: number; scores: Record<string, number> }) => void;
   'jeopardy:field:done': (data: { categoryIndex: number; value: number }) => void;
   'jeopardy:next': () => void;
-  'jeopardy:buzz:won': (data: { playerId: string; playerName: string }) => void;
-  'jeopardy:steal:buzz:won': (data: { playerId: string; playerName: string }) => void;
+  'jeopardy:buzz:won': (data: { playerId: string; playerName: string; attemptId?: string | null }) => void;
+  'jeopardy:steal:buzz:won': (data: { playerId: string; playerName: string; attemptId?: string | null }) => void;
   'jeopardy:board:switch': (data: { fromBoard: 1 | 2; toBoard: 2 | 1; categories: Array<{ name: string; clueCount: number }>; values: number[]; scores: Record<string, number> }) => void;
   'jeopardy:board:complete': (data: { boardNumber: 1 | 2; nextBoard: 2 | null }) => void;
   'jeopardy:game:end': (data: { finalScores: Array<{ playerId: string; playerName: string; score: number }>; winnerIds: string[] }) => void;
@@ -233,7 +238,7 @@ export interface JeopardyResyncResponse {
   phase?: 'PAUSED' | 'INTRO' | 'SELECTING' | 'BUZZ_OPEN' | 'BUZZ_LOCKED' | 'STEAL_OPEN' | 'STEAL_LOCKED' | 'FIELD_DONE' | 'BOARD_COMPLETE' | 'GAME_END';
   scores?: Array<{ playerId: string; playerName: string; score: number }>;
   playerNames?: Record<string, string>;
-  currentField?: { mediaUrl?: string; mediaType?: string; categoryIndex: number; value: number; question: string; answer?: string; buzzWinnerId?: string | null; buzzWinnerName?: string | null; firstResponderId?: string } | null;
+  currentField?: { mediaUrl?: string; mediaType?: string; categoryIndex: number; value: number; question: string; answer?: string; buzzWinnerId?: string | null; buzzWinnerName?: string | null; firstResponderId?: string; attemptId?: string | null } | null;
   playedFields?: string[];
   board1Categories?: Array<{ name: string; clueCount: number }>;
   board2Categories?: Array<{ name: string; clueCount: number }>;

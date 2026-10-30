@@ -16,6 +16,7 @@ import { claimBuzzer, openBuzzer, createBuzzerState, resolveBuzzer } from '../co
 import { recordScoreMutation } from '../core/score.js';
 import { createTimer, submitOnce, judgeSubmission, scoreJudgement } from '../core/runtimePrimitives.js';
 import { createTurn, requireWinningTurn, matchAnswer } from '../core/roundFlow.js';
+import { answerAttemptId, assertCurrentAttempt } from '../core/answerAttempt.js';
 import { prepareRoundRuntime, transitionRoundState } from '../core/roundTransition.js';
 import { resolveTie } from '../core/tie.js';
 import { openRoundBuzzerForRoom } from '../core/buzzerRoster.js';
@@ -354,13 +355,15 @@ export const handleJeopardyGame = {
       state.phase = JEOPARDY_PHASES.BUZZ_LOCKED;
       await saveGameStateIfRevision(tx, { gameSlug: 'jeopardy', roomId, expectedRevision: gameStateData.revision, state, phase: state.phase });
 
-      return { state, displayName: auth.actor.displayName };
+      return { state, displayName: auth.actor.displayName,
+        attemptId: answerAttemptId(`first:${fieldKey(state.currentBoard, state.currentField!.categoryIndex, state.currentField!.value)}`, state.buzzer, participationId) };
     });
 
     // Broadcast buzz:won event (namespaced to avoid collision with geo)
     const buzzEvent: JeopardyBuzzLockedEvent = {
       playerId: participationId,
       playerName: result.displayName ?? 'Unknown',
+      attemptId: result.attemptId,
     };
     io.to(roomChannel(roomId)).emit('jeopardy:buzz:won', buzzEvent);
 
@@ -385,7 +388,7 @@ export const handleJeopardyGame = {
   async handleJudge(
     io: Server,
     socket: Socket,
-    data: { correct: boolean }
+    data: { correct: boolean; attemptId?: string }
   ): Promise<{ success: boolean; error?: string }> {
     const auth = await authorizeGameContext(socket, { roles: ['HOST'], requireParticipation: true, gameSlug: 'jeopardy', requireRunning: true, controlPermission: 'JUDGE_ANSWER', });
     if (!auth.ok) {
@@ -402,6 +405,7 @@ export const handleJeopardyGame = {
       }
       const playerId = state.buzzWinner;
       const { categoryIndex, value, fieldDef } = state.currentField;
+      assertCurrentAttempt(answerAttemptId(`first:${fieldKey(state.currentBoard, categoryIndex, value)}`, state.buzzer, playerId), data.attemptId);
       judgeVerbal(state, playerId, false, data.correct);
       const delta = scoreJudgement(data.correct ? 'CORRECT' : 'WRONG', { correct: pointsForCorrect(value), wrong: pointsForWrongFirst(value) });
       state.scores = applyScoreDelta(state.scores, playerId, delta);
@@ -500,12 +504,14 @@ export const handleJeopardyGame = {
 
       await saveGameStateIfRevision(tx, { gameSlug: 'jeopardy', roomId, expectedRevision: gameStateData.revision, state, phase: state.phase });
 
-      return { displayName: auth.actor.displayName };
+      return { displayName: auth.actor.displayName,
+        attemptId: answerAttemptId(`steal:${fieldKey(state.currentBoard, state.currentField!.categoryIndex, state.currentField!.value)}`, state.stealBuzzer, participationId) };
     });
 
     io.to(roomChannel(roomId)).emit('jeopardy:steal:buzz:won', {
       playerId: participationId,
       playerName: result.displayName ?? 'Unknown',
+      attemptId: result.attemptId,
     } as JeopardyStealLockedEvent);
 
     logger.info('Jeopardy steal buzz won', { roomId, participationId });
@@ -525,7 +531,7 @@ export const handleJeopardyGame = {
   async handleStealJudge(
     io: Server,
     socket: Socket,
-    data: { correct: boolean }
+    data: { correct: boolean; attemptId?: string }
   ): Promise<{ success: boolean; error?: string }> {
     const auth = await authorizeGameContext(socket, { roles: ['HOST'], requireParticipation: true, gameSlug: 'jeopardy', requireRunning: true, controlPermission: 'JUDGE_ANSWER', });
     if (!auth.ok) {
@@ -549,6 +555,7 @@ export const handleJeopardyGame = {
       }
 
       const stealWinnerId = state.stealWinner;
+      assertCurrentAttempt(answerAttemptId(`steal:${fieldKey(state.currentBoard, state.currentField?.categoryIndex ?? 0, state.currentField?.value ?? 0)}`, state.stealBuzzer, stealWinnerId), data.attemptId);
       const answer = state.currentField?.fieldDef.answer ?? '';
       const value = state.currentField?.value ?? 0;
       const categoryIndex = state.currentField?.categoryIndex ?? 0;

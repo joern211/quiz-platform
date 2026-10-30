@@ -1,7 +1,7 @@
 import type { Server, Socket } from 'socket.io';
 import { prisma } from '../../persistence/prisma.js';
 import { roomChannel } from '../../sockets/channel.js';
-import { authorizeGameContext, type GameRole } from '../core/access.js';
+import { authorizeGameContext, currentRoomSockets, type GameRole } from '../core/access.js';
 import { recordScoreMutation } from '../core/score.js';
 import { finishRunningGame, loadGameState, saveGameStateIfRevision, upsertGameState } from '../core/state.js';
 import { WerIstDasPhase, WerIstDasSetupSchema, WER_IST_DAS_ENGINE_VERSION, isV2Round,
@@ -22,7 +22,7 @@ type Action = 'open' | 'buzz' | 'hint' | 'judge' | 'reveal' | 'next';
 
 async function sendProjections(io: Server, roomId: string, state: WerIstDasState, setup: WerIstDasSetup) {
   const room = await prisma.room.findUniqueOrThrow({ where: { id: roomId } });
-  for (const socket of await io.in(roomChannel(roomId)).fetchSockets()) {
+  for (const socket of await currentRoomSockets(io, roomId)) {
     const identity = socket.data as { roomId?: string; role?: string; participationId?: string };
     if (identity.roomId !== roomId || !['HOST', 'PLAYER', 'VIEWER'].includes(identity.role ?? '')) continue;
     socket.emit('weristdas:update', projectWerIstDas(state, setup, identity.role === 'HOST' && socket.data.userId !== room.hostUserId ? 'VIEWER' : identity.role as GameRole, identity.participationId));
@@ -116,7 +116,7 @@ export const werIstDasGame = {
     await sendProjections(io, room.id, state, setup);
   },
 
-  async act(io: Server, socket: Socket, action: Action, payload?: { result?: 'BOTH_CORRECT' | 'ONE_CORRECT' | 'WRONG' }): Promise<Ack> {
+  async act(io: Server, socket: Socket, action: Action, payload?: { result?: 'BOTH_CORRECT' | 'ONE_CORRECT' | 'WRONG'; attemptId?: string }): Promise<Ack> {
     const auth = await authorizeGameContext(socket, {
       gameSlug: resolveCanonicalSlug('wer-ist-das')!, roles: action === 'buzz' ? ['PLAYER'] : ['HOST'],
       requireParticipation: true, requireRunning: true, controlPermission: action === 'buzz' ? undefined : action === 'judge' ? 'JUDGE_ANSWER' : action === 'next' ? 'ROUND_ADVANCE' : action === 'open' ? 'BUZZER_CONTROL' : 'REVEAL_CONTENT',
@@ -140,7 +140,7 @@ export const werIstDasGame = {
     if (action === 'buzz') state = buzz(state, auth.actor.participationId!);
     if (action === 'hint') state = activateHint(state);
     if (action === 'judge') {
-      const judged = judge(state, payload!.result!);
+      const judged = judge(state, payload!.result!, payload!.attemptId);
       state = judged.state;
       scoreMutation = { playerId: judged.playerId, delta: judged.delta, score: state.scores[judged.playerId] };
     }

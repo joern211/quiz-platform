@@ -33,12 +33,13 @@ const answerAction = z.object({
   roomCode: z.string().regex(/^\d{3}-\d{3}$/).optional(),
   optionId: z.string().min(1),
   questionIndex: z.number().int().nonnegative().optional(),
+  runIndex: z.number().int().positive().optional(),
   commandId: z.string().min(1).max(128).optional(),
   requestId: z.string().min(1).max(128).optional(),
   protocolVersion: z.number().int().optional(),
   stateVersion: z.number().int().optional(),
   expectedRevision: z.number().int().optional(),
-});
+}).refine(a => (a.questionIndex === undefined) === (a.runIndex === undefined), { message: 'ROUND_LOCATOR_INCOMPLETE' });
 
 function validate<T>(schema: z.ZodType<T>, data: unknown, callback?: (result: { success: boolean; error: string }) => void): T | null {
   const parsed = schema.safeParse(data);
@@ -83,7 +84,7 @@ export const handleGeoEvents = {
   async geoAnswer(
     io: Server,
     socket: Socket,
-    data: { questionIndex?: number; optionId: string; commandId?: string; requestId?: string; protocolVersion?: number },
+    data: { questionIndex?: number; runIndex?: number; optionId: string; commandId?: string; requestId?: string; protocolVersion?: number },
     callback?: (result: any) => void
   ) {
     await runGuardedCriticalAction({

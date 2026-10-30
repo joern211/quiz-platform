@@ -124,6 +124,8 @@ export interface JeopardyBuzzOpenEvent {
 export interface JeopardyBuzzLockedEvent {
   playerId: string;
   playerName: string;
+  /** Identity of this answer attempt; the judgement must echo it. */
+  attemptId?: string | null;
 }
 
 /** Steal buzzer is now open. */
@@ -136,6 +138,7 @@ export interface JeopardyStealOpenEvent {
 export interface JeopardyStealLockedEvent {
   playerId: string;
   playerName: string;
+  attemptId?: string | null;
 }
 
 /** Reveal: answer and updated scores are broadcast after judgment. */

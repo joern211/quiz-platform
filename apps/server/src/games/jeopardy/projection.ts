@@ -3,7 +3,8 @@ import type { GameRole } from '../core/access.js';
 import { visibleValue } from '../core/visibility.js';
 import { rankScores } from '../core/roundFlow.js';
 import { JeopardySetupSchema } from '../core/setupSchemas.js';
-import type { JeopardyGameState } from './state.js';
+import { fieldKey, type JeopardyGameState } from './state.js';
+import { answerAttemptId } from '../core/answerAttempt.js';
 
 /** Explicit allowlist: saved submissions, future answers and pause snapshots never leave the server. */
 export function projectJeopardyForClient(state: JeopardyGameState, setupInput: unknown, role: GameRole,
@@ -20,6 +21,8 @@ export function projectJeopardyForClient(state: JeopardyGameState, setupInput: u
     categoryIndex: fd.categoryIndex, value: fd.value, question: fd.question,
     mediaType: clue?.mediaType, mediaAssetId: clue?.mediaAssetId,
     mediaUrl: roomId ? roomContentMediaUrl(roomId, state.contentRunIndex, typeof clue?.contentId === 'string' ? clue.contentId : undefined, clue?.mediaAssetId) : undefined,
+    attemptId: state.phase === 'BUZZ_LOCKED' ? answerAttemptId(`first:${fieldKey(state.currentBoard, fd.categoryIndex, fd.value)}`, state.buzzer, state.buzzWinner)
+      : state.phase === 'STEAL_LOCKED' ? answerAttemptId(`steal:${fieldKey(state.currentBoard, fd.categoryIndex, fd.value)}`, state.stealBuzzer, state.stealWinner) : null,
     buzzWinnerId: state.buzzWinner, buzzWinnerName: state.buzzWinner ? state.playerNames[state.buzzWinner] : null,
     firstResponderId: state.currentField?.firstResponderId, phase: state.phase,
     ...(secret !== undefined ? { answer: secret } : {}),

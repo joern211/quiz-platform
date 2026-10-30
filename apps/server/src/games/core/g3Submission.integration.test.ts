@@ -116,9 +116,9 @@ it('Geo: rejects an answer addressed to an older round and still accepts the cur
   expect((await gameAck(f.host, 'geo:reveal', intent(f.code))).success).toBe(true);
   expect((await gameAck(f.host, 'geo:next', intent(f.code))).success).toBe(true);
   const before = await effects(f.room.id);
-  expect(await gameAck(f.players[0].client, 'geo:answer', { optionId: 'a', questionIndex: 0, ...intent(f.code) })).toMatchObject({ success: false, error: 'STALE_ROUND' });
+  expect(await gameAck(f.players[0].client, 'geo:answer', { optionId: 'a', questionIndex: 0, runIndex: 1, ...intent(f.code) })).toMatchObject({ success: false, error: 'STALE_ROUND' });
   expect(await effects(f.room.id)).toEqual(before);
-  expect((await gameAck(f.players[0].client, 'geo:answer', { optionId: 'a', questionIndex: 1, ...intent(f.code) })).success).toBe(true);
+  expect((await gameAck(f.players[0].client, 'geo:answer', { optionId: 'a', questionIndex: 1, runIndex: 1, ...intent(f.code) })).success).toBe(true);
   expect((await state(f.room.id)).value.roundStates[1].playerStates[f.players[0].id]).toMatchObject({ answered: true, selectedOptionId: 'a' });
 });
 
@@ -149,8 +149,8 @@ it('Geo: viewers, the host, removed players and foreign rooms cannot submit for 
   await db.participation.update({ where: { id: f.players[0].id }, data: { leftAt: new Date() } });
   expect((await gameAck(f.players[0].client, 'geo:answer', { optionId: 'a', ...intent(f.code) })).success).toBe(false);
   const after = await state(f.room.id);
-  expect(Object.values(after.value.roundStates[0].playerStates).some((p: any) => p.answered)).toBe(false);
-  expect(Object.values((await state(other.room.id)).value.roundStates[0].playerStates).some((p: any) => p.answered)).toBe(false);
+  expect(Object.values(after.value.roundStates[0].playerStates).some(p => (p as { answered: boolean }).answered)).toBe(false);
+  expect(Object.values((await state(other.room.id)).value.roundStates[0].playerStates).some(p => (p as { answered: boolean }).answered)).toBe(false);
 });
 
 it('Geo: one intent has one effect; the same id with another option conflicts; a new id sees the closed submission', async () => {
@@ -424,4 +424,137 @@ it.each(['wissensduell', 'jeopardy'] as const)('%s: a display sees only the publ
   const attempts = slug === 'jeopardy' ? [['jeopardy:judge', { correct: true }], ['jeopardy:buzz', {}]] as const : [['geo:answer', { optionId: 'a' }], ['geo:reveal', {}]] as const;
   for (const [event, payload] of attempts) expect((await gameAck(display, event, { ...payload, ...intent(f.code) })).success).toBe(false);
   expect(await effects(f.room.id)).toEqual(before);
+});
+
+it("REVIEW Geo: an answer created during run one cannot answer run two; old receipts never turn into a false success", async () => {
+  const f = await fixture('wissensduell');
+  const oldAnswer = { optionId: 'b', questionIndex: 0, runIndex: 1, ...intent(f.code) };
+  expect((await gameAck(f.host, 'game:end', intent(f.code))).success).toBe(true);
+  const rematch = await gameAck(f.host, 'room:command', { ...intent(f.code), protocolVersion: 1, operation: { type: 'REMATCH' } });
+  expect(rematch.success, JSON.stringify(rematch)).toBe(true);
+  for (const p of f.players) expect((await gameAck(p.client, 'player:ready:set', { roomCode: f.code, ready: true })).success).toBe(true);
+  expect((await gameAck(f.host, 'game:start', intent(f.code))).success).toBe(true);
+  cancelGeoTimer(f.room.id); await handleGeoGame.startRound(app.io, f.code);
+  expect((await db.room.findUniqueOrThrow({ where: { id: f.room.id } })).runIndex).toBe(2);
+  const saved = async () => (await state(f.room.id)).value.roundStates[0].playerStates[f.players[0].id];
+  const before = await effects(f.room.id);
+  expect(await gameAck(f.players[0].client, 'geo:answer', oldAnswer)).toMatchObject({ success: false, error: 'STALE_ROUND' });
+  expect((await saved()).answered).toBe(false);
+  expect(await effects(f.room.id)).toEqual(before);
+  // an incomplete locator is malformed, never read as "legacy"
+  expect((await gameAck(f.players[0].client, 'geo:answer', { optionId: 'b', questionIndex: 0, ...intent(f.code) })).success).toBe(false);
+  expect((await gameAck(f.players[0].client, 'geo:answer', { optionId: 'b', runIndex: 2, ...intent(f.code) })).success).toBe(false);
+  expect((await saved()).answered).toBe(false);
+  // an id already used in run one is not accepted as a run-two intent either
+  expect(await gameAck(f.players[0].client, 'geo:answer', { ...oldAnswer, runIndex: 2 })).toMatchObject({ success: false, error: 'COMMAND_CONFLICT' });
+  expect((await saved()).answered).toBe(false);
+  // the current run works and its retry acts once
+  const current = { optionId: 'b', questionIndex: 0, runIndex: 2, ...intent(f.code) };
+  expect((await gameAck(f.players[0].client, 'geo:answer', current)).success).toBe(true);
+  expect(await gameAck(f.players[0].client, 'geo:answer', current)).toMatchObject({ success: true, replayed: true });
+  expect(await saved()).toMatchObject({ answered: true, selectedOptionId: 'b' });
+  // an unrelated player's answer in the same run is not a conflict
+  expect((await gameAck(f.players[1].client, 'geo:answer', { optionId: 'a', questionIndex: 0, runIndex: 2, ...intent(f.code) })).success).toBe(true);
+});
+
+async function attemptOf(f: Awaited<ReturnType<typeof fixture>>, slug: 'jeopardy' | 'wer-ist-das') {
+  const view = await gameAck(f.host, slug === 'jeopardy' ? 'jeopardy:resync' : 'weristdas:resync', { roomCode: f.code }) as { currentField?: { attemptId?: string | null }; state?: { attemptId?: string | null }; attemptId?: string | null };
+  return slug === 'jeopardy' ? view.currentField?.attemptId : (view.state ?? view).attemptId;
+}
+const judgeEvent = (slug: string) => slug === 'jeopardy' ? 'jeopardy:judge' : 'weristdas:judge';
+const verdict = (slug: string, good: boolean) => slug === 'jeopardy' ? { correct: good } : { result: good ? 'BOTH_CORRECT' : 'WRONG' };
+async function startAttempt(slug: 'jeopardy' | 'wer-ist-das', f: Awaited<ReturnType<typeof fixture>>, who: { client: Socket }) {
+  if (slug === 'jeopardy') expect((await gameAck(f.host, 'jeopardy:field:open', { boardIndex: 1, categoryIndex: 0, value: 100, ...intent(f.code) })).success).toBe(true);
+  else expect((await gameAck(f.host, 'weristdas:buzzer:open', intent(f.code))).success).toBe(true);
+  expect((await gameAck(who.client, slug === 'jeopardy' ? 'jeopardy:buzz' : 'weristdas:buzz', intent(f.code))).success).toBe(true);
+}
+
+it.each(['jeopardy', 'wer-ist-das'] as const)("REVIEW %s: an old judge intent must not judge a replacement answer owner", async slug => {
+  const f = await fixture(slug), [alice, bob] = f.players;
+  await startAttempt(slug, f, alice);
+  const attemptId = await attemptOf(f, slug);
+  expect(attemptId).toEqual(expect.any(String));
+  const oldJudge = { ...verdict(slug, true), attemptId, ...intent(f.code) };
+  const loaded = await state(f.room.id);
+  const room = await db.room.findUniqueOrThrow({ where: { id: f.room.id } });
+  const override = await gameAck(f.host, 'game:buzzer:override', { participantId: bob.id, gameStateVersion: loaded.row.revision, runIndex: room.runIndex, ...intent(f.code) });
+  expect(override.success, JSON.stringify(override)).toBe(true);
+  const before = await effects(f.room.id);
+  expect(await gameAck(f.host, judgeEvent(slug), oldJudge)).toMatchObject({ success: false, error: 'STALE_ATTEMPT' });
+  expect(await effects(f.room.id)).toEqual(before);
+  expect((await state(f.room.id)).value.scores[bob.id]).toBe(0);
+  // a judgement created for Bob's attempt stays possible
+  const fresh = await attemptOf(f, slug);
+  expect(fresh).not.toBe(attemptId);
+  expect((await gameAck(f.host, judgeEvent(slug), { ...verdict(slug, true), attemptId: fresh, ...intent(f.code) })).success).toBe(true);
+  expect((await state(f.room.id)).value.scores[bob.id]).toBe(slug === 'jeopardy' ? 100 : 3);
+  expect((await state(f.room.id)).value.scores[alice.id]).toBe(0);
+});
+
+it.each(['jeopardy', 'wer-ist-das'] as const)("%s: a judgement bound to a finished attempt, a malformed context and a foreign owner never take effect", async slug => {
+  const f = await fixture(slug), [alice, bob] = f.players;
+  await startAttempt(slug, f, alice);
+  const first = await attemptOf(f, slug);
+  const wrong = { ...verdict(slug, false), attemptId: first, ...intent(f.code) };
+  expect((await gameAck(f.host, judgeEvent(slug), wrong)).success).toBe(true);
+  // the executed intent stays idempotent, a new id for the finished attempt is stale
+  expect(await gameAck(f.host, judgeEvent(slug), wrong)).toMatchObject({ success: true, replayed: true });
+  if (slug === 'jeopardy') expect((await gameAck(bob.client, 'jeopardy:steal:buzz', intent(f.code))).success).toBe(true);
+  else { expect((await gameAck(f.host, 'weristdas:buzzer:open', intent(f.code))).success).toBe(true); expect((await gameAck(bob.client, 'weristdas:buzz', intent(f.code))).success).toBe(true); }
+  const second = await attemptOf(f, slug);
+  expect(second).not.toBe(first);
+  const event = slug === 'jeopardy' ? 'jeopardy:steal:judge' : 'weristdas:judge';
+  const before = await effects(f.room.id);
+  expect(await gameAck(f.host, event, { ...verdict(slug, true), attemptId: first, ...intent(f.code) })).toMatchObject({ success: false, error: 'STALE_ATTEMPT' });
+  expect(await gameAck(f.host, event, { ...verdict(slug, true), attemptId: `${first}|x`, ...intent(f.code) })).toMatchObject({ success: false, error: 'STALE_ATTEMPT' });
+  for (const bad of [5, '', null, {}]) expect(await gameAck(f.host, event, { ...verdict(slug, true), attemptId: bad, ...intent(f.code) })).toMatchObject({ success: false, error: expect.stringMatching(/INVALID_PAYLOAD|VALIDATION_ERROR/) });
+  expect(await effects(f.room.id)).toEqual(before);
+  // the same id with a different attempt is a conflict, not a second judgement
+  expect(await gameAck(f.host, judgeEvent(slug), { ...wrong, attemptId: second })).toMatchObject({ success: false, error: 'COMMAND_CONFLICT' });
+  expect((await gameAck(f.host, event, { ...verdict(slug, true), attemptId: second, ...intent(f.code) })).success).toBe(true);
+  expect((await state(f.room.id)).value.scores[bob.id]).toBe(slug === 'jeopardy' ? 50 : 3);
+});
+
+it("Jeopardy: a judgement bound to the previous field cannot judge the next field", async () => {
+  const f = await fixture('jeopardy'), [alice, bob] = f.players;
+  await startAttempt('jeopardy', f, alice);
+  const first = await attemptOf(f, 'jeopardy');
+  expect((await gameAck(f.host, 'jeopardy:judge', { correct: true, attemptId: first, ...intent(f.code) })).success).toBe(true);
+  expect((await gameAck(f.host, 'jeopardy:next', intent(f.code))).success).toBe(true);
+  expect((await gameAck(f.host, 'jeopardy:field:open', { boardIndex: 1, categoryIndex: 0, value: 200, ...intent(f.code) })).success).toBe(true);
+  expect((await gameAck(bob.client, 'jeopardy:buzz', intent(f.code))).success).toBe(true);
+  const before = await effects(f.room.id);
+  expect(await gameAck(f.host, 'jeopardy:judge', { correct: true, attemptId: first, ...intent(f.code) })).toMatchObject({ success: false, error: 'STALE_ATTEMPT' });
+  expect(await effects(f.room.id)).toEqual(before);
+});
+
+it("REVIEW Geo: a revoked host session must not receive private answer broadcasts", async () => {
+  const f = await fixture('wissensduell');
+  const seen = record(f.host);
+  const session = await db.session.findFirstOrThrow({where:{userId:hostId,revokedAt:null}});
+  await db.session.update({where:{id:session.id},data:{revokedAt:new Date()}});
+  try {
+    expect((await gameAck(f.players[0].client, 'geo:answer', { optionId: 'b', questionIndex: 0, runIndex: 1, ...intent(f.code) })).success).toBe(true);
+    // A public event follows the private event on this connection and fences delivery.
+    await vi.waitFor(() => expect(seen.some(e => (e as unknown[])[0] === 'game:core:changed')).toBe(true));
+    const leaked = seen.filter(e => (e as unknown[])[0] === 'geo:answered:moderator');
+    expect(leaked).toEqual([]);
+  } finally { await db.session.update({where:{id:session.id},data:{revokedAt:null}}); }
+});
+
+it("Wer ist das?: a revoked host session and a removed player stop receiving projections while valid recipients keep them", async () => {
+  const f = await fixture('wer-ist-das'), [alice, bob] = f.players;
+  await widOpen(f);
+  const hostSeen = record(f.host), aliceSeen = record(alice.client), bobSeen = record(bob.client);
+  const session = await db.session.findFirstOrThrow({ where: { userId: hostId, revokedAt: null } });
+  await db.session.update({ where: { id: session.id }, data: { revokedAt: new Date() } });
+  await db.participation.update({ where: { id: alice.id }, data: { kickedAt: new Date() } });
+  try {
+    expect((await gameAck(bob.client, 'weristdas:buzz', intent(f.code))).success).toBe(true);
+    // public events follow the private projection on every connection and fence its delivery
+    await vi.waitFor(() => expect(hostSeen.some(e => (e as unknown[])[0] === 'game:core:changed')).toBe(true));
+    await vi.waitFor(() => expect(aliceSeen.some(e => (e as unknown[])[0] === 'game:core:changed')).toBe(true));
+    expect(bobSeen.filter(e => (e as unknown[])[0] === 'weristdas:update')).toHaveLength(1);
+    for (const seen of [hostSeen, aliceSeen]) expect(seen.filter(e => (e as unknown[])[0] === 'weristdas:update')).toEqual([]);
+  } finally { await db.session.update({ where: { id: session.id }, data: { revokedAt: null } }); }
 });

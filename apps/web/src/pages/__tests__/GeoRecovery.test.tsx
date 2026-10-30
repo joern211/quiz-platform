@@ -115,3 +115,57 @@ it('Player can use the server-approved Spy action after input locks', async () =
   expect(transport.command).toHaveBeenCalledWith(expect.anything(), 'geo:joker:spy', expect.objectContaining({ roomCode: '123-456' }), expect.any(String), expect.any(Function));
   expect(screen.getByRole('button', { name: /Antwort A/ })).toBeDisabled();
 });
+
+
+it('REVIEW Player: an old successful answer ACK cannot mark the new round submitted', async () => {
+  transport.recovery=false; transport.phase='INPUT_OPEN'; transport.actions=['answer'];
+  render(<MemoryRouter initialEntries={['/123-456']}><Routes><Route path=":code" element={<PlayerGamePage />} /></Routes></MemoryRouter>);
+  await userEvent.click(await screen.findByRole('button',{name:/Antwort A/}));
+  const ack=transport.command.mock.calls[0][4] as (r:unknown)=>void;
+  await act(async()=>transport.handlers.get('geo:question')?.({roundIndex:1,question:{id:'q2',prompt:'Neue Frage',options:[{id:'a',text:'Neue Antwort'}]},timerEndMs:Date.now()+60000}));
+  expect(screen.queryByText('Antwort gespeichert.')).not.toBeInTheDocument();
+  await act(async()=>ack({success:true}));
+  expect(screen.queryByText('Antwort gespeichert.')).not.toBeInTheDocument();
+});
+
+it('REVIEW Player: an old rejected answer ACK cannot unlock the new round submission', async () => {
+  transport.recovery=false; transport.phase='INPUT_OPEN'; transport.actions=['answer'];
+  render(<MemoryRouter initialEntries={['/123-456']}><Routes><Route path=":code" element={<PlayerGamePage />} /></Routes></MemoryRouter>);
+  await userEvent.click(await screen.findByRole('button',{name:/Antwort A/}));
+  const oldAck=transport.command.mock.calls[0][4] as (r:unknown)=>void;
+  await act(async()=>transport.handlers.get('geo:question')?.({roundIndex:1,question:{id:'q2',prompt:'Neue Frage',options:[{id:'a',text:'Neue Antwort'}]},timerEndMs:Date.now()+60000}));
+  const answer=await screen.findByRole('button',{name:/Neue Antwort/});
+  await userEvent.click(answer); expect(answer).toBeDisabled();
+  await act(async()=>oldAck({success:false,error:'STALE_ROUND'}));
+  expect(answer).toBeDisabled();
+});
+
+const nextQuestion = (run: number, round: number, id: string, label: string) => ({ roundIndex: round, runIndex: run,
+  question: { id, prompt: 'Frage', options: [{ id: 'a', text: label }] }, timerEndMs: Date.now() + 60000 });
+
+it('Player: sends the run and round the question was shown for and keeps current acknowledgements working', async () => {
+  transport.recovery = false; transport.phase = 'INPUT_OPEN'; transport.actions = ['answer'];
+  render(<MemoryRouter initialEntries={['/123-456']}><Routes><Route path=":code" element={<PlayerGamePage />} /></Routes></MemoryRouter>);
+  await screen.findByRole('button', { name: /Antwort A/ });
+  await act(async () => transport.handlers.get('geo:question')?.(nextQuestion(2, 3, 'q9', 'Neue Antwort')));
+  await userEvent.click(await screen.findByRole('button', { name: /Neue Antwort/ }));
+  expect(transport.command).toHaveBeenCalledWith(expect.anything(), 'geo:answer',
+    expect.objectContaining({ optionId: 'a', questionIndex: 3, runIndex: 2 }), expect.stringContaining('q9'), expect.any(Function));
+  const ack = transport.command.mock.calls.at(-1)![4] as (r: unknown) => void;
+  await act(async () => ack({ success: true }));
+  expect(screen.getByText('Antwort gespeichert.')).toBeInTheDocument();
+});
+
+it('Player: an acknowledgement from an earlier run with the same question cannot touch the rematch question', async () => {
+  transport.recovery = false; transport.phase = 'INPUT_OPEN'; transport.actions = ['answer'];
+  render(<MemoryRouter initialEntries={['/123-456']}><Routes><Route path=":code" element={<PlayerGamePage />} /></Routes></MemoryRouter>);
+  await act(async () => transport.handlers.get('geo:question')?.(nextQuestion(1, 0, 'q1', 'Alt')));
+  await userEvent.click(await screen.findByRole('button', { name: /Alt/ }));
+  const oldAck = transport.command.mock.calls.at(-1)![4] as (r: unknown) => void;
+  await act(async () => transport.handlers.get('geo:question')?.(nextQuestion(2, 0, 'q1', 'Revanche')));
+  expect(screen.queryByText('Antwort gespeichert.')).not.toBeInTheDocument();
+  await act(async () => oldAck({ success: true }));
+  expect(screen.queryByText('Antwort gespeichert.')).not.toBeInTheDocument();
+  const answer = await screen.findByRole('button', { name: /Revanche/ });
+  expect(answer).not.toBeDisabled();
+});

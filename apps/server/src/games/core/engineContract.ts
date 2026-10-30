@@ -45,11 +45,11 @@ function commandSchema(slug: string, action: string): z.ZodType<unknown> | null 
     : ['joker5050', 'jokerSpy', 'jokerRisk', 'reveal', 'next'].includes(action) ? roomPayload : null;
   if (slug === 'jeopardy') {
     if (action === 'fieldOpen') return z.object({ boardIndex: z.union([z.literal(1), z.literal(2)]), categoryIndex: z.number().int().min(0).max(5), value: z.number().int().positive() }).passthrough();
-    if (['judge', 'stealJudge'].includes(action)) return z.object({ correct: z.boolean() }).passthrough();
+    if (['judge', 'stealJudge'].includes(action)) return z.object({ correct: z.boolean(), attemptId: z.string().min(1).max(256).optional() }).passthrough();
     if (action === 'boardSwitch') return z.object({ toBoard: z.union([z.literal(1), z.literal(2)]) }).passthrough();
     return ['buzz', 'stealBuzz', 'next'].includes(action) ? emptyPayload : null;
   }
-  if (slug === 'wer-ist-das') return action === 'judge' ? z.object({ result: z.enum(['BOTH_CORRECT', 'ONE_CORRECT', 'WRONG']) }).passthrough()
+  if (slug === 'wer-ist-das') return action === 'judge' ? z.object({ result: z.enum(['BOTH_CORRECT', 'ONE_CORRECT', 'WRONG']), attemptId: z.string().min(1).max(256).optional() }).passthrough()
     : ['open', 'buzz', 'hint', 'reveal', 'next'].includes(action) ? emptyPayload : null;
   return null;
 }
@@ -83,7 +83,7 @@ async function dispatch(slug: string, context: CommandContext, command: EngineCo
   if (slug === 'wissensduell') {
     const roomData = { roomCode: String(payload.roomCode) };
     if (action === 'answer') return callbackResult(done => handleGeoGame.handleAnswer(io, socket, { optionId: String(payload.optionId),
-      ...(typeof payload.questionIndex === 'number' ? { questionIndex: payload.questionIndex } : {}) }, done));
+      ...(typeof payload.questionIndex === 'number' ? { questionIndex: payload.questionIndex } : {}), ...(typeof payload.runIndex === 'number' ? { runIndex: payload.runIndex } : {}) }, done));
     if (action === 'joker5050') return callbackResult(done => handleGeoGame.handleJoker5050(io, socket, roomData, done));
     if (action === 'jokerSpy') return callbackResult(done => handleGeoGame.handleJokerSpy(io, socket, roomData, done));
     if (action === 'jokerRisk') return callbackResult(done => handleGeoGame.handleJokerRisk(io, socket, roomData, done));
@@ -93,13 +93,13 @@ async function dispatch(slug: string, context: CommandContext, command: EngineCo
   if (slug === 'jeopardy') {
     if (action === 'fieldOpen') return handleJeopardyGame.handleFieldOpen(io, socket, payload as { boardIndex: 1 | 2; categoryIndex: number; value: number });
     if (action === 'buzz') return handleJeopardyGame.handleBuzz(io, socket);
-    if (action === 'judge') return handleJeopardyGame.handleJudge(io, socket, payload as { correct: boolean });
+    if (action === 'judge') return handleJeopardyGame.handleJudge(io, socket, payload as { correct: boolean; attemptId?: string });
     if (action === 'stealBuzz') return handleJeopardyGame.handleStealBuzz(io, socket);
-    if (action === 'stealJudge') return handleJeopardyGame.handleStealJudge(io, socket, payload as { correct: boolean });
+    if (action === 'stealJudge') return handleJeopardyGame.handleStealJudge(io, socket, payload as { correct: boolean; attemptId?: string });
     if (action === 'next') return handleJeopardyGame.handleNext(io, socket);
   }
   if (slug === 'wer-ist-das') return werIstDasGame.act(io, socket, action as 'open' | 'buzz' | 'hint' | 'judge' | 'reveal' | 'next',
-    action === 'judge' ? payload as { result: 'BOTH_CORRECT' | 'ONE_CORRECT' | 'WRONG' } : undefined);
+    action === 'judge' ? payload as { result: 'BOTH_CORRECT' | 'ONE_CORRECT' | 'WRONG'; attemptId?: string } : undefined);
   return { success: false, error: 'COMMAND_UNSUPPORTED' };
 }
 const cache = new Map<string, ServerGameEngineContract>();

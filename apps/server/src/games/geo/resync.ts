@@ -62,6 +62,7 @@ export function projectGeoStateForClient(state: GeoState, actor: GameActor) {
     success: true as const,
     phase: state.phase,
     roundIndex: state.currentRoundIndex,
+    runIndex: state.contentRunIndex,
     totalQuestions: state.questions.length,
     question: round?.question ? {
       id: round.question.id, prompt: round.question.prompt, category: round.question.category,

@@ -51,8 +51,9 @@ export function useWerIstDas(roomCode: string, role: PlayerRole) {
     });
   }, [roomCode]);
   const judge = useCallback((result: 'BOTH_CORRECT' | 'ONE_CORRECT' | 'WRONG') => {
-    // Bewertung je Runde + Ergebnis = Absicht (anderes Ergebnis = neuer Key).
-    emitCommand(getSocket(), 'weristdas:judge', { result }, `${roomCode}:wid:judge:r${roundKey()}:${result}`, res => {
+    // Bewertung je Runde + Antwortversuch + Ergebnis = Absicht (anderes Ergebnis/anderer Versuch = neuer Key).
+    const attemptId = stateRef.current?.attemptId ?? undefined;
+    emitCommand(getSocket(), 'weristdas:judge', { result, ...(attemptId ? { attemptId } : {}) }, `${roomCode}:wid:judge:r${roundKey()}:${attemptId ?? ''}:${result}`, res => {
       if (!res.success) setError(res.error ?? 'Bewertung fehlgeschlagen'); else setError('');
     });
   }, [roomCode]);

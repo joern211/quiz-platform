@@ -5,7 +5,7 @@ import { blindRoom } from '../../content/blindHost.js';
 // Exact role + room membership checks for game actions.
 // ============================================================
 
-import type { Socket } from 'socket.io';
+import type { Server, Socket } from 'socket.io';
 import { getSocketDataIdentity } from '../../sockets/auth.js';
 import { roomChannel } from '../../sockets/channel.js';
 import { prisma } from '../../persistence/prisma.js';
@@ -143,4 +143,19 @@ export async function authorizeGameActionWithPermission(
   const perm = await requireGamePermission(socket, options.permission);
   if (!perm.ok) return { ok: false, error: perm.error === 'NOT_IN_ROOM' ? 'NOT_IN_ROOM' : 'FORBIDDEN' };
   return { ok: true, permission: options.permission };
+}
+
+/**
+ * Recipients for per-socket private output (projections, host-only events).
+ * A socket that is still in the room channel is not thereby still entitled:
+ * session, device binding and participation are re-checked per delivery, so a
+ * revoked session or removed participant stops receiving before any reconnect.
+ */
+export async function currentRoomSockets(io: Server, roomId: string): Promise<Socket[]> {
+  const sockets: Socket[] = [];
+  for (const remote of await io.in(roomChannel(roomId)).fetchSockets()) {
+    const socket = io.sockets.sockets.get(remote.id);
+    if (socket && socket.data.roomId === roomId && await currentSocketMembership(socket)) sockets.push(socket);
+  }
+  return sockets;
 }

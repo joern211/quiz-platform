@@ -23,7 +23,7 @@ export function PlayerGamePage() {
   const [connected, setConnected] = useState(false);
   const [phase, setPhase] = useState<string>('WAITING');
   const [question, setQuestion] = useState<any>(null);
-  const [roundIndex, setRoundIndex] = useState<number | null>(null);
+  const [roundLocator, setRoundLocator] = useState<{ questionIndex: number; runIndex: number } | null>(null);
   const [selectedOption, setSelectedOption] = useState<string | null>(null);
   const [locked, setLocked] = useState(false);
   const [endsAt, setEndsAt] = useState<number>(0);
@@ -63,7 +63,7 @@ export function PlayerGamePage() {
           }
           if (res.recoveryError) setActionError('Das Spiel ist angehalten. Bitte warte auf den Host.');
           if (res.question) setQuestion(res.question);
-          if (typeof res.roundIndex === 'number') setRoundIndex(res.roundIndex);
+          setRoundLocator(typeof res.roundIndex === 'number' && typeof res.runIndex === 'number' ? { questionIndex: res.roundIndex, runIndex: res.runIndex } : null);
           setEndsAt(res.timerEndMs ?? 0);
           setRevealed(res.revealed ?? false);
           setPhase(res.phase ?? 'WAITING');
@@ -97,7 +97,7 @@ export function PlayerGamePage() {
 
     socket.on('geo:question', (data) => {
       setQuestion(data.question);
-      if (typeof data.roundIndex === 'number') setRoundIndex(data.roundIndex);
+      setRoundLocator(typeof data.roundIndex === 'number' && typeof data.runIndex === 'number' ? { questionIndex: data.roundIndex, runIndex: data.runIndex } : null);
       setEndsAt(data.timerEndMs);
       setSelectedOption(null);
       setLocked(false);
@@ -148,6 +148,10 @@ export function PlayerGamePage() {
     return () => { disconnectSocket(); };
   }, [navigate, participationId, rejoinToken, roomCode]);
 
+  const answerContext = `${roundLocator?.runIndex ?? 'r'}:${roundLocator?.questionIndex ?? 'q'}:${question?.id ?? 'q'}`;
+  const answerContextRef = useRef(answerContext);
+  answerContextRef.current = answerContext;
+
   const handleSelectOption = (optionId: string) => {
     if (!core.can('answer') || locked || phase !== 'INPUT_OPEN') return;
     if (!socketRef.current) {
@@ -158,12 +162,16 @@ export function PlayerGamePage() {
     setSelectedOption(optionId);
     setLocked(true);
     
+    // The acknowledgement belongs to the question/run it was sent for; a late
+    // answer must neither mark nor unlock a newer question.
+    const sentFor = answerContext;
     emitCommand(socketRef.current, 'geo:answer', {
       roomCode,
       optionId,
-      ...(roundIndex !== null ? { questionIndex: roundIndex } : {}),
+      ...(roundLocator ?? {}),
       rejoinToken: rejoinToken ?? undefined,
-    }, `${roomCode}:geo:answer:${question?.id ?? 'q'}`, (response) => {
+    }, `${roomCode}:geo:answer:${answerContext}`, (response) => {
+      if (answerContextRef.current !== sentFor) return;
       if (response.success) {
         setAnswerSubmitted(true);
       } else {
