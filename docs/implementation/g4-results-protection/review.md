@@ -37,5 +37,32 @@ Hinweis: Diese Tests sind **Regressionsschutz**; sie schlugen gegen den Bestand 
 
 ## Offener Rest (nicht G4-blockierend, dokumentiert)
 
-Lifecycle-/Room-/Recovery-Sockets nicht im neuen Limiter · Receipt-Retention · HTTP-Resultate ohne Rate-Limit ·
+(Stand der ersten Eigenprüfung; Lifecycle/Room/Recovery inzwischen in der frühen Zulassung, siehe unten) Lobby-Events nicht in der frühen Zulassung · Receipt-Retention · HTTP-Resultate ohne Rate-Limit ·
 neue Identität = neues Budget · Core-DoD „zwei Verbraucher“ der Auswahlabgabe (G3) · G5-Gesamtabnahme.
+
+---
+
+# Unabhängige Prüfung des PR (Head `ea22c51`) und Nachbesserung
+
+Die externe Prüfung bestätigte A–C und fand drei offene Punkte in D/E sowie einen UI-Hinweis. Alle vier waren
+**von meiner Eigenprüfung nicht gefunden worden**; die Ursachen, soweit erkennbar: Ich hatte nur geprüft, dass die
+*Antwort* `RATE_LIMITED` lautet, nicht die Arbeit *vor* der Entscheidung (DB-Reads), und nur Fehler ohne
+aufzählbare Zusatzfelder injiziert.
+
+| # | Befund (Bericht) | Ursache | Reparatur | rot → grün |
+| --- | --- | --- | --- | --- |
+| R1 | Ausgeschöpftes Limit stoppt DB-Last nicht: je abgewiesenem Paket 2 (DENIED) bzw. 4 (neue Absicht) Reads (Raum, Teilnehmer, Raum, Receipt) vor der Entscheidung | Das Budget wurde erst im Handler nach `requireGamePermission`/Receipt-Lookup geprüft | Datenbankfreie Stufe 1 als Socket-Middleware (`requestAdmission.ts`), identitätsbasiert, **ohne Recht**; Stufe 2 bleibt nach der Autorisierung. `DENIED` wird beim Antworten belastet und führt danach zu früher Abweisung | 2 Reproduktionen des Berichts rot (Reads `[…]`) → grün (`[]`); eigene Tests für alle Einstiegspunkte |
+| R2 | Recovery-Ablehnungen ungedrosselt: 80 Pakete → 0 limitiert, 80 Logzeilen | `game:recovery:command` hing an keinem Limiter; „rechtegebunden“ war als Schutz gewertet worden | Recovery, Lifecycle (`game:*`) und `room:command` laufen durch Stufe 1; Zuschauer-Flood erzeugt höchstens `REQUEST`-Burst (40) + 1 Logzeilen, danach keine | Reproduktion rot (`limited 0`, 80 Zeilen) → grün (`limited 40`, 41 Zeilen); Host/Spieler/Raum bleiben handlungsfähig (eigener Test) |
+| R3 | Rohe Fehlerobjekte mit aufzählbaren Feldern (`meta.args` mit Token/Lösung) im Log (`Game end (receipted) error`, `Geo reveal error`) | `describeInternal` schützte nur `buildAppError`; 61 Aufrufer geben `{ error }` direkt an den Logger | Zentral im `logger` (`serializeLogMeta`): Errors überall in den Metadaten → sichere Beschreibung; Nicht-Error-Objekte unter `error`/`err`/`cause` ebenfalls | 2 Reproduktionen rot (Secret im Log) → grün; `logger.test.ts`; weitere Pfade (Ergebnis-Command, Jeopardy-/WID-Urteil) |
+| – | UI: `RATE_LIMITED` nicht in allen limitierten Host-Aktionen verständlich (Feld öffnen, Weiter, Boardwechsel) | `failureText` nur in einem Teil der Hooks | auf alle von den Stufen betroffenen Oberflächen angewendet (Jeopardy, WID, Geo-Host, Raumpanel) | `limitMessages.test.tsx` rot für Feld öffnen/Weiter/Boardwechsel → grün |
+
+**Eigenprüfung nach der letzten Korrektur** (eigener Schritt, ausdrücklich auf Ressourcenaufwand *vor* der
+Limitentscheidung und *alle* Logzeilen des Fehlerablaufs):
+- Reads gezählt für 9 Einstiegspunkte bei ausgeschöpfter Identität (`weristdas:buzz`, Resync, `game:core:read`,
+  Ergebnis lesen/ändern, Recovery, Pause, Ende, `room:command`): jeweils `[]`; keine zusätzliche Logzeile.
+- Verbleibende Last bewusst benannt: pro Identität höchstens `REQUEST`-Burst plus 12 Pakete/s mit je einigen Lookups.
+- Nebenwirkung der Middleware geprüft: Pakete ohne serverseitige Identität werden nicht verfolgt; Reconnect/Tab teilt
+  das Budget; ein gespeicherter Erfolg bleibt nach `retryAfterMs` abrufbar; der Server-Gesamtlauf (inkl. aller
+  G1–G3-Rennen/Bursts) bleibt grün.
+- Zweite Logzeile neben APP_ERROR (`Game end (receipted) error …`) bleibt, ist aber jetzt auf Klassenname/Kurzcode
+  beschränkt; sie trägt keine traceId (die APP_ERROR-Zeile desselben Fehlers trägt sie). Nicht weiter verknüpft.

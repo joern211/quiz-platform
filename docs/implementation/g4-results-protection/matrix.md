@@ -48,12 +48,17 @@ Ablauf `GAME_END → RESULT_REVIEW → FINALIZED`; danach nur `AMEND` (Nachweis 
 
 ## D — Aktionslimits · E — Fehlerdiagnosen
 
-D: siehe [limits.md](limits.md). E: Ergebnis-Read/-Command/Recovery/Core-Read antworten bei Unerwartetem mit
-`INTERNAL_ERROR` + traceId; **dieselbe traceId** steht in der Diagnosezeile (Level `error`) mit
-bereinigter Beschreibung (`describeInternal`: nur Klassenname/Kurzcode, Meldungen nur bei getypten Fehlern).
-`messageKey` ist immer ein stabiler Bezeichner (`VALIDATION_ERROR…` → `INVALID_PAYLOAD`); Jeopardy gibt
-keine Zod-Texte mehr zurück. Nachweise: G4P „Errors“ (rote Probe vor der Korrektur: Zeile mit traceId ohne
-Kontext), `appError.test.ts`, G4P „values a client sends never come back“ (Regressionsschutz, kein roter Vorstand).
+D: siehe [limits.md](limits.md) — Stufe 1 (frühe, datenbankfreie Zulassung als Socket-Middleware, `REQUEST` +
+`DENIED`) und Stufe 2 (Budgets je Aktion). Nachweis mit **gezählten DB-Reads**: ausgeschöpfte Identität → keine
+Reads, keine Logzeile, für Spiel-, Ergebnis-, Recovery-, Lifecycle-, Lese- und Room-Einstiege (G4P „Admission“,
+Reproduktionen des unabhängigen Prüfberichts).
+E: Unerwartetes im Ergebnis-/Recovery-/Core-Read-Pfad → `INTERNAL_ERROR` + traceId; dieselbe traceId steht in der
+Diagnosezeile (Level `error`) mit bereinigter Beschreibung (`observability/safeError.ts`: nur Klassenname/Kurzcode,
+Meldungen nur bei getypten Fehlern). **Der `logger` selbst ersetzt Error-Objekte an jeder Stelle der Metadaten
+(und alles unter `error`/`err`/`cause`) durch diese Beschreibung** — damit kann kein Aufrufer (61 Stellen mit
+`{ error }`) verschachtelte Felder wie `meta.args`, `response`, `cause` ins Log geben. `messageKey` ist immer ein
+stabiler Bezeichner. Nachweise: `logger.test.ts`, `appError.test.ts`, G4P „Errors“ (Probe mit verschachtelten
+synthetischen Secrets über Spielende, Reveal, Ergebnis-Command, Jeopardy- und WID-Urteil).
 
 ## Grenzen
 
