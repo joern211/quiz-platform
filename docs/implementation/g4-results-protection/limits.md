@@ -39,8 +39,10 @@ Lobby (`player:*`, Chat), `room:subscribe`, Live-Medien (eigene Fenster, siehe o
 | `REQUEST` | jedes erfasste Paket der Identität | 40 | 12/s |
 | `DENIED` | Pakete, die mit einer Autorisierungsablehnung beantwortet wurden (`FORBIDDEN`, `NOT_AUTHORIZED`, `NO_PARTICIPATION`, `VIEWERS_CANNOT_MODIFY`, …) — der Zähler wird beim Antworten belastet; ist er leer, wird die Identität früh abgewiesen | 30 | 3/s |
 
-Ausgeschöpft → Antwort `RATE_LIMITED` sofort, **0 Datenbank-Reads, 0 zusätzliche Logzeilen**, unabhängig von der
-weiteren Paketzahl. Ein paralleler Burst vor der ersten Antwort ist durch den `REQUEST`-Burst (40) begrenzt; ein
+Ausgeschöpft → Antwort `RATE_LIMITED` sofort, **0 Datenbank-Reads** und keine weitere Logzeile **innerhalb
+der Ablehnungsserie**, unabhängig von der weiteren Paketzahl. Füllt sich ein Budget mit der Zeit wieder (12/s bzw. 3/s)
+und wird erneut erschöpft, beginnt eine neue Serie mit genau einer Diagnosezeile; ein in der Zwischenzeit
+zugelassenes Paket durchläuft die normalen Prüfungen. Ein paralleler Burst vor der ersten Antwort ist durch den `REQUEST`-Burst (40) begrenzt; ein
 Zuschauer, der 80 Recovery-Befehle sendet, erzeugt höchstens 40 Ablehnungs-Logzeilen plus die eine Serienzeile
 (vorher: 80), danach keine mehr. Der Host hat ein eigenes Budget und bleibt handlungsfähig.
 

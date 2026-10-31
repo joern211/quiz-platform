@@ -90,3 +90,31 @@ erfasst):
   Client-Speicher (begrenzt durch die Zahl verschiedener Absichts-Schlüssel); nicht ausgeführte Absichten werden bei
   geänderter Payload unter demselben Schlüssel ohne Konflikt ausgeführt, weil kein Receipt existiert.
 - Nicht gefunden/offen: andere Sender, die den gemeinsamen Intentclient nicht benutzen, sind nicht Teil dieses Vertrags.
+
+---
+
+# main-CI nach dem Merge von PR #26 (Run 41192634011) — Nacharbeit
+
+Die CI auf `main` (Merge `6ceba45`) war rot: `Server tests`, ein Test, `g4Protection.integration.test.ts:648`
+(„a spectator flooding recovery and lifecycle events …“, `expected 42 to be 41`). Das war **mein eigener Test**, kein
+Produktfehler, und G4 war damit entgegen meiner Fertigmeldung nicht sauber abgeschlossen.
+
+**Ursache:** Der Test setzte voraus, dass ein ausgeschöpftes Budget während der Messung ausgeschöpft *bleibt*
+(`exhaust()` + 20 sequentielle Pakete). Das Budget füllt sich aber real mit 12 bzw. 3 Token/s wieder auf; ein Paket
+wurde zugelassen, traf auf das ebenfalls leere `DENIED`-Budget und löste die **eine** Diagnosezeile einer neuen
+Ablehnungsserie aus (+1 Logzeile). Das entspricht dem dokumentierten Verhalten (eine Zeile je Serie), nicht der
+zu strengen Testannahme „nie eine Zeile“. Auf schnellen lokalen Läufen fiel das nie auf; die erste CI am PR war in
+dieser Datei grün, daher zeigte erst der Lauf auf `main` die Zeitabhängigkeit.
+
+**Beleg:** Die alte Testfassung scheitert unter künstlicher CPU-Last reproduzierbar: `expected 42 to be 41` (der CI-Fehler)
+und ein zweiter Zeitfehler im Reconnect-Test (`exhaust` vor dem Reconnect, der selbst über 80 ms dauern kann).
+
+**Behebung (Test, nicht Produkt):** `ActionLimiter.setClock` erlaubt, den Refill für die Dauer einer Aussage einzufrieren
+(`freezeLimiter()`); die Tests zu Zulassung, Zuschauer-Flood und Ablehnungsbudget laufen damit deterministisch
+(z. B. exakt `120 − 40` abgewiesene Pakete). Der Reconnect-Test erschöpft das Budget erst **nach** dem Reconnect. Die
+Aussage „keine Logzeile“ in `limits.md` ist auf „innerhalb der Ablehnungsserie“ präzisiert. Keine Assertion abgeschwächt:
+Die Zählungen sind strenger geworden (exakte Anzahl statt „mindestens“).
+
+**Eigenprüfung:** Alle `exhaust`-Stellen der G4-Tests auf Zeitannahmen geprüft: Tests mit Wartezeit nach `retryAfterMs`
+(Lost-ACK-Fälle) brauchen den echten Refill und bleiben auf der echten Uhr; Tests mit „bleibt erschöpft“ verwenden jetzt
+die eingefrorene Uhr. Die gesamte G4-Datei läuft unter künstlicher CPU-Last 4/4 stabil.
