@@ -12,6 +12,7 @@ import { getSession } from '../lib/sessionStore';
 import { Card, Button } from '@quiz/ui';
 import { Timer } from '@quiz/ui';
 import { GameShell } from '../components/GameShell';
+import { CoreReadNotice } from '../components/CoreReadNotice';
 import { displayGeoOptions } from '../utils/geoOptions';
 import styles from './PlayerGamePage.module.css';
 
@@ -230,6 +231,7 @@ export function PlayerGamePage() {
 
   return (
     <GameShell role="player" roomCode={roomCode} phase={phase} connected={connected} error={actionError}>
+    <CoreReadNotice core={core} />
     <div className={styles.page}>
       <div className={styles.header}>
         <span className={styles.score}>Score: {score}</span>

@@ -850,3 +850,21 @@ it.each(SLUGS)('%s: a PENDING_JOIN and a WAITLIST player can neither read privat
   expect(heard.filter(h => /^(geo|jeopardy|weristdas|game|core|result):/.test(h.name)), JSON.stringify(heard.map(h => h.name))).toEqual([]);
   expect(heard.map(h => h.payload).join('\n')).not.toMatch(SECRET);
 });
+
+// ── G5: the shared core read under a really exhausted admission (contract consumed by useGameCore) ──
+it.each(SLUGS)('%s: an exhausted core read is refused provisionally with the hint the client acts on, creates no receipt, and a read after the hint returns a fresh projection', async slug => {
+  const f = await fixture(slug), [player] = f.players;
+  const first = await gameAck(player.client, 'game:core:read', {});
+  expect(first).toMatchObject({ success: true, projection: { roomCode: f.code } });
+  const before = await effects(f.room.id), receipts = await db.commandReceipt.count({ where: { roomId: f.room.id } });
+  exhaust(f.room.id, player.id, 'REQUEST');
+  const refused = await gameAck(player.client, 'game:core:read', {});
+  expect(refused).toMatchObject({ success: false, code: 'RATE_LIMITED', retryable: true, details: { retryAfterMs: expect.any(Number) } });
+  expect(refused.projection).toBeUndefined();
+  expect(await effects(f.room.id)).toEqual(before); expect(await db.commandReceipt.count({ where: { roomId: f.room.id } })).toBe(receipts);
+  // another participant of the same room is not throttled by this identity's exhaustion
+  expect((await gameAck(f.players[1].client, 'game:core:read', {})).success).toBe(true);
+  await afterHint(refused);
+  const again = await gameAck(player.client, 'game:core:read', {});
+  expect(again).toMatchObject({ success: true, projection: { roomCode: f.code, availableActions: expect.any(Array) } });
+});

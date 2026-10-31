@@ -1,4 +1,5 @@
 import { RecoveryControl } from '../components/RecoveryControl';
+import { CoreReadNotice } from '../components/CoreReadNotice';
 // ============================================================
 // Jeopardy Moderator Page
 // Full game control: board, question, buzzer, judge, next
@@ -75,6 +76,7 @@ export function JeopardyModeratorPage() {
           </h1>
           {core.projection && <progress aria-label="Spielfortschritt" max={100} value={core.projection.progress.progressPercent ?? undefined} />}
           {core.projection?.recoveryRequired && <RecoveryControl projection={core.projection} />}
+          <CoreReadNotice core={core} />
         </div>
       </div>
 
