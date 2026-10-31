@@ -25,7 +25,7 @@ let questionOverride: string[] | undefined;
 // Independent review probes; these are local tests, not product changes.
 let reviewReads: string[] | null = null;
 let reviewFailure: { model: string; roomId: string; error: Error } | null = null;
-afterEach(() => { vi.restoreAllMocks(); actionLimiter.setClock(); });
+afterEach(() => { vi.restoreAllMocks(); actionLimiter.setClock(); frozenNow = null; });
 async function connect(auth?: string) { const s = await connectGameClient(origin, auth); sockets.push(s); return s; }
 beforeAll(async () => {
   dir = await mkdtemp(join(tmpdir(), 'quiz-g4-')); const url = `file:${join(dir, 'test.db')}`;
@@ -127,9 +127,14 @@ it('Limits: normal fast play stays far below the budget, for every player of a s
 });
 
 /** Stops token refill: an exhausted identity stays exhausted for the whole assertion, whatever the machine's speed. */
-const freezeLimiter = () => { const frozenAt = Date.now(); actionLimiter.setClock(() => frozenAt); };
+let frozenNow: number | null = null;
+const freezeLimiter = () => { frozenNow = Date.now(); actionLimiter.setClock(() => frozenNow!); };
 /** Puts one identity into the exhausted state without waiting on wall-clock refill (the wiring itself is proven by the burst test). */
-const exhaust = (roomId: string, participantId: string, group: 'REQUEST' | 'PLAYER_INPUT' | 'READ' | 'REPLAY' | 'DENIED' = 'PLAYER_INPUT') => { while (actionLimiter.consume(roomId, participantId, group).ok); };
+const exhaust = (roomId: string, participantId: string, group: 'REQUEST' | 'PLAYER_INPUT' | 'READ' | 'REPLAY' | 'DENIED' = 'PLAYER_INPUT') => {
+  // Wall-clock refill (up to 12 tokens/s) would give a slow machine a token back between exhaust() and the refusal under test.
+  if (frozenNow === null) freezeLimiter();
+  while (actionLimiter.consume(roomId, participantId, group).ok);
+};
 
 it('Limits: a real burst of fresh command ids is cut off with the contractual refusal, not by the engine', async () => {
   const f = await fixture('wissensduell'), [spammer] = f.players;
@@ -671,7 +676,7 @@ it('Admission: more tabs and a reconnect keep the budget; a stored answer stays 
   expect(refused).toMatchObject({ success: false, error: 'RATE_LIMITED', details: { retryAfterMs: expect.any(Number) } });
   expect(await readsDuring(() => gameAck(tab, 'geo:answer', accepted))).toEqual([]);
   // the success is stored, not lost: after the hint the same intent is answered from the receipt
-  await new Promise(resolve => setTimeout(resolve, (refused.details as { retryAfterMs: number }).retryAfterMs + 60));
+  await afterHint(refused);
   expect(await gameAck(tab, 'geo:answer', accepted)).toMatchObject({ success: true, replayed: true });
   expect((await state(f.room.id)).value.roundStates[0].playerStates[player.id]).toMatchObject({ answered: true, selectedOptionId: 'b' });
 });
@@ -717,7 +722,7 @@ it('Independent recheck: a throttled retry after a lost success ACK retains its 
   const refused = await send(true);
   expect(refused).toMatchObject({ success: false, error: 'RATE_LIMITED' });
   expect(sentIds[1]).toBe(sentIds[0]);
-  await new Promise(resolve => setTimeout(resolve, (refused.details as { retryAfterMs: number }).retryAfterMs + 60));
+  await afterHint(refused);
   const retried = await send(true);
   const entries = await db.roomFeedEntry.count({ where: { roomId: f.room.id, kind: 'MESSAGE' } });
   expect(entries).toBe(1);
@@ -750,7 +755,12 @@ function intentLink(socket: Socket) {
   });
   return { send, sentIds, client };
 }
-const afterHint = (refusal: Record<string, unknown>) => new Promise(resolve => setTimeout(resolve, (refusal.details as { retryAfterMs: number }).retryAfterMs + 60));
+/** Waits out the refusal's own retry hint: on a frozen limiter clock the clock advances by exactly that hint, otherwise real time passes. */
+const afterHint = (refusal: Record<string, unknown>) => {
+  const wait = (refusal.details as { retryAfterMs: number }).retryAfterMs + 60;
+  if (frozenNow !== null) { frozenNow += wait; return Promise.resolve(); }
+  return new Promise(resolve => setTimeout(resolve, wait));
+};
 
 it('Retry: a lost success acknowledgement followed by a refusal of the REPLAY budget still ends in one effect and a stored answer', async () => {
   const f = await fixture('wissensduell'), [player] = f.players, link = intentLink(player.client);

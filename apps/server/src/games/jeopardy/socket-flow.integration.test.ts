@@ -249,13 +249,16 @@ describe('Jeopardy multiplayer socket integration', () => {
   it('restores only active Geo timers and continues after malformed state', async () => {
     const geo = await prisma.gameDefinition.findUniqueOrThrow({ where: { slug: 'wissensduell' } });
     const jeopardy = await prisma.gameDefinition.findUniqueOrThrow({ where: { slug: 'jeopardy' } });
+    // restoreActiveTimers scans every RUNNING room of the shared test database. Rooms left behind by other
+    // files are legitimately restored too, so the assertions below concern only the rooms created here.
+    const ownRoomIds = new Set<string>();
     const createRoom = async (slug: 'geo' | 'jeopardy', json: string, status = 'RUNNING', runPhase = 'ROUND_ACTIVE') => {
       const room = await prisma.room.create({ data: {
         code: String(Math.floor(100000 + Math.random() * 900000)).replace(/(\d{3})(\d{3})/, '$1-$2'),
         roomName: 'Timer restore', gameDefinitionId: slug === 'geo' ? geo.id : jeopardy.id,
         hostUserId: 'mod-1', status, runPhase,
       } });
-      temporaryRoomIds.push(room.id);
+      temporaryRoomIds.push(room.id); ownRoomIds.add(room.id);
       await prisma.roomGameState.create({ data: {
         roomId: room.id, phase: 'INPUT_OPEN', stateJson: json,
       } });
@@ -277,8 +280,7 @@ describe('Jeopardy multiplayer socket integration', () => {
     try {
       await restoreActiveTimers(io);
       expect((await prisma.roomGameState.findUniqueOrThrow({ where: { roomId: malformed.id } })).phase).toBe('ERROR_RECOVERY');
-      expect(expire).toHaveBeenCalledTimes(1);
-      expect(expire.mock.calls[0][1].id).toBe(valid.id);
+      expect(expire.mock.calls.map(call => call[1].id).filter(id => ownRoomIds.has(id))).toEqual([valid.id]);
       expect(schedule.mock.calls.some(([, milliseconds]) => typeof milliseconds === 'number' && milliseconds > 59000)).toBe(true);
     } finally {
       cancelGeoTimer(future.id);
