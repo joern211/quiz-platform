@@ -49,12 +49,12 @@ Ablauf `GAME_END → RESULT_REVIEW → FINALIZED`; danach nur `AMEND` (Nachweis 
 ## D — Aktionslimits · E — Fehlerdiagnosen
 
 D: siehe [limits.md](limits.md) — Stufe 1 (frühe, datenbankfreie Zulassung als Socket-Middleware, `REQUEST` +
-`DENIED`) und Stufe 2 (Budgets je Aktion). Nachweis mit **gezählten DB-Reads**: ausgeschöpfte Identität → keine
+`DENIED`) und Stufe 2 (Budgets je Aktion). Der Intentclient behält die Befehls-ID bei `RATE_LIMITED` (vorläufige Ablehnung): ein gespeicherter Erfolg mit verlorener Bestätigung wird beim Retry aus dem Receipt beantwortet, nie verdoppelt (G4P „Retry:“, `commandIntentClient.test.ts`). Nachweis mit **gezählten DB-Reads**: ausgeschöpfte Identität → keine
 Reads, keine Logzeile, für Spiel-, Ergebnis-, Recovery-, Lifecycle-, Lese- und Room-Einstiege (G4P „Admission“,
 Reproduktionen des unabhängigen Prüfberichts).
 E: Unerwartetes im Ergebnis-/Recovery-/Core-Read-Pfad → `INTERNAL_ERROR` + traceId; dieselbe traceId steht in der
 Diagnosezeile (Level `error`) mit bereinigter Beschreibung (`observability/safeError.ts`: nur Klassenname/Kurzcode,
-Meldungen nur bei getypten Fehlern). **Der `logger` selbst ersetzt Error-Objekte an jeder Stelle der Metadaten
+Meldungen nur bei getypten Fehlern); der **HTTP-Fehlerhandler** loggt dieselbe Beschreibung unter der traceId der Antwort (kein `message`/`stack`). **Der `logger` selbst ersetzt Error-Objekte an jeder Stelle der Metadaten
 (und alles unter `error`/`err`/`cause`) durch diese Beschreibung** — damit kann kein Aufrufer (61 Stellen mit
 `{ error }`) verschachtelte Felder wie `meta.args`, `response`, `cause` ins Log geben. `messageKey` ist immer ein
 stabiler Bezeichner. Nachweise: `logger.test.ts`, `appError.test.ts`, G4P „Errors“ (Probe mit verschachtelten

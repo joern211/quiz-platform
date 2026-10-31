@@ -75,10 +75,17 @@ Obergrenze 5000 Schlüssel (älteste zuerst). Keine Einträge für beliebige beh
 **Neustart.** Rein im Speicher der Einzelinstanz: nach einem Prozessneustart beginnen alle Budgets voll (Test
 mit echtem Neustart). Kein Redis/Cluster.
 
-**Client.** `RATE_LIMITED` ist eine endgültige Antwort: das Absichtstoken wird verworfen, die nächste Aktion
-erzeugt eine neue Absicht; keine automatische Wiederholung. Alle von den Stufen betroffenen Oberflächen
-(Spieler, Jeopardy inkl. Feld öffnen/Weiter/Boardwechsel und Resync, WID inkl. Resync/Ende, Geo-Host
-Pause/Fortsetzen/Auflösen/Weiter/Ende, Raumpanel, Ergebnis) zeigen „Zu viele Aktionen in kurzer Zeit …“.
+**Client und Befehls-ID.** `RATE_LIMITED` ist eine **vorläufige** Antwort: Eine frühe Ablehnung hat nicht ins
+Receipt geschaut und sagt nichts darüber, ob ein früherer Versuch derselben Absicht (mit verlorener Bestätigung)
+bereits gespeichert wurde. Der gemeinsame Intentclient (`createCommandIntentClient`, auch vom Browser-Adapter
+benutzt) **behält deshalb die Befehls-ID** bei `RATE_LIMITED` — wie bei `COMMAND_IN_PROGRESS` und
+`outcomeUnknown`. Ein manueller Retry nach `retryAfterMs` trägt dieselbe ID: war der erste Versuch gespeichert,
+wird er aus dem Receipt beantwortet (`replayed`), sonst läuft die Absicht genau einmal. Endgültige Erfolge und
+fachliche Ablehnungen verbrauchen die ID weiterhin; eine verspätete Bestätigung eines älteren Sendens löscht keine
+neuere Absicht (`discardIntentTokenIfCurrent`). Der Client wiederholt **nie automatisch**; er zeigt „Zu viele
+Aktionen in kurzer Zeit …“ und gibt die Bedienung wieder frei. Alle betroffenen Oberflächen (Spieler, Jeopardy
+inkl. Feld öffnen/Weiter/Boardwechsel und Resync, WID inkl. Resync/Ende, Geo-Host
+Pause/Fortsetzen/Auflösen/Weiter/Ende, Raumpanel, Ergebnis) zeigen diese Meldung.
 
 ## Grenzen / bewusst nicht gelöst
 
@@ -98,6 +105,6 @@ Pause/Fortsetzen/Auflösen/Weiter/Ende, Raumpanel, Ergebnis) zeigen „Zu viele 
 `actionLimits.test.ts` (Fake-Clock: Burst, exakte Entsperrgrenze, Unabhängigkeit, Aufräumen, Trace-Serie, Gruppen) ·
 `g4Protection.integration.test.ts` (echte Sockets; **DB-Reads per Prisma-Middleware gezählt**: ausgeschöpfte
 Identität → `[]` für alle Einstiegspunkte; Zuschauer-Flood auf Recovery/Pause vs. Host, Spieler, Raum; Reconnect/Tab;
-gespeicherter Replay nach Wartezeit; Replay-/Ablehnungs-/Lese-Budget; Buzz-Spam blockiert Host nicht) ·
-`g4Restart.integration.test.ts` (echter Neustart) · `limitMessages.test.tsx`, `ResultScreen.test.tsx`,
+gespeicherter Replay nach Wartezeit; **echter Intentclient + echte Handler + DB: verlorene Bestätigung → Ablehnung (REQUEST, REPLAY, Aktionsbudget) → Retry ergibt genau eine Wirkung**; Replay-/Ablehnungs-/Lese-Budget; Buzz-Spam blockiert Host nicht) ·
+`g4Restart.integration.test.ts` (echter Neustart) · `commandIntentClient.test.ts` (ID-Lebenszyklus am echten Client) · `limitMessages.test.tsx`, `ResultScreen.test.tsx`,
 `GeoRecovery.test.tsx` (Meldung in den betroffenen Oberflächen, Auswahl bleibt nutzbar).

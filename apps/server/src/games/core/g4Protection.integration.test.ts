@@ -717,7 +717,6 @@ it('Independent recheck: a throttled retry after a lost success ACK retains its 
   await new Promise(resolve => setTimeout(resolve, (refused.details as { retryAfterMs: number }).retryAfterMs + 60));
   const retried = await send(true);
   const entries = await db.roomFeedEntry.count({ where: { roomId: f.room.id, kind: 'MESSAGE' } });
-  console.info('RECHECK_LOST_ACK', JSON.stringify({ sentIds, retried, entries }));
   expect(entries).toBe(1);
   expect(retried).toMatchObject({ success: true, replayed: true });
   expect(sentIds[2]).toBe(sentIds[0]);

@@ -66,3 +66,27 @@ Limitentscheidung und *alle* Logzeilen des Fehlerablaufs):
   G1–G3-Rennen/Bursts) bleibt grün.
 - Zweite Logzeile neben APP_ERROR (`Game end (receipted) error …`) bleibt, ist aber jetzt auf Klassenname/Kurzcode
   beschränkt; sie trägt keine traceId (die APP_ERROR-Zeile desselben Fehlers trägt sie). Nicht weiter verknüpft.
+
+---
+
+# Zweite unabhängige Prüfung (Head `fe35ff1`) und Restauftrag
+
+Bestätigt: alle fünf Reproduktionen des ersten Berichts bestehen. Neu gefunden (beides hatte meine Eigenprüfung nicht
+erfasst):
+
+| # | Befund | Ursache | Reparatur | rot → grün |
+| --- | --- | --- | --- | --- |
+| N1 | Lost-ACK → gedrosselter Retry → neue Befehls-ID → **doppelte Wirkung** (2 `MESSAGE`-Einträge; IDs `A, A, B`) | Der Intentclient wertete `RATE_LIMITED` als endgültig und löschte die ID, obwohl die frühe Ablehnung nicht ins Receipt schaut. Meine Tests sendeten die gespeicherte Payload **manuell mit derselben ID** und umgingen so den echten Client | Der gemeinsame Client behält die ID bei `RATE_LIMITED` (wie `COMMAND_IN_PROGRESS`/`outcomeUnknown`); frühe, datenbankfreie Abweisung unverändert; kein Auto-Retry | Bericht-Gegenfall rot (`A,A,B`, 2 Einträge) → grün (`A,A,A`, `replayed`, 1 Eintrag); 3 weitere echte Fälle (REPLAY-Budget, Aktionsbudget ohne vorherige Ausführung, Ergebnis-Korrektur) ohne den Fix rot; Unit `commandIntentClient.test.ts` rot → grün |
+| N2 | HTTP-Fehlerhandler loggte `err.message` **und** `err.stack` als Strings (ungültiges JSON zitiert den Body) | Strings umgingen die zentrale Bereinigung des Loggers; Handler bestand schon vorher | Handler führt das Fehlerobjekt durch `buildAppError` (sichere Beschreibung unter der traceId der Antwort); 4xx von Express/Body-Parser → `INVALID_PAYLOAD` mit Status 4xx, sonst 500; Antwort enthält `traceId`. Weitere String-Übergaben bereinigt: `geo startRound` (Konfigurationsfehler) und zwei E2E-Dev-Endpunkte (Log und Antwort) | Bericht-Gegenfall rot (Marker in Meldung und Stack) → grün; zwei weitere Varianten (Login, undecodierbare URL) ohne den Fix rot → grün |
+
+**Eigenprüfung nach der Korrektur** (getrennt, wie verlangt):
+- Verlorener ACK → Rate-Limit → Retry über **alle drei Ablehnungsstufen** (frühe Zulassung, Replay-Budget, Aktionsbudget)
+  mit dem echten Client: jeweils eine Wirkung, ein Receipt; eine nie ausgeführte, gedrosselte Absicht läuft nach dem
+  Hinweis genau einmal mit derselben ID; danach ist die nächste Absicht neu.
+- Verzögerte ACKs / echte neue Absichten: eine verspätete Bestätigung eines älteren Sendens löscht eine neuere Absicht
+  nicht (Unit); Schlüssel mit Payload-Anteil (Urteil, Ergebnis-Operation) erzeugen für eine andere Absicht eine neue ID.
+- Alle Logzeilen des HTTP-Fehlers geprüft (keine Meldung, kein Stack, keine Stack-Frames, traceId verknüpft, drei Varianten).
+- Nebenwirkung der ID-Beibehaltung: Bleibt ein gedrosselter Versuch ungeklärt, liegt der Token-Eintrag bis zur Klärung im
+  Client-Speicher (begrenzt durch die Zahl verschiedener Absichts-Schlüssel); nicht ausgeführte Absichten werden bei
+  geänderter Payload unter demselben Schlüssel ohne Konflikt ausgeführt, weil kein Receipt existiert.
+- Nicht gefunden/offen: andere Sender, die den gemeinsamen Intentclient nicht benutzen, sind nicht Teil dieses Vertrags.

@@ -16,7 +16,7 @@ Kein Stapel, PR21 nicht eingemischt. Dokumente: [matrix](matrix.md) · [limits](
   (Konsistenz, Gleichstand, Abbruch, Teamwertung, Konkurrenz, Doppel-Rücknahme, Partie-Isolation, Host-Transfer,
   Kick/Verlassen, Absturzfenster, Neustart). Die Kernmechanik (CAS, Ledger-Abgleich, Rücknahme-Sperre) war schon
   korrekt und wurde **nicht** neu geschrieben.
-- **Eigenprüfung** (Block 5) und **Nachbesserung nach unabhängigem Prüfbericht** (R1–R3 + UI-Hinweis): [review.md](review.md).
+- **Eigenprüfung** (Block 5) und **Nachbesserungen nach zwei unabhängigen Prüfberichten** (R1–R3 + UI-Hinweis, N1 Befehls-ID bei `RATE_LIMITED`, N2 HTTP-Fehlerhandler): [review.md](review.md).
 
 ## Prüfstand
 
