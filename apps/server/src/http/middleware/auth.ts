@@ -257,9 +257,10 @@ export function checkPayload<T extends z.ZodTypeAny>(
   const result = schema.safeParse(payload);
 
   if (!result.success) {
+    // Zod messages quote the received value; log only where and which kind of rule failed.
     const issues = result.error.issues.map((i) => ({
       path: i.path.join('.'),
-      message: i.message,
+      code: i.code,
     }));
     logger.warn(`[AUTH P7] Payload-Validierung fehlgeschlagen`, {
       action: actionName,

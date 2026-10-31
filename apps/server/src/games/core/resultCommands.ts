@@ -12,7 +12,7 @@ import { saveGameStateIfRevision } from './state.js';
 import { StoredGameResultSchema, readGameResult, publicResultView } from './results.js';
 import { rankScores } from './roundFlow.js';
 import { wireErrorToAppError } from './appError.js';
-import { isOwnKnownIntent, limitAction, limitSocketRead } from './limitGuard.js';
+import { isOwnKnownIntent, limitAction, limitSocketDenied, limitSocketRead } from './limitGuard.js';
 
 async function assertResultPermission(tx: Prisma.TransactionClient, roomId: string, actor: RoomActor) {
   const room = await tx.room.findUniqueOrThrow({ where: { id: roomId } });
@@ -138,10 +138,9 @@ export function registerResultCommands(io: Server, socket: Socket) {
         const { roomId, actor } = await socketRoomActor(socket);
         if (!actor.permissions.has('SCORE_ADJUST')) throw new CoreRuleError('FORBIDDEN');
         const command = parsed.data;
-        if (!await isOwnKnownIntent(roomId, command.commandId, actor.participantId)) {
-          const limited = limitAction(roomId, actor.participantId, 'RESULT_COMMAND', 'result:command');
-          if (limited) { ack?.({ ...limited }); return; }
-        }
+        const retry = await isOwnKnownIntent(roomId, command.commandId, actor.participantId);
+        const limited = limitAction(roomId, actor.participantId, retry ? 'REPLAY' : 'RESULT_COMMAND', 'result:command');
+        if (limited) { ack?.({ ...limited }); return; }
         const response = await runReceipted(prisma, { roomId, commandId: command.commandId,
           actor: { actorId: actor.participantId, actorRole: socket.data.role }, action: 'RESULT_COMMAND', payload: { runIndex: command.runIndex, resultRevision: command.resultRevision, operation: command.operation },
           mutate: () => mutateResult(roomId, actor, command), toResponse: value => value });
@@ -151,7 +150,8 @@ export function registerResultCommands(io: Server, socket: Socket) {
         } else ack?.(response);
       } catch (error) {
         const code = error instanceof CoreRuleError || error instanceof RoomError ? error.code : 'INTERNAL_ERROR';
-        ack?.({ success: false, error: code, ...wireErrorToAppError(code, { internalDetail: error, context: { action: 'result:command' } }) });
+        const flooded = code === 'FORBIDDEN' ? limitSocketDenied(socket, 'result:command') : null;
+        ack?.(flooded ? { ...flooded } : { success: false, error: code, ...wireErrorToAppError(code, { internalDetail: error, context: { action: 'result:command' } }) });
       }
     })();
   });

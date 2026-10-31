@@ -30,7 +30,7 @@ import { gameErrorCode } from './errors.js';
 import { assertCoreActionAllowed } from './actions.js';
 import { roomChannel } from '../../sockets/channel.js';
 import { limitGroupForAction } from './actionLimits.js';
-import { isOwnKnownIntent, limitAction } from './limitGuard.js';
+import { isOwnKnownIntent, limitAction, limitSocketDenied } from './limitGuard.js';
 
 export interface GuardedActionArgs {
   io: Server;
@@ -132,6 +132,8 @@ export async function runGuardedCriticalAction(
   // abgebildet, damit keine Clients brechen.
   const perm = await requireGamePermission(args.socket, args.permission ?? 'BUZZER_CONTROL');
   if (!perm.ok) {
+    const flooded = limitSocketDenied(args.socket, args.action);
+    if (flooded) { callback?.({ ...flooded }); return; }
     const wireError = perm.error === 'NOT_IN_ROOM' ? 'NOT_IN_ROOM' : 'FORBIDDEN';
     const appError = wireErrorToAppError(wireError, { context: { action: args.action } });
     callback?.({ success: false, error: wireError, code: appError.code, messageKey: appError.messageKey, traceId: appError.traceId });
@@ -152,10 +154,9 @@ export async function runGuardedCriticalAction(
   // server-resolved participant, so tabs, reconnects and fresh command ids share one budget; a retry of an
   // own already-known command is not a new intent and is never refused here.
   const commandId = cmdCtx.ok && cmdCtx.ctx.commandMode ? cmdCtx.ctx.commandId : undefined;
-  if (!(commandId && await isOwnKnownIntent(perm.roomId, commandId, perm.actorId))) {
-    const limited = limitAction(perm.roomId, perm.actorId, limitGroupForAction(args.action), args.action);
-    if (limited) { callback?.({ ...limited }); return; }
-  }
+  const retry = !!commandId && await isOwnKnownIntent(perm.roomId, commandId, perm.actorId);
+  const limited = limitAction(perm.roomId, perm.actorId, retry ? 'REPLAY' : limitGroupForAction(args.action), args.action);
+  if (limited) { callback?.({ ...limited }); return; }
 
   const finish = (result: { success: boolean; error?: string; [k: string]: unknown }, replayed?: boolean) => {
     if (result.success && !replayed || result.error === 'STATE_INVARIANT_FAILED') { args.io.to(roomChannel(perm.roomId)).emit('game:core:changed'); void refreshLiveMedia(args.io); }

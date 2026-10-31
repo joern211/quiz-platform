@@ -30,3 +30,10 @@ export function limitSocketRead(socket: { data: Record<string, unknown> }, actio
   if (typeof roomId !== 'string' || typeof participationId !== 'string') return null;
   return limitAction(roomId, participationId, 'READ', action);
 }
+
+/** Commands refused for lack of role/right: same server-set identity, own small budget (no entry for unsubscribed sockets). */
+export function limitSocketDenied(socket: { data: Record<string, unknown> }, action: string): RateLimitedResponse | null {
+  const { roomId, participationId } = socket.data;
+  if (typeof roomId !== 'string' || typeof participationId !== 'string') return null;
+  return limitAction(roomId, participationId, 'DENIED', action);
+}

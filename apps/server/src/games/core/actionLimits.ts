@@ -11,7 +11,7 @@
 /** Groups keep a spammer's budget away from unrelated duties (e.g. buzz spam never blocks the host's finish). */
 import { randomUUID } from 'node:crypto';
 
-export type LimitGroup = 'PLAYER_INPUT' | 'HOST_CONTROL' | 'LIFECYCLE' | 'RESULT_COMMAND' | 'READ';
+export type LimitGroup = 'PLAYER_INPUT' | 'HOST_CONTROL' | 'LIFECYCLE' | 'RESULT_COMMAND' | 'READ' | 'REPLAY' | 'DENIED';
 
 /**
  * Token buckets: a burst of `capacity`, then `refillPerSec` sustained.
@@ -19,6 +19,10 @@ export type LimitGroup = 'PLAYER_INPUT' | 'HOST_CONTROL' | 'LIFECYCLE' | 'RESULT
  * (bursts of ~5 are normal, mashing a buzzer reaches ~10/s); a host judges, reveals
  * and advances at most about once per second; lifecycle and result commands are
  * rare, deliberate actions; every client re-reads once per `game:core:changed`.
+ * REPLAY counts retries of an already known own command (transport retries after a lost
+ * acknowledgement): a separate, more generous budget, so a retry never competes with new
+ * intents yet a replay flood stays bounded. DENIED counts commands refused for lack of role
+ * or right: a viewer cannot burn database reads and log lines with commands it may never send.
  */
 export const ACTION_LIMITS: Record<LimitGroup, { capacity: number; refillPerSec: number }> = {
   PLAYER_INPUT: { capacity: 20, refillPerSec: 5 },
@@ -26,6 +30,8 @@ export const ACTION_LIMITS: Record<LimitGroup, { capacity: number; refillPerSec:
   LIFECYCLE: { capacity: 10, refillPerSec: 1 },
   RESULT_COMMAND: { capacity: 10, refillPerSec: 1 },
   READ: { capacity: 40, refillPerSec: 8 },
+  REPLAY: { capacity: 60, refillPerSec: 10 },
+  DENIED: { capacity: 30, refillPerSec: 3 },
 };
 
 const PLAYER_INPUT = new Set(['answer', 'joker5050', 'jokerSpy', 'jokerRisk', 'buzz', 'stealBuzz', 'steal_buzz', 'joker', 'submit']);

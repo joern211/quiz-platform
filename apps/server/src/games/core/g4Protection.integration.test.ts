@@ -119,7 +119,7 @@ it('Limits: normal fast play stays far below the budget, for every player of a s
 });
 
 /** Puts one identity into the exhausted state without waiting on wall-clock refill (the wiring itself is proven by the burst test). */
-const exhaust = (roomId: string, participantId: string, group: 'PLAYER_INPUT' | 'READ' = 'PLAYER_INPUT') => { while (actionLimiter.consume(roomId, participantId, group).ok); };
+const exhaust = (roomId: string, participantId: string, group: 'PLAYER_INPUT' | 'READ' | 'REPLAY' | 'DENIED' = 'PLAYER_INPUT') => { while (actionLimiter.consume(roomId, participantId, group).ok); };
 
 it('Limits: a real burst of fresh command ids is cut off with the contractual refusal, not by the engine', async () => {
   const f = await fixture('wissensduell'), [spammer] = f.players;
@@ -162,13 +162,31 @@ it('Limits: a retry of an accepted command is never refused, even with an empty 
   expect(await gameAck(spammer.client, 'geo:answer', accepted)).toMatchObject({ success: true, replayed: true });
 });
 
-it('Limits: unauthorised or invalid commands neither consume a budget nor create tracking entries', async () => {
+it('Limits: refused commands are bounded per identity, malformed ones cost nothing, sockets outside any room are not tracked', async () => {
   const f = await fixture('jeopardy'), viewer = await lateJoiner(f.room.id, f.code, 'VIEWER', 'Viewer');
+  // a viewer may never judge: after a burst of refusals it is cut off without further database work or log lines
+  const refusals = await spam(viewer.client, ACTION_LIMITS.DENIED.capacity + 40, () => ({ correct: true, ...intent(f.code) }), 'jeopardy:judge');
+  expect(refusals.filter(r => r.error === 'RATE_LIMITED').length).toBeGreaterThan(0);
+  expect(refusals.every(r => r.success === false)).toBe(true);
+  // the host and the players are unaffected; malformed payloads are rejected before any budget is touched
   const before = actionLimiter.size();
-  for (let i = 0; i < 40; i++) expect((await gameAck(viewer.client, 'jeopardy:judge', { correct: true, ...intent(f.code) })).error).not.toBe('RATE_LIMITED');
-  for (let i = 0; i < 40; i++) expect((await gameAck(f.players[0].client, 'jeopardy:judge', { correct: true, ...intent(f.code) })).error).not.toBe('RATE_LIMITED');
   for (let i = 0; i < 40; i++) expect((await gameAck(f.host, 'jeopardy:judge', { correct: 'yes', ...intent(f.code) })).error).not.toBe('RATE_LIMITED');
   expect(actionLimiter.size()).toBe(before);
+  expect((await gameAck(f.players[0].client, 'jeopardy:judge', { correct: true, ...intent(f.code) })).error).not.toBe('RATE_LIMITED');
+  // a connection that never joined a room has no server-resolved identity: nothing is tracked for it
+  const stranger = await connect(), tracked = actionLimiter.size();
+  for (let i = 0; i < 40; i++) await gameAck(stranger, 'jeopardy:judge', { correct: true, ...intent(f.code) });
+  expect(actionLimiter.size()).toBe(tracked);
+});
+
+it('Limits: replays of an own known command have their own bounded budget, separate from new intents', async () => {
+  const f = await fixture('wissensduell'), [player] = f.players, accepted = { optionId: 'b', ...intent(f.code) };
+  expect((await gameAck(player.client, 'geo:answer', accepted)).success).toBe(true);
+  exhaust(f.room.id, player.id, 'PLAYER_INPUT');
+  expect(await gameAck(player.client, 'geo:answer', accepted)).toMatchObject({ success: true, replayed: true });
+  exhaust(f.room.id, player.id, 'REPLAY');
+  expect(await gameAck(player.client, 'geo:answer', accepted)).toMatchObject({ success: false, error: 'RATE_LIMITED' });
+  expect((await state(f.room.id)).value.roundStates[0].playerStates[player.id]).toMatchObject({ answered: true, selectedOptionId: 'b' });
 });
 
 it('Limits: resync reads are bounded per participant and do not touch the other participant', async () => {
@@ -446,4 +464,19 @@ it('Results: the view says what each revision was and which one is current, so h
     }
   }
   expect((await readResult(f.host, f)).data).toMatchObject({ resultRevision: 4, isLatestRevision: true });
+});
+
+it('Corrections: if the process dies after the correction committed but before its receipt completed, the intent is never run twice', async () => {
+  const f = await completedGame('wer-ist-das'), [, bob] = f.players;
+  expect((await command(f.host, f, 1, 1, { type: 'REVIEW' })).success).toBe(true);
+  const adjust = resultCommand(f, 1, 2, { type: 'ADJUST', participantId: bob.id, delta: 4, reason: 'vor dem Absturz' });
+  expect((await gameAck(f.host, 'game:result:command', adjust)).success).toBe(true);
+  const committed = { versions: await versions(f.room.id, 1), ledger: await ledger(f.room.id) };
+  // what a crash between the committed effect and the stored answer leaves behind: a receipt that never completed
+  await db.commandReceipt.updateMany({ where: { roomId: f.room.id, commandId: adjust.commandId }, data: { status: 'PENDING', responseJson: null, leaseExpiresAt: new Date(Date.now() - 1000) } });
+  const retry = await gameAck(f.host, 'game:result:command', adjust);
+  expect(retry).toMatchObject({ success: false, resyncRequired: true });
+  expect(await versions(f.room.id, 1)).toEqual(committed.versions);
+  expect(await ledger(f.room.id)).toEqual(committed.ledger);
+  expect((await readResult(f.host, f)).data.scores.find((x: { participationId: string }) => x.participationId === bob.id).score).toBe(f.expected[bob.id] + 4);
 });
