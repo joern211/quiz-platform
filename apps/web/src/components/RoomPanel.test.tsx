@@ -5,9 +5,9 @@ import { beforeEach, expect, it, vi } from 'vitest';
 import { RoomPolicySchema, type RoomCoreView } from '@quiz/shared';
 import { RoomPanel } from './RoomPanel';
 
-const transport = vi.hoisted(() => ({ handlers: new Map<string, () => void>(), read: null as unknown, command: vi.fn(), coreActions: [] as string[], replaceSocket: null as null | (() => void) }));
+const transport = vi.hoisted(() => ({ handlers: new Map<string, () => void>(), read: null as unknown, command: vi.fn(), coreActions: [] as string[], coreReads: 0, replaceSocket: null as null | (() => void) }));
 vi.mock('../lib/socket', () => {
-  const makeSocket = () => ({ connected: true, emit: (event: string, _payload: unknown, callback: (result: unknown) => void) => { if (event === 'room:core:read') callback({ success: true, view: transport.read }); if (event === 'game:core:read') callback({ success: true, projection: { roomCode: '123-456', runIndex: 1, gameSlug: 'wissensduell', engineVersion: 1, stateVersion: 2, enginePhase: 'INPUT_LOCKED', corePhase: 'ROUND_ACTIVE', informationRole: 'HOST', timer: null, progress: { currentRound: 1, totalRounds: 2, remainingRounds: 2, progressPercent: 0 }, availableActions: transport.coreActions.map(key => ({ key, event: `game:${key}`, label: key })) } }); }, on: (event: string, handler: () => void) => transport.handlers.set(event, handler), off: (event: string) => transport.handlers.delete(event) });
+  const makeSocket = () => ({ connected: true, emit: (event: string, _payload: unknown, callback: (result: unknown) => void) => { if (event === 'room:core:read') callback({ success: true, view: transport.read }); if (event === 'game:core:read') transport.coreReads++; if (event === 'game:core:read') callback({ success: true, projection: { roomCode: '123-456', runIndex: 1, gameSlug: 'wissensduell', engineVersion: 1, stateVersion: 2, enginePhase: 'INPUT_LOCKED', corePhase: 'ROUND_ACTIVE', informationRole: 'HOST', timer: null, progress: { currentRound: 1, totalRounds: 2, remainingRounds: 2, progressPercent: 0 }, availableActions: transport.coreActions.map(key => ({ key, event: `game:${key}`, label: key })) } }); }, on: (event: string, handler: () => void) => transport.handlers.set(event, handler), off: (event: string) => transport.handlers.delete(event) });
   let socket = makeSocket();
   const observers = new Set<(value: typeof socket) => void>();
   transport.replaceSocket = () => { socket = makeSocket(); for (const observer of observers) observer(socket); };
@@ -18,7 +18,7 @@ vi.mock('../lib/sessionStore', () => ({ getSession: () => ({ role: 'VIEWER' }), 
 function view(overrides: Partial<RoomCoreView> = {}): RoomCoreView {
   return { gameSlug: 'jeopardy', history: [], switchOptions: [], revision: 1, lifecycle: 'LOBBY_OPEN', policy: RoomPolicySchema.parse({}), scheduledAt: null, hostStatus: 'ONLINE', canManage: false, isOwner: false, permissions: [], selfId: 'p1', selfAdmission: 'ACTIVE', teams: [], participants: [{ id: 'p1', displayName: 'Alice', role: 'PLAYER', admission: 'ACTIVE', connected: true, ready: false, teamId: null, score: 0, banned: false, connectionQuality: 'UNKNOWN' }], feed: [], preflight: { status: 'BLOCKED', blockers: ['NOT_ENOUGH_PLAYERS'], warnings: [] }, runIndex: 1, ...overrides };
 }
-beforeEach(() => { transport.handlers.clear(); transport.command.mockReset(); transport.read = view(); transport.coreActions = []; });
+beforeEach(() => { transport.handlers.clear(); transport.command.mockReset(); transport.read = view(); transport.coreActions = []; transport.coreReads = 0; });
 function mount() { return render(<MemoryRouter initialEntries={['/raum/123-456/lobby']}><RoomPanel /></MemoryRouter>); }
 it('shows admission and feed to a viewer without management or credential controls', async () => {
   transport.read = view({ selfAdmission: 'WAITLIST', feed: [{ id: 'f1', kind: 'MESSAGE', message: 'Gleich geht es los', createdAt: new Date().toISOString() }] });
@@ -78,4 +78,12 @@ it('offers abort to the delegated GAME_ABORT actor without unrelated player mana
   transport.coreActions = [];
   await act(async () => transport.replaceSocket?.());
   expect(screen.getByRole('button', { name: 'Spiel abbrechen' })).toBeDisabled();
+});
+
+it('reads the game core only once a game exists: a lobby never produces the guaranteed GAME_NOT_FOUND read', async () => {
+  mount(); await act(async () => { await new Promise(resolve => setTimeout(resolve, 50)); }); // negative assertion: give a wrongly issued read the chance to happen
+  expect(transport.coreReads).toBe(0);
+  transport.read = view({ lifecycle: 'GAME_ACTIVE' }); transport.replaceSocket?.();
+  await act(async () => { await new Promise(resolve => setTimeout(resolve, 50)); });
+  expect(transport.coreReads).toBeGreaterThan(0);
 });

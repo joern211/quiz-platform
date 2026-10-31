@@ -25,7 +25,7 @@ let questionOverride: string[] | undefined;
 // Independent review probes; these are local tests, not product changes.
 let reviewReads: string[] | null = null;
 let reviewFailure: { model: string; roomId: string; error: Error } | null = null;
-afterEach(() => { vi.restoreAllMocks(); actionLimiter.setClock(); });
+afterEach(() => { vi.restoreAllMocks(); actionLimiter.setClock(); frozenNow = null; });
 async function connect(auth?: string) { const s = await connectGameClient(origin, auth); sockets.push(s); return s; }
 beforeAll(async () => {
   dir = await mkdtemp(join(tmpdir(), 'quiz-g4-')); const url = `file:${join(dir, 'test.db')}`;
@@ -127,9 +127,14 @@ it('Limits: normal fast play stays far below the budget, for every player of a s
 });
 
 /** Stops token refill: an exhausted identity stays exhausted for the whole assertion, whatever the machine's speed. */
-const freezeLimiter = () => { const frozenAt = Date.now(); actionLimiter.setClock(() => frozenAt); };
+let frozenNow: number | null = null;
+const freezeLimiter = () => { frozenNow = Date.now(); actionLimiter.setClock(() => frozenNow!); };
 /** Puts one identity into the exhausted state without waiting on wall-clock refill (the wiring itself is proven by the burst test). */
-const exhaust = (roomId: string, participantId: string, group: 'REQUEST' | 'PLAYER_INPUT' | 'READ' | 'REPLAY' | 'DENIED' = 'PLAYER_INPUT') => { while (actionLimiter.consume(roomId, participantId, group).ok); };
+const exhaust = (roomId: string, participantId: string, group: 'REQUEST' | 'PLAYER_INPUT' | 'READ' | 'REPLAY' | 'DENIED' = 'PLAYER_INPUT') => {
+  // Wall-clock refill (up to 12 tokens/s) would give a slow machine a token back between exhaust() and the refusal under test.
+  if (frozenNow === null) freezeLimiter();
+  while (actionLimiter.consume(roomId, participantId, group).ok);
+};
 
 it('Limits: a real burst of fresh command ids is cut off with the contractual refusal, not by the engine', async () => {
   const f = await fixture('wissensduell'), [spammer] = f.players;
@@ -671,7 +676,7 @@ it('Admission: more tabs and a reconnect keep the budget; a stored answer stays 
   expect(refused).toMatchObject({ success: false, error: 'RATE_LIMITED', details: { retryAfterMs: expect.any(Number) } });
   expect(await readsDuring(() => gameAck(tab, 'geo:answer', accepted))).toEqual([]);
   // the success is stored, not lost: after the hint the same intent is answered from the receipt
-  await new Promise(resolve => setTimeout(resolve, (refused.details as { retryAfterMs: number }).retryAfterMs + 60));
+  await afterHint(refused);
   expect(await gameAck(tab, 'geo:answer', accepted)).toMatchObject({ success: true, replayed: true });
   expect((await state(f.room.id)).value.roundStates[0].playerStates[player.id]).toMatchObject({ answered: true, selectedOptionId: 'b' });
 });
@@ -717,7 +722,7 @@ it('Independent recheck: a throttled retry after a lost success ACK retains its 
   const refused = await send(true);
   expect(refused).toMatchObject({ success: false, error: 'RATE_LIMITED' });
   expect(sentIds[1]).toBe(sentIds[0]);
-  await new Promise(resolve => setTimeout(resolve, (refused.details as { retryAfterMs: number }).retryAfterMs + 60));
+  await afterHint(refused);
   const retried = await send(true);
   const entries = await db.roomFeedEntry.count({ where: { roomId: f.room.id, kind: 'MESSAGE' } });
   expect(entries).toBe(1);
@@ -750,7 +755,12 @@ function intentLink(socket: Socket) {
   });
   return { send, sentIds, client };
 }
-const afterHint = (refusal: Record<string, unknown>) => new Promise(resolve => setTimeout(resolve, (refusal.details as { retryAfterMs: number }).retryAfterMs + 60));
+/** Waits out the refusal's own retry hint: on a frozen limiter clock the clock advances by exactly that hint, otherwise real time passes. */
+const afterHint = (refusal: Record<string, unknown>) => {
+  const wait = (refusal.details as { retryAfterMs: number }).retryAfterMs + 60;
+  if (frozenNow !== null) { frozenNow += wait; return Promise.resolve(); }
+  return new Promise(resolve => setTimeout(resolve, wait));
+};
 
 it('Retry: a lost success acknowledgement followed by a refusal of the REPLAY budget still ends in one effect and a stored answer', async () => {
   const f = await fixture('wissensduell'), [player] = f.players, link = intentLink(player.client);
@@ -812,4 +822,49 @@ it.each([
   for (const secret of ['ZZSECR', 'rejoinToken']) { expect(text).not.toContain(secret); expect(lines).not.toContain(secret); }
   expect(logLines().filter(l => l.includes(body.error.traceId)).some(l => l.includes('internalDetail') && l.includes('"http"'))).toBe(true);
   expect(lines).not.toMatch(/\bat .*\(.*:\d+:\d+\)/); // no stack frames
+});
+
+// ── G5: admission isolation (PR15–19 focus 1) — PENDING_JOIN / WAITLIST never take part in a running game ──
+it.each(SLUGS)('%s: a PENDING_JOIN and a WAITLIST player can neither read private game data nor act, and receive no game broadcast', async slug => {
+  const f = await fixture(slug);
+  if (slug === 'jeopardy') expect((await gameAck(f.host, 'jeopardy:field:open', { boardIndex: 1, categoryIndex: 0, value: 100, ...intent(f.code) })).success).toBe(true);
+  if (slug === 'wer-ist-das') expect((await gameAck(f.host, 'weristdas:buzzer:open', intent(f.code))).success).toBe(true);
+  const waiting = [await lateJoiner(f.room.id, f.code, 'PLAYER', 'Pending', { admission: 'PENDING_JOIN' }), await lateJoiner(f.room.id, f.code, 'PLAYER', 'Waiter', { admission: 'WAITLIST' })];
+  const heard: Array<{ name: string; payload: string }> = [];
+  for (const w of waiting) w.client.onAny((name, ...args) => { heard.push({ name, payload: JSON.stringify(args) }); });
+  const activeHeard: string[] = []; f.players[1].client.onAny(name => { activeHeard.push(name); }); // positive control: the same change is audible to an admitted player
+  const before = await effects(f.room.id);
+  const act = slug === 'wissensduell' ? ['geo:answer', { optionId: 'a' }] : slug === 'jeopardy' ? ['jeopardy:buzz', {}] : ['weristdas:buzz', {}];
+  const probes: Array<[string, object]> = [[resyncOf(slug), {}], [act[0] as string, act[1] as object], ['game:result:read', {}], ['game:pause', {}], ['game:end', {}]];
+  for (const w of waiting) for (const [event, extra] of probes) {
+    const answer = await gameAck(w.client, event, { ...extra, ...intent(f.code) });
+    expect(answer.success, `${w.displayName} ${event}`).not.toBe(true);
+    expect(JSON.stringify(answer), `${w.displayName} ${event}`).not.toMatch(SECRET);
+  }
+  expect(await effects(f.room.id)).toEqual(before);
+  // A real change by the host reaches the active room only.
+  const after = slug === 'wissensduell' ? 'geo:reveal' : slug === 'jeopardy' ? 'jeopardy:buzz' : 'weristdas:buzz';
+  expect((await gameAck(slug === 'wissensduell' ? f.host : f.players[0].client, after, intent(f.code))).success).toBe(true);
+  await vi.waitFor(() => expect(activeHeard.filter(name => /^(geo|jeopardy|weristdas|game|core):/.test(name)).length).toBeGreaterThan(0));
+  await new Promise(resolve => setTimeout(resolve, 200)); // negative assertion: give a wrongly addressed broadcast the chance to arrive
+  expect(heard.filter(h => /^(geo|jeopardy|weristdas|game|core|result):/.test(h.name)), JSON.stringify(heard.map(h => h.name))).toEqual([]);
+  expect(heard.map(h => h.payload).join('\n')).not.toMatch(SECRET);
+});
+
+// ── G5: the shared core read under a really exhausted admission (contract consumed by useGameCore) ──
+it.each(SLUGS)('%s: an exhausted core read is refused provisionally with the hint the client acts on, creates no receipt, and a read after the hint returns a fresh projection', async slug => {
+  const f = await fixture(slug), [player] = f.players;
+  const first = await gameAck(player.client, 'game:core:read', {});
+  expect(first).toMatchObject({ success: true, projection: { roomCode: f.code } });
+  const before = await effects(f.room.id), receipts = await db.commandReceipt.count({ where: { roomId: f.room.id } });
+  exhaust(f.room.id, player.id, 'REQUEST');
+  const refused = await gameAck(player.client, 'game:core:read', {});
+  expect(refused).toMatchObject({ success: false, code: 'RATE_LIMITED', retryable: true, details: { retryAfterMs: expect.any(Number) } });
+  expect(refused.projection).toBeUndefined();
+  expect(await effects(f.room.id)).toEqual(before); expect(await db.commandReceipt.count({ where: { roomId: f.room.id } })).toBe(receipts);
+  // another participant of the same room is not throttled by this identity's exhaustion
+  expect((await gameAck(f.players[1].client, 'game:core:read', {})).success).toBe(true);
+  await afterHint(refused);
+  const again = await gameAck(player.client, 'game:core:read', {});
+  expect(again).toMatchObject({ success: true, projection: { roomCode: f.code, availableActions: expect.any(Array) } });
 });

@@ -229,3 +229,19 @@ it('refuses a valid but stale event tail that omits a legacy room mutation', asy
   expect(await db.scoreEvent.findMany({ where: { roomId: r.room.id } })).toEqual(ledger);
   expect(await db.auditLog.count({ where: { resourceId: r.room.id, action: 'RECOVERY_RESTORED' } })).toBe(0);
 });
+it('G5: recovery with a complete event tail still refuses a ledger that disagrees with the replayed scores, and a foreign run, without changing anything', async () => {
+  const r = await start(); await play(r, 'jeopardy', false);
+  await db.roomGameState.update({ where: { roomId: r.room.id }, data: { stateJson: '{broken' } });
+  await expect(ensureGameStateSafe(r.room.id)).rejects.toThrow('STATE_INVARIANT_FAILED');
+  const frozen = await db.roomGameState.findUniqueOrThrow({ where: { roomId: r.room.id } });
+  const recover = (extra: object = {}) => gameAck(r.host, 'game:recovery:command', { roomCode: r.code, runIndex: 1, gameStateVersion: frozen.revision, commandId: randomUUID(), operation: 'RESTORE_REPLAY', ...extra });
+  expect(await recover({ runIndex: 2 })).toMatchObject({ success: false, error: 'STATE_CONFLICT' });
+  // evidence that reaches the exact version but contradicts the ledger: points that no event produced
+  await db.scoreEvent.create({ data: { roomId: r.room.id, participationId: r.players[0].id, runIndex: 1, delta: 0, reason: 'zero row is no disagreement' } });
+  const extra = await db.scoreEvent.create({ data: { roomId: r.room.id, participationId: r.players[0].id, runIndex: 1, delta: 7, reason: 'Unreconciled evidence' } });
+  expect(await recover()).toMatchObject({ success: false, error: 'RECOVERY_LEDGER_MISMATCH' });
+  expect(await db.roomGameState.findUniqueOrThrow({ where: { roomId: r.room.id } })).toEqual(frozen);
+  expect(await db.auditLog.count({ where: { resourceId: r.room.id, action: 'RECOVERY_RESTORED' } })).toBe(0);
+  await db.scoreEvent.delete({ where: { id: extra.id } });
+  expect((await recover()).success).toBe(true);
+});

@@ -1,4 +1,4 @@
-import { act, render, screen } from '@testing-library/react';
+import { act, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -12,6 +12,7 @@ const transport = vi.hoisted(() => ({
   phase: 'INPUT_OPEN',
   actions: [] as string[],
   hasQuestion: true,
+  throttleCoreRead: false,
   command: vi.fn(),
 }));
 
@@ -26,7 +27,9 @@ vi.mock('../../lib/socket', () => {
     off: (event: string, handler: (data: unknown) => void) => { if (transport.handlers.get(event) === handler) transport.handlers.delete(event); },
     disconnect: vi.fn(),
     emit: (event: string, _data: unknown, ack: (data: unknown) => void) => {
-      if (event === 'game:core:read') ack({ success: true, projection: { roomCode: '123-456', runIndex: 1, gameSlug: 'wissensduell', engineVersion: 1, stateVersion: 2, enginePhase: transport.phase, corePhase: 'ROUND_ACTIVE', informationRole: 'PLAYER', timer: null, progress: { currentRound: 1, totalRounds: 2, remainingRounds: 2, progressPercent: 0 }, availableActions: transport.actions.map(key => ({ key, event: `geo:${key}`, label: key })) } });
+      if (event === 'game:core:read') ack(transport.throttleCoreRead
+        ? { success: false, error: 'RATE_LIMITED', code: 'RATE_LIMITED', retryable: true, details: { retryAfterMs: 100 } }
+        : { success: true, projection: { roomCode: '123-456', runIndex: 1, gameSlug: 'wissensduell', engineVersion: 1, stateVersion: 2, enginePhase: transport.phase, corePhase: 'ROUND_ACTIVE', informationRole: 'PLAYER', timer: null, progress: { currentRound: 1, totalRounds: 2, remainingRounds: 2, progressPercent: 0 }, availableActions: transport.actions.map(key => ({ key, event: `geo:${key}`, label: key })) } });
       if (event === 'room:subscribe') ack({ success: true });
       if (event === 'geo:resync') ack({
         success: true,
@@ -59,6 +62,7 @@ beforeEach(() => {
   transport.handlers.clear();
   transport.recovery = true; transport.phase = 'INPUT_OPEN'; transport.actions = [];
   transport.hasQuestion = true;
+  transport.throttleCoreRead = false;
   transport.command.mockReset();
 });
 
@@ -179,4 +183,23 @@ it('Player: a refusal by the action protection is explained and the answer stays
   expect(screen.getByText(/Zu viele Aktionen in kurzer Zeit/)).toBeInTheDocument();
   expect(screen.queryByText('Antwort gespeichert.')).not.toBeInTheDocument();
   expect(screen.getByRole('button', { name: /Antwort A/ })).not.toBeDisabled();
+});
+
+it('Independent G5 review: a temporary core-read refusal on the real host page is visible and offers a fresh read', async () => {
+  transport.recovery = false; transport.actions = ['pause', 'reveal', 'end'];
+  render(<MemoryRouter initialEntries={['/123-456']}><Routes><Route path=":code" element={<ModeratorGamePage />} /></Routes></MemoryRouter>);
+  const reveal = await screen.findByRole('button', { name: /Auflösen/ });
+  expect(reveal).toBeEnabled();
+  transport.throttleCoreRead = true;
+  await act(async () => transport.handlers.get('room:core:changed')?.({}));
+  expect(reveal).toBeDisabled();
+  expect(screen.getByRole('button', { name: 'Spiel beenden' })).toBeDisabled();
+  expect(screen.getByRole('alert')).toHaveTextContent(/Zu viele|erneut|geladen/i);
+  expect(screen.getByRole('button', { name: /erneut|neu laden|aktualisieren/i })).toBeEnabled();
+  // a fresh successful read makes the same controls usable again (no reload, no other event)
+  transport.throttleCoreRead = false;
+  await userEvent.click(screen.getByRole('button', { name: 'Erneut laden' }));
+  await waitFor(() => expect(screen.getByRole('button', { name: /Auflösen/ })).toBeEnabled());
+  expect(screen.getByRole('button', { name: 'Spiel beenden' })).toBeEnabled();
+  expect(screen.queryByRole('alert')).not.toBeInTheDocument();
 });

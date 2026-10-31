@@ -12,6 +12,7 @@ import { JeopardyQuestion } from '../components/jeopardy/JeopardyQuestion';
 import { getSessionData } from '../lib/socket';
 import { Card } from '@quiz/ui';
 import { GameShell } from '../components/GameShell';
+import { CoreReadNotice } from '../components/CoreReadNotice';
 import styles from './JeopardyPlayerPage.module.css';
 
 export function JeopardyPlayerPage() {
@@ -54,6 +55,7 @@ export function JeopardyPlayerPage() {
 
   return (
     <GameShell role="player" roomCode={roomCode} phase={gameState.phase} connected={connected}>
+      <CoreReadNotice core={core} />
     <div className={styles.page}>
       {/* Header */}
       <div className={styles.header}>

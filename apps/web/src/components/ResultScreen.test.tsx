@@ -104,3 +104,17 @@ it('ignores a slow read that was overtaken by a newer one, so an old answer cann
   expect(screen.queryByText('Veraltet: 9 Punkte')).not.toBeInTheDocument();
   expect(screen.getByText('Aktuell: 1 Punkte')).toBeInTheDocument();
 });
+it('shows a legitimate 0, a tie at 0 and a negative score as values, never as missing data (individual and team ranking)', async () => {
+  const zero = { ...data, scoring: 'TEAM_SCORE', scores: [
+    { rank: 1, participationId: 'a', displayName: 'Alice', role: 'PLAYER', score: 0 }, { rank: 1, participationId: 'b', displayName: 'Bob', role: 'PLAYER', score: 0 },
+    { rank: 3, participationId: 'c', displayName: 'Cara', role: 'PLAYER', score: -100 }],
+  teams: [{ id: 't1', name: 'Rot', rank: 1, score: 0 }, { id: 't2', name: 'Blau', rank: 1, score: 0 }] };
+  vi.mocked(fetch).mockResolvedValue({ ok: true, json: async () => ({ success: true, data: zero }) } as Response);
+  mount();
+  expect(await screen.findByText('Alice: 0 Punkte')).toBeInTheDocument();
+  expect(screen.getByText('Bob: 0 Punkte')).toBeInTheDocument();
+  expect(screen.getByText('Cara: -100 Punkte')).toBeInTheDocument();
+  expect(screen.getByText('Rot: 0 Punkte')).toBeInTheDocument();
+  expect(screen.getByText('Blau: 0 Punkte')).toBeInTheDocument();
+  expect(screen.getAllByRole('listitem').map(x => x.getAttribute('value'))).toEqual(['1', '1', '1', '1', '3']);
+});

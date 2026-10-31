@@ -1,4 +1,5 @@
 import { RecoveryControl } from '../components/RecoveryControl';
+import { CoreReadNotice } from '../components/CoreReadNotice';
 import { Link } from 'react-router-dom';
 import { useParams } from 'react-router-dom';
 import { BuzzerOverride } from '../components/BuzzerOverride';
@@ -23,6 +24,7 @@ export function WerIstDasGamePage({ role }: { role: PlayerRole }) {
       <section className={styles.main}>
         <h1>Wer ist das?</h1>
         {core.projection?.recoveryRequired && <RecoveryControl projection={core.projection} />}
+        <CoreReadNotice core={core} />
         {!state && <p>Spielstand wird geladen …</p>}
         {state && <>
           <p>Runde {state.roundIndex + 1} von {state.roundCount}</p>

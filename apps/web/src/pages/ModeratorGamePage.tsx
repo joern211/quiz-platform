@@ -1,6 +1,7 @@
 import { failureText } from '../lib/commandErrors';
 import { ContentMedia } from '../components/ContentMedia';
 import { RecoveryControl } from '../components/RecoveryControl';
+import { CoreReadNotice } from '../components/CoreReadNotice';
 // ============================================================
 // Moderator Game Page (Geo Quiz)
 // ============================================================
@@ -254,6 +255,7 @@ export function ModeratorGamePage() {
       <div className={styles.actions}>
         {core.projection && <progress aria-label="Spielfortschritt" max={100} value={core.projection.progress.progressPercent ?? undefined} />}
         {core.projection?.recoveryRequired && <RecoveryControl projection={core.projection} />}
+        <CoreReadNotice core={core} />
         {!recoveryError && (!revealed ? (
           <>
             <Button variant="secondary" disabled={!core.can(timerPaused ? 'resume' : 'pause')} onClick={timerPaused ? handleResumeTimer : handlePauseTimer}>
