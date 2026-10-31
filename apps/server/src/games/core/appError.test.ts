@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { buildAppError, describeInternal, wireErrorToAppError } from './appError.js';
+import { buildAppError, wireErrorToAppError } from './appError.js';
+import { describeInternal } from '../../observability/safeError.js';
 import { CoreRuleError } from './runtimePrimitives.js';
 
 afterEach(() => vi.restoreAllMocks());

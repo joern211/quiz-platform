@@ -15,27 +15,10 @@
 
 import { randomUUID } from 'node:crypto';
 import { logger } from '../../observability/logger.js';
+import { describeInternal } from '../../observability/safeError.js';
 import type { AppError, ErrorCode } from '@quiz/shared';
 
-const TYPED_ERRORS = new Set(['CoreRuleError', 'RoomError', 'InvalidGameAction', 'GameStateConflictError', 'ConfigSnapshotError']);
 const MESSAGE_KEY = /^[A-Z][A-Z0-9_]{1,63}$/;
-
-/**
- * Diagnostic-safe description of a failure for the server log. Typed application errors
- * carry a stable code as their message; for anything else (database, library, runtime) only
- * the class name and a short machine code are kept — their messages can embed query
- * arguments, file paths, tokens or answers, and "only in the server log" is no excuse.
- */
-export function describeInternal(detail: unknown): Record<string, unknown> {
-  if (!(detail instanceof Error)) return { type: typeof detail };
-  const { code } = detail as { code?: unknown };
-  const kind = detail.constructor?.name ?? detail.name;
-  return {
-    name: kind,
-    ...(typeof code === 'string' && MESSAGE_KEY.test(code) ? { code } : {}),
-    ...(TYPED_ERRORS.has(kind) && MESSAGE_KEY.test(detail.message) ? { message: detail.message } : {}),
-  };
-}
 
 /**
  * Erzeugt einen AppError und loggt ihn kontrolliert (traceId verbindet

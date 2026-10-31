@@ -20,12 +20,19 @@ let failEventForRoom: string | undefined;
 let failScoreEventNth: { roomId: string; nth: number } | undefined;
 let failResultVersionOnce = false;
 let questionOverride: string[] | undefined;
+// Independent review probes; these are local tests, not product changes.
+let reviewReads: string[] | null = null;
+let reviewFailure: { model: string; roomId: string; error: Error } | null = null;
 afterEach(() => vi.restoreAllMocks());
 async function connect(auth?: string) { const s = await connectGameClient(origin, auth); sockets.push(s); return s; }
 beforeAll(async () => {
   dir = await mkdtemp(join(tmpdir(), 'quiz-g4-')); const url = `file:${join(dir, 'test.db')}`;
   await createTestDatabase(url); db = new PrismaClient({ datasourceUrl: url }); previous = globalThis.__prisma; globalThis.__prisma = db;
   db.$use(async (params, next) => {
+    if (reviewReads && params.action.startsWith('find')) reviewReads.push(`${params.model}.${params.action}`);
+    if (reviewFailure && params.model === reviewFailure.model && params.action === 'create' && params.args.data.roomId === reviewFailure.roomId) {
+      const failure = reviewFailure.error; reviewFailure = null; throw failure;
+    }
     if (params.model === 'GameDomainEvent' && params.action === 'create' && params.args.data.roomId === failEventForRoom) {
       failEventForRoom = undefined; throw Error('G2_INJECTED_EVENT_FAILURE');
     }
@@ -547,4 +554,48 @@ it('Errors: values a client sends never come back in the answer or appear in the
   for (const a of answers) expect(a.success).toBe(false);
   expect(JSON.stringify(answers)).not.toContain(marker);
   expect(logLines().join('\n')).not.toContain(marker);
+});
+
+it.each(['DENIED', 'PLAYER_INPUT'] as const)('Independent review: exhausted %s requests stop before repeated database reads', async group => {
+  const f = await fixture('wissensduell');
+  const actor = group === 'DENIED' ? await lateJoiner(f.room.id, f.code, 'VIEWER', 'ReviewViewer') : f.players[0];
+  // Force the already-exhausted admission decision; no wall-clock or refill race.
+  const original = actionLimiter.consume.bind(actionLimiter);
+  vi.spyOn(actionLimiter, 'consume').mockImplementation((roomId, participantId, selected) =>
+    roomId === f.room.id && participantId === actor.id
+      ? { ok: false, firstRejection: false, traceId: 'review-exhausted', retryAfterMs: 200 }
+      : original(roomId, participantId, selected));
+  reviewReads = [];
+  let response: Record<string, unknown>;
+  try { response = await gameAck(actor.client, 'geo:answer', { optionId: 'a', ...intent(f.code) }); }
+  finally { const reads = reviewReads; reviewReads = null; console.info('REVIEW_DB_READS', group, JSON.stringify(reads)); }
+  expect(response!).toMatchObject({ error: 'RATE_LIMITED' });
+  // Admission control must not redo membership/room/receipt database work for every refused packet.
+  // Capture a second packet independently of unrelated startup work.
+  reviewReads = [];
+  await gameAck(actor.client, 'geo:answer', { optionId: 'a', ...intent(f.code) });
+  const reads = reviewReads; reviewReads = null;
+  expect(reads).toEqual([]);
+});
+
+it.each(['GameResultRecord', 'ScoreEvent'])('Independent review: %s failure never logs enumerable nested secrets', async model => {
+  const f = await fixture('wissensduell');
+  if (model === 'ScoreEvent') expect((await gameAck(f.players[0].client, 'geo:answer', { optionId: 'a', ...intent(f.code) })).success).toBe(true);
+  const marker = 'G4_REVIEW_PRIVATE_TOKEN';
+  reviewFailure = { model, roomId: f.room.id, error: Object.assign(new Error('database failed'), { meta: { args: { rejoinToken: marker, answer: 'G4_REVIEW_PRIVATE_SOLUTION' } } }) };
+  spyOnLogs();
+  const failed = await gameAck(f.host, model === 'GameResultRecord' ? 'game:end' : 'geo:reveal', intent(f.code));
+  expect(reviewFailure).toBe(null);
+  expect(failed.success).toBe(false);
+  expect(JSON.stringify(failed)).not.toContain(marker);
+  expect(logLines().join('\n')).not.toContain(marker);
+});
+
+it('Independent review: recovery refusals are bounded rather than producing one log per packet', async () => {
+  const f = await fixture('wer-ist-das'), viewer = await lateJoiner(f.room.id, f.code, 'VIEWER', 'RecoveryViewer');
+  spyOnLogs();
+  const refused = await spam(viewer.client, 80, () => ({ ...intent(f.code), runIndex: 1, gameStateVersion: 1, operation: 'RESTORE_REPLAY' }), 'game:recovery:command');
+  console.info('REVIEW_RECOVERY', JSON.stringify({ count: refused.length, limited: refused.filter(r => r.error === 'RATE_LIMITED').length, denialLogLines: logLines().filter(l => l.includes('recovery:command')).length }));
+  expect(refused.every(r => !r.success)).toBe(true);
+  expect(refused.some(r => r.error === 'RATE_LIMITED')).toBe(true);
 });

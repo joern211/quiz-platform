@@ -1,6 +1,6 @@
 import { logger } from '../../observability/logger.js';
 import { prisma } from '../../persistence/prisma.js';
-import { actionLimiter, type LimitGroup } from './actionLimits.js';
+import { actionLimiter, type LimitDecision, type LimitGroup } from './actionLimits.js';
 
 export interface RateLimitedResponse {
   success: false; error: 'RATE_LIMITED'; code: 'RATE_LIMITED'; messageKey: 'RATE_LIMITED'; traceId: string;
@@ -12,11 +12,14 @@ export interface RateLimitedResponse {
  * no receipt and no private data; the diagnostic line is written once per rejection streak.
  * Returns null while the budget lasts.
  */
-export function limitAction(roomId: string, participantId: string, group: LimitGroup, action: string): RateLimitedResponse | null {
-  const decision = actionLimiter.consume(roomId, participantId, group);
-  if (decision.ok) return null;
+export function refusalFor(decision: Extract<LimitDecision, { ok: false }>, roomId: string, group: LimitGroup, action: string): RateLimitedResponse {
   if (decision.firstRejection) logger.warn('[APP_ERROR] RATE_LIMITED RATE_LIMITED', { traceId: decision.traceId, roomId, group, action, retryAfterMs: decision.retryAfterMs });
   return { success: false, error: 'RATE_LIMITED', code: 'RATE_LIMITED', messageKey: 'RATE_LIMITED', traceId: decision.traceId, retryable: true, details: { retryAfterMs: decision.retryAfterMs } };
+}
+
+export function limitAction(roomId: string, participantId: string, group: LimitGroup, action: string): RateLimitedResponse | null {
+  const decision = actionLimiter.consume(roomId, participantId, group);
+  return decision.ok ? null : refusalFor(decision, roomId, group, action);
 }
 
 /** A command this participant already sent is a retry (stored answer / in progress), not a new intent. */
@@ -29,11 +32,4 @@ export function limitSocketRead(socket: { data: Record<string, unknown> }, actio
   const { roomId, participationId } = socket.data;
   if (typeof roomId !== 'string' || typeof participationId !== 'string') return null;
   return limitAction(roomId, participationId, 'READ', action);
-}
-
-/** Commands refused for lack of role/right: same server-set identity, own small budget (no entry for unsubscribed sockets). */
-export function limitSocketDenied(socket: { data: Record<string, unknown> }, action: string): RateLimitedResponse | null {
-  const { roomId, participationId } = socket.data;
-  if (typeof roomId !== 'string' || typeof participationId !== 'string') return null;
-  return limitAction(roomId, participationId, 'DENIED', action);
 }

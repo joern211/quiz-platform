@@ -3,6 +3,7 @@
 // ============================================================
 
 import { config } from '../config/index.js';
+import { serializeLogMeta } from './safeError.js';
 
 type LogLevel = 'debug' | 'info' | 'warn' | 'error';
 
@@ -19,7 +20,7 @@ function shouldLog(level: LogLevel): boolean {
 
 function formatMessage(level: LogLevel, message: string, meta?: Record<string, unknown>): string {
   const timestamp = new Date().toISOString();
-  const metaStr = meta ? ` ${JSON.stringify(meta)}` : '';
+  const metaStr = meta ? ` ${serializeLogMeta(meta)}` : '';
   return `[${timestamp}] [${level.toUpperCase()}] ${message}${metaStr}`;
 }
 

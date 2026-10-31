@@ -12,7 +12,7 @@ import { saveGameStateIfRevision } from './state.js';
 import { StoredGameResultSchema, readGameResult, publicResultView } from './results.js';
 import { rankScores } from './roundFlow.js';
 import { wireErrorToAppError } from './appError.js';
-import { isOwnKnownIntent, limitAction, limitSocketDenied, limitSocketRead } from './limitGuard.js';
+import { isOwnKnownIntent, limitAction, limitSocketRead } from './limitGuard.js';
 
 async function assertResultPermission(tx: Prisma.TransactionClient, roomId: string, actor: RoomActor) {
   const room = await tx.room.findUniqueOrThrow({ where: { id: roomId } });
@@ -150,8 +150,7 @@ export function registerResultCommands(io: Server, socket: Socket) {
         } else ack?.(response);
       } catch (error) {
         const code = error instanceof CoreRuleError || error instanceof RoomError ? error.code : 'INTERNAL_ERROR';
-        const flooded = code === 'FORBIDDEN' ? limitSocketDenied(socket, 'result:command') : null;
-        ack?.(flooded ? { ...flooded } : { success: false, error: code, ...wireErrorToAppError(code, { internalDetail: error, context: { action: 'result:command' } }) });
+        ack?.({ success: false, error: code, ...wireErrorToAppError(code, { internalDetail: error, context: { action: 'result:command' } }) });
       }
     })();
   });

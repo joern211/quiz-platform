@@ -11,7 +11,7 @@
 /** Groups keep a spammer's budget away from unrelated duties (e.g. buzz spam never blocks the host's finish). */
 import { randomUUID } from 'node:crypto';
 
-export type LimitGroup = 'PLAYER_INPUT' | 'HOST_CONTROL' | 'RESULT_COMMAND' | 'READ' | 'REPLAY' | 'DENIED';
+export type LimitGroup = 'REQUEST' | 'PLAYER_INPUT' | 'HOST_CONTROL' | 'RESULT_COMMAND' | 'READ' | 'REPLAY' | 'DENIED';
 
 /**
  * Token buckets: a burst of `capacity`, then `refillPerSec` sustained.
@@ -19,12 +19,16 @@ export type LimitGroup = 'PLAYER_INPUT' | 'HOST_CONTROL' | 'RESULT_COMMAND' | 'R
  * (bursts of ~5 are normal, mashing a buzzer reaches ~10/s); a host judges, reveals
  * and advances at most about once per second; result commands are rare, deliberate
  * actions; every client re-reads once per `game:core:changed`.
+ * REQUEST is the first, database-free admission stage (see requestAdmission.ts): every game packet of an
+ * identity, whatever it later turns out to be. It bounds the work done BEFORE the finer budgets below can decide
+ * (membership, permission and receipt lookups), independent of how many packets arrive.
  * REPLAY counts retries of an already known own command (transport retries after a lost
  * acknowledgement): a separate, more generous budget, so a retry never competes with new
  * intents yet a replay flood stays bounded. DENIED counts commands refused for lack of role
  * or right: a viewer cannot burn database reads and log lines with commands it may never send.
  */
 export const ACTION_LIMITS: Record<LimitGroup, { capacity: number; refillPerSec: number }> = {
+  REQUEST: { capacity: 40, refillPerSec: 12 },
   PLAYER_INPUT: { capacity: 20, refillPerSec: 5 },
   HOST_CONTROL: { capacity: 30, refillPerSec: 5 },
   RESULT_COMMAND: { capacity: 10, refillPerSec: 1 },
@@ -51,8 +55,8 @@ export class ActionLimiter {
   constructor(private readonly now: () => number = Date.now, private readonly maxKeys = 5000,
     private readonly limits: typeof ACTION_LIMITS = ACTION_LIMITS) {}
 
-  /** Consumes one token; only call for a new intent of an already authorised identity. */
-  consume(roomId: string, participantId: string, group: LimitGroup): LimitDecision {
+  /** Consumes one token (`spend=false`: only asks whether one is left); call for server-resolved identities only. */
+  consume(roomId: string, participantId: string, group: LimitGroup, spend = true): LimitDecision {
     const { capacity, refillPerSec } = this.limits[group];
     const key = `${roomId}|${participantId}|${group}`, now = this.now();
     const existing = this.buckets.get(key);
@@ -61,7 +65,7 @@ export class ActionLimiter {
     bucket.updatedAt = now;
     this.buckets.delete(key); // re-insert: Map order doubles as least-recently-used order
     let decision: LimitDecision;
-    if (bucket.tokens >= 1) { bucket.tokens -= 1; bucket.rejectedSince = null; bucket.streakTraceId = null; decision = { ok: true }; }
+    if (bucket.tokens >= 1) { if (spend) bucket.tokens -= 1; bucket.rejectedSince = null; bucket.streakTraceId = null; decision = { ok: true }; }
     else {
       const first = bucket.rejectedSince === null;
       bucket.rejectedSince ??= now; // one log line per rejection streak, not per rejected request

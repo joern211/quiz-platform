@@ -22,6 +22,7 @@ import { handlePlayerEvents } from './player.js';
 import { handleLobbyEvents, handleDisconnect } from './lobby.js';
 import { handleGameEvents } from './game.js';
 import { limitSocketRead } from '../games/core/limitGuard.js';
+import { registerRequestAdmission } from '../games/core/requestAdmission.js';
 import { registerGameSocketHandlers } from '../games/registry.js';
 
 export { roomChannel } from './channel.js';
@@ -74,6 +75,7 @@ export function setupSocketHandlers(io: Server) {
 
     // P0-08/P0-09: Initialize socket.data to track identity
     socket.data = {};
+    registerRequestAdmission(socket);
 
     registerDisplay(io, socket);
     registerRoomCore(io, socket);
