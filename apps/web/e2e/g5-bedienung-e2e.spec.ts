@@ -52,7 +52,7 @@ test('G5-B1: on a 360px screen host and players run a round with named, reachabl
     await reveal.click(); await expect(h.getByRole('heading', { name: /Lösung:/ })).toBeVisible();
     await settle(hostEmits); await settle(playerEmits);
     const perReveal = { host: (hostEmits.get('game:core:read') ?? 0) - before.host, player: (playerEmits.get('game:core:read') ?? 0) - before.player };
-    console.info('G5_CORE_READS_PER_REVEAL', JSON.stringify(perReveal));
+    test.info().annotations.push({ type: 'core-reads-per-reveal', description: JSON.stringify(perReveal) });
     // REQUEST allows a burst of 40 and 12/s; one change must stay far below the burst, so ordinary play can never exhaust it
     expect(perReveal.host).toBeLessThanOrEqual(8); expect(perReveal.player).toBeLessThanOrEqual(8);
     await expect(h.getByRole('alert')).toHaveCount(0); await expect(pa.getByRole('alert')).toHaveCount(0);
