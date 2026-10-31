@@ -14,8 +14,10 @@ const messages: Record<string, string> = { NOT_ALL_READY: 'Noch nicht alle Spiel
 export function RoomPanel() {
   const location = useLocation(), navigate = useNavigate();
   const code = location.pathname.match(/(?:raum|zuschauen|spiel|zuschauer)\/(\d{3}-\d{3})/)?.[1];
-  const core = useGameCore(code ?? '');
   const [view, setView] = useState<RoomCoreView | null>(null);
+  // No game state exists before the start: reading the core then is a guaranteed GAME_NOT_FOUND (a warning per read).
+  const gameExists = !!view && !['LOBBY_OPEN', 'LOBBY_LOCKED', 'SCHEDULED', 'DRAFT_ROOM'].includes(view.lifecycle);
+  const core = useGameCore(gameExists ? code ?? '' : '');
   const [draft, setDraft] = useState<RoomPolicy | null>(null);
   const [error, setError] = useState(''), [pending, setPending] = useState(false);
   const [message, setMessage] = useState(''), [name, setName] = useState('');
