@@ -823,3 +823,30 @@ it.each([
   expect(logLines().filter(l => l.includes(body.error.traceId)).some(l => l.includes('internalDetail') && l.includes('"http"'))).toBe(true);
   expect(lines).not.toMatch(/\bat .*\(.*:\d+:\d+\)/); // no stack frames
 });
+
+// ── G5: admission isolation (PR15–19 focus 1) — PENDING_JOIN / WAITLIST never take part in a running game ──
+it.each(SLUGS)('%s: a PENDING_JOIN and a WAITLIST player can neither read private game data nor act, and receive no game broadcast', async slug => {
+  const f = await fixture(slug);
+  if (slug === 'jeopardy') expect((await gameAck(f.host, 'jeopardy:field:open', { boardIndex: 1, categoryIndex: 0, value: 100, ...intent(f.code) })).success).toBe(true);
+  if (slug === 'wer-ist-das') expect((await gameAck(f.host, 'weristdas:buzzer:open', intent(f.code))).success).toBe(true);
+  const waiting = [await lateJoiner(f.room.id, f.code, 'PLAYER', 'Pending', { admission: 'PENDING_JOIN' }), await lateJoiner(f.room.id, f.code, 'PLAYER', 'Waiter', { admission: 'WAITLIST' })];
+  const heard: Array<{ name: string; payload: string }> = [];
+  for (const w of waiting) w.client.onAny((name, ...args) => { heard.push({ name, payload: JSON.stringify(args) }); });
+  const activeHeard: string[] = []; f.players[1].client.onAny(name => { activeHeard.push(name); }); // positive control: the same change is audible to an admitted player
+  const before = await effects(f.room.id);
+  const act = slug === 'wissensduell' ? ['geo:answer', { optionId: 'a' }] : slug === 'jeopardy' ? ['jeopardy:buzz', {}] : ['weristdas:buzz', {}];
+  const probes: Array<[string, object]> = [[resyncOf(slug), {}], [act[0] as string, act[1] as object], ['game:result:read', {}], ['game:pause', {}], ['game:end', {}]];
+  for (const w of waiting) for (const [event, extra] of probes) {
+    const answer = await gameAck(w.client, event, { ...extra, ...intent(f.code) });
+    expect(answer.success, `${w.displayName} ${event}`).not.toBe(true);
+    expect(JSON.stringify(answer), `${w.displayName} ${event}`).not.toMatch(SECRET);
+  }
+  expect(await effects(f.room.id)).toEqual(before);
+  // A real change by the host reaches the active room only.
+  const after = slug === 'wissensduell' ? 'geo:reveal' : slug === 'jeopardy' ? 'jeopardy:buzz' : 'weristdas:buzz';
+  expect((await gameAck(slug === 'wissensduell' ? f.host : f.players[0].client, after, intent(f.code))).success).toBe(true);
+  await vi.waitFor(() => expect(activeHeard.filter(name => /^(geo|jeopardy|weristdas|game|core):/.test(name)).length).toBeGreaterThan(0));
+  await new Promise(resolve => setTimeout(resolve, 200)); // negative assertion: give a wrongly addressed broadcast the chance to arrive
+  expect(heard.filter(h => /^(geo|jeopardy|weristdas|game|core|result):/.test(h.name)), JSON.stringify(heard.map(h => h.name))).toEqual([]);
+  expect(heard.map(h => h.payload).join('\n')).not.toMatch(SECRET);
+});
