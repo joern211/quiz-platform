@@ -88,3 +88,19 @@ it('separates a historical revision from the live status and never offers correc
   expect(screen.queryByText('Verbindlich bestätigt')).not.toBeInTheDocument();
   expect(screen.queryByRole('button', { name: 'Korrektur speichern' })).not.toBeInTheDocument();
 });
+
+it('ignores a slow read that was overtaken by a newer one, so an old answer cannot overwrite the current result', async () => {
+  const base = { ...data, resultRevision: 2, resultStatus: 'FINALIZED', latestRevision: 2, isLatestRevision: true, statusAtRevision: 'FINALIZED', versions: [] };
+  const stale = { ...base, scores: [{ rank: 1, participationId: 'a', displayName: 'Veraltet', role: 'PLAYER', score: 9 }] };
+  const current = { ...base, scores: [{ rank: 1, participationId: 'a', displayName: 'Aktuell', role: 'PLAYER', score: 1 }] };
+  let release: (value: Response) => void = () => {}, calls = 0;
+  vi.mocked(fetch).mockImplementation(() => ++calls === 1
+    ? new Promise<Response>(resolve => { release = resolve; })        // the first read is slow
+    : Promise.resolve({ ok: true, json: async () => ({ success: true, data: current }) } as Response));
+  mount();
+  await act(async () => transport.handlers.get('game:result:changed')?.());       // a newer read overtakes it
+  await screen.findByText('Aktuell: 1 Punkte');
+  await act(async () => release({ ok: true, json: async () => ({ success: true, data: stale }) } as Response));
+  expect(screen.queryByText('Veraltet: 9 Punkte')).not.toBeInTheDocument();
+  expect(screen.getByText('Aktuell: 1 Punkte')).toBeInTheDocument();
+});

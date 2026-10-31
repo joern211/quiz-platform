@@ -480,3 +480,71 @@ it('Corrections: if the process dies after the correction committed but before i
   expect(await ledger(f.room.id)).toEqual(committed.ledger);
   expect((await readResult(f.host, f)).data.scores.find((x: { participationId: string }) => x.participationId === bob.id).score).toBe(f.expected[bob.id] + 4);
 });
+
+it('Corrections: after a host transfer the new host amends the old run, the old host can neither act nor replay, and the running next run is untouched', async () => {
+  const f = await completedGame('wissensduell'), [alice, bob] = f.players;
+  const second = await db.user.create({ data: { role: 'HOST', displayName: 'G4 Host 2', passwordHash: 'unused' } });
+  const session2 = await db.session.create({ data: { userId: second.id, expiresAt: new Date(Date.now() + 3600000) } });
+  const cookie2 = createSessionCookie(session2.id, config.sessionSecret);
+  const member = await db.participation.create({ data: { roomId: f.room.id, displayName: 'Host 2', normalizedName: 'host2', role: 'VIEWER', userId: second.id, rejoinToken: randomUUID(), connected: true } });
+  const host2 = await connect(cookie2); expect((await gameAck(host2, 'room:subscribe', { roomCode: f.code, rejoinToken: member.rejoinToken })).success).toBe(true);
+  const review = resultCommand(f, 1, 1, { type: 'REVIEW' }), finalize = resultCommand(f, 1, 2, { type: 'FINALIZE' });
+  expect((await gameAck(f.host, 'game:result:command', review)).success).toBe(true);
+  expect((await gameAck(f.host, 'game:result:command', finalize)).success).toBe(true);
+  const transfer = await gameAck(f.host, 'room:command', { ...intent(f.code), protocolVersion: 1, operation: { type: 'TRANSFER', userId: second.id, claim: false } });
+  expect(transfer.success, JSON.stringify(transfer)).toBe(true);
+  const settled = { versions: await versions(f.room.id, 1), ledger: await ledger(f.room.id) };
+  // the former host lost the right; neither a new correction nor a replay of an old one is served
+  expect((await command(f.host, f, 1, 3, { type: 'AMEND', participantId: bob.id, delta: 1, reason: 'alter Host' })).success).toBe(false);
+  expect(await gameAck(f.host, 'game:result:command', finalize)).toMatchObject({ success: false });
+  expect(await versions(f.room.id, 1)).toEqual(settled.versions);
+  // the new host rematches, starts run two and then amends run one
+  expect((await gameAck(host2, 'room:command', { ...intent(f.code), protocolVersion: 1, operation: { type: 'REMATCH' } })).success).toBe(true);
+  for (const p of f.players) expect((await gameAck(p.client, 'player:ready:set', { roomCode: f.code, ready: true })).success).toBe(true);
+  expect((await gameAck(host2, 'game:start', intent(f.code))).success).toBe(true);
+  cancelGeoTimer(f.room.id); await handleGeoGame.startRound(app.io, f.code);
+  const run2 = async () => ({ state: (await db.roomGameState.findUniqueOrThrow({ where: { roomId: f.room.id } })).stateJson, players: (await db.participation.findMany({ where: { roomId: f.room.id, role: 'PLAYER' }, orderBy: { id: 'asc' } })).map(p => [p.id, p.score]) });
+  const before = await run2();
+  expect((await command(host2, f, 1, 3, { type: 'AMEND', participantId: bob.id, delta: 9, reason: 'neuer Host' })).success).toBe(true);
+  expect(await run2()).toEqual(before);
+  expect((await readResult(host2, f, { runIndex: 1 })).data.scores.find((x: { participationId: string }) => x.participationId === bob.id).score).toBe(9);
+  expect((await ledger(f.room.id)).filter(e => e.runIndex === 2)).toEqual([]);
+  void alice;
+});
+
+it.each(SLUGS)('%s: a player who left or was removed after the game keeps their points and place in the result; a later joiner is not part of it', async slug => {
+  const f = await completedGame(slug), [alice, bob] = f.players, before = (await readResult(f.host, f)).data;
+  await db.participation.update({ where: { id: alice.id }, data: { kickedAt: new Date(), connected: false } });
+  await db.participation.update({ where: { id: bob.id }, data: { leftAt: new Date(), connected: false } });
+  const late = await lateJoiner(f.room.id, f.code, 'PLAYER', 'Ersatz');
+  const after = (await readResult(f.host, f)).data;
+  expect(after.scores).toEqual(before.scores);
+  expect(after.winnerIds).toEqual(before.winnerIds);
+  expect(after.scores.some((x: { participationId: string }) => x.participationId === late.id)).toBe(false);
+  expect((await httpResult(f)).data.scores).toEqual(before.scores);
+  expect(await totals(f.room.id, 1)).toMatchObject(Object.fromEntries(Object.entries(f.expected).filter(([, v]) => v !== 0)));
+  // the replacement is a new identity: it cannot be corrected into a result it was never part of
+  expect((await command(f.host, f, 1, 1, { type: 'REVIEW' })).success).toBe(true);
+  expect(await command(f.host, f, 1, 2, { type: 'ADJUST', participantId: late.id, delta: 5, reason: 'Ersatz' })).toMatchObject({ success: false, error: 'PLAYER_NOT_IN_GAME' });
+  // forged absolute values and unknown fields are no corrections at all
+  for (const operation of [{ type: 'ADJUST', participantId: alice.id, delta: 5, reason: 'x', score: 999 }, { type: 'SET_SCORE', participantId: alice.id, score: 999 }, { type: 'ADJUST', participantId: alice.id, delta: 0, reason: 'x' }])
+    expect((await command(f.host, f, 1, 2, operation)).success).toBe(false);
+  expect(await versions(f.room.id, 1)).toEqual([[1, 'GAME_ENDED'], [2, 'REVIEW']]);
+});
+
+it('Errors: values a client sends never come back in the answer or appear in the diagnostic lines, on any of the three engines', async () => {
+  const marker = 'ECHO_MARKER_4711_do_not_log';
+  const f = await fixture('wer-ist-das'), j = await fixture('jeopardy'), g = await fixture('wissensduell');
+  spyOnLogs();
+  const answers = [
+    await gameAck(f.host, 'weristdas:judge', { result: marker, ...intent(f.code) }),
+    await gameAck(j.host, 'jeopardy:judge', { correct: marker, ...intent(j.code) }),
+    await gameAck(j.host, 'jeopardy:field:open', { boardIndex: marker, categoryIndex: 0, value: 100, ...intent(j.code) }),
+    await gameAck(g.players[0].client, 'geo:answer', { optionId: 'a', questionIndex: marker, runIndex: 1, ...intent(g.code) }),
+    await gameAck(g.host, 'game:result:command', { ...resultCommand(g, 1, 1, { type: marker }) }),
+    await gameAck(g.host, 'game:result:read', { roomCode: g.code, runIndex: marker }),
+  ];
+  for (const a of answers) expect(a.success).toBe(false);
+  expect(JSON.stringify(answers)).not.toContain(marker);
+  expect(logLines().join('\n')).not.toContain(marker);
+});
