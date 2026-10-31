@@ -169,3 +169,14 @@ it('Player: an acknowledgement from an earlier run with the same question cannot
   const answer = await screen.findByRole('button', { name: /Revanche/ });
   expect(answer).not.toBeDisabled();
 });
+
+it('Player: a refusal by the action protection is explained and the answer stays selectable for a later try', async () => {
+  transport.recovery = false; transport.phase = 'INPUT_OPEN'; transport.actions = ['answer'];
+  render(<MemoryRouter initialEntries={['/123-456']}><Routes><Route path=":code" element={<PlayerGamePage />} /></Routes></MemoryRouter>);
+  await userEvent.click(await screen.findByRole('button', { name: /Antwort A/ }));
+  const ack = transport.command.mock.calls.at(-1)![4] as (r: unknown) => void;
+  await act(async () => ack({ success: false, error: 'RATE_LIMITED', code: 'RATE_LIMITED', retryable: true, details: { retryAfterMs: 400 } }));
+  expect(screen.getByText(/Zu viele Aktionen in kurzer Zeit/)).toBeInTheDocument();
+  expect(screen.queryByText('Antwort gespeichert.')).not.toBeInTheDocument();
+  expect(screen.getByRole('button', { name: /Antwort A/ })).not.toBeDisabled();
+});

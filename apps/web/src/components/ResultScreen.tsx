@@ -4,6 +4,7 @@ import { PublicResultViewSchema, type PublicResultView, type ResultOperation, ty
 import { Card, Button } from '@quiz/ui';
 import { connectSocket, emitCommand, getSocket, type PlayerRole } from '../lib/socket';
 import { getSession } from '../lib/sessionStore';
+import { failureText } from '../lib/commandErrors';
 import styles from './ResultScreen.module.css';
 import { ContentCorrection } from './ContentCorrection';
 
@@ -55,7 +56,7 @@ export function ResultScreen({ roomCode, role }: { roomCode: string; role: Playe
       `${roomCode}:result:${result.runIndex}:${result.resultRevision}:${JSON.stringify(operation)}`, response => {
         busy.current = false; if (!alive.current) return; setPending(false);
         if (response.success) { setReason(''); setDelta(''); void refresh(); }
-        else setError('Aktion nicht bestätigt. Lade den aktuellen Stand und prüfe deine Berechtigung; bei Verbindungsabbruch kannst du dieselbe Aktion erneut senden.');
+        else setError(failureText(response, 'Aktion nicht bestätigt. Lade den aktuellen Stand und prüfe deine Berechtigung; bei Verbindungsabbruch kannst du dieselbe Aktion erneut senden.'));
       });
   };
   if (loading && !result) return <p>Lädt …</p>;
@@ -63,7 +64,7 @@ export function ResultScreen({ roomCode, role }: { roomCode: string; role: Playe
     <h1 className={styles.title}>{role === 'HOST' ? 'Ergebnis' : 'Spiel beendet'}</h1><p>{result?.game.name ?? 'Spiel'} · Raum {roomCode}{result && ` · Partie ${result.runIndex}`}</p>
     {error && <div role="alert"><p>{error}</p><Button onClick={() => void refresh()}>Erneut laden</Button></div>}
     {result && <>
-      <p role="status">{revision ? `Historische Version ${revision}` : result.resultStatus === 'FINALIZED' ? 'Verbindlich bestätigt' : result.resultStatus === 'RESULT_REVIEW' ? 'In Ergebnisprüfung' : result.resultStatus === 'GAME_END' ? 'Spiel beendet · noch nicht bestätigt' : 'Historisches Ergebnis ohne Finalisierungsnachweis'}</p>
+      <p role="status">{revision && result.isLatestRevision === false ? `Historische Version ${revision} von ${result.latestRevision} · damals: ${result.statusAtRevision === 'FINALIZED' ? 'verbindlich bestätigt' : result.statusAtRevision === 'RESULT_REVIEW' ? 'in Ergebnisprüfung' : 'Spiel beendet, noch nicht bestätigt'}` : revision ? `Version ${revision}` : result.resultStatus === 'FINALIZED' ? 'Verbindlich bestätigt' : result.resultStatus === 'RESULT_REVIEW' ? 'In Ergebnisprüfung' : result.resultStatus === 'GAME_END' ? 'Spiel beendet · noch nicht bestätigt' : 'Historisches Ergebnis ohne Finalisierungsnachweis'}</p>
       {result.aborted && <p>Abgebrochene Partie · kein reguläres Siegergebnis.</p>}
       {result.requiresReview && <p role="alert">Punkteprotokoll und Spielzustand müssen vor einer Bestätigung geprüft werden.</p>}
       {role === 'PLAYER' && <ContentCorrection roomCode={roomCode} runIndex={result.runIndex} />}

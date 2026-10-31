@@ -227,8 +227,8 @@ authRouter.post('/e2e-socket-identity', async (req, res) => {
 
     return res.status(200).json({ success: true, data: { socketId, role, roomCode } });
   } catch (err) {
-    logger.error('e2e-socket-identity error', { error: (err as Error).message });
-    return res.status(500).json({ success: false, error: { code: 'INTERNAL_ERROR', message: (err as Error).message } });
+    logger.error('e2e-socket-identity error', { error: err });
+    return res.status(500).json({ success: false, error: { code: 'INTERNAL_ERROR', message: 'E2E-Identität konnte nicht gesetzt werden.' } });
   }
 });
 

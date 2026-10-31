@@ -1,3 +1,4 @@
+import { failureText } from '../lib/commandErrors';
 import { ContentMedia } from '../components/ContentMedia';
 import { RecoveryControl } from '../components/RecoveryControl';
 // ============================================================
@@ -141,7 +142,7 @@ export function ModeratorGamePage() {
     // Token (Replay der ersten Pause würde sonst stattlaufen).
     emitCommand(socketRef.current, 'game:pause', { roomCode }, `${roomCode}:game:pause`, (response) => {
       if (response.success) setTimerPaused(true);
-      else setActionError(`Pause fehlgeschlagen: ${response.error ?? 'Unbekannter Fehler'}`);
+      else setActionError(failureText(response, `Pause fehlgeschlagen: ${response.error ?? 'Unbekannter Fehler'}`));
     });
   };
 
@@ -149,7 +150,7 @@ export function ModeratorGamePage() {
     if (!socketRef.current) return setActionError('Socket-Verbindung ist nicht verfügbar.');
     emitCommand(socketRef.current, 'game:resume', { roomCode }, `${roomCode}:game:resume`, (response) => {
       if (response.success) setTimerPaused(false);
-      else setActionError(`Fortsetzen fehlgeschlagen: ${response.error ?? 'Unbekannter Fehler'}`);
+      else setActionError(failureText(response, `Fortsetzen fehlgeschlagen: ${response.error ?? 'Unbekannter Fehler'}`));
     });
   };
 
@@ -159,7 +160,7 @@ export function ModeratorGamePage() {
       return;
     }
     emitCommand(socketRef.current, 'geo:reveal', { roomCode }, `${roomCode}:geo:reveal:${question?.id ?? 'q'}`, (response) => {
-      if (!response.success) setActionError(`Auflösung fehlgeschlagen: ${response.error ?? 'Unbekannter Fehler'}`);
+      if (!response.success) setActionError(failureText(response, `Auflösung fehlgeschlagen: ${response.error ?? 'Unbekannter Fehler'}`));
     });
   };
 
@@ -169,7 +170,7 @@ export function ModeratorGamePage() {
       return;
     }
     emitCommand(socketRef.current!, 'geo:next', { roomCode }, `${roomCode}:geo:next:${question?.id ?? 'q'}`, (response) => {
-      if (!response.success) setActionError(`Nächste Frage konnte nicht geladen werden: ${response.error ?? 'Unbekannter Fehler'}`);
+      if (!response.success) setActionError(failureText(response, `Nächste Frage konnte nicht geladen werden: ${response.error ?? 'Unbekannter Fehler'}`));
       if (response.ended) navigate(`/moderator/raum/${roomCode}/ergebnis`);
     });
   };
@@ -181,7 +182,7 @@ export function ModeratorGamePage() {
     }
     emitCommand(socketRef.current, 'game:end', { roomCode }, `${roomCode}:game:end`, (response) => {
       if (response.success) navigate(`/moderator/raum/${roomCode}/ergebnis`);
-      else setActionError('Spiel konnte nicht beendet werden.');
+      else setActionError(failureText(response, 'Spiel konnte nicht beendet werden.'));
     });
   };
 

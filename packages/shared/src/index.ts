@@ -1497,9 +1497,12 @@ export function createCommandIntentClient() {
     socket.emit(event, envelope, (raw) => {
       // Only a definitive response consumes the intent. An in-progress or
       // malformed acknowledgement or explicitly uncertain execution keeps its ID.
+      // So does a provisional refusal by the request protection (RATE_LIMITED): it was turned away
+      // before any receipt lookup, so it says nothing about an earlier attempt that may have been
+      // stored while its acknowledgement was lost. A retry after the hinted wait must carry the same ID.
       const response = raw as CommandResponse | null;
       if (response && typeof response.success === 'boolean') {
-        if (response.error !== 'COMMAND_IN_PROGRESS' && response.outcomeUnknown !== true) {
+        if (response.error !== 'COMMAND_IN_PROGRESS' && response.error !== 'RATE_LIMITED' && response.outcomeUnknown !== true) {
           discardIntentTokenIfCurrent(key, envelope.commandId);
         }
         onResponse?.(response);
@@ -1683,6 +1686,8 @@ export const RecoveryCommandSchema = z.object({ roomCode: z.string().regex(/^\d{
 export const PublicResultViewSchema = z.object({
   roomCode: z.string(), roomName: z.string(), status: z.string(), runPhase: z.string(), runIndex: z.number().int().positive(),
   resultRevision: z.number().int().positive().nullable(), resultStatus: ResultLifecycleSchema.nullable(),
+  latestRevision: z.number().int().positive().optional(), isLatestRevision: z.boolean().optional(),
+  revisionKind: z.string().optional(), statusAtRevision: ResultLifecycleSchema.nullable().optional(),
   game: z.object({ slug: z.string(), name: z.string() }),
   scores: z.array(z.object({ rank: z.number().int().positive(), participationId: z.string(), displayName: z.string(), role: z.string(), score: z.number().int(), teamId: z.string().nullable().optional() })),
   teams: z.array(z.object({ id: z.string(), name: z.string(), score: z.number().int(), rank: z.number().int().positive() })).default([]),

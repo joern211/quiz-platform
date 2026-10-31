@@ -3,6 +3,7 @@
 // Phase 5: Unified hook for moderator, player, spectator
 // ============================================================
 
+import { failureText } from '../lib/commandErrors';
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { getSocket, connectSocket, disconnectSocket, getSessionData, emitCommand, type PlayerRole, type JeopardyResyncResponse } from '../lib/socket';
 
@@ -159,7 +160,7 @@ export function useJeopardy(roomCode: string, role: PlayerRole) {
     const refresh = () => {
           socket.emit('jeopardy:resync', {}, (res: JeopardyResyncResponse) => {
             if (!res.success || !res.currentBoard || !res.phase) {
-              setError(`Spielstand konnte nicht geladen werden: ${res.error ?? 'Ungültige Antwort'}`);
+              setError(failureText(res, `Spielstand konnte nicht geladen werden: ${res.error ?? 'Ungültige Antwort'}`));
               return;
             }
             const scores = Object.fromEntries((res.scores ?? []).map((entry) => [entry.playerId, entry.score]));
@@ -389,7 +390,7 @@ export function useJeopardy(roomCode: string, role: PlayerRole) {
         { boardIndex, categoryIndex, value },
         `${roomCode}:jp:open:${boardIndex}-${categoryIndex}-${value}`,
         (res: { success: boolean; error?: string }) => {
-          if (!res.success) setError(`Feld öffnen fehlgeschlagen: ${res.error}`);
+          if (!res.success) setError(failureText(res, `Feld öffnen fehlgeschlagen: ${res.error}`));
         }
       );
     },
@@ -403,7 +404,7 @@ export function useJeopardy(roomCode: string, role: PlayerRole) {
     // zulässige Absicht erhält ein frisches Token.
     emitCommand(socketRef.current, 'jeopardy:buzz', {}, `${roomCode}:jp:buzz:${fieldKey()}`, (res: { success: boolean; error?: string }) => {
       if (!res.success && res.error !== 'BUZZER_ALREADY_WON') {
-        setError(`Buzzer fehlgeschlagen: ${res.error}`);
+        setError(failureText(res, `Buzzer fehlgeschlagen: ${res.error}`));
       }
     });
   }, [roomCode]);
@@ -419,7 +420,7 @@ export function useJeopardy(roomCode: string, role: PlayerRole) {
         { correct, ...(attemptId ? { attemptId } : {}) },
         `${roomCode}:jp:judge:${fieldKey()}:${attemptId ?? ''}:${correct}`,
         (res: { success: boolean; error?: string }) => {
-          if (!res.success) setError(`Urteil fehlgeschlagen: ${res.error}`);
+          if (!res.success) setError(failureText(res, `Urteil fehlgeschlagen: ${res.error}`));
         }
       );
     },
@@ -435,7 +436,7 @@ export function useJeopardy(roomCode: string, role: PlayerRole) {
       `${roomCode}:jp:stealBuzz:${fieldKey()}`,
       (res: { success: boolean; error?: string }) => {
         if (!res.success && res.error !== 'STEAL_ALREADY_WON') {
-          setError(`Abstauber-Buzzer fehlgeschlagen: ${res.error}`);
+          setError(failureText(res, `Abstauber-Buzzer fehlgeschlagen: ${res.error}`));
         }
       }
     );
@@ -451,7 +452,7 @@ export function useJeopardy(roomCode: string, role: PlayerRole) {
         { correct, ...(attemptId ? { attemptId } : {}) },
         `${roomCode}:jp:stealJudge:${fieldKey()}:${attemptId ?? ''}:${correct}`,
         (res: { success: boolean; error?: string }) => {
-          if (!res.success) setError(`Abstauber-Urteil fehlgeschlagen: ${res.error}`);
+          if (!res.success) setError(failureText(res, `Abstauber-Urteil fehlgeschlagen: ${res.error}`));
         }
       );
     },
@@ -461,7 +462,7 @@ export function useJeopardy(roomCode: string, role: PlayerRole) {
   const next = useCallback(() => {
     if (!socketRef.current) return;
     emitCommand(socketRef.current, 'jeopardy:next', {}, `${roomCode}:jp:next:${fieldKey()}`, (res: { success: boolean; error?: string }) => {
-      if (!res.success) setError(`Weiter fehlgeschlagen: ${res.error}`);
+      if (!res.success) setError(failureText(res, `Weiter fehlgeschlagen: ${res.error}`));
     });
   }, [roomCode]);
 
@@ -474,7 +475,7 @@ export function useJeopardy(roomCode: string, role: PlayerRole) {
         { toBoard },
         `${roomCode}:jp:board:${toBoard}`,
         (res: { success: boolean; error?: string }) => {
-          if (!res.success) setError(`Board-Wechsel fehlgeschlagen: ${res.error}`);
+          if (!res.success) setError(failureText(res, `Board-Wechsel fehlgeschlagen: ${res.error}`));
         }
       );
     },

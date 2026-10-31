@@ -21,6 +21,8 @@ import { handleRoomSubscription, handleRoomEvents, handleKickPlayer } from './ro
 import { handlePlayerEvents } from './player.js';
 import { handleLobbyEvents, handleDisconnect } from './lobby.js';
 import { handleGameEvents } from './game.js';
+import { limitSocketRead } from '../games/core/limitGuard.js';
+import { registerRequestAdmission } from '../games/core/requestAdmission.js';
 import { registerGameSocketHandlers } from '../games/registry.js';
 
 export { roomChannel } from './channel.js';
@@ -73,6 +75,7 @@ export function setupSocketHandlers(io: Server) {
 
     // P0-08/P0-09: Initialize socket.data to track identity
     socket.data = {};
+    registerRequestAdmission(socket);
 
     registerDisplay(io, socket);
     registerRoomCore(io, socket);
@@ -80,10 +83,12 @@ export function setupSocketHandlers(io: Server) {
     registerRecoveryCommands(io, socket);
     registerBuzzerOverride(io, socket);
     socket.on('game:core:read', async (_data, callback) => {
+      const limited = limitSocketRead(socket, 'core:read');
+      if (limited) { callback?.({ ...limited }); return; }
       try { callback?.({ success: true, projection: await projectCoreRuntime(socket, _data?.roomCode) }); }
       catch (error) {
         const code = error instanceof CoreRuleError || error instanceof RoomError ? error.code : 'RECOVERY_REQUIRED';
-        callback?.({ success: false, error: code, ...wireErrorToAppError(code) });
+        callback?.({ success: false, error: code, ...wireErrorToAppError(code, { internalDetail: error instanceof CoreRuleError || error instanceof RoomError ? undefined : error, context: { action: 'core:read' } }) });
       }
     });
 

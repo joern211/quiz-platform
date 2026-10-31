@@ -20,6 +20,7 @@ import { authorizeGameAction, authorizeGameContext } from '../core/access.js';
 import { gameErrorCode } from '../core/errors.js';
 import { runGuardedCriticalAction, receiptPayloadWithoutRoomCode, type EngineActionResult } from '../core/receiptedAction.js';
 import { ensureGameStateSafe } from '../core/recovery.js';
+import { limitSocketRead } from '../core/limitGuard.js';
 
 // ── Jeopardy Runtime Payload Validation ──────────────────────
 const JeopardyFieldOpenSchema = z.object({
@@ -85,8 +86,7 @@ function validateOrReject<T>(
 ): T | null {
   const result = schema.safeParse(data);
   if (!result.success) {
-    const message = result.error.issues.map((i) => i.message).join('; ');
-    callback?.({ success: false, error: `VALIDATION_ERROR: ${message}` });
+    callback?.({ success: false, error: 'INVALID_PAYLOAD' });
     return null;
   }
   return result.data;
@@ -283,6 +283,8 @@ export function registerJeopardyEvents(io: Server, socket: Socket) {
 
     // Jeopardy game state resync (P0-11: full rejoin)
     socket.on('jeopardy:resync', async (_data, callback) => {
+      const limited = limitSocketRead(socket, 'jeopardy:resync');
+      if (limited) { callback?.({ ...limited }); return; }
       try {
         const auth = await authorizeGameContext(socket, { roles: ['HOST', 'PLAYER', 'VIEWER'], gameSlug: 'jeopardy', roomCode: _data?.roomCode, requireParticipation: true });
         if (!auth.ok) { callback?.({ success: false, error: auth.error }); return; }

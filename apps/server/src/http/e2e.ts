@@ -75,7 +75,7 @@ e2eRouter.post('/game-start', async (req, res) => {
 
     res.json({ success: true, data: { roomCode, status: 'RUNNING' } });
   } catch (err) {
-    logger.error('e2e/game-start error', { error: (err as Error).message });
-    res.status(500).json({ success: false, error: { code: 'INTERNAL_ERROR', message: (err as Error).message } });
+    logger.error('e2e/game-start error', { error: err });
+    res.status(500).json({ success: false, error: { code: 'INTERNAL_ERROR', message: 'E2E-Spielstart fehlgeschlagen.' } });
   }
 });

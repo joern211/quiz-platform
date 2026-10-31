@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { logger } from '../../observability/logger.js';
 import { gameErrorCode } from '../core/errors.js';
 import { WerIstDasJudgeSchema, WER_IST_DAS_EVENTS } from './contracts.js';
+import { limitSocketRead } from '../core/limitGuard.js';
 import { werIstDasGame } from './engine.js';
 import { getGameEngineContract } from '../core/engineContract.js';
 import { InvalidGameAction } from './state.js';
@@ -79,6 +80,8 @@ export function registerWerIstDasEvents(io: Server, socket: Socket) {
     });
   }
   socket.on(WER_IST_DAS_EVENTS.RESYNC, async (data: unknown, callback?: Ack) => {
+    const limited = limitSocketRead(socket, 'weristdas:resync');
+    if (limited) { callback?.({ ...limited }); return; }
     const parsed = readPayload.safeParse(data);
     if (!parsed.success) { callback?.({ success: false, error: 'INVALID_PAYLOAD' }); return; }
     try { callback?.(await werIstDasGame.resync(socket, parsed.data.roomCode)); }

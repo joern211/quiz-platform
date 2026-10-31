@@ -1,3 +1,4 @@
+import { failureText } from '../lib/commandErrors';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { connectSocket, disconnectSocket, emitCommand, getSessionData, getSocket,
   type PlayerRole, type WerIstDasView } from '../lib/socket';
@@ -16,7 +17,7 @@ export function useWerIstDas(roomCode: string, role: PlayerRole) {
     const refresh = () => {
         socket.emit('weristdas:resync', {}, res => {
           if (res.success && res.state) { setState(res.state); setError(''); }
-          else setError(res.error ?? 'Spielstand konnte nicht geladen werden');
+          else setError(failureText(res, res.error ?? 'Spielstand konnte nicht geladen werden'));
         });
     };
     const subscribe = () => {
@@ -47,19 +48,19 @@ export function useWerIstDas(roomCode: string, role: PlayerRole) {
     // WRONG-Bewertung → frisches Token, damit die neue zulässige Absicht
     // ausgeführt wird.
     emitCommand(getSocket(), event, data, `${roomCode}:wid:${event}:r${roundKey()}`, res => {
-      if (!res.success) setError(res.error ?? 'Aktion fehlgeschlagen'); else setError('');
+      if (!res.success) setError(failureText(res, res.error ?? 'Aktion fehlgeschlagen')); else setError('');
     });
   }, [roomCode]);
   const judge = useCallback((result: 'BOTH_CORRECT' | 'ONE_CORRECT' | 'WRONG') => {
     // Bewertung je Runde + Antwortversuch + Ergebnis = Absicht (anderes Ergebnis/anderer Versuch = neuer Key).
     const attemptId = stateRef.current?.attemptId ?? undefined;
     emitCommand(getSocket(), 'weristdas:judge', { result, ...(attemptId ? { attemptId } : {}) }, `${roomCode}:wid:judge:r${roundKey()}:${attemptId ?? ''}:${result}`, res => {
-      if (!res.success) setError(res.error ?? 'Bewertung fehlgeschlagen'); else setError('');
+      if (!res.success) setError(failureText(res, res.error ?? 'Bewertung fehlgeschlagen')); else setError('');
     });
   }, [roomCode]);
   const end = useCallback(() => {
     emitCommand(getSocket(), 'game:end', { roomCode }, `${roomCode}:game:end`, res => {
-      if (!res.success) setError(res.error ?? 'Spielende fehlgeschlagen');
+      if (!res.success) setError(failureText(res, res.error ?? 'Spielende fehlgeschlagen'));
     });
   }, [roomCode]);
   return { state, connected, error, act, judge, end };

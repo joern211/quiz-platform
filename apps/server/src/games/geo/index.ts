@@ -356,7 +356,7 @@ export const handleGeoGame = {
       // No new round or scoring; enter a durable, read-only recovery phase.
       logger.error('Geo startRound: ungültige Spielkonfiguration — Runde wird nicht gestartet (14-04)', {
         roomId: roomRecord.id,
-        error: error instanceof Error ? error.message : String(error),
+        error,
       });
       state.phase = 'ERROR_RECOVERY';
       state.recoveryError = 'CONFIG_SNAPSHOT_INVALID';
