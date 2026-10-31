@@ -37,7 +37,7 @@ beforeAll(async () => {
       failEventForRoom = undefined; throw Error('G2_INJECTED_EVENT_FAILURE');
     }
     if ((params.model === 'GameResultVersion' || params.model === 'GameResultRecord') && params.action === 'create' && failResultVersionOnce) {
-      failResultVersionOnce = false; throw Error('G4_INJECTED_SECRET_sk_live_0123456789abcdef');
+      failResultVersionOnce = false; throw Object.assign(Error('G4_INJECTED_SECRET_sk_live_0123456789abcdef'), { meta: { args: { rejoinToken: 'G4_INJECTED_SECRET_token', answer: 'sk_live_nested' } } });
     }
     if (params.model === 'ScoreEvent' && params.action === 'create' && failScoreEventNth?.roomId === params.args.data.roomId && --failScoreEventNth!.nth === 0) {
       failScoreEventNth = undefined; throw Error('G4_INJECTED_SCORE_FAILURE');
@@ -126,7 +126,7 @@ it('Limits: normal fast play stays far below the budget, for every player of a s
 });
 
 /** Puts one identity into the exhausted state without waiting on wall-clock refill (the wiring itself is proven by the burst test). */
-const exhaust = (roomId: string, participantId: string, group: 'PLAYER_INPUT' | 'READ' | 'REPLAY' | 'DENIED' = 'PLAYER_INPUT') => { while (actionLimiter.consume(roomId, participantId, group).ok); };
+const exhaust = (roomId: string, participantId: string, group: 'REQUEST' | 'PLAYER_INPUT' | 'READ' | 'REPLAY' | 'DENIED' = 'PLAYER_INPUT') => { while (actionLimiter.consume(roomId, participantId, group).ok); };
 
 it('Limits: a real burst of fresh command ids is cut off with the contractual refusal, not by the engine', async () => {
   const f = await fixture('wissensduell'), [spammer] = f.players;
@@ -598,4 +598,97 @@ it('Independent review: recovery refusals are bounded rather than producing one 
   console.info('REVIEW_RECOVERY', JSON.stringify({ count: refused.length, limited: refused.filter(r => r.error === 'RATE_LIMITED').length, denialLogLines: logLines().filter(l => l.includes('recovery:command')).length }));
   expect(refused.every(r => !r.success)).toBe(true);
   expect(refused.some(r => r.error === 'RATE_LIMITED')).toBe(true);
+});
+
+// ── G4 D/E after the independent review: early admission, recovery/lifecycle floods, nested secrets ──
+/** Database reads performed while `work` runs (Prisma middleware of the review probe). */
+async function readsDuring(work: () => Promise<unknown>) {
+  reviewReads = [];
+  try { await work(); return [...reviewReads]; } finally { reviewReads = null; }
+}
+const recoveryPayload = (code: string) => ({ ...intent(code), runIndex: 1, gameStateVersion: 1, operation: 'RESTORE_REPLAY' });
+
+it('Admission: once an identity is exhausted, further packets of every game entry point cost no database read and no log line', async () => {
+  const f = await completedGame('wer-ist-das'), [alice] = f.players, viewer = await lateJoiner(f.room.id, f.code, 'VIEWER', 'Flooder');
+  spyOnLogs();
+  for (const who of [alice, viewer]) exhaust(f.room.id, who.id, 'REQUEST');
+  const probes: Array<[string, Socket, object]> = [
+    ['weristdas:buzz', alice.client, intent(f.code)], ['weristdas:resync', alice.client, { roomCode: f.code }], ['game:core:read', alice.client, { roomCode: f.code }],
+    ['game:result:read', alice.client, { roomCode: f.code }], ['game:result:command', viewer.client, resultCommand(f, 1, 1, { type: 'REVIEW' })],
+    ['game:recovery:command', viewer.client, recoveryPayload(f.code)], ['game:pause', viewer.client, intent(f.code)], ['game:end', viewer.client, intent(f.code)],
+    ['room:command', viewer.client, { ...intent(f.code), protocolVersion: 1, operation: { type: 'LEAVE' } }]];
+  await gameAck(alice.client, 'weristdas:resync', { roomCode: f.code }); // streak line (if any) is written once, before measuring
+  const linesBefore = logLines().length;
+  const reads = await readsDuring(async () => { for (let i = 0; i < 5; i++) for (const [event, client, payload] of probes) expect(await gameAck(client, event, payload)).toMatchObject({ success: false, error: 'RATE_LIMITED' }); });
+  expect(reads).toEqual([]);
+  expect(logLines().length).toBe(linesBefore);
+});
+
+it('Admission: a spectator flooding recovery and lifecycle events is cut off early; the host and the players keep working', async () => {
+  const f = await fixture('wer-ist-das'), viewer = await lateJoiner(f.room.id, f.code, 'VIEWER', 'Flooder');
+  spyOnLogs();
+  const recovery = await spam(viewer.client, 120, () => recoveryPayload(f.code), 'game:recovery:command');
+  expect(recovery.every(r => r.success === false)).toBe(true);
+  expect(recovery.filter(r => r.error === 'RATE_LIMITED').length).toBeGreaterThanOrEqual(120 - ACTION_LIMITS.REQUEST.capacity - 15);
+  const denialLines = logLines().filter(l => l.includes('recovery:command')).length;
+  expect(denialLines).toBeLessThanOrEqual(ACTION_LIMITS.REQUEST.capacity + 1);
+  const pauses = await spam(viewer.client, 60, () => intent(f.code), 'game:pause');
+  expect(pauses.some(r => r.error === 'RATE_LIMITED')).toBe(true);
+  // the flooder's own budgets do not touch anyone else
+  expect(await gameAck(f.host, 'game:recovery:command', recoveryPayload(f.code))).not.toMatchObject({ error: 'RATE_LIMITED' });
+  expect((await gameAck(f.host, 'game:pause', intent(f.code))).success).toBe(true);
+  expect((await gameAck(f.host, 'game:resume', intent(f.code))).success).toBe(true);
+  expect((await gameAck(f.players[0].client, 'weristdas:resync', { roomCode: f.code })).success).toBe(true);
+  // after the flood has exhausted it: no more database work and no more log lines for that spectator
+  exhaust(f.room.id, viewer.id, 'REQUEST');
+  const linesBefore = logLines().length;
+  expect(await readsDuring(async () => { for (let i = 0; i < 20; i++) await gameAck(viewer.client, 'game:recovery:command', recoveryPayload(f.code)); })).toEqual([]);
+  expect(logLines().length).toBe(linesBefore);
+});
+
+it('Admission: refused authorisation attempts exhaust their own budget; after that the identity is turned away without database work', async () => {
+  const f = await fixture('jeopardy'), viewer = await lateJoiner(f.room.id, f.code, 'VIEWER', 'Prober');
+  for (let i = 0; i < ACTION_LIMITS.DENIED.capacity; i++) {
+    expect(await gameAck(viewer.client, 'jeopardy:judge', { correct: true, ...intent(f.code) })).toMatchObject({ success: false, error: expect.not.stringMatching(/RATE_LIMITED/) });
+  }
+  expect(await gameAck(viewer.client, 'jeopardy:judge', { correct: true, ...intent(f.code) })).toMatchObject({ success: false, error: 'RATE_LIMITED' });
+  expect(await readsDuring(() => gameAck(viewer.client, 'jeopardy:judge', { correct: true, ...intent(f.code) }))).toEqual([]);
+  expect((await gameAck(f.players[0].client, 'jeopardy:resync', { roomCode: f.code })).success).toBe(true);
+  expect(await gameAck(f.host, 'jeopardy:resync', { roomCode: f.code })).toMatchObject({ success: true });
+});
+
+it('Admission: more tabs and a reconnect keep the budget; a stored answer stays retrievable once the hinted time has passed', async () => {
+  const f = await fixture('wissensduell'), [player] = f.players, accepted = { optionId: 'b', ...intent(f.code) };
+  expect((await gameAck(player.client, 'geo:answer', accepted)).success).toBe(true);
+  exhaust(f.room.id, player.id, 'REQUEST');
+  const tab = await connect(); expect((await gameAck(tab, 'room:subscribe', { roomCode: f.code, rejoinToken: player.rejoinToken })).success).toBe(true);
+  const refused = await gameAck(tab, 'geo:answer', accepted);
+  expect(refused).toMatchObject({ success: false, error: 'RATE_LIMITED', details: { retryAfterMs: expect.any(Number) } });
+  expect(await readsDuring(() => gameAck(tab, 'geo:answer', accepted))).toEqual([]);
+  // the success is stored, not lost: after the hint the same intent is answered from the receipt
+  await new Promise(resolve => setTimeout(resolve, (refused.details as { retryAfterMs: number }).retryAfterMs + 60));
+  expect(await gameAck(tab, 'geo:answer', accepted)).toMatchObject({ success: true, replayed: true });
+  expect((await state(f.room.id)).value.roundStates[0].playerStates[player.id]).toMatchObject({ answered: true, selectedOptionId: 'b' });
+});
+
+it('Errors: nested enumerable fields of failures never reach any log line, across the result, scoring and lifecycle paths', async () => {
+  const marker = 'G4_NESTED_SECRET_value';
+  const leaky = () => Object.assign(new Error(`database failed ${marker}`), { meta: { args: { rejoinToken: marker, answer: marker } }, response: { body: marker }, cause: Object.assign(new Error(marker), { meta: { marker } }) });
+  const expectClean = (answer: Record<string, unknown>) => { expect(answer.success).toBe(false); expect(JSON.stringify(answer)).not.toContain(marker); expect(logLines().join('\n')).not.toContain(marker); };
+  // result command (amendment write): the injected failure carries enumerable nested fields (rejoinToken, answer)
+  const finished = await completedGame('wer-ist-das'); spyOnLogs();
+  expect((await command(finished.host, finished, 1, 1, { type: 'REVIEW' })).success).toBe(true);
+  failResultVersionOnce = true;
+  const amend = await command(finished.host, finished, 1, 2, { type: 'ADJUST', participantId: finished.players[1].id, delta: 3, reason: 'scheitert' });
+  expect(failResultVersionOnce).toBe(false); expect(amend.success).toBe(false);
+  expect(JSON.stringify(amend)).not.toMatch(/G4_INJECTED_SECRET|sk_live/); expect(logLines().join('\n')).not.toMatch(/G4_INJECTED_SECRET|sk_live/);
+  // judge writes of the other two engines (ledger write fails)
+  for (const slug of ['jeopardy', 'wer-ist-das'] as const) {
+    const f = await fixture(slug), alice = f.players[0]; spyOnLogs();
+    if (slug === 'jeopardy') { await gameAck(f.host, 'jeopardy:field:open', { boardIndex: 1, categoryIndex: 0, value: 100, ...intent(f.code) }); await gameAck(alice.client, 'jeopardy:buzz', intent(f.code)); }
+    else { await gameAck(f.host, 'weristdas:buzzer:open', intent(f.code)); await gameAck(alice.client, 'weristdas:buzz', intent(f.code)); }
+    reviewFailure = { model: 'ScoreEvent', roomId: f.room.id, error: leaky() };
+    expectClean(await gameAck(f.host, slug === 'jeopardy' ? 'jeopardy:judge' : 'weristdas:judge', slug === 'jeopardy' ? { correct: true, ...intent(f.code) } : { result: 'BOTH_CORRECT', ...intent(f.code) }));
+    expect(reviewFailure).toBe(null);
+  }
 });

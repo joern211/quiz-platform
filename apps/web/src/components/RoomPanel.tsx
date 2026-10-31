@@ -1,3 +1,4 @@
+import { failureText } from '../lib/commandErrors';
 import { useEffect, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import type { RoomCoreView, RoomOperation, RoomPolicy } from '@quiz/shared';
@@ -61,7 +62,7 @@ export function RoomPanel() {
     setPending(true); setError(''); setPrivateResult('');
     emitCommand(getSocket(), 'room:command', { roomCode: code, operation }, `${code}:room:${JSON.stringify(operation)}`, response => {
       setPending(false);
-      if (!response.success) setError(messages[response.error ?? ''] ?? `Aktion fehlgeschlagen: ${response.error ?? 'Bitte erneut versuchen.'}`);
+      if (!response.success) setError(messages[response.error ?? ''] ?? failureText(response, `Aktion fehlgeschlagen: ${response.error ?? 'Bitte erneut versuchen.'}`));
       if (response.rejoinToken) setPrivateResult(`Neues Geräte-Token: ${String(response.rejoinToken)}`);
       if (response.inviteToken) setPrivateResult(`${window.location.origin}/${operation.type === 'INVITE' && operation.role === 'VIEWER' ? 'zuschauen' : 'beitreten'}?code=${code}&invite=${String(response.inviteToken)}`);
       getSocket().emit('room:core:read', {}, r => { if (r.success && r.view) setView(r.view); });

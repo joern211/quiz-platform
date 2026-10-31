@@ -17,7 +17,7 @@ export function useWerIstDas(roomCode: string, role: PlayerRole) {
     const refresh = () => {
         socket.emit('weristdas:resync', {}, res => {
           if (res.success && res.state) { setState(res.state); setError(''); }
-          else setError(res.error ?? 'Spielstand konnte nicht geladen werden');
+          else setError(failureText(res, res.error ?? 'Spielstand konnte nicht geladen werden'));
         });
     };
     const subscribe = () => {
@@ -60,7 +60,7 @@ export function useWerIstDas(roomCode: string, role: PlayerRole) {
   }, [roomCode]);
   const end = useCallback(() => {
     emitCommand(getSocket(), 'game:end', { roomCode }, `${roomCode}:game:end`, res => {
-      if (!res.success) setError(res.error ?? 'Spielende fehlgeschlagen');
+      if (!res.success) setError(failureText(res, res.error ?? 'Spielende fehlgeschlagen'));
     });
   }, [roomCode]);
   return { state, connected, error, act, judge, end };

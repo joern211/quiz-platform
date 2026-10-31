@@ -160,7 +160,7 @@ export function useJeopardy(roomCode: string, role: PlayerRole) {
     const refresh = () => {
           socket.emit('jeopardy:resync', {}, (res: JeopardyResyncResponse) => {
             if (!res.success || !res.currentBoard || !res.phase) {
-              setError(`Spielstand konnte nicht geladen werden: ${res.error ?? 'Ungültige Antwort'}`);
+              setError(failureText(res, `Spielstand konnte nicht geladen werden: ${res.error ?? 'Ungültige Antwort'}`));
               return;
             }
             const scores = Object.fromEntries((res.scores ?? []).map((entry) => [entry.playerId, entry.score]));
@@ -390,7 +390,7 @@ export function useJeopardy(roomCode: string, role: PlayerRole) {
         { boardIndex, categoryIndex, value },
         `${roomCode}:jp:open:${boardIndex}-${categoryIndex}-${value}`,
         (res: { success: boolean; error?: string }) => {
-          if (!res.success) setError(`Feld öffnen fehlgeschlagen: ${res.error}`);
+          if (!res.success) setError(failureText(res, `Feld öffnen fehlgeschlagen: ${res.error}`));
         }
       );
     },
@@ -462,7 +462,7 @@ export function useJeopardy(roomCode: string, role: PlayerRole) {
   const next = useCallback(() => {
     if (!socketRef.current) return;
     emitCommand(socketRef.current, 'jeopardy:next', {}, `${roomCode}:jp:next:${fieldKey()}`, (res: { success: boolean; error?: string }) => {
-      if (!res.success) setError(`Weiter fehlgeschlagen: ${res.error}`);
+      if (!res.success) setError(failureText(res, `Weiter fehlgeschlagen: ${res.error}`));
     });
   }, [roomCode]);
 
@@ -475,7 +475,7 @@ export function useJeopardy(roomCode: string, role: PlayerRole) {
         { toBoard },
         `${roomCode}:jp:board:${toBoard}`,
         (res: { success: boolean; error?: string }) => {
-          if (!res.success) setError(`Board-Wechsel fehlgeschlagen: ${res.error}`);
+          if (!res.success) setError(failureText(res, `Board-Wechsel fehlgeschlagen: ${res.error}`));
         }
       );
     },
