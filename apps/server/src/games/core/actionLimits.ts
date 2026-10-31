@@ -11,14 +11,14 @@
 /** Groups keep a spammer's budget away from unrelated duties (e.g. buzz spam never blocks the host's finish). */
 import { randomUUID } from 'node:crypto';
 
-export type LimitGroup = 'PLAYER_INPUT' | 'HOST_CONTROL' | 'LIFECYCLE' | 'RESULT_COMMAND' | 'READ' | 'REPLAY' | 'DENIED';
+export type LimitGroup = 'PLAYER_INPUT' | 'HOST_CONTROL' | 'RESULT_COMMAND' | 'READ' | 'REPLAY' | 'DENIED';
 
 /**
  * Token buckets: a burst of `capacity`, then `refillPerSec` sustained.
  * Chosen from real play: a player may tap answer/buzz/joker a few times a second
  * (bursts of ~5 are normal, mashing a buzzer reaches ~10/s); a host judges, reveals
- * and advances at most about once per second; lifecycle and result commands are
- * rare, deliberate actions; every client re-reads once per `game:core:changed`.
+ * and advances at most about once per second; result commands are rare, deliberate
+ * actions; every client re-reads once per `game:core:changed`.
  * REPLAY counts retries of an already known own command (transport retries after a lost
  * acknowledgement): a separate, more generous budget, so a retry never competes with new
  * intents yet a replay flood stays bounded. DENIED counts commands refused for lack of role
@@ -27,7 +27,6 @@ export type LimitGroup = 'PLAYER_INPUT' | 'HOST_CONTROL' | 'LIFECYCLE' | 'RESULT
 export const ACTION_LIMITS: Record<LimitGroup, { capacity: number; refillPerSec: number }> = {
   PLAYER_INPUT: { capacity: 20, refillPerSec: 5 },
   HOST_CONTROL: { capacity: 30, refillPerSec: 5 },
-  LIFECYCLE: { capacity: 10, refillPerSec: 1 },
   RESULT_COMMAND: { capacity: 10, refillPerSec: 1 },
   READ: { capacity: 40, refillPerSec: 8 },
   REPLAY: { capacity: 60, refillPerSec: 10 },
@@ -39,7 +38,7 @@ const HOST_CONTROL = new Set(['judge', 'stealJudge', 'steal_judge', 'reveal', 'n
 export function limitGroupForAction(action: string): LimitGroup {
   if (PLAYER_INPUT.has(action)) return 'PLAYER_INPUT';
   if (HOST_CONTROL.has(action)) return 'HOST_CONTROL';
-  return 'LIFECYCLE'; // start, pause, resume, end, abort
+  return 'HOST_CONTROL'; // every other guarded action is a host duty (the lifecycle sockets are not part of this guard)
 }
 
 export type LimitDecision = { ok: true } | { ok: false; retryAfterMs: number; firstRejection: boolean; traceId: string };

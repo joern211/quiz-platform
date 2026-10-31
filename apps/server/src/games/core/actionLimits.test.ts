@@ -45,7 +45,7 @@ describe('action limits: deterministic token bucket', () => {
     expect(l.consume('r1', 'other', 'PLAYER_INPUT').ok).toBe(true);
     expect(l.consume('r2', 'spammer', 'PLAYER_INPUT').ok).toBe(true);
     expect(l.consume('r1', 'spammer', 'HOST_CONTROL').ok).toBe(true);
-    expect(l.consume('r1', 'spammer', 'LIFECYCLE').ok).toBe(true);
+    expect(l.consume('r1', 'spammer', 'RESULT_COMMAND').ok).toBe(true);
   });
 
   it('forgets idle identities and caps memory regardless of how many identities appear', () => {
@@ -59,9 +59,9 @@ describe('action limits: deterministic token bucket', () => {
     void clock;
   });
 
-  it('groups by duty: players act, hosts control, rare lifecycle stays separate', () => {
+  it('groups by duty: players act, hosts control (also unknown guarded actions)', () => {
     for (const a of ['answer', 'buzz', 'stealBuzz', 'joker5050', 'jokerSpy', 'jokerRisk']) expect(limitGroupForAction(a)).toBe('PLAYER_INPUT');
     for (const a of ['judge', 'stealJudge', 'reveal', 'next', 'fieldOpen', 'boardSwitch', 'open', 'hint', 'buzzerOverride']) expect(limitGroupForAction(a)).toBe('HOST_CONTROL');
-    for (const a of ['start', 'pause', 'resume', 'end']) expect(limitGroupForAction(a)).toBe('LIFECYCLE');
+    expect(limitGroupForAction('somethingNew')).toBe('HOST_CONTROL');
   });
 });
