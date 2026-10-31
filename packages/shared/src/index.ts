@@ -1497,9 +1497,12 @@ export function createCommandIntentClient() {
     socket.emit(event, envelope, (raw) => {
       // Only a definitive response consumes the intent. An in-progress or
       // malformed acknowledgement or explicitly uncertain execution keeps its ID.
+      // So does a provisional refusal by the request protection (RATE_LIMITED): it was turned away
+      // before any receipt lookup, so it says nothing about an earlier attempt that may have been
+      // stored while its acknowledgement was lost. A retry after the hinted wait must carry the same ID.
       const response = raw as CommandResponse | null;
       if (response && typeof response.success === 'boolean') {
-        if (response.error !== 'COMMAND_IN_PROGRESS' && response.outcomeUnknown !== true) {
+        if (response.error !== 'COMMAND_IN_PROGRESS' && response.error !== 'RATE_LIMITED' && response.outcomeUnknown !== true) {
           discardIntentTokenIfCurrent(key, envelope.commandId);
         }
         onResponse?.(response);

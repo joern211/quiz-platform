@@ -24,6 +24,7 @@ import { contentRouter } from './http/content.js';
 import { setupSocketHandlers } from './sockets/index.js';
 import { prisma } from './persistence/prisma.js';
 import { logger } from './observability/logger.js';
+import { buildAppError } from './games/core/appError.js';
 
 export interface AppFactoryResult {
   app: Express;
@@ -129,12 +130,18 @@ export function createApp(): AppFactoryResult {
   // Socket handlers
   setupSocketHandlers(io);
 
-  // Error handling
-  app.use((err: Error, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
-    logger.error('Unhandled error', { error: err.message, stack: err.stack });
-    res.status(500).json({
+  // Error handling: body-parser failures are the client's (4xx); everything else is internal. Neither the
+  // message nor the stack of the error is logged or sent — the log line carries a safe description under the
+  // trace id that the response returns (the message of a parse error quotes the request body).
+  app.use((err: Error & { status?: number; type?: string }, req: express.Request, res: express.Response, _next: express.NextFunction) => {
+    // Express/body-parser mark client faults (invalid JSON, oversize body, undecodable URL) with a 4xx status.
+    const clientError = Number.isInteger(err.status) && err.status! >= 400 && err.status! < 500;
+    const status = clientError ? err.status! : 500;
+    const code = clientError ? 'INVALID_PAYLOAD' : 'INTERNAL_ERROR';
+    const appError = buildAppError(code, code, { internalDetail: err, context: { action: 'http', method: req.method, status } });
+    res.status(status).json({
       success: false,
-      error: { code: 'INTERNAL_ERROR', message: 'Ein unerwarteter Fehler ist aufgetreten.' },
+      error: { code, message: clientError ? 'Die Anfrage konnte nicht gelesen werden.' : 'Ein unerwarteter Fehler ist aufgetreten.', traceId: appError.traceId },
     });
   });
 

@@ -12,6 +12,7 @@ import { config } from '../../config/index.js';
 import { connectGameClient, gameAck } from '../../test-socket-harness.js';
 import { socketIdentityMap } from '../../http/middleware/auth.js';
 import { cancelGeoTimer, handleGeoGame } from '../geo/index.js';
+import { createCommandIntentClient, type CommandEmitter } from '@quiz/shared';
 
 let db: PrismaClient, previous: PrismaClient | undefined, dir: string, app: ReturnType<typeof createApp>, origin: string, cookie: string, hostId: string, questionIds: string[];
 const sockets: Socket[] = [], roomIds: string[] = [];
@@ -692,4 +693,121 @@ it('Errors: nested enumerable fields of failures never reach any log line, acros
     expectClean(await gameAck(f.host, slug === 'jeopardy' ? 'jeopardy:judge' : 'weristdas:judge', slug === 'jeopardy' ? { correct: true, ...intent(f.code) } : { result: 'BOTH_CORRECT', ...intent(f.code) }));
     expect(reviewFailure).toBe(null);
   }
+});
+
+it('Independent recheck: a throttled retry after a lost success ACK retains its intent and cannot repeat a room mutation', async () => {
+  const f = await fixture('wissensduell', false);
+  const hostMember = await db.participation.findFirstOrThrow({ where: { roomId: f.room.id, userId: hostId, role: 'HOST' } });
+  const client = createCommandIntentClient(), sentIds: string[] = [];
+  const message = `review-one-intent-${randomUUID()}`;
+  const payload = { roomCode: f.code, operation: { type: 'MESSAGE', message } };
+  const key = `${f.code}:room:${JSON.stringify(payload.operation)}`;
+  const send = (deliverAck: boolean): Promise<Record<string, unknown>> => new Promise(resolve => {
+    const wire: CommandEmitter = { emit: (event, data, ack) => {
+      sentIds.push((data as { commandId: string }).commandId);
+      f.host.emit(event, data, (response: Record<string, unknown>) => { if (deliverAck) ack(response); resolve(response); });
+    } };
+    client.emitCommand(wire, 'room:command', payload, key);
+  });
+  expect(await send(false)).toMatchObject({ success: true }); // the committed success ACK is lost
+  exhaust(f.room.id, hostMember.id, 'REQUEST');
+  const refused = await send(true);
+  expect(refused).toMatchObject({ success: false, error: 'RATE_LIMITED' });
+  expect(sentIds[1]).toBe(sentIds[0]);
+  await new Promise(resolve => setTimeout(resolve, (refused.details as { retryAfterMs: number }).retryAfterMs + 60));
+  const retried = await send(true);
+  const entries = await db.roomFeedEntry.count({ where: { roomId: f.room.id, kind: 'MESSAGE' } });
+  console.info('RECHECK_LOST_ACK', JSON.stringify({ sentIds, retried, entries }));
+  expect(entries).toBe(1);
+  expect(retried).toMatchObject({ success: true, replayed: true });
+  expect(sentIds[2]).toBe(sentIds[0]);
+});
+
+it('Independent recheck: malformed JSON never logs a rejoin token through the HTTP error handler', async () => {
+  const marker = 'ZZSECR';
+  spyOnLogs();
+  const result = await fetch(`${origin}/api/v1/rooms`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: `{"rejoinToken":${marker}}`,
+  });
+  expect(result.status).toBeGreaterThanOrEqual(400);
+  expect(result.status).toBeLessThan(600);
+  expect(await result.text()).not.toContain(marker);
+  expect(logLines().join('\n')).not.toContain(marker);
+});
+
+// ── Retry after a throttled attempt keeps the intent (real intent client, real handlers, real DB) ──
+/** Sends through the real intent client; `deliverAck=false` drops the answer before the client sees it (lost acknowledgement). */
+function intentLink(socket: Socket) {
+  const client = createCommandIntentClient(), sentIds: string[] = [];
+  const send = (event: string, payload: object, key: string, deliverAck = true): Promise<Record<string, unknown>> => new Promise(resolve => {
+    const wire: CommandEmitter = { emit: (name, data, ack) => {
+      sentIds.push((data as { commandId: string }).commandId);
+      socket.emit(name, data, (response: Record<string, unknown>) => { if (deliverAck) ack(response); resolve(response); });
+    } };
+    client.emitCommand(wire, event, payload, key);
+  });
+  return { send, sentIds, client };
+}
+const afterHint = (refusal: Record<string, unknown>) => new Promise(resolve => setTimeout(resolve, (refusal.details as { retryAfterMs: number }).retryAfterMs + 60));
+
+it('Retry: a lost success acknowledgement followed by a refusal of the REPLAY budget still ends in one effect and a stored answer', async () => {
+  const f = await fixture('wissensduell'), [player] = f.players, link = intentLink(player.client);
+  const payload = { optionId: 'b', questionIndex: 0, runIndex: 1, roomCode: f.code };
+  expect(await link.send('geo:answer', payload, 'answer', false)).toMatchObject({ success: true });
+  exhaust(f.room.id, player.id, 'REPLAY');
+  const refused = await link.send('geo:answer', payload, 'answer');
+  expect(refused).toMatchObject({ success: false, error: 'RATE_LIMITED' });
+  await afterHint(refused);
+  expect(await link.send('geo:answer', payload, 'answer')).toMatchObject({ success: true, replayed: true });
+  expect(new Set(link.sentIds).size).toBe(1);
+  expect(await db.commandReceipt.count({ where: { roomId: f.room.id, action: 'ANSWER_SUBMIT' } })).toBe(1);
+});
+
+it('Retry: an intent refused by the per-action budget before it ever ran is executed exactly once with the same id', async () => {
+  const f = await fixture('wissensduell'), [player] = f.players, link = intentLink(player.client);
+  const payload = { optionId: 'c', questionIndex: 0, runIndex: 1, roomCode: f.code };
+  exhaust(f.room.id, player.id, 'PLAYER_INPUT');
+  const refused = await link.send('geo:answer', payload, 'answer');
+  expect(refused).toMatchObject({ success: false, error: 'RATE_LIMITED' });
+  expect(await db.commandReceipt.count({ where: { roomId: f.room.id, action: 'ANSWER_SUBMIT' } })).toBe(0);
+  await afterHint(refused);
+  expect(await link.send('geo:answer', payload, 'answer')).toMatchObject({ success: true });
+  expect(new Set(link.sentIds).size).toBe(1);
+  expect((await state(f.room.id)).value.roundStates[0].playerStates[player.id]).toMatchObject({ answered: true, selectedOptionId: 'c' });
+  // the clarified intent is finished: the next send is a new intent (it cannot act again: answered, or throttled once more)
+  expect((await link.send('geo:answer', payload, 'answer')).success).toBe(false);
+  expect(new Set(link.sentIds).size).toBe(2);
+  expect((await state(f.room.id)).value.roundStates[0].playerStates[player.id]).toMatchObject({ selectedOptionId: 'c' });
+});
+
+it('Retry: a lost acknowledgement of a result correction survives an early refusal without a second version', async () => {
+  const f = await completedGame('wer-ist-das'), [, bob] = f.players, link = intentLink(f.host);
+  expect((await command(f.host, f, 1, 1, { type: 'REVIEW' })).success).toBe(true);
+  const hostMember = await db.participation.findFirstOrThrow({ where: { roomId: f.room.id, userId: hostId, role: 'HOST' } });
+  const payload = { roomCode: f.code, runIndex: 1, resultRevision: 2, operation: { type: 'ADJUST', participantId: bob.id, delta: 6, reason: 'verlorene Bestätigung' } };
+  expect(await link.send('game:result:command', payload, 'adjust', false)).toMatchObject({ success: true });
+  exhaust(f.room.id, hostMember.id, 'REQUEST');
+  const refused = await link.send('game:result:command', payload, 'adjust');
+  expect(refused).toMatchObject({ success: false, error: 'RATE_LIMITED' });
+  await afterHint(refused);
+  expect(await link.send('game:result:command', payload, 'adjust')).toMatchObject({ success: true, replayed: true });
+  expect(new Set(link.sentIds).size).toBe(1);
+  expect(await versions(f.room.id, 1)).toEqual([[1, 'GAME_ENDED'], [2, 'REVIEW'], [3, 'ADJUST']]);
+});
+
+// ── HTTP error path: no message, no stack, a traceId that finds the diagnostic line ──
+it.each([
+  ['invalid JSON body', 'POST', '/api/v1/rooms', 'ZZSECR_BODY'],
+  ['invalid JSON body on login', 'POST', '/api/v1/auth/login', 'ZZSECR_LOGIN'],
+  ['undecodable URL parameter', 'GET', '/api/v1/rooms/%ZZSECR_PATH', ''],
+])('HTTP errors: %s is a client error with a trace id and leaks nothing into the log', async (_name, method, path, marker) => {
+  spyOnLogs();
+  const result = await fetch(`${origin}${path}`, { method, headers: { 'Content-Type': 'application/json' }, ...(method === 'POST' ? { body: `{"rejoinToken":${marker}}` } : {}) });
+  const text = await result.text(), body = JSON.parse(text) as { success: boolean; error: { code: string; message: string; traceId: string } };
+  expect(result.status).toBeGreaterThanOrEqual(400); expect(result.status).toBeLessThan(500);
+  expect(body).toMatchObject({ success: false, error: { code: 'INVALID_PAYLOAD', traceId: expect.any(String) } });
+  const lines = logLines().join('\n');
+  for (const secret of ['ZZSECR', 'rejoinToken']) { expect(text).not.toContain(secret); expect(lines).not.toContain(secret); }
+  expect(logLines().filter(l => l.includes(body.error.traceId)).some(l => l.includes('internalDetail') && l.includes('"http"'))).toBe(true);
+  expect(lines).not.toMatch(/\bat .*\(.*:\d+:\d+\)/); // no stack frames
 });
