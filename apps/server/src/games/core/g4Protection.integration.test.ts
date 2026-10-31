@@ -13,6 +13,7 @@ import { connectGameClient, gameAck } from '../../test-socket-harness.js';
 import { socketIdentityMap } from '../../http/middleware/auth.js';
 import { cancelGeoTimer, handleGeoGame } from '../geo/index.js';
 import { createCommandIntentClient, type CommandEmitter } from '@quiz/shared';
+import { actionLimiter, ACTION_LIMITS } from './actionLimits.js';
 
 let db: PrismaClient, previous: PrismaClient | undefined, dir: string, app: ReturnType<typeof createApp>, origin: string, cookie: string, hostId: string, questionIds: string[];
 const sockets: Socket[] = [], roomIds: string[] = [];
@@ -24,7 +25,7 @@ let questionOverride: string[] | undefined;
 // Independent review probes; these are local tests, not product changes.
 let reviewReads: string[] | null = null;
 let reviewFailure: { model: string; roomId: string; error: Error } | null = null;
-afterEach(() => vi.restoreAllMocks());
+afterEach(() => { vi.restoreAllMocks(); actionLimiter.setClock(); });
 async function connect(auth?: string) { const s = await connectGameClient(origin, auth); sockets.push(s); return s; }
 beforeAll(async () => {
   dir = await mkdtemp(join(tmpdir(), 'quiz-g4-')); const url = `file:${join(dir, 'test.db')}`;
@@ -113,7 +114,6 @@ async function lateJoiner(roomId: string, code: string, role: 'PLAYER' | 'VIEWER
 async function ledger(roomId: string) { return (await db.scoreEvent.findMany({ where: { roomId }, orderBy: { createdAt: 'asc' } })).map(e => ({ participationId: e.participationId, delta: e.delta, kind: e.kind, runIndex: e.runIndex })); }
 
 // ── G4 D: action limits on the real sockets ──────────────────────────────────
-import { actionLimiter, ACTION_LIMITS } from './actionLimits.js';
 const resyncOf = (slug: string) => slug === 'wissensduell' ? 'geo:resync' : slug === 'jeopardy' ? 'jeopardy:resync' : 'weristdas:resync';
 /** One burst on the wire: all requests arrive before any token can refill. */
 const spam = (client: Socket, count: number, make: () => object, event = 'geo:answer') =>
@@ -126,6 +126,8 @@ it('Limits: normal fast play stays far below the budget, for every player of a s
   expect((await gameAck(f.players[0].client, 'geo:answer', { optionId: 'a', ...intent(f.code) })).success).toBe(true);
 });
 
+/** Stops token refill: an exhausted identity stays exhausted for the whole assertion, whatever the machine's speed. */
+const freezeLimiter = () => { const frozenAt = Date.now(); actionLimiter.setClock(() => frozenAt); };
 /** Puts one identity into the exhausted state without waiting on wall-clock refill (the wiring itself is proven by the burst test). */
 const exhaust = (roomId: string, participantId: string, group: 'REQUEST' | 'PLAYER_INPUT' | 'READ' | 'REPLAY' | 'DENIED' = 'PLAYER_INPUT') => { while (actionLimiter.consume(roomId, participantId, group).ok); };
 
@@ -612,7 +614,7 @@ const recoveryPayload = (code: string) => ({ ...intent(code), runIndex: 1, gameS
 
 it('Admission: once an identity is exhausted, further packets of every game entry point cost no database read and no log line', async () => {
   const f = await completedGame('wer-ist-das'), [alice] = f.players, viewer = await lateJoiner(f.room.id, f.code, 'VIEWER', 'Flooder');
-  spyOnLogs();
+  spyOnLogs(); freezeLimiter();
   for (const who of [alice, viewer]) exhaust(f.room.id, who.id, 'REQUEST');
   const probes: Array<[string, Socket, object]> = [
     ['weristdas:buzz', alice.client, intent(f.code)], ['weristdas:resync', alice.client, { roomCode: f.code }], ['game:core:read', alice.client, { roomCode: f.code }],
@@ -628,10 +630,10 @@ it('Admission: once an identity is exhausted, further packets of every game entr
 
 it('Admission: a spectator flooding recovery and lifecycle events is cut off early; the host and the players keep working', async () => {
   const f = await fixture('wer-ist-das'), viewer = await lateJoiner(f.room.id, f.code, 'VIEWER', 'Flooder');
-  spyOnLogs();
+  spyOnLogs(); freezeLimiter();
   const recovery = await spam(viewer.client, 120, () => recoveryPayload(f.code), 'game:recovery:command');
   expect(recovery.every(r => r.success === false)).toBe(true);
-  expect(recovery.filter(r => r.error === 'RATE_LIMITED').length).toBeGreaterThanOrEqual(120 - ACTION_LIMITS.REQUEST.capacity - 15);
+  expect(recovery.filter(r => r.error === 'RATE_LIMITED')).toHaveLength(120 - ACTION_LIMITS.REQUEST.capacity); // no refill while frozen: exactly the burst passes
   const denialLines = logLines().filter(l => l.includes('recovery:command')).length;
   expect(denialLines).toBeLessThanOrEqual(ACTION_LIMITS.REQUEST.capacity + 1);
   const pauses = await spam(viewer.client, 60, () => intent(f.code), 'game:pause');
@@ -650,6 +652,7 @@ it('Admission: a spectator flooding recovery and lifecycle events is cut off ear
 
 it('Admission: refused authorisation attempts exhaust their own budget; after that the identity is turned away without database work', async () => {
   const f = await fixture('jeopardy'), viewer = await lateJoiner(f.room.id, f.code, 'VIEWER', 'Prober');
+  freezeLimiter();
   for (let i = 0; i < ACTION_LIMITS.DENIED.capacity; i++) {
     expect(await gameAck(viewer.client, 'jeopardy:judge', { correct: true, ...intent(f.code) })).toMatchObject({ success: false, error: expect.not.stringMatching(/RATE_LIMITED/) });
   }
@@ -662,8 +665,8 @@ it('Admission: refused authorisation attempts exhaust their own budget; after th
 it('Admission: more tabs and a reconnect keep the budget; a stored answer stays retrievable once the hinted time has passed', async () => {
   const f = await fixture('wissensduell'), [player] = f.players, accepted = { optionId: 'b', ...intent(f.code) };
   expect((await gameAck(player.client, 'geo:answer', accepted)).success).toBe(true);
-  exhaust(f.room.id, player.id, 'REQUEST');
   const tab = await connect(); expect((await gameAck(tab, 'room:subscribe', { roomCode: f.code, rejoinToken: player.rejoinToken })).success).toBe(true);
+  exhaust(f.room.id, player.id, 'REQUEST'); // after the reconnect: nothing may refill in between
   const refused = await gameAck(tab, 'geo:answer', accepted);
   expect(refused).toMatchObject({ success: false, error: 'RATE_LIMITED', details: { retryAfterMs: expect.any(Number) } });
   expect(await readsDuring(() => gameAck(tab, 'geo:answer', accepted))).toEqual([]);

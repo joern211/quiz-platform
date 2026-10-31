@@ -52,7 +52,7 @@ interface Bucket { tokens: number; updatedAt: number; rejectedSince: number | nu
 
 export class ActionLimiter {
   private buckets = new Map<string, Bucket>();
-  constructor(private readonly now: () => number = Date.now, private readonly maxKeys = 5000,
+  constructor(private now: () => number = Date.now, private readonly maxKeys = 5000,
     private readonly limits: typeof ACTION_LIMITS = ACTION_LIMITS) {}
 
   /** Consumes one token (`spend=false`: only asks whether one is left); call for server-resolved identities only. */
@@ -87,6 +87,9 @@ export class ActionLimiter {
     }
     for (const key of this.buckets.keys()) { if (this.buckets.size <= this.maxKeys) break; this.buckets.delete(key); }
   }
+
+  /** Replaces the time source (tests freeze refill to make exhausted-state assertions deterministic). */
+  setClock(now: () => number = Date.now): void { this.now = now; }
 
   size(): number { return this.buckets.size; }
 }
