@@ -28,7 +28,7 @@ import {
   ORDERING_SCHEMA_VERSION, OrderingComparisonSchema, OrderingConfigSchema, OrderingError, OrderingRevisionSchema,
   OrderingValueSchema, compareOrdering, orderingComparisonMatchesOrder, orderingConfigKey, validateOrdering,
   validateOrderingReference,
-  type OrderingComparison, type OrderingConfig, type OrderingValue,
+  type OrderingComparison, type OrderingConfig,
 } from '@quiz/shared/ordering';
 import { CoreRuleError, timerAcceptsInput } from './runtimePrimitives.js';
 import { canView, type ProjectionAudience } from './visibility.js';

@@ -158,6 +158,31 @@ describe('N3 OrderingForm: keyboard, focus and submission', () => {
     await userEvent.keyboard('{Enter}');
     expect(screen.getByRole('status')).toHaveFocus();
   });
+  it('does not strand the keyboard on a removed status line: after a retryable error the focus moves to the retry button', async () => {
+    const { set } = mount();
+    send().focus();
+    await userEvent.keyboard('{Enter}');
+    expect(screen.getByRole('status')).toHaveFocus();
+    set({ feedback: { contextKey: CTX, attemptId: `${CTX}#1`, status: 'ERROR', retryable: true, message: 'Netzwerk' } });
+    expect(screen.queryByRole('status')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Erneut senden' })).toHaveFocus();
+  });
+  it('does not pull the focus back to the form later when the user has moved elsewhere', async () => {
+    function Page() {
+      const [fb, setFb] = useStateLike();
+      return (<>
+        <button type="button" onClick={() => setFb({ contextKey: 'c', attemptId: 'c#1', status: 'ERROR', retryable: true, message: 'x' })}>Fehler melden</button>
+        <input aria-label="Woanders" />
+        <OrderingForm config={config} contextKey="c" onSubmit={() => {}} feedback={fb} />
+      </>);
+    }
+    render(<Page />);
+    await userEvent.click(send());
+    screen.getByLabelText('Woanders').focus();
+    await userEvent.click(screen.getByRole('button', { name: 'Fehler melden' }));
+    screen.getByLabelText('Woanders').focus();
+    expect(screen.getByLabelText('Woanders')).toHaveFocus();
+  });
   it('works with a parent that answers synchronously from inside onSubmit', async () => {
     function Parent() {
       const [fb, setFb] = useStateLike();

@@ -169,7 +169,7 @@ describe('N3 submission: a complete permutation of stable item ids', () => {
 
 describe('N3 reference: ordered equivalence groups under the pinned item set', () => {
   const cfg = parsed(config(['aa', 'bb', 'cc', 'dd']));
-  const ref = (groups: unknown, revision: unknown = 'rev-1') => ({ schemaVersion: 1, revision, groups });
+  const ref = (groups: unknown, revision: unknown = 'rev-1') => ({ schemaVersion: 1, revision, groups: groups as string[][] });
   const bad = (raw: unknown) => { const r = validateOrderingReference(cfg, raw); return r.ok ? ['OK'] : r.issues.map(i => `${i.itemId}:${i.code}`); };
   it('accepts the strict case and grouped references that cover every id exactly once', () => {
     expect(validateOrderingReference(cfg, strictOrderingReference('rev-1', ['cc', 'aa', 'dd', 'bb'])).ok).toBe(true);

@@ -41,7 +41,7 @@
 // mistake) is not rendered, instead of being passed along.
 // ============================================================
 
-import { useId, useLayoutEffect, useRef, useState, type FormEvent } from 'react';
+import { useEffect, useId, useLayoutEffect, useRef, useState, type FormEvent } from 'react';
 import { Button } from '@quiz/ui';
 import {
   orderingItemSetKey, orderingValueFromIds, parseOrderingConfig, validateOrdering,
@@ -158,6 +158,10 @@ function OrderingFormInner({ title, config, contextKey, onSubmit, feedback, disa
   const fatal = failed && active?.retryable === false;
   const frozen = pending || confirmed || locked || fatal;
   const unavailable = disabled || frozen || setChanged;
+  const retryable = failed && !fatal;
+  useEffect(() => {
+    if (retryable && !disabled && (document.activeElement === document.body || document.activeElement === null)) submitRef.current?.focus();
+  }, [retryable, disabled]);
 
   const labels = new Map(config.items.map(i => [i.itemId, i] as const));
   const shownIds: readonly string[] = (confirmed || locked) && current.accepted ? current.accepted.itemIds : draft; // no confirmed order yet: the local draft, read-only
@@ -168,10 +172,13 @@ function OrderingFormInner({ title, config, contextKey, onSubmit, feedback, disa
   useLayoutEffect(() => {
     const target = pendingFocus.current;
     if (!target) return;
-    if (target.kind === 'status') { if (statusRef.current) { statusRef.current.focus(); pendingFocus.current = null; } return; }
-    pendingFocus.current = null;
+    pendingFocus.current = null; // always consumed: a wish that finds no target is dropped, never kept to steal the focus later
+    if (target.kind === 'status') { statusRef.current?.focus(); return; }
     buttons.current.get(target.itemId)?.[target.direction]?.focus();
   });
+  // The status line (which got the focus at submit) disappears with a retryable error: do not strand the keyboard on `body`.
+  // Only if the focus really was lost; a user who moved on elsewhere keeps it there.
+  const submitRef = useRef<HTMLButtonElement | null>(null);
 
   function move(index: number, direction: 'up' | 'down') {
     if (unavailable) return;
@@ -249,7 +256,7 @@ function OrderingFormInner({ title, config, contextKey, onSubmit, feedback, disa
       <div className={styles.srOnly} aria-live="polite" aria-atomic="true" data-testid="ordering-live">{announcement}</div>
       {errorText && <p className={styles.cardError} role="alert">{errorText}</p>}
       {statusText && <p ref={statusRef} tabIndex={-1} className={confirmed ? styles.ok : styles.status} role="status">{statusText}</p>}
-      <Button type="submit" size="lg" loading={pending} disabled={unavailable} className={styles.submit}>
+      <Button ref={submitRef} type="submit" size="lg" loading={pending} disabled={unavailable} className={styles.submit}>
         {failed && !fatal ? 'Erneut senden' : submitLabel}
       </Button>
     </form>
