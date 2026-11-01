@@ -103,6 +103,8 @@ describe('N5 deal: contract and private state', () => {
     }
     const base = dealInput();
     for (const extra of ['kind', 'schemaVersion', 'released', 'seed', 'autoAssign', 'teamRoles']) expect(message(() => createSecretRoleDeal({ ...base, [extra]: 1 })), extra).toBe('SECRET_INFO_DEAL_INVALID');
+    const polluted = JSON.parse(`{"__proto__": {"role": "x"}, ${JSON.stringify(base).slice(1)}`) as unknown; // an OWN "__proto__" key, as JSON.parse creates it
+    expect(message(() => createSecretRoleDeal(polluted))).toBe('SECRET_INFO_DEAL_INVALID');
     for (const key of Object.keys(base)) expect(message(() => createSecretRoleDeal(Object.fromEntries(Object.entries(base).filter(([name]) => name !== key)))), `missing ${key}`).toBe('SECRET_INFO_DEAL_INVALID');
     expect(message(() => fresh({ assignments: [{ participantId: 'p1', roleId: ROLE_Z, extra: 1 }, ...base.assignments.slice(1)] }))).toBe('SECRET_INFO_DEAL_INVALID');
     expect(message(() => fresh({ fragments: [{ ...frag('fragalpha', 'A', ['p1']), extra: 1 }] }))).toBe('SECRET_INFO_DEAL_INVALID');

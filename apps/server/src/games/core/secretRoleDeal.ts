@@ -296,7 +296,9 @@ export function projectSecretInfo(audience: ProjectionAudience, rawState: unknow
     own,
     released: state.fragments.filter(f => releasedIds.has(f.fragmentId)).map(view),
   };
-  return SecretInfoProjectionSchema.parse(projection); // fresh object, strict allowlist re-checked
+  const checked = SecretInfoProjectionSchema.safeParse(projection); // fresh object, strict allowlist re-checked
+  if (!checked.success) throw new SecretInfoError('SECRET_INFO_STATE_INVALID'); // never a ZodError: its message could echo content
+  return checked.data;
 }
 
 export { SecretInfoError } from '@quiz/shared/secretInfo';
