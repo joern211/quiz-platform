@@ -30,6 +30,7 @@
 }
 .judgeOk { background: var(--ok); color: var(--on-ok); border-color: var(--ok); }
 .judgeWrong { background: var(--danger); color: var(--on-danger); border-color: var(--danger); }
+.endButton::before { content: '⚠ ' / ''; }
 .endButton { background: transparent; color: var(--danger); border-color: var(--danger); margin-left: auto; }
 .judgeOk:disabled, .judgeWrong:disabled, .endButton:disabled { opacity: 0.5; cursor: not-allowed; }
 .buzz {

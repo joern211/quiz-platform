@@ -48,6 +48,7 @@
 
 /* Danger – kritische Aktion, immer mit eindeutigem Text */
 .danger { background: var(--danger); color: var(--on-danger); }
+.danger::before { content: '⚠' / ''; font-size: 0.95em; }
 .danger:hover:not(:disabled) { filter: brightness(1.06); box-shadow: 0 0 0 4px var(--danger-bg); }
 
 .fullWidth { width: 100%; }

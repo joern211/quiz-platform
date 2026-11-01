@@ -148,3 +148,27 @@ test('UI-4: vorzeitiges Beenden verlangt Bestätigung; Abbrechen lässt die Part
     await pa.waitForURL(new RegExp(`/raum/${code}/ergebnis$`));
   } finally { await room.close(); }
 });
+
+test('UI-5: Spielstart während offenem Darstellungsdialog – Route folgt dem Server, Dialog bleibt bedienbar, Spiel startet normal', async ({ browser }) => {
+  const room = await wissensduellRoom(browser);
+  try {
+    const { code, h, pa } = room;
+    const player = trackSocket(pa);
+    await pa.getByRole('button', { name: /Darstellung/ }).click();
+    const dialog = pa.getByRole('dialog', { name: 'Darstellung' });
+    await dialog.getByText('Grün', { exact: true }).click();
+    const before = player.emits.length;
+    // Host startet, während der Spieler noch im Dialog ist: Server-Ereignis navigiert den Spieler
+    await Promise.all([pa.waitForURL(new RegExp(`/raum/${code}/spiel$`)), h.getByRole('button', { name: 'Spiel starten' }).click()]);
+    await expect(dialog).toBeVisible();
+    await dialog.getByText('Hell', { exact: true }).click();
+    await dialog.getByRole('button', { name: 'Fertig' }).click();
+    await expect(dialog).toHaveCount(0);
+    expect(player.emits.slice(before).filter(name => !READS.has(name) && name !== 'room:subscribe')).toEqual([]);
+    const option = pa.getByRole('button', { name: /^A\b/ }).first();
+    await expect(option).toBeEnabled({ timeout: 15000 });
+    await option.click();
+    await expect(pa.getByRole('status').filter({ hasText: 'Antwort gespeichert.' })).toBeVisible();
+    expect(await appearance(pa)).toEqual({ theme: 'light', accent: 'gruen' });
+  } finally { await room.close(); }
+});

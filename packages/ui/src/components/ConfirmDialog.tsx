@@ -35,7 +35,7 @@ export function ConfirmDialog({ open, title, children, confirmLabel, cancelLabel
         <>
           <Button ref={cancelRef} variant="secondary" onClick={onCancel} disabled={pending}>{cancelLabel}</Button>
           <Button variant={danger ? 'danger' : 'primary'} onClick={onConfirm} loading={pending}>
-            {danger && <span aria-hidden="true">⚠</span>} {confirmLabel}
+            {confirmLabel}
           </Button>
         </>
       )}

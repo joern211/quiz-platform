@@ -14,7 +14,7 @@ export function Logo({ showText = true, size = 'md' }: LogoProps) {
   return (
     <span className={`${styles.logo} ${styles[size]}`}>
       <span className={styles.mark} aria-hidden="true">q</span>
-      {showText && <span className={styles.text}>Quiz Plattform</span>}
+      {showText && <span className={styles.text}>Online Quiz Plattform</span>}
     </span>
   );
 }
