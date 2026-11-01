@@ -9,6 +9,7 @@
     ".": "./src/index.ts",
     "./numeric": "./src/numeric.ts",
     "./textcard": "./src/textcard.ts",
+    "./ordering": "./src/ordering.ts",
     "./schemas": "./src/schemas/index.ts",
     "./types": "./src/types/index.ts"
   },

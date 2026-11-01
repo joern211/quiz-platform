@@ -16,6 +16,8 @@
 // feedback (other round, older attempt) changes nothing: not the draft, not the
 // held state, not the lock. The field keeps the last applicable feedback, so
 // `feedback: null` or a stale object means "no new information", never "reset".
+// The last server-confirmed value (applicable SUBMITTED/LOCKED with `value`) is held
+// apart from the status: a LOCKED message without `value` keeps showing it.
 // Content-identical feedback with a new object identity is not new information
 // either (typical parent re-render). A retry that fails with the very same error
 // is distinguished by echoing `attemptId`. A context change is the only reset.
@@ -83,7 +85,9 @@ export function numericErrorMessage(code: string, meta: NumericPublicInput): str
 }
 
 interface Attempt { id: string; answered: boolean }
-interface Session { context: string; seq: number; held: NumberFieldFeedback | null; attempt: Attempt | null }
+/** `confirmed`: the last server-CONFIRMED value (from applicable SUBMITTED/LOCKED feedback). Kept apart from `held`, because a later
+ *  status message without `value` (e.g. the round lock) replaces `held` but must not erase what the server accepted. */
+interface Session { context: string; seq: number; held: NumberFieldFeedback | null; attempt: Attempt | null; confirmed: NumericValue | null }
 /** Content identity of a feedback (object identity is irrelevant). */
 const signature = (fb: NumberFieldFeedback | null): string =>
   fb ? JSON.stringify([fb.contextKey, fb.attemptId ?? null, fb.status, fb.value ?? null, fb.message ?? null, fb.retryable ?? null]) : '';
@@ -92,12 +96,12 @@ export function NumberField({ label, input, contextKey, onSubmit, feedback, disa
   const id = useId();
   const [draft, setDraft] = useState('');
   const [localError, setLocalError] = useState<string | null>(null);
-  const [session, setSession] = useState<Session>({ context: contextKey, seq: 0, held: null, attempt: null });
+  const [session, setSession] = useState<Session>({ context: contextKey, seq: 0, held: null, attempt: null, confirmed: null });
 
   // Derived while rendering (no effect, no extra frame): context reset, then absorption of applicable feedback.
   let current = session;
   if (current.context !== contextKey) {
-    current = { context: contextKey, seq: current.seq, held: null, attempt: null };
+    current = { context: contextKey, seq: current.seq, held: null, attempt: null, confirmed: null }; // the only reset, incl. the confirmed value
     setDraft('');
     setLocalError(null);
   }
@@ -107,6 +111,9 @@ export function NumberField({ label, input, contextKey, onSubmit, feedback, disa
     current = { ...current, held: feedback,
       attempt: current.attempt && !current.attempt.answered ? { ...current.attempt, answered: true } : current.attempt };
   }
+  // Only applicable feedback may set or change the confirmed value; a status message without `value` never deletes it.
+  if (applicable && feedback && (feedback.status === 'SUBMITTED' || feedback.status === 'LOCKED') && feedback.value
+    && JSON.stringify(current.confirmed) !== JSON.stringify(feedback.value)) current = { ...current, confirmed: feedback.value };
   if (current !== session) setSession(current);
 
   const active = current.held;
@@ -118,7 +125,7 @@ export function NumberField({ label, input, contextKey, onSubmit, feedback, disa
   const fatal = failed && active?.retryable === false;
   const readOnly = pending || confirmed || locked || fatal;
   const unavailable = disabled || pending || confirmed || locked || fatal;
-  const shown = (confirmed || locked) && active?.value ? formatNumericCanonical(active.value, ',') : draft;
+  const shown = (confirmed || locked) && current.confirmed ? formatNumericCanonical(current.confirmed, ',') : draft; // no confirmed value yet: the local draft, read-only
 
   function validate(text: string): string | null {
     const parsed = parseNumericInputPublic(input, text);
