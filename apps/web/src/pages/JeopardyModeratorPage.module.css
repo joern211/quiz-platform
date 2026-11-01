@@ -22,7 +22,6 @@
 .scoreRow { display: flex; align-items: center; gap: var(--space-3); padding: 10px 0; border-bottom: 1px solid var(--border); }
 .scoreRow:last-child { border-bottom: 0; }
 .scoreRow.self { font-weight: 750; }
-.scoreRow.self .playerName::after { content: " (Du)"; color: var(--muted); font-weight: 600; }
 .scoreRow.winner { background: var(--accent-tint); border-radius: 12px; padding-inline: 10px; border-bottom-color: transparent; }
 .rank { min-width: 2ch; color: var(--muted); font-weight: 700; }
 .playerName { flex: 1; min-width: 0; overflow-wrap: anywhere; }

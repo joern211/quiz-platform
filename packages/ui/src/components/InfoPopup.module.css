@@ -11,9 +11,9 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 32px;
-  height: 32px;
-  border: 1.5px solid var(--border);
+  width: var(--tap, 44px);
+  height: var(--tap, 44px);
+  border: 1px solid var(--border-strong);
   border-radius: 50%;
   background: var(--surface-2);
   color: var(--muted);
@@ -26,32 +26,37 @@
   background: var(--accent-tint);
   border-color: var(--accent);
   color: var(--accent);
-  
+
 }
 
 .trigger svg {
-  width: 14px;
-  height: 14px;
+  width: 18px;
+  height: 18px;
 }
 
 .popup {
-  position: absolute;
-  bottom: calc(100% + 8px);
-  left: 50%;
-  transform: translateX(-50%);
-  width: min(280px, calc(100vw - 32px));
+  /* Per Portal am <body> und fest positioniert: kann von keiner Karte (overflow) abgeschnitten werden.
+     Position/Breite setzt die Komponente, an den Viewport geklemmt. */
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: min(280px, calc(100vw - 16px));
+  max-height: calc(100dvh - 16px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
   background: var(--surface);
-  border: 1px solid var(--border);
+  color: var(--fg);
+  border: 1px solid var(--border-strong);
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow-lg);
-  z-index: 200;
-  animation: popup-in 0.25s cubic-bezier(0.22, 1, 0.36, 1) both;
-  overflow: hidden;
+  z-index: 450;
+  animation: popup-in 0.18s ease-out both;
 }
+.popup:focus { outline: none; }
 
 @keyframes popup-in {
-  from { opacity: 0; transform: translateX(-50%) translateY(8px) scale(0.95); }
-  to   { opacity: 1; transform: translateX(-50%) translateY(0) scale(1); }
+  from { opacity: 0; }
+  to   { opacity: 1; }
 }
 
 .header {
@@ -75,12 +80,13 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 32px;
-  height: 32px;
-  border: none;
+  width: var(--tap, 44px);
+  height: var(--tap, 44px);
+  flex-shrink: 0;
+  border: 1px solid var(--border);
   background: var(--surface-2);
   border-radius: 50%;
-  color: var(--muted);
+  color: var(--fg);
   font-size: 1rem;
   cursor: pointer;
   transition: all 0.2s;

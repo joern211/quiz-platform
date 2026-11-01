@@ -54,8 +54,27 @@ async function ready(page) {
 
 async function staticPages(browser) {
   const c = await ctx(browser); const p = await c.newPage();
-  for (const [name, url] of [['home', '/'], ['kategorien', '/kategorien'], ['kategorie-wissen', '/kategorie/wissen'], ['spiel-wissensduell', '/spiel/wissensduell'], ['beitreten', '/beitreten'], ['zuschauen', '/zuschauen'], ['anmelden', '/moderator/anmelden'], ['404', '/gibt-es-nicht']]) {
+  for (const [name, url] of [['home', '/'], ['kategorien', '/kategorien'], ['spiel-wissensduell', '/spiel/wissensduell'], ['beitreten', '/beitreten'], ['zuschauen', '/zuschauen'], ['anmelden', '/moderator/anmelden'], ['404', '/gibt-es-nicht']]) {
     await p.goto(BASE + url); await shot(p, `static-${name}`);
+  }
+  // Echte Kategorien: Überschrift UND erwartete Spielkarte prüfen, dann Info-Popup öffnen und Lage messen
+  for (const [slug, heading, games] of [['quiz-wissen', 'Quiz & Wissen', ['Wissensduell']], ['buzzer-reaktion', 'Buzzer & Reaktion', ['Jeopardy', 'Wer ist das?']]]) {
+    await p.goto(`${BASE}/kategorie/${slug}`);
+    await p.getByRole('heading', { level: 1, name: heading }).waitFor({ timeout: 5000 });
+    for (const game of games) await p.getByRole('heading', { level: 3, name: game, exact: true }).waitFor({ timeout: 5000 });
+    await shot(p, `static-kategorie-${slug}`);
+    for (const game of games) {
+      await p.getByRole('button', { name: `Info zu ${game}` }).click();
+      const dialog = p.getByRole('dialog', { name: game });
+      await dialog.waitFor();
+      const box = await dialog.boundingBox(), vw = p.viewportSize().width, vh = p.viewportSize().height;
+      if (!box || box.x < 0 || box.y < 0 || box.x + box.width > vw + 0.5 || box.y + box.height > vh + 0.5) problems.push(`${slug}/${game}: Info-Popup außerhalb des Viewports ${JSON.stringify(box)}`);
+      // tatsächliche Treffbarkeit: Ecken und Mitte gehören zum Popup (kein Clipping/Überdecken)
+      const hits = await dialog.evaluate(el => { const r = el.getBoundingClientRect(); return [[r.left + 4, r.top + 4], [r.right - 4, r.top + 4], [r.left + 4, r.bottom - 4], [r.right - 4, r.bottom - 4], [r.left + r.width / 2, r.top + r.height / 2]].every(([x, y]) => el.contains(document.elementFromPoint(x, y))); });
+      if (!hits) problems.push(`${slug}/${game}: Info-Popup nicht vollständig treffbar`);
+      await shot(p, `static-kategorie-${slug}-info-${game.replace(/\W+/g, '')}`, { full: false });
+      await p.keyboard.press('Escape');
+    }
   }
   // mobile menu
   const toggle = p.getByRole('button', { name: /Menü öffnen/ });

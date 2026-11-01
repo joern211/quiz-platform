@@ -179,3 +179,52 @@ test('UI-5: Spielstart während offenem Darstellungsdialog – Route folgt dem S
     expect(await appearance(pa)).toEqual({ theme: 'light', accent: 'gruen' });
   } finally { await room.close(); }
 });
+
+// R1 (Prüfbericht PR #29): Infofenster der Spielkarten dürfen nicht von der Karte (overflow) oder dem Viewport abgeschnitten werden.
+for (const [width, height, theme] of [[320, 640, 'dark'], [390, 844, 'light'], [430, 932, 'dark'], [1280, 800, 'light']] as const) {
+  test(`UI-6: Info-Popups echter Kategorien sind bei ${width}px (${theme}) vollständig sichtbar und treffbar`, async ({ browser }) => {
+    const context = await browser.newContext({ viewport: { width, height }, isMobile: width < 500, hasTouch: width < 500 });
+    await context.addInitScript(t => localStorage.setItem('quiz-appearance', JSON.stringify({ v: 1, theme: t, accent: 'lila' })), theme);
+    const page = await context.newPage();
+    try {
+      for (const [slug, heading, games] of [['quiz-wissen', 'Quiz & Wissen', ['Wissensduell']], ['buzzer-reaktion', 'Buzzer & Reaktion', ['Jeopardy', 'Wer ist das?']]] as const) {
+        await page.goto(`${BASE}/kategorie/${slug}`);
+        await expect(page.getByRole('heading', { level: 1, name: heading })).toBeVisible();
+        for (const game of games) {
+          await expect(page.getByRole('heading', { level: 3, name: game, exact: true })).toBeVisible();
+          const trigger = page.getByRole('button', { name: `Info zu ${game}` });
+          await trigger.scrollIntoViewIfNeeded();
+          await trigger.click();
+          const dialog = page.getByRole('dialog', { name: game });
+          await expect(dialog).toBeVisible();
+          const box = (await dialog.boundingBox())!;
+          expect(box.x).toBeGreaterThanOrEqual(0); expect(box.y).toBeGreaterThanOrEqual(0);
+          expect(box.x + box.width).toBeLessThanOrEqual(width + 0.5); expect(box.y + box.height).toBeLessThanOrEqual(height + 0.5);
+          // Treffbarkeit: Ecken, Mitte und jede Regelzeile liegen tatsächlich oben auf dem Popup
+          const allHit = await dialog.evaluate(el => {
+            const points: Array<[number, number]> = [];
+            const r = el.getBoundingClientRect();
+            const i = 8; // innerhalb der abgerundeten Ecken (Radius 20 px), aber nahe am Rand
+            points.push([r.left + i, r.top + i], [r.right - i, r.top + i], [r.left + i, r.bottom - i], [r.right - i, r.bottom - i], [r.left + r.width / 2, r.top + r.height / 2]);
+            for (const line of el.querySelectorAll('li, p, h4')) { const b = line.getBoundingClientRect(); points.push([b.left + 2, b.top + b.height / 2], [b.right - 2, b.top + b.height / 2]); }
+            return points.filter(([x, y]) => !el.contains(document.elementFromPoint(x, y))).map(([x, y]) => `${Math.round(x)},${Math.round(y)}`);
+          });
+          expect(allHit, 'Punkte, an denen das Popup verdeckt/abgeschnitten ist').toEqual([]);
+          expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1)).toBe(true);
+          // Schließen per echtem Mausklick an der Position des Buttons, Fokus zurück an den Trigger
+          const close = dialog.getByRole('button', { name: 'Schließen' }); const cb = (await close.boundingBox())!;
+          expect(cb.width).toBeGreaterThanOrEqual(44);
+          await page.mouse.click(cb.x + cb.width / 2, cb.y + cb.height / 2);
+          await expect(dialog).toHaveCount(0);
+          await expect(trigger).toBeFocused();
+          // Tastatur: öffnen, Escape schließt und gibt den Fokus zurück
+          await page.keyboard.press('Enter');
+          await expect(dialog).toBeVisible();
+          await page.keyboard.press('Escape');
+          await expect(dialog).toHaveCount(0);
+          await expect(trigger).toBeFocused();
+        }
+      }
+    } finally { await context.close(); }
+  });
+}
