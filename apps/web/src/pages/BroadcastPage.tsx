@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import { type RoomState, getSocket, connectSocket, disconnectSocket } from '../lib/socket';
+import { phaseLabel } from '../components/GameShell';
 import styles from './BroadcastPage.module.css';
 type PublicState = { phase: string; prompt?: string; options?: { id: string; text: string }[]; image?: string; mediaType?: string; mediaUrl?: string; scores: Record<string, number>; names: Record<string, string>; end: number | null; answer?: string };
 const initial: PublicState = { phase: 'LOBBY', scores: {}, names: {}, end: null };
@@ -24,11 +25,11 @@ export function BroadcastPage() {
     const poll = window.setInterval(refresh, 2000), clock = window.setInterval(() => setNow(Date.now()), 250);
     return () => { live = false; clearInterval(poll); clearInterval(clock); socket.off('connect', subscribe); socket.off('room:snapshot', room); socket.off('room:closed', closed); socket.off('game:started', refresh); socket.off('game:core:changed', refresh); socket.off('geo:question', refresh); socket.off('geo:reveal', refresh); socket.off('geo:timer-expired', refresh); socket.off('jeopardy:field:open', refresh); socket.off('jeopardy:reveal', refresh); socket.off('weristdas:update', refresh); disconnectSocket(); };
   }, [code]);
-  return <section className={styles.page} aria-label="Broadcast"><header><h1>{name}</h1><p>Raum {code} · DISPLAY · {state.phase}</p></header>{error && <p role="alert">{error}</p>}
+  return <section className={styles.page} aria-label="Broadcast"><header className={styles.head}><h1>{name}</h1><p>Raum {code} · DISPLAY · <span data-phase={state.phase}>{state.phase === 'LOBBY' ? 'Lobby' : phaseLabel(state.phase)}</span></p></header>{error && <p role="alert" className="notice notice--error">{error}</p>}
     {state.end && <p className={styles.timer}>{Math.max(0, Math.ceil((state.end - now) / 1000))} s</p>}
     {state.prompt && <h2>{state.prompt}</h2>}{state.image && <img src={state.image} alt="Aktuelles Spielbild" />}
     {state.mediaUrl && (state.mediaType === 'audio' ? <audio src={state.mediaUrl} controls /> : <img src={state.mediaUrl} alt="Medium zur aktuellen Frage" />)}
-    {state.options && <ol>{state.options.map(option => <li key={option.id}>{option.text}</li>)}</ol>}
-    <div className={styles.scores}>{Object.entries(state.scores).sort((a, b) => b[1] - a[1]).map(([id, score]) => <div key={id}><strong>{state.names[id] ?? 'Spieler'}</strong><span>{score}</span></div>)}</div>
+    {state.options && <ol className={styles.options}>{state.options.map((option, index) => <li key={option.id}><span className={styles.letter} aria-hidden="true">{String.fromCharCode(65 + index)}</span>{option.text}</li>)}</ol>}
+    <div className={styles.scores}>{Object.entries(state.scores).sort((a, b) => b[1] - a[1]).map(([id, score]) => <div key={id}><strong>{state.names[id] ?? 'Spieler'}</strong><span className={styles.score}>{score}</span></div>)}</div>
   </section>;
 }

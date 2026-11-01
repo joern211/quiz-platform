@@ -1,9 +1,19 @@
-.page { max-width: 1600px; margin: auto; padding: var(--space-6); font-size: clamp(1.3rem, 2.5vw, 2.8rem); text-align: center; }
-.page h1 { font-size: clamp(2rem, 4vw, 4rem); }
-.page h2 { font-size: clamp(2rem, 4vw, 4.5rem); }
-.page header p { color: var(--muted); }
-.page img { max-width: 100%; max-height: 55vh; object-fit: contain; }
-.timer { font-variant-numeric: tabular-nums; font-size: 4rem; }
-.scores { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: var(--space-4); }
-.scores > div { display: grid; padding: var(--space-4); border: 1px solid var(--border); border-radius: var(--radius-md, 8px); }
-.page ol { text-align: left; }
+/* DISPLAY – read-only Fernseh-/Beameransicht: große Bühne, keine Aktionen */
+.page {
+  max-width: 1600px; margin: 0 auto; padding: clamp(16px, 3vw, 48px); display: grid; gap: clamp(16px, 2.5vw, 36px);
+  font-size: clamp(1.2rem, 2.2vw, 2.4rem); text-align: center;
+  background: radial-gradient(ellipse at 50% 0, var(--stage-glow), transparent 60%);
+  min-height: calc(100dvh - 68px);
+}
+.head h1 { font-size: clamp(1.6rem, 3.4vw, 3.4rem); letter-spacing: -0.04em; }
+.head p { color: var(--muted); font-size: clamp(0.95rem, 1.4vw, 1.4rem); letter-spacing: 0.06em; }
+.page h2 { font-size: clamp(2rem, 4.4vw, 4.6rem); letter-spacing: -0.035em; line-height: 1.12; max-width: 24ch; margin: 0 auto; overflow-wrap: anywhere; }
+.page img { max-width: 100%; max-height: 55vh; object-fit: contain; margin: 0 auto; border-radius: var(--radius-lg); }
+.timer { justify-self: center; font-variant-numeric: tabular-nums; font-size: clamp(2.4rem, 5vw, 5rem); font-weight: 850; padding: 0 0.6em; border-radius: 999px; background: var(--surface); border: 1px solid var(--border); }
+.options { list-style: none; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: clamp(10px, 1.5vw, 24px); text-align: left; padding: 0; }
+.options li { display: flex; align-items: center; gap: 0.6em; padding: 0.55em 0.9em 0.55em 0.55em; border-radius: 999px; background: var(--surface); border: 1px solid var(--border-strong); font-weight: 700; overflow-wrap: anywhere; }
+.letter { display: grid; place-items: center; width: 1.8em; height: 1.8em; flex-shrink: 0; border-radius: 50%; border: 1px solid var(--border-strong); background: var(--surface-2); font-size: 0.75em; font-weight: 850; }
+.scores { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: var(--space-4); }
+.scores > div { display: grid; gap: 4px; padding: var(--space-4); border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); overflow-wrap: anywhere; }
+.score { font-size: 1.4em; font-weight: 850; font-variant-numeric: tabular-nums; }
+@media (max-width: 700px) { .options { grid-template-columns: 1fr; } }

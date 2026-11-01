@@ -20,6 +20,7 @@
 .inviteHint { font-size: 0.85rem; margin-top: 6px; }
 .codeActions { display: flex; align-items: center; gap: var(--space-4); flex-wrap: wrap; }
 .qr { display: grid; justify-items: center; gap: 4px; margin: 0; }
+.qr[hidden] { display: none; }
 .qrCode { width: 96px; height: 96px; border-radius: 10px; background: #fff; padding: 4px; }
 .qrHint { font-size: 0.72rem; color: var(--muted); }
 

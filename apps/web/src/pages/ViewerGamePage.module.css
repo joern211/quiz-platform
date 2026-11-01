@@ -8,7 +8,8 @@
 .option.correct { border: 2px solid var(--ok); background: var(--ok-bg); }
 .correctMark { flex-shrink: 0; font-size: 0.8rem; font-weight: 800; color: var(--ok); padding: 3px 10px; border: 1px solid var(--ok); border-radius: 999px; }
 .optionLetter { display: grid; place-items: center; width: 36px; height: 36px; border-radius: 50%; border: 1px solid var(--border-strong); background: var(--surface-2); font-size: 0.85rem; font-weight: 800; flex-shrink: 0; }
-.optionText { flex: 1; min-width: 0; overflow-wrap: anywhere; color: var(--fg); }
+.optionText { flex: 1 1 6rem; min-width: 0; overflow-wrap: break-word; color: var(--fg); }
+.option { flex-wrap: wrap; }
 .scoreCard { position: sticky; top: 88px; }
 .scoreCard h2 { font-size: 1rem; margin-bottom: var(--space-3); }
 .scoreList { display: grid; }

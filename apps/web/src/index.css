@@ -267,3 +267,4 @@ code, kbd { font-family: var(--font-mono); }
 .form-stack > label > select, .form-stack > label > input { width: 100%; }
 .form-stack > button { justify-self: start; }
 .form-title { font-weight: 750; color: var(--fg); }
+[hidden] { display: none !important; }

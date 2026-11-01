@@ -19,7 +19,7 @@
 
 .options { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-3); text-align: left; }
 .option {
-  display: flex; align-items: center; gap: var(--space-3); min-height: 64px; padding: 12px 18px 12px 12px;
+  display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2) var(--space-3); min-height: 64px; padding: 12px 18px 12px 12px;
   background: var(--surface); color: var(--fg); border: 1px solid var(--border-strong); border-radius: 999px;
   font: inherit; font-size: 1.02rem; font-weight: 650; cursor: pointer; text-align: left;
   transition: border-color var(--transition-fast), background var(--transition-fast), transform var(--transition-fast);
@@ -33,8 +33,8 @@
 .option.wrong { border: 2px dashed var(--danger); background: var(--danger-bg); padding: 11px 17px 11px 11px; }
 .option.eliminated { opacity: 0.4; text-decoration: line-through; }
 .optionLetter { display: grid; place-items: center; width: 36px; height: 36px; border-radius: 50%; border: 1px solid var(--border-strong); background: var(--surface-2); font-size: 0.85rem; font-weight: 800; flex-shrink: 0; color: var(--fg); }
-.optionText { flex: 1; min-width: 0; overflow-wrap: anywhere; }
-.mark { flex-shrink: 0; font-size: 0.78rem; font-weight: 800; padding: 3px 10px; border-radius: 999px; background: var(--surface); border: 1px solid var(--border); }
+.optionText { flex: 1 1 6rem; min-width: 0; overflow-wrap: break-word; }
+.mark { flex-shrink: 0; margin-left: auto; font-size: 0.78rem; font-weight: 800; padding: 3px 10px; border-radius: 999px; background: var(--surface); border: 1px solid var(--border); }
 .option.correct .mark { color: var(--ok); border-color: var(--ok); }
 .option.wrong .mark { color: var(--danger); border-color: var(--danger); }
 
