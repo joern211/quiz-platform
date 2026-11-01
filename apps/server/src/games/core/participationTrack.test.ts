@@ -340,6 +340,14 @@ describe('N6 mutations: lives, elimination, versions', () => {
     expect(s.version).toBe(0);
     expect(s.actors.map(a => a.lives)).toEqual(START);
   });
+  it('refuses a change that would push the local version beyond a safe integer — a coded error, no partial state, no wrap-around', () => {
+    const edge = parseParticipationTrackState({ ...clone(fresh()), version: Number.MAX_SAFE_INTEGER });
+    expect(edge.version).toBe(Number.MAX_SAFE_INTEGER); // a valid, loadable state
+    const frozen = deepFreeze(clone(edge));
+    expect(message(() => changeLives(frozen, { scope: scopeOf(frozen), expectedVersion: Number.MAX_SAFE_INTEGER, actorId: 'p1', delta: -1, now: 1 }))).toBe('PARTICIPATION_STATE_INVALID');
+    expect(message(() => eliminateActor(frozen, { scope: scopeOf(frozen), expectedVersion: Number.MAX_SAFE_INTEGER, actorId: 'p1', now: 1 }))).toBe('PARTICIPATION_STATE_INVALID');
+    expect(frozen).toEqual(edge);
+  });
   it('rejects a stale scope without any state change: run, track, roster revision, actor kind, malformed', () => {
     const s = deepFreeze(fresh());
     const base = scopeOf(s);
