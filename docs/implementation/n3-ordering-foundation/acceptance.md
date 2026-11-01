@@ -9,7 +9,7 @@ Base: `main` @ `b38df2bb665dc77c5a29d18156251046a31e1967` (N2 inkl. R1/R2; main-
 | `pnpm typecheck` | 0 Fehler |
 | `pnpm lint` | 0 Fehler, 109 Warnungen — identisch zur Base, keine aus neuen Dateien |
 | `pnpm build` (Server `tsc` + Web `vite build`) | erfolgreich |
-| `pnpm --filter @quiz/server test` (frische DB) | **80 Dateien, 881 Tests bestanden**, 0 übersprungen (Base 818; +63 = 28 `ordering.test.ts` + 35 `orderingSubmission.test.ts`). Ein früherer Lauf auf wiederverwendeter DB zeigte einen Dedupe-Treffer in `content.integration` (kein Codefehler, siehe `review.md` E5) |
+| `pnpm --filter @quiz/server test` (frische DB) | **80 Dateien, 881 Tests bestanden**, 0 übersprungen (Base 818; +63 = 28 `ordering.test.ts` + 35 `orderingSubmission.test.ts`). Ein früherer Lauf auf wiederverwendeter DB und der erste CI-Lauf (Attempt 1) zeigten einen Dedupe-Treffer in `content.integration` (vorbestehender Zufalls-Flake des Audio-Tests, kein N3-Code; Wiederholung grün, siehe `review.md` E5) |
 | `pnpm --filter @quiz/web test` | **38 Dateien, 321 Tests bestanden** (Base 276; +5 `NumberField.test.tsx`, +40 `OrderingForm.test.tsx`) |
 | `pnpm exec playwright test --project=chromium` (frische DB, wie CI) | **45 von 45 bestanden** (3,8 min) |
 | `git diff --check origin/main` | sauber |
@@ -17,6 +17,15 @@ Base: `main` @ `b38df2bb665dc77c5a29d18156251046a31e1967` (N2 inkl. R1/R2; main-
 | Browser-Harness (Chromium) | `apps/web/harness/n3-ordering/check.cjs`: 48 Kombinationen (320/390/430/1280 px × hell/dunkel × 6 Akzente) ohne Überlauf (`documentElement.clientWidth/scrollWidth`), alle Buttons ≥ 44 × 44 px, Abgeben-Button erreichbar, keine Konsolenfehler; Tastatur: Fokusring `solid 3px`, drei Moves per Enter/Space/Enter, Fokus bleibt auf dem benutzten Button (auch am Rand), kein Wrap-around, Shift+Tab → „nach oben“, `__submits` nach Moves = 0, nach explizitem Abgeben genau eine vollständige Reihenfolge, Fokus danach auf der Statuszeile, Moves danach deaktiviert; Pending/Confirmed/Locked: alle Move-Buttons und Abgeben deaktiviert, bestätigte Reihenfolge `cc,aa,dd,bb` statt Startliste |
 
 Die ERROR/WARN-Zeilen im Serverlog stammen aus bestehenden Negativtests (`STATE_INVARIANT_FAILED`, Asset-Repair).
+
+## Remote-CI (GitHub Actions, PR [#32](https://github.com/joern211/quiz-platform/pull/32))
+
+| Head | Art | Lauf | Ergebnis |
+|---|---|---|---|
+| `3900777` (Code `a94025b`) | Pull-Request-CI, **Attempt 1** | [41326363071](https://github.com/joern211/quiz-platform/actions/runs/41326363071) | `CI`-Job **rot**: 1 Fehler (`content.integration`, Audio-Dedupe 200 statt 201), 880/881 Tests; `E2E` nicht gestartet |
+| `3900777` (Code `a94025b`) | derselbe Lauf, **Attempt 2** (einmal „Re-run failed jobs“, kein Code geändert) | [41326363071](https://github.com/joern211/quiz-platform/actions/runs/41326363071) | `CI`-Job **grün** (Server 881, Web 321), `E2E`-Job **grün** |
+
+Der Attempt-1-Fehler ist ein vorbestehender Zufalls-Flake des Audio-Tests (zufällige Frequenz, 4 Uploads je Lauf aus 400 Werten ⇒ ≈ 1,5 % Kollisionsrisiko; siehe `review.md` E5). Er beweist keinen Mangel in N3, wurde aber **nicht** durch eine Codeänderung beseitigt, sondern nur durch die Wiederholung belegt. Spätere Commits ändern nur Dokumentation; der Lauf am letzten Head steht im PR (nicht im Repo, um keinen Doku-Regress zu erzeugen).
 
 ## Zählerableitung (aus echten Läufen)
 
