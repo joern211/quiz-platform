@@ -31,7 +31,9 @@ export type NumericErrorCode = typeof NUMERIC_ERROR_CODES[number];
 
 /** Thrown by the throwing helpers; `message` equals `code` like CoreRuleError (wire-stable, no values). */
 export class NumericError extends Error {
-  constructor(readonly code: NumericErrorCode) { super(code); this.name = 'NumericError'; }
+  // No parameter property: @quiz/shared is loaded as TypeScript by plain Node (strip-only mode) in dist/app.js.
+  readonly code: NumericErrorCode;
+  constructor(code: NumericErrorCode) { super(code); this.code = code; this.name = 'NumericError'; }
 }
 
 // ── Value ────────────────────────────────────────────────────

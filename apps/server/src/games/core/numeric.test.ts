@@ -1,3 +1,5 @@
+import { execFileSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import {
   NUMERIC_MAX_ABS_UNITS, NumericError, checkNumericTolerance, evaluateNumeric, formatNumericCanonical,
@@ -283,5 +285,14 @@ describe('N1 evaluation: neutral, exact, independent reference values', () => {
     expect(grouped).toEqual([{ absoluteDeviationUnits: 0, ids: ['d'] }, { absoluteDeviationUnits: 10, ids: ['a', 'b'] }, { absoluteDeviationUnits: 30, ids: ['c'] }]);
     expect(groupByDistance([...entries].reverse(), v(100))).toEqual(grouped);
     expect(groupByDistance([], v(1))).toEqual([]);
+  });
+});
+
+describe('N1 runtime loadability', () => {
+  it('loads as plain TypeScript in Node strip-only mode, as dist/app.js does with @quiz/shared (no enums/parameter properties)', () => {
+    const file = fileURLToPath(new URL('../../../../../packages/shared/src/numeric.ts', import.meta.url));
+    const out = execFileSync(process.execPath, ['--experimental-strip-types', '--no-warnings', '--input-type=module', '-e',
+      `const m = await import(${JSON.stringify(file)}); const e = new m.NumericError('NUMERIC_EMPTY'); console.log(JSON.stringify([e.code, e.message, m.parseNumericText('12,5', 1).ok]));`], { encoding: 'utf8' });
+    expect(JSON.parse(out.trim())).toEqual(['NUMERIC_EMPTY', 'NUMERIC_EMPTY', true]);
   });
 });
