@@ -23,10 +23,10 @@
 // No theme/accent dependency, no key-based remounting.
 // ============================================================
 
-import { useId, useRef, useState, type FormEvent, type KeyboardEvent } from 'react';
+import { useEffect, useId, useRef, useState, type FormEvent, type KeyboardEvent } from 'react';
 import { Button } from '@quiz/ui';
 import {
-  draftsToTextCard, validateTextCard, textCardAnswer,
+  draftsToTextCard, parseTextCardConfig, validateTextCard, textCardAnswer,
   type TextCardConfig, type TextCardIssue, type TextCardIssueCode, type TextCardValue,
 } from '@quiz/shared/textcard';
 import styles from './TextCardForm.module.css';
@@ -91,7 +91,17 @@ const sameContent = (a: TextCardFeedback | null, b: TextCardFeedback): boolean =
   a !== null && JSON.stringify([a.contextKey, a.attemptId, a.status, a.card ?? null, a.message ?? null, a.retryable ?? null, a.fieldErrors ?? null])
     === JSON.stringify([b.contextKey, b.attemptId, b.status, b.card ?? null, b.message ?? null, b.retryable ?? null, b.fieldErrors ?? null]);
 
-export function TextCardForm({ title, config, contextKey, onSubmit, feedback, disabled = false, submitLabel = 'Abgeben' }: TextCardFormProps) {
+/**
+ * Public entry. The config is validated at runtime with the STRICT public schema: an object that carries anything
+ * beyond the public fields (e.g. a reference or solution by mistake) is not rendered, instead of being passed along.
+ */
+export function TextCardForm(props: TextCardFormProps) {
+  const parsed = parseTextCardConfig(props.config);
+  if (!parsed.ok) return <p className={styles.cardError} role="alert">Die Karte kann nicht angezeigt werden.</p>;
+  return <TextCardFormInner {...props} config={parsed.config} />;
+}
+
+function TextCardFormInner({ title, config, contextKey, onSubmit, feedback, disabled = false, submitLabel = 'Abgeben' }: TextCardFormProps) {
   const id = useId();
   const [drafts, setDrafts] = useState<ReadonlyMap<string, string>>(() => new Map());
   const [localIssues, setLocalIssues] = useState<readonly TextCardIssue[]>([]);
@@ -109,9 +119,10 @@ export function TextCardForm({ title, config, contextKey, onSubmit, feedback, di
   if (feedback && feedback.contextKey === contextKey) {
     const held = current.held, attempt = current.attempt;
     const isLock = feedback.status === 'LOCKED';
+    const echo = feedback.attemptId ?? null; // a missing property counts like null: never an echo of an attempt
     const applicable = held?.status === 'LOCKED' ? isLock
-      : isLock ? feedback.attemptId === null || attempt === null || feedback.attemptId === attempt.id
-      : attempt === null || feedback.attemptId === attempt.id;
+      : isLock ? echo === null || attempt === null || echo === attempt.id
+      : attempt === null || echo === attempt.id;
     const sameAttempt = held !== null && held.attemptId !== null && held.attemptId === feedback.attemptId;
     const ordered = !sameAttempt || rank(feedback) >= rank(held as TextCardFeedback);
     if (applicable && ordered && !sameContent(held, feedback)) {
@@ -124,6 +135,14 @@ export function TextCardForm({ title, config, contextKey, onSubmit, feedback, di
   if (current !== session) setSession(current);
 
   const active = current.held;
+  // Focus the first server-reported problem field. Keyed on the HELD feedback object, which only changes when the
+  // content changes (see above), so a parent re-render never steals focus. This effect only focuses; it never unlocks.
+  useEffect(() => {
+    if (active?.status !== 'ERROR' || !active.fieldErrors?.length) return;
+    const first = config.fields.find(f => active.fieldErrors?.some(e => e.fieldId === f.fieldId));
+    if (first) inputs.current.get(first.fieldId)?.focus();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- intentionally keyed on the held feedback only
+  }, [active]);
   const awaiting = current.attempt !== null && !current.attempt.answered;
   const pending = awaiting || active?.status === 'PENDING';
   const confirmed = !awaiting && active?.status === 'SUBMITTED';
@@ -200,6 +219,7 @@ export function TextCardForm({ title, config, contextKey, onSubmit, feedback, di
               }}
               onCompositionStart={() => { composing.current = true; }}
               onCompositionEnd={() => { composing.current = false; }}
+              onBlur={() => { composing.current = false; }} // a composition that never ends (focus left) must not block Enter forever
               onKeyDown={event => handleKeyDown(event, index)}
             />
             {def.help && <p id={helpId} className={styles.hint}>{def.help}</p>}

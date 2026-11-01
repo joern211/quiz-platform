@@ -335,6 +335,50 @@ describe('N2 TextCardForm: feedback and attempt contract (N1-R1 on the real card
   });
 });
 
+describe('N2 TextCardForm: self-review regressions', () => {
+  it('an IME composition that never ends (focus left the field) does not block Enter forever', async () => {
+    const { onSubmit } = mount();
+    await fill('Eins', 'ok');
+    await userEvent.click(f('Drei'));
+    fireEvent.compositionStart(f('Drei')); // no compositionEnd will ever arrive
+    await userEvent.click(f('Zwei')); // focus leaves: blur
+    await userEvent.click(f('Drei'));
+    fireEvent.keyDown(f('Drei'), { key: 'Enter' });
+    expect(onSubmit).toHaveBeenCalledTimes(1);
+  });
+  it('focuses the first field named by a server error once, and a parent re-render with the same content never steals focus', async () => {
+    const error = (): TextCardFeedback => ({ contextKey: CTX, attemptId: `${CTX}#1`, status: 'ERROR', retryable: true,
+      fieldErrors: [{ fieldId: 'gamma', code: 'TEXT_INVALID_CHARACTERS' }, { fieldId: 'beta', code: 'TEXT_TOO_LONG' }] });
+    const { set } = mount();
+    await fill('Eins', 'a');
+    await userEvent.click(send());
+    set({ feedback: error() });
+    expect(f('Zwei')).toHaveFocus(); // first in config order among the reported fields
+    await userEvent.click(f('Eins'));
+    set({ feedback: error() }); // re-created, content-identical object
+    set({ feedback: error() });
+    expect(f('Eins')).toHaveFocus();
+  });
+  it('does not render a config that carries anything beyond the public fields (e.g. a reference by mistake)', () => {
+    const leaky = { ...config, fields: [{ ...config.fields[0], reference: 'GEHEIME-LOESUNG', synonyms: ['SYN'] }] } as unknown as TextCardConfig;
+    mount({ config: leaky });
+    expect(screen.queryByRole('textbox')).not.toBeInTheDocument();
+    expect(screen.getByRole('alert')).toHaveTextContent('Die Karte kann nicht angezeigt werden.');
+    expect(document.body.textContent).not.toMatch(/GEHEIME-LOESUNG|SYN/);
+    const dup = { ...config, fields: [config.fields[0], config.fields[0]] } as TextCardConfig;
+    mount({ config: dup });
+    expect(screen.getAllByRole('alert').length).toBe(2);
+  });
+  it('treats a round lock whose attemptId property is missing like null (never an echo, still the lock)', async () => {
+    const { set } = mount();
+    await fill('Eins', 'a');
+    await userEvent.click(send());
+    set({ feedback: { contextKey: CTX, status: 'LOCKED' } as unknown as TextCardFeedback });
+    expect(screen.getByRole('status')).toHaveTextContent('gesperrt');
+    expect(f('Eins')).toHaveAttribute('readonly');
+  });
+});
+
 describe('N2 TextCardForm: identity, re-render and theme robustness', () => {
   it('keeps drafts bound to fieldId when the field order changes; the card follows the new order, values never swap', async () => {
     const { onSubmit, set } = mount();

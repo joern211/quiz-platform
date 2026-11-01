@@ -378,6 +378,12 @@ describe('N2 neutral grouping of shared answers (decides nothing)', () => {
     expect(findSharedAnswers(closedWith([...rows].reverse()), 'NORMALIZED')).toEqual(normalized);
     expect(JSON.stringify(normalized)).not.toMatch(/berlin|points|winner|valid/i);
   });
+  it('returns several groups of one field in a canonical order, independent of the submission order', () => {
+    const rows: Array<[string, string | null, string | null, string | null]> = [['p3', 'Wien', null, null], ['p2', 'Wien', null, null], ['p4', 'Rom', null, null], ['p1', 'Rom', null, null]]; // insertion order is NOT the canonical order
+    const expected = [{ fieldId: 'alpha', participantIds: ['p1', 'p4'] }, { fieldId: 'alpha', participantIds: ['p2', 'p3'] }];
+    expect(findSharedAnswers(closedWith(rows), 'EXACT')).toEqual(expected);
+    expect(findSharedAnswers(closedWith([...rows].reverse()), 'EXACT')).toEqual(expected);
+  });
   it('is bound to one round: another round never mixes in, and an open round is refused', () => {
     const r1 = closedWith([['p1', 'Rom', null, null], ['p2', 'Rom', null, null]], 'round-1');
     const r2 = closedWith([['p3', 'Rom', null, null]], 'round-2');

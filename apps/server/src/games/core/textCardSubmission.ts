@@ -198,7 +198,9 @@ export function findSharedAnswers(rawState: unknown, mode: 'EXACT' | 'NORMALIZED
       const key = mode === 'EXACT' ? value : answerMatchKey(value);
       byKey.set(key, [...(byKey.get(key) ?? []), record.participantId]);
     }
-    for (const owners of byKey.values()) if (owners.length > 1) groups.push({ fieldId: def.fieldId, participantIds: owners.sort() });
+    const shared = [...byKey.values()].filter(owners => owners.length > 1).map(owners => owners.sort());
+    shared.sort((a, b) => (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0)); // canonical: independent of submission order
+    for (const owners of shared) groups.push({ fieldId: def.fieldId, participantIds: owners });
   }
   return groups;
 }
