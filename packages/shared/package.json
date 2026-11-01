@@ -8,6 +8,7 @@
   "exports": {
     ".": "./src/index.ts",
     "./numeric": "./src/numeric.ts",
+    "./textcard": "./src/textcard.ts",
     "./schemas": "./src/schemas/index.ts",
     "./types": "./src/types/index.ts"
   },
