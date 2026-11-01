@@ -87,7 +87,7 @@ export function countCodePoints(text: string): number {
 // variation selectors and combining marks stay allowed.
 const FORBIDDEN = /[\p{Cc}\u2028\u2029\u202A-\u202E\u2066-\u2069\uFEFF]/u;
 const LONE_SURROGATE = /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/;
-const BLANK = /^[\p{White_Space}\u200B\u200C\u200D\u2060\uFEFF]*$/u;
+const BLANK = /^(?:\p{White_Space}|[\u200B\u200C\u2060\uFEFF]|\u200D)*$/u; // ZWJ outside a character class: keeps joined sequences unambiguous
 
 /**
  * Verdict on ONE stored text value. Text is kept verbatim: no trimming, no case folding, no Unicode
