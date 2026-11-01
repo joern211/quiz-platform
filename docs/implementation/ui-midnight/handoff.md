@@ -19,5 +19,5 @@ Siehe `acceptance.md` (Nachweise) und `review.md` (Eigenprüfung, Befunde B1–B
 
 ## Wiederaufnahme
 
-Dev-Umgebung: `pnpm install --frozen-lockfile`, `pnpm prisma generate`, isolierte DB (`DATABASE_URL=file:/tmp/qp-dev-midnight.db`, migrate + seed), Server `pnpm --filter @quiz/server start` (3001), Web `pnpm --filter @quiz/web dev --host 127.0.0.1` (5173). Visuelle QA: `node docs/implementation/ui-midnight/qa-screens.cjs <out> dark lila desktop`.
+Dev-Umgebung: `pnpm install --frozen-lockfile`, `pnpm prisma generate`, isolierte DB (`DATABASE_URL=file:/tmp/qp-dev-midnight.db`, migrate + seed), Server `pnpm --filter @quiz/server start` (3001), Web `pnpm --filter @quiz/web dev --host 127.0.0.1` (5173). Visuelle QA: `node docs/implementation/ui-midnight/qa-screens.js <out> dark lila desktop`.
 Playwright-E2E nicht parallel zu eigenen Dev-Servern starten (Config startet eigene Server auf 3001/5173).

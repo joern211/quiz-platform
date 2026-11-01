@@ -23,7 +23,7 @@ Prüfumgebung: lokaler Container, Node 22, pnpm 9.12.0, isolierte SQLite-DBs (`/
 
 ## Visuelle Abnahme (selbst angesehen)
 
-Screenshots: `docs/implementation/ui-midnight/screenshots/` (Auswahl, JPEG). Vollständige Läufe mit `qa-screens.cjs` (Ausgabe nicht eingecheckt):
+Screenshots: `docs/implementation/ui-midnight/screenshots/` (Auswahl, JPEG). Vollständige Läufe mit `qa-screens.js` (Ausgabe nicht eingecheckt):
 
 | Lauf | Breite / Theme / Akzent | Ansichten | Overflow |
 | --- | --- | --- | --- |

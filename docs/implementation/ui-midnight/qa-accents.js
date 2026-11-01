@@ -1,4 +1,4 @@
-const { chromium } = require('playwright');
+import { chromium } from '@playwright/test';
 const out = process.argv[2];
 const ACC = ['lila','blau','tuerkis','gruen','orange','rosa'];
 (async () => { const b = await chromium.launch();

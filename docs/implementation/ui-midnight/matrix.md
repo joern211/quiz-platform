@@ -1,7 +1,7 @@
 # Midnight-UI — Inventarmatrix (vor Umsetzung erstellt)
 
 Base: main `975165e` (G5 / PR #28 gemergt). Quelle der Routen: `apps/web/src/App.tsx`.
-Erfasst sind nur tatsächlich erreichbare Oberflächen. Prüfweg: **S** = Screenshot-Lauf mit echten Räumen (`docs/implementation/ui-midnight/qa-screens.cjs`), **U** = Vitest, **E** = Playwright-E2E.
+Erfasst sind nur tatsächlich erreichbare Oberflächen. Prüfweg: **S** = Screenshot-Lauf mit echten Räumen (`docs/implementation/ui-midnight/qa-screens.js`), **U** = Vitest, **E** = Playwright-E2E.
 
 | Route / Ansicht | Rollen | Gemeinsame Bausteine | Notwendige Gestaltung | Kritische Zustände | Prüfweg |
 | --- | --- | --- | --- | --- | --- |

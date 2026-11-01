@@ -1,10 +1,10 @@
 // QA-Hilfsskript (nicht Teil von CI). Erwartet laufende Dev-Server (3001/5173) mit isolierter Seed-DB.
-// Aufruf: node docs/implementation/ui-midnight/qa-screens.cjs <ausgabe> [dark|light] [lila|…] [desktop|laptop|tablet|mobile|w430|w320] [static,wd,jp,wid]
+// Aufruf: node docs/implementation/ui-midnight/qa-screens.js <ausgabe> [dark|light] [lila|…] [desktop|laptop|tablet|mobile|w430|w320] [static,wd,jp,wid]
 // Visual QA: real rooms, real roles, synthetic data. Usage:
 //   node screens.cjs <outDir> [theme=dark|light] [accent=lila] [viewport=desktop|mobile|tablet|w320] [flows=static,wd,jp,wid]
-const { chromium } = require('playwright');
-const path = require('path');
-const fs = require('fs');
+import { chromium } from '@playwright/test';
+import path from 'node:path';
+import fs from 'node:fs';
 
 const BASE = 'http://localhost:5173';
 const [outDir, theme = 'dark', accent = 'lila', vpName = 'desktop', flowArg = 'static,wd,jp,wid'] = process.argv.slice(2);
