@@ -3,7 +3,18 @@
 - **Base:** `main` `975165e` (G5 / joern211/quiz-platform#28 gemergt, vor Beginn geprüft).
 - **Branch:** `claude/laughing-gauss-hupzv6` (von der Umgebung vorgegeben statt `feature/ui-midnight`).
 - **PR:** joern211/quiz-platform#29 (Draft → nach Abnahme reviewbereit). **Nicht gemergt**, Merge-Entscheidung beim Nutzer.
-- **Head / CI:** siehe Abschnitt „Finaler Stand“ (wird am letzten Commit aktualisiert).
+- **Produktstand / CI:** `669ba59` – CI-Lauf https://github.com/joern211/quiz-platform/actions/runs/41261345998 grün (Typecheck, Lint, Build, Server-Tests, Web-Tests, E2E 41/41 ohne Retry). Spätere Commits sind reine Doku und werden im PR genannt.
+
+## Lokal ausgeführte Pflichtprüfungen (am Produktstand)
+
+| Befehl | Ergebnis |
+| --- | --- |
+| `pnpm typecheck` | grün |
+| `pnpm lint` | 0 Fehler, 109 Warnungen (identisch mit `main`) |
+| `pnpm build` | grün |
+| `pnpm --filter @quiz/server test` | 74 Dateien, 721 Tests grün |
+| `pnpm --filter @quiz/web test` | 35 Dateien, 210 Tests grün (26 neu) |
+| `pnpm exec playwright test --config=playwright.config.ts --project=chromium` | lokale Vollsuite: 40/41, UI-5 rot (Testfehler B13) → korrigiert, UI-1…5 danach 15/15 bei 3 Wiederholungen ohne Retry; CI-Vollsuite am Produktstand 41/41 |
 
 ## Geprüfte Zustände
 
