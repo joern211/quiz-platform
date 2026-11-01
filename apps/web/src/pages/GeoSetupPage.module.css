@@ -74,7 +74,7 @@
 
 .questionItem.selected {
   border-color: var(--accent);
-  background: rgba(29, 212, 212, 0.05);
+  background: rgba(var(--accent-rgb), 0.05);
 }
 
 .questionHeader {

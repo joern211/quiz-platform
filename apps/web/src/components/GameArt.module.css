@@ -1,0 +1,23 @@
+.art {
+  display: grid;
+  place-items: center;
+  min-height: 100%;
+  background: var(--surface-2);
+  color: var(--muted);
+}
+.art > svg { width: 56px; height: 56px; }
+
+/* Feste Kennfarben je Spiel (Midnight-Entwurf), hell und dunkel */
+.art[data-game='wissensduell'] { background: #283a53; color: #bdd8fd; }
+.art[data-game='jeopardy'] { background: #463051; color: #e3c4f2; }
+.art[data-game='wer-ist-das'] { background: #493545; color: #f5cade; }
+:global(:root[data-theme='light']) .art[data-game='wissensduell'] { background: #d7e5f7; color: #234a7c; }
+:global(:root[data-theme='light']) .art[data-game='jeopardy'] { background: #ebdcf3; color: #5b3a77; }
+:global(:root[data-theme='light']) .art[data-game='wer-ist-das'] { background: #f6dcea; color: #7c2f57; }
+
+.board { display: grid; grid-template-columns: repeat(3, 1fr); gap: 3px; width: 64px; transform: rotate(-8deg); }
+.board span { display: grid; place-items: center; height: 18px; border-radius: 4px; border: 1px solid currentColor; font-size: 8px; font-weight: 750; opacity: 0.85; }
+
+.face { display: flex; align-items: center; gap: 0; }
+.face svg { width: 40px; height: 40px; }
+.face span { font-size: 38px; font-weight: 800; line-height: 1; }

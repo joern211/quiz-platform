@@ -27,11 +27,12 @@
   font-family: var(--font-sans);
   font-size: 1rem;
   color: var(--fg);
-  background: var(--surface-2);
-  border: 1.5px solid var(--border);
-  border-radius: var(--radius);
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+  border-radius: 12px;
   transition: border-color 0.2s, box-shadow 0.2s;
   min-height: 48px;
+  font-size: max(1rem, 16px);
 }
 
 .input::placeholder {
@@ -39,14 +40,13 @@
 }
 
 .input:hover {
-  border-color: rgba(255, 255, 255, 0.2);
+  border-color: var(--accent);
 }
 
 .input:focus {
   outline: none;
   border-color: var(--accent);
-  box-shadow: 0 0 0 3px rgba(29, 212, 212, 0.15),
-              0 0 16px rgba(29, 212, 212, 0.1);
+  box-shadow: 0 0 0 3px rgba(var(--accent-rgb), 0.28);
 }
 
 .hasLeftIcon  { padding-left: calc(var(--space-4) + 28px); }
@@ -59,7 +59,7 @@
 
 .hasError .input:focus,
 .textarea.hasError:focus {
-  box-shadow: 0 0 0 3px rgba(255, 93, 115, 0.15);
+  box-shadow: 0 0 0 3px var(--danger-bg);
 }
 
 .leftIcon,
@@ -103,18 +103,18 @@
   font-family: var(--font-sans);
   font-size: 1rem;
   color: var(--fg);
-  background: var(--surface-2);
-  border: 1.5px solid var(--border);
-  border-radius: var(--radius);
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+  border-radius: 12px;
   transition: border-color 0.2s, box-shadow 0.2s;
   min-height: 100px;
   resize: vertical;
 }
 
 .textarea::placeholder { color: var(--muted); }
-.textarea:hover  { border-color: rgba(255, 255, 255, 0.2); }
+.textarea:hover  { border-color: var(--accent); }
 .textarea:focus {
   outline: none;
   border-color: var(--accent);
-  box-shadow: 0 0 0 3px rgba(29, 212, 212, 0.15);
+  box-shadow: 0 0 0 3px rgba(var(--accent-rgb), 0.28);
 }

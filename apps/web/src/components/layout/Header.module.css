@@ -1,205 +1,181 @@
-/* ============================================================
-   Header Styles – v0.2.1 (Accessible + mobile nav + clean)
-   ============================================================ */
+/* Header – Midnight-Topbar, bleibt auf allen Breiten oben */
 
 .header {
   position: sticky;
   top: 0;
-  z-index: 100;
-  background: var(--surface);
+  z-index: var(--z-sticky);
+  background: color-mix(in srgb, var(--bg) 92%, transparent);
   border-bottom: 1px solid var(--border);
+  padding-top: env(safe-area-inset-top);
+  backdrop-filter: saturate(140%) blur(10px);
+  -webkit-backdrop-filter: saturate(140%) blur(10px);
+}
+@supports not (background: color-mix(in srgb, red 50%, transparent)) {
+  .header { background: var(--bg); }
 }
 
 .container {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  max-width: 1200px;
-  margin: 0 auto;
-  padding: var(--space-3) var(--space-4);
   gap: var(--space-4);
+  max-width: 1250px;
+  margin: 0 auto;
+  padding: 12px max(var(--space-6), env(safe-area-inset-right)) 12px max(var(--space-6), env(safe-area-inset-left));
+  min-height: 68px;
 }
 
-/* Logo */
 .logo {
-  display: flex;
+  display: inline-flex;
   align-items: center;
-  gap: var(--space-2);
-  text-decoration: none;
+  min-height: var(--tap);
+  border-radius: 10px;
   color: var(--fg);
+  flex-shrink: 0;
 }
 
-.logoText {
-  font-family: var(--font-display);
-  font-weight: 700;
-  font-size: 1rem;
-  color: var(--fg);
-}
-
-/* Active room back link */
 .backLink {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 40px;
+  padding: 0 14px;
   font-size: 0.85rem;
-  font-weight: 600;
-  color: var(--accent);
-  text-decoration: none;
-  padding: var(--space-2) var(--space-3);
-  border-radius: var(--radius);
-  border: 1px solid rgba(29, 212, 212, 0.3);
-  background: rgba(29, 212, 212, 0.08);
-  transition: all 0.15s ease;
+  font-weight: 650;
+  color: var(--fg);
+  border-radius: var(--radius-pill);
+  border: 1px solid rgba(var(--accent-rgb), 0.55);
+  background: var(--accent-tint);
   white-space: nowrap;
 }
+.backLink:hover { border-color: var(--accent); }
 
-.backLink:hover {
-  background: rgba(29, 212, 212, 0.15);
-  border-color: var(--accent);
-}
-
-@media (max-width: 640px) {
-  .backLink { display: none; }
-}
-
-@media (max-width: 480px) {
-  .logoText { display: none; }
-}
-
-/* Desktop Nav */
 .nav {
   display: flex;
   align-items: center;
-  gap: var(--space-1);
+  gap: 4px;
+  margin-left: auto;
 }
 
 .link {
-  font-weight: 500;
-  font-size: 0.9rem;
-  color: var(--text-muted);
-  text-decoration: none;
-  padding: var(--space-2) var(--space-3);
-  border-radius: var(--radius);
-  transition: color 0.15s ease, background 0.15s ease;
-  min-height: 44px;
-  display: flex;
+  display: inline-flex;
   align-items: center;
+  min-height: var(--tap);
+  padding: 0 12px;
+  font-size: 0.92rem;
+  font-weight: 550;
+  color: var(--muted);
+  border-radius: var(--radius-pill);
+  white-space: nowrap;
+  transition: color var(--transition-fast), background var(--transition-fast);
 }
+.link:hover { color: var(--fg); background: var(--surface-2); }
+.current { color: var(--fg); font-weight: 700; }
+.link.current { box-shadow: inset 0 -2px 0 var(--accent); border-radius: 0; }
 
-.link:hover {
-  color: var(--fg);
-  background: var(--surface-2);
-}
-
-.link:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 2px;
-}
-
-/* Actions */
 .actions {
   display: flex;
   align-items: center;
   gap: var(--space-2);
+  flex-shrink: 0;
 }
 
-/* Theme toggle */
-.themeToggle {
-  display: flex;
+.joinLink {
+  display: inline-flex;
   align-items: center;
-  justify-content: center;
-  width: 44px;
-  height: 44px;
-  border: 1px solid var(--border);
-  border-radius: 50%;
-  background: var(--surface-2);
+  min-height: var(--tap);
+  padding: 0 18px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-pill);
+  font-size: 0.92rem;
+  font-weight: 650;
   color: var(--fg);
-  cursor: pointer;
-  transition: border-color 0.15s, color 0.15s, background 0.15s;
+  white-space: nowrap;
+  margin-left: var(--space-2);
 }
+.joinLink:hover { border-color: var(--accent); background: var(--surface-2); }
 
-.themeToggle:hover {
-  border-color: var(--accent);
-  color: var(--accent);
-}
-
-.themeToggle:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 2px;
-}
-
-.themeToggle svg {
-  width: 18px;
-  height: 18px;
-}
-
-/* Mobile menu toggle */
+.iconButton,
 .menuToggle {
-  display: none;
-  align-items: center;
-  justify-content: center;
-  width: 44px;
-  height: 44px;
+  display: inline-grid;
+  place-items: center;
+  width: var(--tap);
+  height: var(--tap);
+  padding: 0;
+  border-radius: 50%;
   border: 1px solid var(--border);
-  border-radius: var(--radius);
-  background: var(--surface-2);
+  background: transparent;
   color: var(--fg);
   cursor: pointer;
-  transition: border-color 0.15s, color 0.15s;
+  transition: background var(--transition-fast), border-color var(--transition-fast);
 }
+.iconButton svg { width: 20px; height: 20px; }
+.iconButton:hover,
+.menuToggle:hover { background: var(--surface-2); border-color: var(--accent); }
 
-.menuToggle:hover {
-  border-color: var(--accent);
-  color: var(--accent);
-}
+.menuToggle { display: none; }
 
-.menuToggle:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 2px;
-}
-
-/* Mobile menu */
+/* Mobile menu – klappt unter der oberen Leiste auf (keine untere Tabbar) */
 .mobileMenu {
   border-top: 1px solid var(--border);
-  padding: var(--space-2) var(--space-4) var(--space-4);
-  background: var(--surface);
+  background: var(--bg);
+  max-height: calc(100dvh - 68px - env(safe-area-inset-top));
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  animation: menu-in 0.18s ease-out both;
 }
+@keyframes menu-in { from { opacity: 0; transform: translateY(-6px); } to { opacity: 1; transform: none; } }
 
 .mobileNav {
   display: flex;
   flex-direction: column;
-  gap: var(--space-1);
+  gap: 2px;
+  padding: var(--space-3) max(var(--space-4), env(safe-area-inset-right)) var(--space-4) max(var(--space-4), env(safe-area-inset-left));
+  max-width: 640px;
+  margin: 0 auto;
 }
 
 .mobileLink {
-  display: block;
-  font-weight: 500;
-  font-size: 1rem;
-  color: var(--text-muted);
-  text-decoration: none;
-  padding: var(--space-3) var(--space-2);
-  border-radius: var(--radius);
-  min-height: 44px;
   display: flex;
   align-items: center;
-  transition: color 0.15s, background 0.15s;
-}
-
-.mobileLink:hover {
+  gap: var(--space-3);
+  min-height: 48px;
+  padding: 0 var(--space-4);
+  font: inherit;
+  font-size: 1.02rem;
+  font-weight: 600;
   color: var(--fg);
-  background: var(--surface-2);
+  background: transparent;
+  border: 0;
+  border-radius: var(--radius-md);
+  text-align: left;
+  cursor: pointer;
+}
+.mobileLink svg { width: 20px; height: 20px; }
+.mobileLink:hover { background: var(--surface-2); }
+.mobileLink.current { background: var(--accent-tint); }
+.mobileBack { color: var(--fg); border: 1px solid rgba(var(--accent-rgb), 0.55); margin-bottom: var(--space-2); }
+.mobileJoin { border: 1px solid var(--border-strong); margin-top: var(--space-2); }
+
+@media (max-width: 1100px) {
+  .nav, .joinLink { display: none; }
+  .menuToggle { display: inline-grid; }
+  .actions { margin-left: auto; }
 }
 
-.mobileLink:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 2px;
+/* Mit aktivem Raum braucht „Zurück zum Raum“ Platz: Navigation früher ins obere Menü */
+@media (max-width: 1279px) {
+  .withRoom .nav, .withRoom .joinLink { display: none; }
+  .withRoom .menuToggle { display: inline-grid; }
+  .withRoom .actions { margin-left: auto; }
 }
 
-/* Desktop: hide mobile elements */
-@media (min-width: 641px) {
-  .menuToggle { display: none; }
-  .mobileMenu { display: none; }
-}
-
-/* Mobile: hide desktop nav, show menu toggle */
 @media (max-width: 640px) {
-  .nav { display: none; }
-  .menuToggle { display: flex; }
+  .container { padding-left: max(var(--space-4), env(safe-area-inset-left)); padding-right: max(var(--space-4), env(safe-area-inset-right)); min-height: 60px; gap: var(--space-2); }
+  .backLink { display: none; }
+}
+
+/* Sehr schmal: nur Wortmarken-Symbol (Name bleibt per aria-label erhalten) */
+@media (max-width: 400px) {
+  .logo > span > span:last-child { display: none; }
+  .actions { gap: 6px; }
 }

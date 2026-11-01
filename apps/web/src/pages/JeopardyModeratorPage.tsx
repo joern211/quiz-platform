@@ -197,7 +197,7 @@ export function JeopardyModeratorPage() {
               {isBuzzLocked && (
                 <div className={styles.judgeControls}>
                   <Button
-                    variant="primary"
+                    variant="success"
                     size="lg"
                     onClick={handleJudgeCorrect}
                   >
@@ -217,7 +217,7 @@ export function JeopardyModeratorPage() {
               {isStealLocked && (
                 <div className={styles.judgeControls}>
                   <Button
-                    variant="primary"
+                    variant="success"
                     size="lg"
                     onClick={handleStealJudgeCorrect}
                   >

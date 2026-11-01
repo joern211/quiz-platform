@@ -2,7 +2,7 @@
 // Timer Component
 // ============================================================
 
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import styles from './Timer.module.css';
 
 interface TimerProps {
@@ -22,6 +22,11 @@ export function Timer({
 }: TimerProps) {
   const [remaining, setRemaining] = useState<number>(0);
   const [expired, setExpired] = useState(false);
+  // Gesamtdauer = Restzeit beim ersten Anzeigen dieses Endzeitpunkts
+  const totalRef = useRef<{ endsAt: number; total: number } | null>(null);
+  if (!totalRef.current || totalRef.current.endsAt !== endsAt) {
+    totalRef.current = { endsAt, total: Math.max(1, endsAt - Date.now()) };
+  }
 
   const calculateRemaining = useCallback(() => {
     return Math.max(0, endsAt - Date.now());
@@ -53,7 +58,7 @@ export function Timer({
   }, [calculateRemaining, onExpire, expired]);
 
   // Calculate percentage for progress bar
-  const totalDuration = 20000; // Assume 20s default, will be adjusted
+  const totalDuration = totalRef.current.total;
   const percentage = paused ? 0 : Math.min(100, (remaining / totalDuration) * 100);
   
   // Format remaining time
@@ -66,14 +71,14 @@ export function Timer({
 
   return (
     <div className={`${styles.timer} ${styles[size]} ${expired ? styles.expired : ''}`}>
-      <div className={styles.progressWrapper}>
+      <div className={styles.progressWrapper} aria-hidden="true">
         <div 
           className={`${styles.progress} ${isUrgent ? styles.urgent : ''} ${isCritical ? styles.critical : ''}`}
           style={{ width: `${percentage}%` }}
         />
       </div>
       {showNumbers && (
-        <span className={`${styles.seconds} ${isUrgent ? styles.urgentText : ''}`}>
+        <span className={`${styles.seconds} ${isUrgent ? styles.urgentText : ''}`} role="timer" aria-label={`${displaySeconds} Sekunden verbleibend`}>
           {displaySeconds}
         </span>
       )}

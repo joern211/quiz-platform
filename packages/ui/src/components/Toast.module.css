@@ -31,10 +31,10 @@
   /* No glass blur */
 }
 
-.toast.success { border-left: 3px solid var(--ok);     color: var(--ok); }
-.toast.error   { border-left: 3px solid var(--danger); color: var(--danger); }
-.toast.warning { border-left: 3px solid var(--warn);   color: var(--warn); }
-.toast.info    { border-left: 3px solid var(--accent);  color: var(--accent); }
+.toast.success { border-left: 4px solid var(--ok); background: var(--ok-bg); color: var(--fg); }
+.toast.error   { border-left: 4px solid var(--danger); background: var(--danger-bg); color: var(--fg); }
+.toast.warning { border-left: 4px solid var(--warn); background: var(--warn-bg); color: var(--fg); }
+.toast.info    { border-left: 4px solid var(--accent); background: var(--accent-tint); color: var(--fg); }
 
 /* Clean fade-out */
 .toast.out { animation: toast-out 0.2s ease-in forwards; }

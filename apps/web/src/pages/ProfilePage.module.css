@@ -90,7 +90,7 @@
   align-items: center;
   justify-content: center;
   gap: var(--space-3);
-  color: var(--danger, #ff5d73);
+  color: var(--danger);
   font-size: 0.875rem;
 }
 

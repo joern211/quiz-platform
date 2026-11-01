@@ -1,46 +1,17 @@
-
-/* ============================================================
-   Viewer Page Styles – v0.2.1
-   ============================================================ */
-
+/* Formularseite – Midnight: zentrierte Karte auf ruhiger Bühne */
 .page {
-  max-width: 480px;
-  margin: 0 auto;
-  padding: var(--space-6) var(--space-4);
+  display: flex; flex-direction: column; align-items: center; justify-content: flex-start;
+  min-height: calc(100dvh - 140px);
+  padding: clamp(24px, 8vh, 72px) var(--space-4) var(--space-8);
+  background: radial-gradient(ellipse at 50% 0, var(--stage-glow), transparent 55%);
 }
-
-.hero {
-  text-align: center;
-  margin-bottom: var(--space-8);
-}
-
-.title {
-  font-family: var(--font-display);
-  font-size: 2rem;
-  color: var(--text);
-  margin-bottom: var(--space-2);
-}
-
-.subtitle {
-  color: var(--text-muted);
-  font-size: 1rem;
-}
-
-.card {
-  margin-bottom: var(--space-4);
-}
-
-.form {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-4);
-}
-
-.notice {
-  text-align: center;
-  padding: var(--space-4);
-  background: var(--surface-2);
-  border-radius: var(--radius);
-  color: var(--text-muted);
-  font-size: 0.875rem;
-}
+.card { width: 100%; max-width: 440px; }
+.title { font-size: clamp(1.7rem, 5vw, 2.1rem); letter-spacing: -0.04em; margin-bottom: var(--space-2); text-align: center; }
+.subtitle { text-align: center; color: var(--muted); margin-bottom: var(--space-6); }
+.form { display: grid; gap: var(--space-4); text-align: left; }
+.error { padding: var(--space-3) var(--space-4); border-radius: var(--radius-md); border: 1px solid var(--danger); background: var(--danger-bg); color: var(--fg); font-size: 0.92rem; }
+.error::before { content: "⚠ "; color: var(--danger); }
+.hint { margin-top: var(--space-5); text-align: center; font-size: 0.9rem; color: var(--muted); }
+.hint a { color: var(--accent); text-decoration: underline; text-underline-offset: 3px; }
+.notice { padding: var(--space-3) var(--space-4); border-radius: var(--radius-md); background: var(--surface-2); border: 1px solid var(--border); color: var(--fg); font-size: 0.92rem; }
+.hero { text-align: center; margin-bottom: var(--space-4); max-width: 440px; }

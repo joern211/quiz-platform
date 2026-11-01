@@ -1,6 +1,7 @@
 import { RecoveryControl } from '../components/RecoveryControl';
 import { CoreReadNotice } from '../components/CoreReadNotice';
-import { Link } from 'react-router-dom';
+import { useState } from 'react';
+import { ButtonLink, ConfirmDialog } from '@quiz/ui';
 import { useParams } from 'react-router-dom';
 import { BuzzerOverride } from '../components/BuzzerOverride';
 import { GameShell } from '../components/GameShell';
@@ -16,19 +17,20 @@ export function WerIstDasGamePage({ role }: { role: PlayerRole }) {
   const self = getSessionData().participationId;
   const scores = Object.entries(state?.scores ?? {}).sort((a, b) => b[1] - a[1]);
   const canBuzz = role === 'PLAYER' && state?.buzzerOpen && !state.excluded && core.can('buzz');
+  const [confirmEnd, setConfirmEnd] = useState(false);
   const everyoneExcluded = state && Object.keys(state.playerNames).every(id => state.excludedPlayerIds?.includes(id));
 
   return <GameShell role={role.toLowerCase() as 'moderator' | 'player' | 'viewer'}
     roomCode={code} phase={state?.phase} connected={connected} error={error}>
     <div className={styles.layout}>
       <section className={styles.main}>
-        <h1>Wer ist das?</h1>
+        <h1 className={styles.title}>Wer ist das?</h1>
         {core.projection?.recoveryRequired && <RecoveryControl projection={core.projection} />}
         <CoreReadNotice core={core} />
         {!state && <p>Spielstand wird geladen …</p>}
         {state && <>
-          <p>Runde {state.roundIndex + 1} von {state.roundCount}</p>
-          {state.phase === 'GAME_END' ? <div><h2>Spiel beendet · Ergebnis</h2><Link to={role === 'HOST' ? `/moderator/raum/${code}/ergebnis` : role === 'PLAYER' ? `/raum/${code}/ergebnis` : `/zuschauen/${code}/ergebnis`}>Zum Ergebnis</Link></div> :
+          <p className={styles.round}>Runde {state.roundIndex + 1} von {state.roundCount}</p>
+          {state.phase === 'GAME_END' ? <div className={styles.ended}><h2>Spiel beendet · Ergebnis</h2><ButtonLink to={role === 'HOST' ? `/moderator/raum/${code}/ergebnis` : role === 'PLAYER' ? `/raum/${code}/ergebnis` : `/zuschauen/${code}/ergebnis`}>Zum Ergebnis</ButtonLink></div> :
             <img className={styles.image}
               src={state.gameImageUrl ?? `/api/v1/media/${state.imageAssetId}`}
               alt="Errate die beiden Personen" />}
@@ -39,13 +41,13 @@ export function WerIstDasGamePage({ role }: { role: PlayerRole }) {
                 {state.hostImageUrls.map((url, i) => <img key={i} src={url} alt={`Original ${i + 1}`} />)}
               </div>
             </div>}
-          {state.hintActive && <p className={styles.hint}>Hinweis aktiv: Eine richtige Person genügt für 1 Punkt.</p>}
+          {state.hintActive && <p className={styles.hint} role="status">Hinweis aktiv: Eine richtige Person genügt für 1 Punkt.</p>}
           {state.phase === 'ANSWERING' && <p className={styles.turn}>
             {state.winnerId === self ? 'Du bist dran – antworte mündlich.' : `${state.winnerName ?? 'Ein Spieler'} antwortet.`}
           </p>}
-          {state.phase === 'BUZZ_OPEN' && <p>Der Buzzer ist geöffnet.</p>}
+          {state.phase === 'BUZZ_OPEN' && <p className={styles.open}>Der Buzzer ist geöffnet.</p>}
           {role === 'PLAYER' && state.excluded && state.phase !== 'REVEAL' &&
-            <p>Du bist für den Rest dieser Runde vom Buzzern ausgeschlossen.</p>}
+            <p className={styles.excluded}>Du bist für den Rest dieser Runde vom Buzzern ausgeschlossen.</p>}
           {role === 'PLAYER' && state.phase !== 'GAME_END' &&
             <button className={styles.buzz} disabled={!canBuzz} onClick={() => act('weristdas:buzz')}>
               {canBuzz ? 'BUZZERN' : state.excluded ? 'Ausgeschlossen' : 'Buzzer geschlossen'}
@@ -68,22 +70,26 @@ export function WerIstDasGamePage({ role }: { role: PlayerRole }) {
               <button disabled={!core.can('hint')} onClick={() => act('weristdas:hint')}>Hinweis aktivieren</button>}
             {state.phase === 'ANSWERING' && <div className={styles.judges}>
               <p>{state.winnerName} bewerten:</p>
-              <button disabled={!core.can('judge')} onClick={() => judge('BOTH_CORRECT')}>Beide richtig · +3</button>
-              {state.hintActive && <button disabled={!core.can('judge')} onClick={() => judge('ONE_CORRECT')}>Eine richtig · +1</button>}
-              <button disabled={!core.can('judge')} onClick={() => judge('WRONG')}>Falsch · −1</button>
+              <button className={styles.judgeOk} disabled={!core.can('judge')} onClick={() => judge('BOTH_CORRECT')}>Beide richtig · +3</button>
+              {state.hintActive && <button className={styles.judgeOk} disabled={!core.can('judge')} onClick={() => judge('ONE_CORRECT')}>Eine richtig · +1</button>}
+              <button className={styles.judgeWrong} disabled={!core.can('judge')} onClick={() => judge('WRONG')}>Falsch · −1</button>
             </div>}
             {['ROUND_READY', 'BUZZ_OPEN'].includes(state.phase) &&
               <button disabled={!core.can('reveal')} onClick={() => act('weristdas:reveal')}>Auflösen</button>}
             {state.phase === 'REVEAL' && <button disabled={!core.can('next')} onClick={() => act('weristdas:next')}>
               {state.roundIndex + 1 === state.roundCount ? 'Ergebnis anzeigen' : 'Nächste Runde'}
             </button>}
-            <button disabled={!core.can('end')} onClick={end}>Spiel beenden</button>
+            <button className={styles.endButton} disabled={!core.can('end')} onClick={() => setConfirmEnd(true)}>Spiel beenden</button>
           </div>}
+          <ConfirmDialog open={confirmEnd} title="Spiel vorzeitig beenden?" confirmLabel="Spiel beenden" danger
+            onCancel={() => setConfirmEnd(false)} onConfirm={() => { setConfirmEnd(false); end(); }}>
+            <p>Die Partie endet für alle mit dem aktuellen Punktestand (Runde {state.roundIndex + 1} von {state.roundCount}).</p>
+          </ConfirmDialog>
         </>}
       </section>
       <aside className={styles.scores}>
         <h2>{state?.phase === 'GAME_END' ? 'Rangliste' : 'Punktestand'}</h2>
-        <ol>{scores.map(([id, score]) => <li key={id}>
+        <ol>{scores.map(([id, score]) => <li key={id} data-self={id === self || undefined}>
           {state?.playerNames[id] ?? 'Spieler'}{id === self ? ' (Du)' : ''}: {score}
         </li>)}</ol>
       </aside>

@@ -1,21 +1,10 @@
 /* ============================================================
-   Global Styles – Quiz Plattform v0.3.0
-   Modern, clean, dark-first. No flashy effects.
+   Global Styles – Midnight
+   Ruhige dunkle (bzw. helle) Bühne, klare Hierarchie, runde
+   Hauptaktionen. Tokens: packages/ui/src/styles/tokens.css
    ============================================================ */
 
-:root {
-  --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-  --font-display: 'Space Grotesk', var(--font-sans);
-}
-
-*, *::before, *::after {
-  box-sizing: border-box;
-  margin: 0;
-  padding: 0;
-}
-
 html {
-  /* Respect reduced motion preference */
   scroll-behavior: smooth;
   -webkit-text-size-adjust: 100%;
 }
@@ -28,95 +17,226 @@ body {
   font-family: var(--font-sans);
   background: var(--bg);
   color: var(--fg);
-  line-height: 1.6;
+  line-height: 1.55;
   min-height: 100vh;
-  /* Subtle noise texture — very subtle, not distracting */
-  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)' opacity='0.015'/%3E%3C/svg%3E");
+  min-height: 100dvh;
 }
 
 ::selection {
-  background: rgba(29, 212, 212, 0.25);
+  background: rgba(var(--accent-rgb), 0.3);
   color: var(--fg);
 }
 
+/* Sichtbarer Tastaturfokus – folgt dem persönlichen Akzent */
 :focus-visible {
-  outline: 2px solid var(--accent);
+  outline: 3px solid var(--focus-ring);
   outline-offset: 3px;
-  border-radius: var(--radius);
 }
 
 /* ── Scrollbar ── */
-::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar { width: 10px; height: 10px; }
 ::-webkit-scrollbar-track { background: var(--bg); }
 ::-webkit-scrollbar-thumb {
-  background: var(--surface-2);
-  border-radius: 4px;
+  background: var(--surface-3);
+  border-radius: 999px;
   border: 2px solid var(--bg);
 }
-::-webkit-scrollbar-thumb:hover { background: var(--muted); }
+::-webkit-scrollbar-thumb:hover { background: var(--border-strong); }
 
 /* ── Links ── */
 a { color: inherit; text-decoration: none; }
+p a:not([class]), li a:not([class]), .link {
+  color: var(--accent);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  text-decoration-thickness: 1px;
+}
 
-/* ── Images ── */
-img, svg { display: block; max-width: 100%; }
+img, svg, video { display: block; max-width: 100%; }
+
+/* ============================================================
+   Basis-Controls
+   Nur Elemente OHNE eigene Klasse bekommen den Midnight-Default.
+   Komponenten mit CSS-Modulen behalten ihre gezielte Gestaltung.
+   ============================================================ */
+
+button, input, select, textarea { font: inherit; color: inherit; }
+
+button:not([class]) {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  min-height: var(--tap);
+  padding: 10px 18px;
+  border-radius: var(--radius-pill);
+  border: 1px solid var(--border-strong);
+  background: var(--surface-2);
+  color: var(--fg);
+  font-size: 0.9rem;
+  font-weight: 650;
+  line-height: 1.2;
+  cursor: pointer;
+  transition: background var(--transition-fast), border-color var(--transition-fast), transform var(--transition-fast);
+  -webkit-tap-highlight-color: transparent;
+}
+button:not([class]):hover:not(:disabled) {
+  background: var(--surface-3);
+  border-color: var(--accent);
+}
+button:not([class]):active:not(:disabled) { transform: translateY(1px) scale(0.985); }
+button:not([class]):disabled,
+button:not([class])[aria-disabled="true"] {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+button:not([class])[aria-pressed="true"] {
+  background: var(--accent-tint);
+  border-color: var(--accent);
+}
+
+input:not([class]):not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="file"]):not([type="color"]),
+select:not([class]),
+textarea:not([class]) {
+  min-height: var(--tap);
+  max-width: 100%;
+  padding: 10px 14px;
+  border-radius: 12px;
+  border: 1px solid var(--border-strong);
+  background: var(--surface);
+  color: var(--fg);
+  font-size: 1rem; /* ≥16px: kein iOS-Zoom beim Fokus */
+}
+textarea:not([class]) { min-height: 96px; resize: vertical; }
+input:not([class])::placeholder,
+textarea:not([class])::placeholder { color: var(--muted); opacity: 1; }
+input:not([class]):focus-visible,
+select:not([class]):focus-visible,
+textarea:not([class]):focus-visible {
+  outline: 3px solid var(--focus-ring);
+  outline-offset: 1px;
+  border-color: var(--accent);
+}
+input:not([class])[aria-invalid="true"],
+select:not([class])[aria-invalid="true"],
+textarea:not([class])[aria-invalid="true"] { border-color: var(--danger); }
+
+input[type="checkbox"], input[type="radio"] {
+  accent-color: var(--accent);
+  width: 20px;
+  height: 20px;
+  flex-shrink: 0;
+}
+input[type="file"]:not([class]) { max-width: 100%; color: var(--muted); }
+input[type="file"]:not([class])::file-selector-button {
+  min-height: 40px;
+  margin-right: var(--space-3);
+  padding: 8px 16px;
+  border-radius: var(--radius-pill);
+  border: 1px solid var(--border-strong);
+  background: var(--surface-2);
+  color: var(--fg);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+input[type="range"] { accent-color: var(--accent); }
+
+label:not([class]) { color: var(--fg); }
+
+/* Fieldsets haben standardmäßig min-width: min-content und sprengen sonst schmale Layouts */
+fieldset { min-width: 0; }
+fieldset:not([class]) {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: var(--space-3) var(--space-4) var(--space-4);
+  min-width: 0;
+}
+legend:not([class]) { padding: 0 var(--space-2); font-weight: 650; color: var(--fg); }
+
+details:not([class]) > summary:not([class]),
+summary:not([class]) {
+  cursor: pointer;
+  min-height: var(--tap);
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-weight: 650;
+  color: var(--fg);
+  border-radius: 10px;
+  list-style: none;
+}
+summary:not([class])::-webkit-details-marker { display: none; }
+summary:not([class])::before {
+  content: '';
+  width: 8px;
+  height: 8px;
+  border-right: 2px solid currentColor;
+  border-bottom: 2px solid currentColor;
+  transform: rotate(-45deg);
+  transition: transform var(--transition-fast);
+  flex-shrink: 0;
+  margin-inline: 4px 6px;
+}
+details[open] > summary:not([class])::before { transform: rotate(45deg); }
+
+table:not([class]) { border-collapse: collapse; width: 100%; }
+table:not([class]) th, table:not([class]) td { padding: 8px 10px; border-bottom: 1px solid var(--border); text-align: left; }
+
+code, kbd { font-family: var(--font-mono); }
 
 /* ── App layout ── */
 #root {
   display: flex;
   flex-direction: column;
   min-height: 100vh;
+  min-height: 100dvh;
 }
 
 .app {
   display: flex;
   flex-direction: column;
   min-height: 100vh;
+  min-height: 100dvh;
+}
+
+.app > main {
+  flex: 1;
+  width: 100%;
+  padding-left: env(safe-area-inset-left);
+  padding-right: env(safe-area-inset-right);
 }
 
 .page {
   flex: 1;
-  /* Simple page transition — not distracting */
   animation: page-in 0.25s ease-out both;
 }
 
 @keyframes page-in {
-  from { opacity: 0; transform: translateY(8px); }
+  from { opacity: 0; transform: translateY(6px); }
   to   { opacity: 1; transform: translateY(0); }
 }
 
-/* ── Stagger entrance for lists ── */
-.stagger > * {
-  animation: stagger-in 0.3s ease-out both;
-}
-.stagger > *:nth-child(1)  { animation-delay: 0.04s; }
-.stagger > *:nth-child(2)  { animation-delay: 0.08s; }
-.stagger > *:nth-child(3)  { animation-delay: 0.12s; }
-.stagger > *:nth-child(4)  { animation-delay: 0.16s; }
-.stagger > *:nth-child(5)  { animation-delay: 0.20s; }
-.stagger > *:nth-child(6)  { animation-delay: 0.24s; }
-.stagger > *:nth-child(7)  { animation-delay: 0.28s; }
-.stagger > *:nth-child(8)  { animation-delay: 0.32s; }
+.stagger > * { animation: stagger-in 0.3s ease-out both; }
+.stagger > *:nth-child(1) { animation-delay: 0.04s; }
+.stagger > *:nth-child(2) { animation-delay: 0.08s; }
+.stagger > *:nth-child(3) { animation-delay: 0.12s; }
+.stagger > *:nth-child(4) { animation-delay: 0.16s; }
+.stagger > *:nth-child(5) { animation-delay: 0.20s; }
+.stagger > *:nth-child(6) { animation-delay: 0.24s; }
 
 @keyframes stagger-in {
-  from { opacity: 0; transform: translateY(8px); }
+  from { opacity: 0; transform: translateY(6px); }
   to   { opacity: 1; transform: translateY(0); }
 }
 
-/* Reduced motion: disable all animations */
 @media (prefers-reduced-motion: reduce) {
   .page, .stagger > * { animation: none; }
 }
 
-/* ── Gradient text ── */
-.gradient-text {
-  background: linear-gradient(135deg, var(--accent) 0%, var(--accent-strong) 100%);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  background-clip: text;
-}
+/* Akzentfarbener Text (früher Verlaufstext) – ruhig, ohne Verlauf */
+.gradient-text { color: var(--accent); }
 
-/* ── Utility ── */
 .sr-only {
   position: absolute;
   width: 1px; height: 1px;
@@ -127,7 +247,26 @@ img, svg { display: block; max-width: 100%; }
   border-width: 0;
 }
 
-/* ── Focus within trap for modals ── */
-[aria-modal="true"] {
-  /* Modal content gets focus trap */
+/* Gemeinsame Status-Hinweise (Fehler bleiben sichtbar am Ort) */
+.notice {
+  display: flex;
+  gap: var(--space-2);
+  align-items: flex-start;
+  padding: var(--space-3) var(--space-4);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+  color: var(--fg);
 }
+.notice--error { border-color: var(--danger); background: var(--danger-bg); }
+.notice--ok { border-color: var(--ok); background: var(--ok-bg); }
+.notice--warn { border-color: var(--warn); background: var(--warn-bg); }
+
+/* Gemeinsame Formular-/Kastenhelfer für kleine Formulare ohne eigenes Modul */
+.panel-box { padding: var(--space-4); border-radius: var(--radius); border: 1px solid var(--border); background: var(--surface); }
+.form-stack { display: grid; gap: var(--space-3); min-width: 0; }
+.form-stack > label { display: grid; gap: 6px; font-size: 0.9rem; font-weight: 600; }
+.form-stack > label > select, .form-stack > label > input { width: 100%; }
+.form-stack > button { justify-self: start; }
+.form-title { font-weight: 750; color: var(--fg); }
+[hidden] { display: none !important; }

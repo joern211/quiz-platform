@@ -1,164 +1,70 @@
 // ============================================================
-// Home Page – v0.2.0 (Gamified + playful)
+// Startseite – Midnight: Bühne, Show-Titel, Programmkarten
+// Nur echte Katalogdaten; keine erfundenen Kennzahlen.
 // ============================================================
 
 import { Link } from 'react-router-dom';
-import { Card, Button } from '@quiz/ui';
-import { GAME_MANIFESTS } from '@quiz/shared';
-import { toUiGame, startableCount } from '../lib/catalog';
+import { ButtonLink, Badge } from '@quiz/ui';
+import { startableGames } from '../lib/catalog';
+import { GameArt } from '../components/GameArt';
 import styles from './HomePage.module.css';
 
-const featuredIcons: Record<string, string> = {
-  wissensduell: '🌍',
-  jeopardy: '💰',
-  'wer-ist-das': '🎭',
-};
-function featuredIcon(slug: string): string {
-  return featuredIcons[slug] ?? '🎮';
-}
-
-// Hervorgehobene, ECHT startbare Spiele (aus dem kanonischen Katalog).
-const featuredGames = GAME_MANIFESTS
-  .filter((m) => m.status === 'AVAILABLE')
-  .slice(0, 4)
-  .map((m) => ({ ...toUiGame(m), icon: featuredIcon(m.slug) }));
+const games = startableGames();
 
 export function HomePage() {
   return (
     <div className={styles.page}>
-      {/* ── Hero ── */}
-      <section className={styles.hero}>
-        <div className={styles.eyebrow}>
-          <span className={styles.eyebrowDot} />
-          Multiplayer Quiz Plattform
-        </div>
-
-        <h1 className={styles.heroTitle}>
-          Spiele mit Freunden
-          <span className={styles.heroTitleAccent}>in Echtzeit</span>
+      <section className={styles.stage} aria-labelledby="home-title">
+        <span className={styles.showBadge}><span className={styles.dot} aria-hidden="true" />Dein Wohnzimmer. Deine Quizshow.</span>
+        <h1 id="home-title" className={styles.title}>
+          Heute spielt <em>ihr die Hauptrolle.</em>
         </h1>
-
-        <p className={styles.heroSubtitle}>
-          Erstelle einen Raum, lade deine Freunde ein und spielt gemeinsam —
-          Wissensduell, Jeopardy, Wer ist das? und mehr.
+        <p className={styles.lead}>
+          {games.length} Spiele. Eine gemeinsame Runde. Raum erstellen, Code teilen –
+          Mitspielende brauchen kein Konto.
         </p>
-
-        <div className={styles.heroCta}>
-          <Link to="/kategorien">
-            <Button size="lg">Spiele entdecken</Button>
-          </Link>
-          <div className={styles.heroOr}>oder</div>
-          <Link to="/moderator/anmelden">
-            <Button variant="secondary" size="lg">Raum erstellen</Button>
-          </Link>
-        </div>
-
-        <div className={styles.heroStats}>
-          <div className={styles.stat}>
-            <div className={styles.statValue}>{startableCount()}</div>
-            <div className={styles.statLabel}>spielsbereit</div>
-          </div>
-          <div className={styles.stat}>
-            <div className={styles.statValue}>2+</div>
-            <div className={styles.statLabel}>Spieler</div>
-          </div>
-          <div className={styles.stat}>
-            <div className={styles.statValue}>∞</div>
-            <div className={styles.statLabel}>Spielspaß</div>
-          </div>
+        <div className={styles.cta}>
+          <ButtonLink to="/moderator/anmelden" size="lg">
+            Raum erstellen <span aria-hidden="true">→</span>
+          </ButtonLink>
+          <ButtonLink to="/beitreten" variant="secondary" size="lg">Mit Raumcode beitreten</ButtonLink>
         </div>
       </section>
 
-      {/* ── How It Works ── */}
-      <section className={`${styles.section} stagger`}>
-        <div className={styles.sectionHeader}>
-          <h2 className={styles.sectionTitle}>So funktioniert's</h2>
+      <section className={styles.section} aria-labelledby="programm-title">
+        <div className={styles.sectionHead}>
+          <h2 id="programm-title">Das Programm für euren Abend</h2>
+          <Link to="/kategorien" className={styles.sectionLink}>Alle Spiele <span aria-hidden="true">→</span></Link>
         </div>
-        <div className={styles.howItWorks}>
-          {[
-            { n: 1, title: 'Raum erstellen', desc: 'Wähle ein Spiel, konfiguriere es und bekomme einen Code.' },
-            { n: 2, title: 'Freunde einladen', desc: 'Teile den Code — kein Account nötig.' },
-            { n: 3, title: 'Spielen', desc: 'Buzzer, Fragen, Punkte — alles in Echtzeit.' },
-            { n: 4, title: 'Gewinner feiern', desc: 'Live-Ergebnis und Rangliste nach jeder Runde.' },
-          ].map(step => (
-            <div key={step.n} className={styles.step}>
-              <div className={styles.stepNumber}>{step.n}</div>
-              <div className={styles.stepTitle}>{step.title}</div>
-              <div className={styles.stepDesc}>{step.desc}</div>
-            </div>
-          ))}
-        </div>
-      </section>
-
-      {/* ── Featured Games ── */}
-      <section className={`${styles.section} stagger`}>
-        <div className={styles.sectionHeader}>
-          <h2 className={styles.sectionTitle}>Spiele</h2>
-          <Link to="/kategorien" className={styles.sectionLink}>
-            Alle ansehen →
-          </Link>
-        </div>
-        <div className={styles.gameGrid}>
-          {featuredGames.map(game => (
-            <Link to={`/spiel/${game.slug}`} key={game.slug}>
-              <Card interactive padding="none" style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
-                <div style={{ padding: 'var(--space-4)' }}>
-                  <div style={{ fontSize: '2.5rem', marginBottom: 'var(--space-2)' }}>{game.icon}</div>
-                  <div style={{ fontFamily: 'var(--font-display)', fontWeight: 700, marginBottom: 'var(--space-1)', fontSize: '1.1rem' }}>
+        <ul className={styles.programme}>
+          {games.map((game) => (
+            <li key={game.slug}>
+              <Link to={`/spiel/${game.slug}`} className={styles.programmeCard}>
+                <GameArt slug={game.slug} className={styles.art} />
+                <span className={styles.copy}>
+                  <span className={styles.cardTitle}>
                     {game.name}
-                  </div>
-                  <div style={{ fontSize: '0.8rem', color: 'var(--muted)', lineHeight: 1.5 }}>
-                    {game.shortRules}
-                  </div>
-                </div>
-                <div style={{
-                  display: 'flex',
-                  justifyContent: 'space-between',
-                  alignItems: 'center',
-                  padding: 'var(--space-3) var(--space-4)',
-                  borderTop: '1px solid var(--border)',
-                  fontSize: '0.75rem',
-                  color: 'var(--muted)',
-                  marginTop: 'auto',
-                }}>
-                  <span>👥 {game.playerCount.min}–{game.playerCount.max}</span>
-                  <span>⏱ {game.duration}</span>
-                </div>
-              </Card>
-            </Link>
+                    {game.status === 'BETA' && <Badge variant="warning">Beta</Badge>}
+                  </span>
+                  <span className={styles.cardText}>{game.shortRules}</span>
+                  <span className={styles.cardMeta}>
+                    <span>{game.category}</span>
+                    <span>{game.playerCount.min}–{game.playerCount.max} Spieler</span>
+                    <span>{game.duration}</span>
+                  </span>
+                </span>
+                <span className={styles.arrow} aria-hidden="true">↗</span>
+              </Link>
+            </li>
           ))}
-        </div>
+        </ul>
       </section>
 
-      {/* ── Quick join CTA ── */}
-      <section className={styles.section}>
-        <Card padding="lg" className="glass" style={{ textAlign: 'center' }}>
-          <div style={{ fontFamily: 'var(--font-display)', fontSize: '1.3rem', fontWeight: 700, marginBottom: 'var(--space-3)' }}>
-            Du hast einen Raumcode?
-          </div>
-          <div style={{ color: 'var(--muted)', marginBottom: 'var(--space-5)', fontSize: '0.9rem' }}>
-            Dann tritt direkt ein — kein Login nötig.
-          </div>
-          <Link to="/beitreten">
-            <Button size="lg">Raum beitreten →</Button>
-          </Link>
-        </Card>
-      </section>
-
-      {/* ── Zuschauer CTA ── */}
-      <section className={styles.section}>
-        <Card padding="lg" style={{ textAlign: 'center', border: '1px solid var(--border)' }}>
-          <div style={{ fontFamily: 'var(--font-display)', fontSize: '1.2rem', fontWeight: 700, marginBottom: 'var(--space-2)' }}>
-            Kein Account nötig — einfach zuschauen
-          </div>
-          <div style={{ color: 'var(--muted)', marginBottom: 'var(--space-4)', fontSize: '0.9rem' }}>
-            Hast du keinen Account, aber möchtest du ein laufendes Spiel verfolgen? Kein Problem.
-          </div>
-          <Link to="/zuschauen">
-            <Button variant="secondary">Zuschauen →</Button>
-          </Link>
-        </Card>
-      </section>
+      <ul className={styles.showFooter} aria-label="Gut zu wissen">
+        <li>Im Browser spielen</li>
+        <li>Mitspielende ohne Konto</li>
+        <li><Link to="/zuschauen" className={styles.watchLink}>Als Zuschauer dabei sein <span aria-hidden="true">↗</span></Link></li>
+      </ul>
     </div>
   );
 }

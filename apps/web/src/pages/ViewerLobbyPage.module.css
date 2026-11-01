@@ -1,64 +1,11 @@
-/* ============================================================
-   Viewer Lobby Page Styles
-   ============================================================ */
-
-.page {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  min-height: calc(100vh - 200px);
-  padding: var(--space-6) var(--space-4);
-}
-
-.status {
-  margin-bottom: var(--space-4);
-}
-
-.lobby {
-  text-align: center;
-  max-width: 500px;
-  width: 100%;
-}
-
-.lobby h1 {
-  font-size: 1.5rem;
-  margin-bottom: var(--space-2);
-}
-
-.roomName {
-  font-size: 1.125rem;
-  color: var(--accent);
-  margin-bottom: var(--space-1);
-}
-
-.game {
-  color: var(--muted);
-  margin-bottom: var(--space-4);
-}
-
-.playerList {
-  text-align: left;
-  margin-top: var(--space-4);
-}
-
-.playerList h2 {
-  font-size: 0.875rem;
-  color: var(--muted);
-  margin-bottom: var(--space-2);
-}
-
-.players {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-2);
-}
-
-.playerRow {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: var(--space-2) var(--space-3);
-  background: var(--surface-2);
-  border-radius: calc(var(--radius) / 2);
-}
+/* Zuschauer-Lobby – Midnight */
+.page { max-width: 760px; margin: 0 auto; padding: var(--space-8) var(--space-6); display: grid; gap: var(--space-4); }
+.status { justify-self: end; }
+.lobby { display: grid; gap: var(--space-3); background: radial-gradient(ellipse at 50% 0, var(--stage-glow), transparent 70%), var(--surface) !important; }
+.lobby h1 { font-size: clamp(1.8rem, 5vw, 2.4rem); letter-spacing: -0.04em; }
+.roomName { font-size: 1.1rem; font-weight: 700; color: var(--fg); }
+.game { color: var(--muted); }
+.playerList h2 { font-size: 1.1rem; margin: var(--space-3) 0; }
+.players { display: grid; gap: 8px; }
+.playerRow { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); min-height: 48px; padding: 8px 14px; border-radius: 14px; background: var(--surface-2); border: 1px solid var(--border); overflow-wrap: anywhere; }
+@media (max-width: 640px) { .page { padding: var(--space-4); } }

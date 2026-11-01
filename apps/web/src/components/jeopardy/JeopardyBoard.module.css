@@ -1,104 +1,26 @@
-/* ============================================================
-   Jeopardy Board Styles
-   ============================================================ */
-
-.board {
-  display: flex;
-  flex-direction: column;
-  width: 100%;
-  gap: 2px;
-}
-
-.headerRow {
-  display: grid;
-  grid-template-columns: repeat(6, 1fr);
-  gap: 2px;
-}
-
+/* Jeopardy-Board – bleibt ein funktionales Board, Midnight-Flächen */
+.scroller { width: 100%; overflow-x: auto; border-radius: var(--radius); -webkit-overflow-scrolling: touch; }
+.scroller:focus-visible { outline: 3px solid var(--focus-ring); outline-offset: 2px; }
+.board { display: flex; flex-direction: column; gap: 6px; width: 100%; min-width: 540px; padding: 10px; border-radius: var(--radius); background: var(--surface); border: 1px solid var(--border); }
+.headerRow, .valueRow { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 6px; }
 .headerCell {
-  background: var(--accent, #1dd4d4);
-  color: #000;
-  font-weight: 700;
-  font-size: 0.75rem;
-  text-align: center;
-  padding: var(--space-2) var(--space-1);
-  border-radius: var(--radius) var(--radius) 0 0;
-  min-height: 3rem;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  word-break: break-word;
-  line-height: 1.2;
+  display: flex; align-items: center; justify-content: center; min-height: 3.2rem; padding: 6px 4px;
+  border-radius: 12px; background: var(--surface-2); color: var(--fg);
+  font-weight: 750; font-size: 0.8rem; text-align: center; line-height: 1.2; overflow-wrap: anywhere; hyphens: auto;
 }
-
-.valueRow {
-  display: grid;
-  grid-template-columns: repeat(6, 1fr);
-  gap: 2px;
-}
-
 .cell {
-  aspect-ratio: 1.6;
-  min-height: 3.5rem;
-  background: var(--accent, #1dd4d4);
-  color: #000;
-  border: none;
-  border-radius: 4px;
-  font-size: 1.25rem;
-  font-weight: 700;
-  cursor: default;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  transition: transform 0.1s ease, box-shadow 0.1s ease;
-  padding: 0;
+  display: flex; align-items: center; justify-content: center; aspect-ratio: 1.6; min-height: 3.2rem; padding: 0;
+  border-radius: 12px; border: 1px solid rgba(var(--accent-rgb), 0.45); background: var(--accent-tint); color: var(--fg);
+  font: inherit; font-size: 1.25rem; font-weight: 800; font-variant-numeric: tabular-nums; cursor: default;
+  transition: background var(--transition-fast), transform var(--transition-fast), border-color var(--transition-fast);
 }
-
-.cell.interactive {
-  cursor: pointer;
-}
-
-.cell.interactive:hover:not(.played) {
-  transform: scale(1.03);
-  box-shadow: 0 4px 12px rgba(29, 212, 212, 0.4);
-  background: color-mix(in srgb, var(--accent, #1dd4d4) 90%, white);
-}
-
-.cell.interactive:active:not(.played) {
-  transform: scale(0.97);
-}
-
-.cell.played {
-  background: var(--surface-2, #1e1e2e);
-  color: var(--muted, #888);
-  cursor: default;
-  opacity: 0.5;
-}
-
-.cell.current {
-  background: var(--ok, #1dd1a1);
-  animation: pulse 1s ease-in-out infinite;
-}
-
-.cell.highlighted {
-  background: var(--warning, #f9a825);
-  box-shadow: 0 0 0 3px var(--warning, #f9a825);
-}
-
-.cellValue {
-  pointer-events: none;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .cell.current {
-    animation: none;
-  }
-  .cell.interactive:hover {
-    transform: none;
-  }
-}
-
-@keyframes pulse {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.7; }
-}
+.cell.interactive { cursor: pointer; }
+.cell.interactive:hover:not(.played) { background: var(--accent); color: var(--on-accent); }
+.cell.interactive:active:not(.played) { transform: scale(0.97); }
+.cell:focus-visible { outline: 3px solid var(--focus-ring); outline-offset: 2px; }
+.cell:disabled { opacity: 1; }
+.cell.played { background: transparent; border: 1px dashed var(--border); color: var(--muted); font-weight: 600; text-decoration: line-through; }
+.cell.current { background: var(--accent); color: var(--on-accent); border: 2px solid var(--fg); }
+.cell.highlighted { box-shadow: 0 0 0 3px var(--accent); }
+.cellValue { pointer-events: none; }
+@media (max-width: 640px) { .cell { font-size: 1.05rem; } .headerCell { font-size: 0.72rem; } }

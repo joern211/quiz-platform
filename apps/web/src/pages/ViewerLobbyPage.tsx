@@ -73,7 +73,7 @@ export function ViewerLobbyPage() {
 
   return (
     <div className={styles.page}>
-      {error && <p role="alert">{error}</p>}
+      {error && <p role="alert" className="notice notice--error">{error}</p>}
       <Badge variant={connected ? 'success' : 'danger'} className={styles.status}>
         {connected ? 'Verbunden' : 'Getrennt'}
       </Badge>

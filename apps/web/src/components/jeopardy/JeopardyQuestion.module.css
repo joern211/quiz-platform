@@ -1,183 +1,22 @@
-/* ============================================================
-   Jeopardy Question Styles
-   ============================================================ */
-
-.questionCard {
-  text-align: center;
-  position: relative;
-}
-
-.header {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: var(--space-2);
-  margin-bottom: var(--space-4);
-  flex-wrap: wrap;
-}
-
-.buzzerBadge {
-  animation: flash 0.8s ease-in-out infinite;
-  font-weight: 700;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .buzzerBadge {
-    animation: none;
-  }
-}
-
-@keyframes flash {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.5; }
-}
-
-.question {
-  margin: 0 0 var(--space-6);
-  padding: var(--space-6) var(--space-4);
-  background: var(--surface-2);
-  border-radius: var(--radius);
-  border-left: 4px solid var(--accent);
-}
-
-.question p {
-  margin: 0;
-  font-size: 1.5rem;
-  font-weight: 600;
-  color: var(--fg);
-  line-height: 1.4;
-  letter-spacing: 0.01em;
-}
-
-/* Buzzer */
-.buzzerSection {
-  margin-bottom: var(--space-4);
-}
-
-.buzzerBtn {
-  font-size: 1.25rem;
-  padding: var(--space-4) var(--space-8);
-  animation: buzzPulse 0.6s ease-in-out infinite;
-  min-width: 240px;
-}
-
-.buzzerBtn:disabled {
-  animation: none;
-  opacity: 0.6;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .buzzerBtn {
-    animation: none;
-  }
-}
-
-@keyframes buzzPulse {
-  0%, 100% { box-shadow: 0 0 0 0 rgba(29, 212, 212, 0.45); }
-  50% { box-shadow: 0 0 0 8px rgba(29, 212, 212, 0); }
-}
-
-.buzzerHint {
-  margin-top: var(--space-2);
-  font-size: 0.875rem;
-  color: var(--muted);
-}
-
-/* Winner banner */
-.winnerBanner {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: var(--space-2);
-  padding: var(--space-4);
-  background: rgba(29, 212, 212, 0.1);
-  border: 2px solid var(--accent);
-  border-radius: var(--radius);
-  margin-bottom: var(--space-4);
-}
-
-.winnerIcon {
-  font-size: 1.5rem;
-}
-
-.winnerName {
-  font-weight: 700;
-  font-size: 1.125rem;
-  color: var(--accent);
-}
-
-.waitingText {
-  color: var(--muted);
-  font-size: 0.875rem;
-}
-
-/* Reveal section */
-.revealSection {
-  text-align: left;
-  padding: var(--space-4);
-  background: var(--surface-2);
-  border-radius: var(--radius);
-}
-
-.stealResultSection {
-  text-align: left;
-  padding: var(--space-4);
-  background: var(--surface-2);
-  border-radius: var(--radius);
-  margin-top: var(--space-3);
-  border: 2px solid var(--warning, #f9a825);
-}
-
-.stealHeader {
-  font-weight: 700;
-  color: var(--warning, #f9a825);
-  margin-bottom: var(--space-2);
-  font-size: 0.875rem;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-}
-
-.resultBadge {
-  display: inline-block;
-  font-size: 1.125rem;
-  font-weight: 700;
-  padding: var(--space-2) var(--space-4);
-  border-radius: var(--radius);
-  margin-bottom: var(--space-3);
-}
-
-.resultBadge.correct {
-  background: rgba(29, 209, 161, 0.2);
-  color: var(--ok, #1dd1a1);
-  border: 2px solid var(--ok, #1dd1a1);
-}
-
-.resultBadge.wrong {
-  background: rgba(255, 93, 115, 0.2);
-  color: var(--danger, #ff5d73);
-  border: 2px solid var(--danger, #ff5d73);
-}
-
-.answerReveal {
-  margin: var(--space-3) 0;
-  padding: var(--space-3);
-  background: var(--surface);
-  border-radius: calc(var(--radius) / 2);
-  font-size: 0.95rem;
-}
-
-.scoreChange {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-top: var(--space-2);
-  font-weight: 600;
-}
-
-.scoreUp {
-  color: var(--ok, #1dd1a1);
-}
-
-.scoreDown {
-  color: var(--danger, #ff5d73);
-}
+/* Jeopardy-Frage – Midnight: Frage im Licht, großer Buzzer, eindeutige Urteile */
+.questionCard { display: grid; gap: var(--space-4); text-align: center; background: radial-gradient(ellipse at 50% 0, var(--stage-glow), transparent 60%), var(--surface) !important; }
+.header { display: flex; justify-content: center; flex-wrap: wrap; gap: var(--space-2); }
+.buzzerBadge { font-size: 0.85rem; }
+.question { margin: 0; }
+.question p { font-size: clamp(1.35rem, 4vw, 2rem); font-weight: 750; letter-spacing: -0.02em; line-height: 1.25; color: var(--fg); max-width: 720px; margin: 0 auto; overflow-wrap: anywhere; }
+.buzzerSection { display: grid; justify-items: center; gap: var(--space-2); }
+.buzzerBtn { width: min(100%, 420px); min-height: 88px !important; font-size: clamp(1.2rem, 4vw, 1.6rem) !important; font-weight: 850 !important; letter-spacing: 0.02em; touch-action: manipulation; }
+.buzzerHint { font-size: 0.9rem; }
+.winnerBanner { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: var(--space-2); padding: var(--space-3) var(--space-4); border-radius: var(--radius-md); background: var(--accent-tint); border: 1px solid rgba(var(--accent-rgb), 0.5); }
+.winnerIcon { font-size: 1.3rem; }
+.winnerName { font-weight: 800; color: var(--fg); overflow-wrap: anywhere; }
+.waitingText { color: var(--muted); }
+.revealSection, .stealResultSection { display: grid; gap: var(--space-3); justify-items: center; padding-top: var(--space-2); border-top: 1px solid var(--border); }
+.stealHeader { font-size: 0.8rem; font-weight: 750; letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted); }
+.resultBadge { padding: 8px 18px; border-radius: 999px; font-weight: 800; font-size: 1.05rem; border: 2px solid; }
+.correct { color: var(--ok); border-color: var(--ok); background: var(--ok-bg); }
+.wrong { color: var(--danger); border-color: var(--danger); background: var(--danger-bg); border-style: dashed; }
+.answerReveal { color: var(--fg); font-size: 1.05rem; overflow-wrap: anywhere; }
+.scoreChange { display: flex; gap: var(--space-2); align-items: baseline; font-weight: 650; color: var(--fg); font-variant-numeric: tabular-nums; }
+.scoreUp { color: var(--ok); font-weight: 800; }
+.scoreDown { color: var(--danger); font-weight: 800; }

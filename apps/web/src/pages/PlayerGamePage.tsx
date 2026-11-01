@@ -234,10 +234,10 @@ export function PlayerGamePage() {
     <CoreReadNotice core={core} />
     <div className={styles.page}>
       <div className={styles.header}>
-        <span className={styles.score}>Score: {score}</span>
+        <span className={styles.score}>Deine Punkte: <strong>{score}</strong></span>
       </div>
 
-      {answerSubmitted && <p role="status">Antwort gespeichert.</p>}
+      {answerSubmitted && <p role="status" className={styles.saved}>Antwort gespeichert.</p>}
 
       <Card padding="lg" className={styles.questionCard} role="region" aria-label="Aktuelle Frage">
         <p className={styles.category}>{question.category}</p>
@@ -267,6 +267,9 @@ export function PlayerGamePage() {
                     {label}
                   </span>
                   <span className={styles.optionText}>{option.text}</span>
+                  {(isCorrect || isWrong || (isSelected && !revealed)) && (
+                    <span className={styles.mark}>{isCorrect ? '✓ Richtig' : isWrong ? '✗ Deine Antwort' : 'Ausgewählt'}</span>
+                  )}
                 </button>
               );
             })}

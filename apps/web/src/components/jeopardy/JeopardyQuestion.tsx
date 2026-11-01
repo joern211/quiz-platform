@@ -107,7 +107,7 @@ export function JeopardyQuestion({
           </Badge>
         )}
         {isStealOpen && (
-          <Badge variant="danger" className={styles.buzzerBadge}>
+          <Badge variant="warning" className={styles.buzzerBadge}>
             ⚡ Abstauber-Phase!
           </Badge>
         )}
@@ -145,7 +145,6 @@ export function JeopardyQuestion({
         <div className={styles.buzzerSection}>
           <Button
             size="lg"
-            variant="danger"
             onClick={onStealBuzz}
             disabled={!canStealBuzz}
             className={styles.buzzerBtn}

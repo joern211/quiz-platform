@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Link } from 'react-router-dom';
 import { PublicResultViewSchema, type PublicResultView, type ResultOperation, type RoomCoreView } from '@quiz/shared';
-import { Card, Button } from '@quiz/ui';
+import { Card, Button, ButtonLink } from '@quiz/ui';
 import { connectSocket, emitCommand, getSocket, type PlayerRole } from '../lib/socket';
 import { getSession } from '../lib/sessionStore';
 import { failureText } from '../lib/commandErrors';
@@ -59,18 +58,23 @@ export function ResultScreen({ roomCode, role }: { roomCode: string; role: Playe
         else setError(failureText(response, 'Aktion nicht bestätigt. Lade den aktuellen Stand und prüfe deine Berechtigung; bei Verbindungsabbruch kannst du dieselbe Aktion erneut senden.'));
       });
   };
-  if (loading && !result) return <p>Lädt …</p>;
+  if (loading && !result) return <p className={styles.loading} role="status">Lädt …</p>;
+  const tied = (rank: number, list: Array<{ rank: number }>) => list.filter(entry => entry.rank === rank).length > 1;
   return <section className={styles.page} aria-label="Spielergebnis">
-    <h1 className={styles.title}>{role === 'HOST' ? 'Ergebnis' : 'Spiel beendet'}</h1><p>{result?.game.name ?? 'Spiel'} · Raum {roomCode}{result && ` · Partie ${result.runIndex}`}</p>
-    {error && <div role="alert"><p>{error}</p><Button onClick={() => void refresh()}>Erneut laden</Button></div>}
+    <header className={styles.hero}>
+      <span className={styles.trophy} aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"><path d="M8 3h8v6a4 4 0 0 1-8 0V3Zm0 2H4v2a4 4 0 0 0 4 4m8-6h4v2a4 4 0 0 1-4 4m-4 2v6m-4 2h8" /></svg></span>
+      <p className={styles.eyebrow}>{result?.game.name ?? 'Spiel'} · Raum {roomCode}{result && ` · Partie ${result.runIndex}`}</p>
+      <h1 className={styles.title}>{role === 'HOST' ? 'Ergebnis' : 'Spiel beendet'}</h1>
+    </header>
+    {error && <div role="alert" className={`notice notice--error ${styles.errorBox}`}><p>{error}</p><Button variant="secondary" onClick={() => void refresh()}>Erneut laden</Button></div>}
     {result && <>
-      <p role="status">{revision && result.isLatestRevision === false ? `Historische Version ${revision} von ${result.latestRevision} · damals: ${result.statusAtRevision === 'FINALIZED' ? 'verbindlich bestätigt' : result.statusAtRevision === 'RESULT_REVIEW' ? 'in Ergebnisprüfung' : 'Spiel beendet, noch nicht bestätigt'}` : revision ? `Version ${revision}` : result.resultStatus === 'FINALIZED' ? 'Verbindlich bestätigt' : result.resultStatus === 'RESULT_REVIEW' ? 'In Ergebnisprüfung' : result.resultStatus === 'GAME_END' ? 'Spiel beendet · noch nicht bestätigt' : 'Historisches Ergebnis ohne Finalisierungsnachweis'}</p>
-      {result.aborted && <p>Abgebrochene Partie · kein reguläres Siegergebnis.</p>}
-      {result.requiresReview && <p role="alert">Punkteprotokoll und Spielzustand müssen vor einer Bestätigung geprüft werden.</p>}
+      <p role="status" className={styles.statusPill}>{revision && result.isLatestRevision === false ? `Historische Version ${revision} von ${result.latestRevision} · damals: ${result.statusAtRevision === 'FINALIZED' ? 'verbindlich bestätigt' : result.statusAtRevision === 'RESULT_REVIEW' ? 'in Ergebnisprüfung' : 'Spiel beendet, noch nicht bestätigt'}` : revision ? `Version ${revision}` : result.resultStatus === 'FINALIZED' ? 'Verbindlich bestätigt' : result.resultStatus === 'RESULT_REVIEW' ? 'In Ergebnisprüfung' : result.resultStatus === 'GAME_END' ? 'Spiel beendet · noch nicht bestätigt' : 'Historisches Ergebnis ohne Finalisierungsnachweis'}</p>
+      {result.aborted && <p className="notice notice--warn">Abgebrochene Partie · kein reguläres Siegergebnis.</p>}
+      {result.requiresReview && <p role="alert" className="notice notice--warn">Punkteprotokoll und Spielzustand müssen vor einer Bestätigung geprüft werden.</p>}
       {role === 'PLAYER' && <ContentCorrection roomCode={roomCode} runIndex={result.runIndex} />}
-      {result.scoring === 'TEAM_SCORE' && <Card padding="lg"><h2>Teamwertung</h2><ol>{result.teams.map(t => <li key={t.id} value={t.rank}>{t.name}: {t.score} Punkte</li>)}</ol></Card>}
+      {result.scoring === 'TEAM_SCORE' && <Card padding="lg"><h2>Teamwertung</h2><ol className={styles.ranking}>{result.teams.map(t => <li key={t.id} value={t.rank} data-rank={t.rank}><span className={styles.rank} aria-hidden="true">{t.rank}</span><span className={styles.entry}>{t.name}: {t.score} Punkte</span>{tied(t.rank, result.teams) && <span className={styles.tie}>gleichauf</span>}</li>)}</ol></Card>}
       <Card padding="lg"><h2>{result.scoring === 'TEAM_SCORE' ? 'Persönliche Beiträge' : 'Rangliste'}</h2>
-        <ol>{result.scores.map(p => <li key={p.participationId} value={p.rank}>{p.displayName}: {p.score} Punkte</li>)}</ol>
+        <ol className={styles.ranking}>{result.scores.map(p => <li key={p.participationId} value={p.rank} data-rank={p.rank}><span className={styles.rank} aria-hidden="true">{p.rank}</span><span className={styles.entry}>{p.displayName}: {p.score} Punkte</span>{tied(p.rank, result.scores) && <span className={styles.tie}>gleichauf</span>}</li>)}</ol>
       </Card>
       {result.versions.length > 1 && <label>Ergebnisversion <select aria-label="Ergebnisversion" value={revision ?? ''} onChange={e => setRevision(e.target.value ? Number(e.target.value) : null)} disabled={pending}>
         <option value="">Aktuelle Version</option>{result.versions.map(v => <option key={v.revision} value={v.revision}>Version {v.revision} · {v.kind === 'RESULT_AMENDMENT' ? 'Nachträgliche Korrektur' : v.kind === 'FINALIZE' ? 'Bestätigt' : v.kind === 'GAME_ENDED' ? 'Ursprüngliches Ergebnis' : 'Ergebnisprüfung'}</option>)}
@@ -93,6 +97,6 @@ export function ResultScreen({ roomCode, role }: { roomCode: string; role: Playe
       {room?.history.length ? <label>Frühere Partie <select aria-label="Frühere Partie" value={runIndex ?? ''} onChange={e => { setRevision(null); setRunIndex(e.target.value ? Number(e.target.value) : null); }} disabled={pending}><option value="">Aktuelle Partie</option>{room.history.map(h => <option key={h.runIndex} value={h.runIndex}>Partie {h.runIndex}</option>)}</select></label> : null}
 
     </>}
-    <Link to="/"><Button variant="ghost">Startseite</Button></Link>
+    <ButtonLink to="/" variant="secondary" className={styles.home}>Zur Startseite</ButtonLink>
   </section>;
 }

@@ -9,7 +9,7 @@ import { CoreReadNotice } from '../components/CoreReadNotice';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useEffect, useState, useRef } from 'react';
 import { getSocket, connectSocket, disconnectSocket, emitCommand } from '../lib/socket';
-import { Card, Button } from '@quiz/ui';
+import { Card, Button, ConfirmDialog } from '@quiz/ui';
 import { Timer } from '@quiz/ui';
 import { GameShell } from '../components/GameShell';
 import styles from './ModeratorGamePage.module.css';
@@ -176,6 +176,8 @@ export function ModeratorGamePage() {
     });
   };
 
+  // Vorzeitiges Beenden ist destruktiv → Bestätigung. Nach Auflösung der letzten Frage ist es der reguläre Abschluss.
+  const [confirmEnd, setConfirmEnd] = useState(false);
   const handleEndGame = () => {
     if (!socketRef.current) {
       setActionError('Socket-Verbindung ist nicht verfügbar.');
@@ -228,6 +230,7 @@ export function ModeratorGamePage() {
               <span className={styles.optionLetter}>{['A', 'B', 'C', 'D'][i]}</span>
               <span>{opt.text}</span>
               <span className={styles.statCount}>{answerStats[opt.id] || 0}</span>
+              {revealed && opt.id === correctOptionId && <span className={styles.correctMark}>✓ Richtig</span>}
             </div>
           ))}
         </div>
@@ -266,8 +269,12 @@ export function ModeratorGamePage() {
         ) : (
           <Button disabled={!core.can('next')} onClick={handleNextQuestion}>Nächste Frage →</Button>
         ))}
-        <Button variant="danger" disabled={!core.can('end')} onClick={handleEndGame}>Spiel beenden</Button>
+        <Button variant="danger" disabled={!core.can('end')} onClick={() => { if (revealed && currentIndex + 1 >= totalQuestions) handleEndGame(); else setConfirmEnd(true); }}>Spiel beenden</Button>
       </div>
+      <ConfirmDialog open={confirmEnd} title="Spiel vorzeitig beenden?" confirmLabel="Spiel beenden" danger
+        onCancel={() => setConfirmEnd(false)} onConfirm={() => { setConfirmEnd(false); handleEndGame(); }}>
+        <p>Es sind noch Fragen offen ({currentIndex + 1} von {totalQuestions}). Die Partie endet für alle mit dem aktuellen Punktestand.</p>
+      </ConfirmDialog>
     </div>
     </GameShell>
   );
