@@ -163,11 +163,6 @@
   border-bottom: none;
 }
 
-.roleFeatures li::before {
-  content: '✓';
-  color: var(--ok);
-  font-weight: 700;
-}
 
 .notFound {
   text-align: center;

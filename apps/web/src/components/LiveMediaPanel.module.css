@@ -1,6 +1,6 @@
 /* Sprache und Kamera – Midnight (nur Gestaltung; Struktur bleibt unverändert) */
 .panel {
-  max-width: 1250px;
+  max-width: calc(1250px - 2 * var(--space-6));
   margin: var(--space-4) auto var(--space-6);
   width: calc(100% - 2 * max(var(--space-6), env(safe-area-inset-left)));
   padding: var(--space-5);

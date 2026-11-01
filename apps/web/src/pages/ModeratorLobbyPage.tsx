@@ -230,7 +230,7 @@ export function ModeratorLobbyPage() {
           <section className={styles.codeBanner} aria-label="Einladung">
             <div>
               <p className={styles.codeLabel}>Euer Raumcode</p>
-              <p className={styles.subtitle}>Raum: <span className={styles.code}>{code}</span></p>
+              <p className={styles.subtitle}><span className="sr-only">Raum: </span><span className={styles.code}>{code}</span></p>
               <p className={styles.inviteHint}>Teile diesen Code mit deinen Freunden – Beitritt unter <strong>/beitreten</strong>.</p>
             </div>
             <div className={styles.codeActions}>

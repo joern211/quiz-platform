@@ -259,3 +259,11 @@ code, kbd { font-family: var(--font-mono); }
 .notice--error { border-color: var(--danger); background: var(--danger-bg); }
 .notice--ok { border-color: var(--ok); background: var(--ok-bg); }
 .notice--warn { border-color: var(--warn); background: var(--warn-bg); }
+
+/* Gemeinsame Formular-/Kastenhelfer für kleine Formulare ohne eigenes Modul */
+.panel-box { padding: var(--space-4); border-radius: var(--radius); border: 1px solid var(--border); background: var(--surface); }
+.form-stack { display: grid; gap: var(--space-3); min-width: 0; }
+.form-stack > label { display: grid; gap: 6px; font-size: 0.9rem; font-weight: 600; }
+.form-stack > label > select, .form-stack > label > input { width: 100%; }
+.form-stack > button { justify-self: start; }
+.form-title { font-weight: 750; color: var(--fg); }
