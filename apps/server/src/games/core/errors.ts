@@ -1,5 +1,6 @@
 import { NUMERIC_ERROR_CODES } from '@quiz/shared/numeric';
 import { TEXT_CARD_ERROR_CODES } from '@quiz/shared/textcard';
+import { ORDERING_ERROR_CODES } from '@quiz/shared/ordering';
 import { GameStateConflictError } from './state.js';
 
 // Wire codes kept stable for existing clients; internal messages are never returned.
@@ -27,6 +28,8 @@ const PUBLIC_CODES = new Set([
   ...NUMERIC_ERROR_CODES,
   // N2: text card codes carry no texts (issues hold configured fieldIds only); no engine emits them yet.
   ...TEXT_CARD_ERROR_CODES,
+  // N3: ordering codes carry no orders, ids or reference data (issues hold configured itemIds only); no engine emits them yet.
+  ...ORDERING_ERROR_CODES,
 ]);
 
 export function gameErrorCode(error: unknown, gameSlug?: string): string {
