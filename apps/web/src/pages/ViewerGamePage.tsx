@@ -117,6 +117,7 @@ export function ViewerGamePage() {
                   >
                     <span className={styles.optionLetter}>{['A', 'B', 'C', 'D'][i]}</span>
                     <span className={styles.optionText}>{opt.text}</span>
+                    {isCorrect && <span className={styles.correctMark}>✓ Richtig</span>}
                   </div>
                 );
               })}

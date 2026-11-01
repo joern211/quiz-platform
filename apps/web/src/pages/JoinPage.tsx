@@ -4,7 +4,7 @@ import { MediaDeviceCheck } from '../components/MediaDeviceCheck';
 // ============================================================
 
 import { useState } from 'react';
-import { useNavigate, useLocation } from 'react-router-dom';
+import { useNavigate, useLocation, Link } from 'react-router-dom';
 import { Card, Button, Input } from '@quiz/ui';
 import { setSession } from '../lib/sessionStore';
 import styles from './JoinPage.module.css';
@@ -144,7 +144,7 @@ export function JoinPage() {
         <MediaDeviceCheck />
 
         <p className={styles.hint}>
-          Keinen Code? <a href="/raeume">Öffentliche Räume anzeigen</a>
+          Keinen Code? <Link to="/moderator/raeume">Öffentliche Räume anzeigen</Link>
         </p>
       </Card>
     </div>

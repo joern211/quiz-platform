@@ -42,6 +42,10 @@
 .ghost { background: transparent; color: var(--fg); border-color: transparent; }
 .ghost:hover:not(:disabled) { background: var(--surface-2); border-color: var(--border); }
 
+/* Success – feste Erfolgsfarbe (z. B. „Richtig“-Urteil), unabhängig vom Akzent */
+.success { background: var(--ok); color: var(--on-ok); }
+.success:hover:not(:disabled) { filter: brightness(1.06); box-shadow: 0 0 0 4px var(--ok-bg); }
+
 /* Danger – kritische Aktion, immer mit eindeutigem Text */
 .danger { background: var(--danger); color: var(--on-danger); }
 .danger:hover:not(:disabled) { filter: brightness(1.06); box-shadow: 0 0 0 4px var(--danger-bg); }
@@ -63,10 +67,9 @@
 .loading { cursor: progress; }
 .loading:disabled { background: var(--surface-2); color: var(--fg); }
 .spinner {
-  position: absolute; display: flex; align-items: center; justify-content: center;
-  width: 20px; height: 20px; animation: spin-slow 0.8s linear infinite;
+  display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0;
+  width: 18px; height: 18px; animation: spin-slow 0.8s linear infinite;
 }
 .spinner svg { width: 100%; height: 100%; }
-.hiddenText { visibility: hidden; }
 
 @keyframes spin-slow { to { transform: rotate(360deg); } }

@@ -61,8 +61,9 @@ test('T1: approval, self-select teams, preflight, play, pause, reconnect, rematc
     await expect(alice.getByRole('region', { name: 'Raum und Teams' }).getByRole('heading', { name: /Team 1/ })).toBeVisible();
     await host.getByRole('button', { name: 'Spiel fortsetzen', exact: true }).click();
     await expect(host.getByRole('button', { name: 'Spiel pausieren', exact: true })).toBeVisible();
-    host.once('dialog', dialog => dialog.accept());
-    await host.getByRole('button', { name: 'Spiel abbrechen', exact: true }).click();
+    // Destruktive Aktion: gestalteter Bestätigungsdialog statt nativem confirm()
+    await host.getByRole('region', { name: 'Raum und Teams' }).getByRole('button', { name: 'Spiel abbrechen', exact: true }).click();
+    await host.getByRole('alertdialog', { name: 'Spiel abbrechen?' }).getByRole('button', { name: 'Spiel abbrechen', exact: true }).click();
     await host.getByRole('button', { name: 'Zum Ergebnis', exact: true }).click();
     await expect(host.getByRole('button', { name: 'Ergebnisprüfung beginnen' })).toBeVisible();
     await host.getByRole('button', { name: 'Ergebnisprüfung beginnen' }).click();
@@ -90,8 +91,8 @@ test('T1: approval, self-select teams, preflight, play, pause, reconnect, rematc
     await expect(host).toHaveURL(new RegExp(`/moderator/raum/${code}/lobby$`));
     await expect(alice).toHaveURL(new RegExp(`/raum/${code}/lobby$`));
     await expect(host.getByText('Lobby geöffnet · Spiel 2')).toBeVisible();
-    host.once('dialog', dialog => dialog.accept());
     await host.getByRole('button', { name: 'Raum endgültig schließen', exact: true }).click();
+    await host.getByRole('alertdialog', { name: 'Raum endgültig schließen?' }).getByRole('button', { name: 'Raum schließen', exact: true }).click();
     await expect(host).toHaveURL(`${BASE}/kategorien`);
     await expect(alice).toHaveURL(`${BASE}/kategorien`);
   } finally { await Promise.allSettled(contexts.map(c => c.close())); }

@@ -1,132 +1,35 @@
-/* ============================================================
-   Player Lobby Page Styles
-   ============================================================ */
-
-.page {
-  max-width: 800px;
-  margin: 0 auto;
-  padding: var(--space-6) var(--space-4);
-}
-
+/* Spieler-Lobby – Midnight */
+.page { max-width: 900px; margin: 0 auto; padding: var(--space-8) var(--space-6) var(--space-6); display: grid; gap: var(--space-5); }
 .header {
-  text-align: center;
-  margin-bottom: var(--space-6);
+  display: grid; justify-items: center; gap: 8px; text-align: center; padding: 28px 16px;
+  border-radius: var(--radius-lg); border: 1px solid var(--border);
+  background: radial-gradient(ellipse at 50% 0, var(--stage-glow), transparent 70%), var(--surface);
 }
-
-.title {
-  font-size: 2rem;
-  font-weight: 700;
-  color: var(--fg);
-  margin-bottom: var(--space-2);
-}
-
-.code {
-  color: var(--muted);
-  font-family: monospace;
-  font-size: 1.25rem;
-  margin-bottom: var(--space-2);
-}
-
-.grid {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: var(--space-4);
-  margin-bottom: var(--space-4);
-}
-
-.grid h2 {
-  font-size: 1.125rem;
-  margin-bottom: var(--space-3);
-}
-
-.playerList {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-2);
-  max-height: 300px;
-  overflow-y: auto;
-}
-
-.empty {
-  color: var(--muted);
-  text-align: center;
-  padding: var(--space-6);
-  font-size: 0.9rem;
-}
-
+.title { font-size: clamp(1.8rem, 5vw, 2.4rem); letter-spacing: -0.04em; }
+.code { font-size: 1.1rem; font-weight: 750; letter-spacing: 0.12em; color: var(--fg); font-variant-numeric: tabular-nums; }
+.grid { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-4); }
+.grid h2 { font-size: 1.15rem; margin-bottom: var(--space-3); }
+.playerList { display: grid; gap: 8px; }
 .playerRow {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: var(--space-2) var(--space-3);
-  background: var(--surface-2);
-  border-radius: calc(var(--radius) / 2);
+  display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); min-height: 52px;
+  padding: 8px 14px; border-radius: 14px; background: var(--surface-2); border: 1px solid var(--border);
 }
-
-.playerRow.ready {
-  border: 2px solid var(--ok);
-}
-
-.playerName {
-  font-weight: 500;
-}
-
-.chatArea {
-  display: flex;
-  flex-direction: column;
-  height: 250px;
-}
-
-.chatMessages {
-  flex: 1;
-  overflow-y: auto;
-  padding: var(--space-2);
-  background: var(--surface-2);
-  border-radius: calc(var(--radius) / 2);
-  margin-bottom: var(--space-2);
-}
-
-.chatEmpty {
-  color: var(--muted);
-  text-align: center;
-  padding: var(--space-4);
-}
-
-.chatMessage {
-  padding: var(--space-1) 0;
-  font-size: 0.875rem;
-}
-
-.chatMessage strong {
-  color: var(--accent);
-}
-
-.chatForm {
-  display: flex;
-  gap: var(--space-2);
-}
-
-.chatInput {
-  flex: 1;
-  padding: var(--space-2) var(--space-3);
-  background: var(--surface-2);
-  border: 1px solid var(--border);
-  border-radius: calc(var(--radius) / 2);
-  color: var(--fg);
-  font-size: 0.875rem;
-}
-
-.chatInput:focus {
-  outline: none;
-  border-color: var(--accent);
-}
-
+.playerRow.ready { border-color: color-mix(in srgb, var(--ok) 45%, var(--border)); }
+.playerName { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 6px; font-weight: 650; overflow-wrap: anywhere; min-width: 0; }
+.empty { text-align: center; padding: var(--space-4); }
+.chatArea { display: grid; gap: var(--space-3); }
+.chatMessages { display: grid; gap: 6px; max-height: 260px; overflow-y: auto; }
+.chatMessage { padding: 8px 12px; border-radius: 12px; background: var(--surface-2); color: var(--fg); overflow-wrap: anywhere; }
+.chatEmpty { font-size: 0.9rem; }
 .actions {
-  text-align: center;
+  position: sticky; bottom: 0; display: flex; justify-content: center;
+  padding: var(--space-3) 0 max(var(--space-3), env(safe-area-inset-bottom));
+  background: linear-gradient(transparent, var(--bg) 35%);
 }
-
+.actions > button { min-width: min(320px, 100%); }
+.kickedCard { text-align: center; display: grid; gap: var(--space-3); }
 @media (max-width: 700px) {
-  .grid {
-    grid-template-columns: 1fr;
-  }
+  .page { padding: var(--space-4); }
+  .grid { grid-template-columns: 1fr; }
+  .actions > button { width: 100%; }
 }

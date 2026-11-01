@@ -34,6 +34,7 @@ export function JeopardyBoard({
   highlightedField,
 }: JeopardyBoardProps) {
   return (
+    <div className={styles.scroller} role="region" aria-label="Spielfeld-Bereich (bei Bedarf seitlich scrollbar)" tabIndex={0}>
     <div className={styles.board} role="grid" aria-label="Jeopardy-Spielfeld">
       {/* Category headers */}
       <div className={styles.headerRow} role="row">
@@ -47,7 +48,7 @@ export function JeopardyBoard({
       {/* Field grid: values × categories */}
       {values.map((value) => (
         <div key={value} className={styles.valueRow} role="row">
-          {categories.map((_cat, ci) => {
+          {categories.map((cat, ci) => {
             const key = `${ci}-${value}`;
             const isPlayed = playedFields.includes(key);
             const isCurrent =
@@ -73,8 +74,8 @@ export function JeopardyBoard({
                 role="gridcell"
                 aria-label={
                   isPlayed
-                    ? `Bereits gespielt: ${value} Punkte`
-                    : `${value} Punkte – Kategorie ${ci + 1}`
+                    ? `Bereits gespielt: ${value} Punkte – ${cat.name || `Kategorie ${ci + 1}`}`
+                    : `${value} Punkte – ${cat.name || `Kategorie ${ci + 1}`}${isCurrent ? ' (offen)' : ''}`
                 }
                 aria-pressed={isCurrent}
                 data-category-index={ci}
@@ -86,6 +87,7 @@ export function JeopardyBoard({
           })}
         </div>
       ))}
+    </div>
     </div>
   );
 }

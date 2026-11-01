@@ -32,7 +32,7 @@
 .player.disconnected { opacity: 0.5; }
 
 .rank {
-  font-family: 'Space Grotesk', sans-serif;
+  font-family: var(--font-display);
   font-size: 1.3rem;
   font-weight: 900;
   min-width: 2.5rem;
@@ -41,9 +41,9 @@
 }
 
 /* Clean medal colors — no text-shadow glow */
-.rank1 { color: #ffd700; }
-.rank2 { color: #a8a8a8; }
-.rank3 { color: #c47f3a; }
+.rank1 { color: var(--accent); }
+.rank2 { color: var(--fg); }
+.rank3 { color: var(--fg); }
 
 .avatar, .avatarPlaceholder, .avatarGenerated {
   width: 44px;
@@ -121,7 +121,7 @@
 }
 
 .score {
-  font-family: 'Space Grotesk', sans-serif;
+  font-family: var(--font-display);
   font-size: 1.6rem;
   font-weight: 900;
   color: var(--accent);

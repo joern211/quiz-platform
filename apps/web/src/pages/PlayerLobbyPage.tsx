@@ -161,7 +161,7 @@ export function PlayerLobbyPage() {
         </Badge>
       </div>
 
-      {actionError && <p role="alert">{actionError}</p>}
+      {actionError && <p role="alert" className="notice notice--error">{actionError}</p>}
 
       <div className={styles.grid}>
         <Card padding="lg">

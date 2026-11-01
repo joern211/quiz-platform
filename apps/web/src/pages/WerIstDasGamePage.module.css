@@ -1,15 +1,57 @@
-.layout { display: grid; grid-template-columns: minmax(0, 2fr) minmax(12rem, 1fr); gap: 1.5rem; width: 100%; }
-.main { min-width: 0; }
-.image { display: block; width: 100%; max-height: 65vh; object-fit: contain; border-radius: 1rem; background: #172035; }
-.originals { margin-top: 1rem; padding: 1rem; border-radius: 1rem; background: var(--color-surface, #252b38); }
-.originals img { max-width: 11rem; max-height: 11rem; border-radius: .5rem; margin: .3rem; vertical-align: middle; }
-.scores, .solution, .controls { padding: 1rem; border-radius: 1rem; background: var(--color-surface, #252b38); margin-top: 1rem; }
-.hint, .turn { font-weight: 700; padding: 1rem; border-radius: .6rem; background: #544118; color: white; }
-.controls, .judges { display: flex; flex-wrap: wrap; align-items: center; gap: .75rem; }
-.controls h2, .judges p { flex-basis: 100%; margin: 0; }
-.controls button { min-height: 3rem; padding: .6rem 1rem; cursor: pointer; }
-.buzz { display: block; width: 100%; min-height: 7rem; font-size: clamp(1.5rem, 6vw, 3rem); font-weight: 800; border-radius: 1rem; background: #e35429; color: white; touch-action: manipulation; }
-.buzz:disabled { background: #687078; cursor: not-allowed; }
-.scores ol { padding-left: 1.6rem; }
-.scores li { margin: .75rem 0; }
-@media (max-width: 700px) { .layout { grid-template-columns: 1fr; } .scores { order: -1; } .image { max-height: 48vh; } }
+/* Wer ist das? – Midnight: Bildbühne, großer Buzzer, Hinweis/Reveal eindeutig */
+.layout { display: grid; grid-template-columns: minmax(0, 2fr) minmax(13rem, 1fr); gap: var(--space-5); width: 100%; align-items: start; }
+.main { min-width: 0; display: grid; gap: var(--space-4); }
+.title { font-size: clamp(1.5rem, 4vw, 2rem); letter-spacing: -0.03em; }
+.round { display: inline-flex; justify-self: start; padding: 5px 14px; border-radius: 999px; background: var(--surface-2); border: 1px solid var(--border); color: var(--fg); font-weight: 700; font-size: 0.88rem; }
+.image {
+  display: block; width: 100%; max-height: 65vh; object-fit: contain; border-radius: var(--radius-lg);
+  background: radial-gradient(ellipse at 50% 0, var(--stage-glow), transparent 70%), #0b0a12;
+  border: 1px solid var(--border); image-rendering: auto;
+}
+.originals { padding: var(--space-4); border-radius: var(--radius); background: var(--warn-bg); border: 2px dashed var(--warn); color: var(--fg); }
+.originals div { display: flex; flex-wrap: wrap; gap: var(--space-2); margin-top: var(--space-2); }
+.originals img { max-width: 11rem; max-height: 11rem; border-radius: 12px; }
+.scores, .solution, .controls { padding: var(--space-4) var(--space-5); border-radius: var(--radius); background: var(--surface); border: 1px solid var(--border); }
+.solution { border-color: var(--ok); }
+.solution p { color: var(--fg); font-size: 1.1rem; font-weight: 700; }
+.hint, .turn, .open, .excluded { font-weight: 700; padding: var(--space-3) var(--space-4); border-radius: var(--radius-md); color: var(--fg); }
+.hint { background: var(--warn-bg); border: 1px solid var(--warn); }
+.hint::before { content: '💡 '; }
+.turn { background: var(--accent-tint); border: 1px solid var(--accent); font-size: 1.1rem; }
+.open { background: var(--ok-bg); border: 1px solid var(--ok); }
+.excluded { background: var(--danger-bg); border: 1px dashed var(--danger); }
+.excluded::before { content: '⛔ '; }
+.controls, .judges { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-3); }
+.controls h2 { font-size: 1.05rem; }
+.controls h2, .judges p { flex-basis: 100%; margin: 0; color: var(--fg); }
+.judges { flex-basis: 100%; padding: var(--space-3); border-radius: var(--radius-md); background: var(--surface-2); }
+.judgeOk, .judgeWrong, .endButton {
+  min-height: 48px; padding: 10px 18px; border-radius: 999px; font: inherit; font-weight: 750; cursor: pointer; border: 2px solid;
+}
+.judgeOk { background: var(--ok); color: var(--on-ok); border-color: var(--ok); }
+.judgeWrong { background: var(--danger); color: var(--on-danger); border-color: var(--danger); }
+.endButton { background: transparent; color: var(--danger); border-color: var(--danger); margin-left: auto; }
+.judgeOk:disabled, .judgeWrong:disabled, .endButton:disabled { opacity: 0.5; cursor: not-allowed; }
+.buzz {
+  display: block; width: 100%; min-height: 7.5rem; border: 0; border-radius: var(--radius-lg);
+  background: var(--accent); color: var(--on-accent); font: inherit; font-size: clamp(1.6rem, 6vw, 3rem); font-weight: 850; letter-spacing: 0.04em;
+  box-shadow: 0 0 0 6px var(--accent-soft), var(--shadow-md); cursor: pointer; touch-action: manipulation;
+}
+.buzz:hover:not(:disabled) { background: var(--accent-strong); }
+.buzz:active:not(:disabled) { transform: scale(0.985); }
+.buzz:focus-visible { outline: 3px solid var(--fg); outline-offset: 4px; }
+.buzz:disabled { background: var(--surface-2); color: var(--muted); box-shadow: none; border: 1px dashed var(--border-strong); cursor: not-allowed; font-size: clamp(1.1rem, 4vw, 1.6rem); }
+.ended { display: grid; justify-items: center; gap: var(--space-3); padding: var(--space-6); border-radius: var(--radius-lg); background: radial-gradient(ellipse at 50% 0, var(--stage-glow), transparent 70%), var(--surface); border: 1px solid var(--border); }
+.scores { position: sticky; top: 88px; }
+.scores h2 { font-size: 1rem; margin-bottom: var(--space-2); }
+.scores ol { padding-left: 1.6rem; color: var(--fg); }
+.scores li { padding: 8px 0; border-bottom: 1px solid var(--border); font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.scores li:last-child { border-bottom: 0; }
+.scores li[data-self] { font-weight: 750; }
+@media (max-width: 760px) {
+  .layout { grid-template-columns: 1fr; }
+  .scores { order: -1; position: static; }
+  .image { max-height: 46vh; }
+  .endButton { margin-left: 0; }
+  .buzz { position: sticky; bottom: max(12px, env(safe-area-inset-bottom)); z-index: 5; }
+}

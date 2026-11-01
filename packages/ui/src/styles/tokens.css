@@ -83,6 +83,7 @@
 
   --ok: #9fdfc0;
   --ok-bg: #213a34;
+  --on-ok: #0d2a1f;
   --warn: #ffc979;
   --warn-bg: #3b2d17;
   --danger: #ffa3b6;
@@ -123,6 +124,7 @@
 
   --ok: #236944;
   --ok-bg: #e1f1e8;
+  --on-ok: #ffffff;
   --warn: #8a4b00;
   --warn-bg: #fcecd5;
   --danger: #b52c46;

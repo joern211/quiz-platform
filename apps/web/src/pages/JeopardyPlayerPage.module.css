@@ -1,193 +1,47 @@
-/* ============================================================
-   Jeopardy Player Page Styles
-   ============================================================ */
+/* Jeopardy-Seiten (Host/Spieler/Zuschauer) – gemeinsame Midnight-Gestaltung */
+.page { display: grid; gap: var(--space-4); }
+.header { display: flex; justify-content: space-between; align-items: flex-start; gap: var(--space-3); flex-wrap: wrap; }
+.headerLeft { display: grid; gap: var(--space-2); flex: 1 1 320px; min-width: 0; }
+.headerLeft progress { width: min(360px, 100%); height: 8px; accent-color: var(--accent); }
+.headerRight { display: flex; align-items: center; gap: var(--space-2); }
+.title { font-size: clamp(1.4rem, 3.5vw, 1.9rem); letter-spacing: -0.03em; }
+.myScore { padding: 6px 14px; border-radius: 999px; background: var(--surface-2); border: 1px solid var(--border); font-weight: 750; font-variant-numeric: tabular-nums; }
 
-.page {
-  max-width: 1000px;
-  margin: 0 auto;
-  padding: var(--space-4);
-}
+.errorBanner { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); padding: var(--space-3) var(--space-4); border-radius: var(--radius-md); border: 1px solid var(--danger); background: var(--danger-bg); color: var(--fg); }
+.errorBanner::before { content: "⚠"; color: var(--danger); }
+.errorClose { display: grid; place-items: center; width: 44px; height: 44px; flex-shrink: 0; border-radius: 50%; border: 1px solid var(--border-strong); background: var(--surface); color: var(--fg); cursor: pointer; margin-left: auto; }
 
-.header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: var(--space-4);
-  flex-wrap: wrap;
-  gap: var(--space-2);
-}
+.grid { display: grid; grid-template-columns: minmax(0, 1fr) 260px; gap: var(--space-5); align-items: start; }
+.mainColumn { display: grid; gap: var(--space-4); min-width: 0; }
+.sideColumn { display: grid; gap: var(--space-4); position: sticky; top: 88px; }
+.boardCard { padding: 0 !important; background: transparent !important; border: 0 !important; box-shadow: none !important; }
+.questionSection { display: grid; gap: var(--space-4); }
 
-.headerLeft {
-  display: flex;
-  align-items: center;
-  gap: var(--space-3);
-}
+.scoresCard h2, .scoresTitle { font-size: 1rem; margin-bottom: var(--space-3); }
+.scoreList, .finalScores { display: grid; }
+.scoreRow { display: flex; align-items: center; gap: var(--space-3); padding: 10px 0; border-bottom: 1px solid var(--border); }
+.scoreRow:last-child { border-bottom: 0; }
+.scoreRow.self { font-weight: 750; }
+.scoreRow.self .playerName::after { content: " (Du)"; color: var(--muted); font-weight: 600; }
+.scoreRow.winner { background: var(--accent-tint); border-radius: 12px; padding-inline: 10px; border-bottom-color: transparent; }
+.rank { min-width: 2ch; color: var(--muted); font-weight: 700; }
+.playerName { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.scoreValue, .finalScore { font-weight: 800; font-variant-numeric: tabular-nums; }
+.emptyScores { font-size: 0.9rem; }
 
-.headerRight {
-  display: flex;
-  align-items: center;
-  gap: var(--space-3);
-}
+.gameEndCard { display: grid; gap: var(--space-4); text-align: center; background: radial-gradient(ellipse at 50% 0, var(--stage-glow), transparent 60%), var(--surface) !important; }
+.gameEndCard .finalScores { text-align: left; max-width: 520px; width: 100%; margin: 0 auto; }
 
-.title {
-  font-size: 1.25rem;
-  font-weight: 700;
-  margin: 0;
-}
+.secretCard { border: 2px dashed var(--warn) !important; background: var(--warn-bg) !important; }
+.secretHeader { font-size: 0.78rem; font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase; color: var(--warn); margin-bottom: 4px; }
+.secretAnswer { font-size: 1.2rem; font-weight: 800; color: var(--fg); overflow-wrap: anywhere; }
 
-.myScore {
-  font-size: 1.125rem;
-  font-weight: 700;
-  color: var(--accent);
-}
+.judgeControls, .nextControls { display: flex; flex-wrap: wrap; gap: var(--space-3); justify-content: center; }
+.judgeControls > button { flex: 1 1 180px; min-height: 56px; }
+.buzzerStatus, .statusCard, .buzzerReadyCard, .waitingCard, .buzzCard, .stealCard { text-align: center; }
+.buzzWinnerName { font-weight: 800; color: var(--fg); }
 
-.errorBanner {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: var(--space-3) var(--space-4);
-  background: rgba(255, 93, 115, 0.15);
-  border: 1px solid var(--danger);
-  border-radius: var(--radius);
-  margin-bottom: var(--space-4);
-  color: var(--danger);
-  font-weight: 500;
-}
-
-.errorClose {
-  background: none;
-  border: none;
-  color: var(--danger);
-  cursor: pointer;
-  font-size: 1rem;
-  padding: 0 var(--space-2);
-}
-
-/* Game end */
-.gameEndCard {
-  text-align: center;
-  margin-bottom: var(--space-4);
-}
-
-.gameEndCard h2 {
-  margin-bottom: var(--space-4);
-}
-
-.finalScores {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-2);
-  margin-bottom: var(--space-4);
-  text-align: left;
-  max-width: 400px;
-  margin-left: auto;
-  margin-right: auto;
-}
-
-/* Layout */
-.grid {
-  display: grid;
-  grid-template-columns: 1fr 260px;
-  gap: var(--space-4);
-  align-items: start;
-}
-
-@media (max-width: 768px) {
-  .grid {
-    grid-template-columns: 1fr;
-  }
-}
-
-.mainColumn {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-4);
-}
-
-.sideColumn {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-3);
-}
-
-.boardCard {
-  overflow-x: auto;
-}
-
-/* Scores */
-.scoresCard {
-  position: sticky;
-  top: var(--space-4);
-}
-
-.scoresTitle {
-  font-size: 1rem;
-  font-weight: 700;
-  margin-bottom: var(--space-3);
-  color: var(--muted);
-}
-
-.scoreList {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-2);
-}
-
-.emptyScores {
-  color: var(--muted);
-  font-size: 0.875rem;
-  text-align: center;
-  padding: var(--space-4) 0;
-}
-
-.scoreRow {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: var(--space-2) var(--space-3);
-  background: var(--surface-2);
-  border-radius: calc(var(--radius) / 2);
-}
-
-.scoreRow.self {
-  border: 2px solid var(--accent);
-  background: rgba(29, 212, 212, 0.08);
-}
-
-.scoreRow.winner {
-  background: rgba(249, 168, 37, 0.15);
-  border: 2px solid var(--warning, #f9a825);
-}
-
-.playerName {
-  font-size: 0.9rem;
-}
-
-.rank {
-  font-weight: 700;
-  min-width: 2rem;
-}
-
-.scoreValue {
-  font-weight: 700;
-  color: var(--accent);
-  font-size: 1.125rem;
-}
-
-.finalScore {
-  font-weight: 700;
-  color: var(--accent);
-  font-size: 1.25rem;
-}
-
-/* Status */
-.statusCard {
-  text-align: center;
-  color: var(--muted);
-}
-
-.buzzerReadyCard {
-  text-align: center;
-  background: rgba(29, 212, 212, 0.08);
-  border: 2px solid var(--accent);
+@media (max-width: 900px) {
+  .grid { grid-template-columns: 1fr; }
+  .sideColumn { position: static; }
 }

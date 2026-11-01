@@ -180,32 +180,6 @@ export function ModeratorLobbyPage() {
     }
   };
 
-  const handleKick = (playerId: string, displayName: string) => {
-    if (!confirm(`${displayName} wirklich aus dem Raum entfernen?`)) return;
-    setKickError('');
-    socketRef.current?.emit('room:kick', { roomCode, playerId }, (response) => {
-      if (!response.success) {
-        setKickError(response.error || 'Spieler konnte nicht entfernt werden');
-      }
-    });
-  };
-
-  const handleCloseRoom = async () => {
-    if (!confirm('Raum wirklich schließen? Alle Teilnehmer werden getrennt.')) return;
-
-    try {
-      await fetch(`/api/v1/rooms/${roomCode}`, {
-        method: 'DELETE',
-        credentials: 'include',
-      });
-    } catch {
-      // Server will handle cleanup
-    }
-
-    setSession({}); // Clear session
-    navigate('/kategorien');
-  };
-
   const handleLockChat = () => {
     if (!socketRef.current) return setKickError('Socket-Verbindung ist nicht verfügbar.');
     socketRef.current.emit('lobby:chat:lock', { roomCode, locked: !chatEnabled }, (response) => {
@@ -223,20 +197,17 @@ export function ModeratorLobbyPage() {
   const canStart = canControlStart && control?.preflight.warnings.length === 0;
 
   // Generate QR code URL for room link
-  const roomUrl = typeof window !== 'undefined'
-    ? `${window.location.origin}/beitreten`
-    : '';
-  const qrCodeUrl = roomUrl
-    ? `https://api.qrserver.com/v1/create-qr-code/?size=180x180&data=${encodeURIComponent(roomUrl + '?code=' + code)}`
-    : '';
+  const roomUrl = typeof window !== 'undefined' ? `${window.location.origin}/beitreten` : '';
+  const qrCodeUrl = roomUrl ? `https://api.qrserver.com/v1/create-qr-code/?size=180x180&data=${encodeURIComponent(roomUrl + '?code=' + code)}` : '';
+  const gameName = control?.gameSlug === 'jeopardy' ? 'Jeopardy' : control?.gameSlug === 'wer-ist-das' ? 'Wer ist das?' : control?.gameSlug === 'wissensduell' ? 'Wissensduell' : 'Spiel';
+  const startHint = !canStart && connectedCount < 2 ? 'Mindestens 2 Spieler benötigt.' : !canStart && connectedCount >= 2 && readyCount < connectedCount ? 'Alle Spieler müssen bereit sein.' : '';
 
   return (
     <div className={styles.page}>
       <div className={styles.header}>
         <div>
+          <p className={styles.eyebrow}>{gameName} / Lobby</p>
           <h1 className={styles.title}>Spielleiter-Lobby</h1>
-          <MediaDeviceCheck />
-          <p className={styles.subtitle}>Raum: {code}</p>
         </div>
         <div className={styles.headerRight}>
           <Badge variant={connected ? 'success' : 'danger'}>
@@ -249,117 +220,85 @@ export function ModeratorLobbyPage() {
       </div>
 
       {kickError && (
-        <div className={styles.errorBanner} role="alert">
+        <div className="notice notice--error" role="alert">
           {kickError}
         </div>
       )}
 
-      <div className={styles.grid}>
-        <Card padding="lg">
-          <h2>Spieler ({players.length})</h2>
-
-          <div className={styles.playerList}>
-            {players.length === 0 ? (
-              <p className={styles.empty}>Warte auf Spieler...</p>
-            ) : (
-              players.map((player) => (
-                <div key={player.id} className={styles.playerRow}>
-                  <div className={styles.playerInfo}>
-                    <span className={styles.playerName}>{player.displayName}</span>
-                    {player.role === 'HOST' && (
-                      <Badge variant="accent" size="sm">Host</Badge>
-                    )}
-                    {!player.connected && (
-                      <Badge variant="muted" size="sm">Getrennt</Badge>
-                    )}
-                    {player.ready && player.connected && (
-                      <Badge variant="success" size="sm">Bereit ✓</Badge>
-                    )}
-                    {player.ready === false && player.connected && (
-                      <Badge variant="muted" size="sm">Wartet...</Badge>
-                    )}
-                  </div>
-                  {player.role !== 'HOST' && (
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => handleKick(player.id, player.displayName)}
-                      title="Spieler entfernen"
-                    >
-                      ✕
-                    </Button>
-                  )}
-                </div>
-              ))
-            )}
-          </div>
-        </Card>
-
-        <Card padding="lg">
-          <h2>Einladung</h2>
-
-          <div className={styles.inviteSection}>
-            <p className={styles.inviteHint}>Teile diesen Code mit deinen Freunden:</p>
-            <div className={styles.codeDisplay}>
-              <span className={styles.code}>{code}</span>
-              <Button
-                variant="secondary"
-                size="sm"
-                onClick={handleCopyCode}
-              >
-                Kopieren
-              </Button>
+      <div className={styles.layout}>
+        <div className={styles.mainCol}>
+          <section className={styles.codeBanner} aria-label="Einladung">
+            <div>
+              <p className={styles.codeLabel}>Euer Raumcode</p>
+              <p className={styles.subtitle}>Raum: <span className={styles.code}>{code}</span></p>
+              <p className={styles.inviteHint}>Teile diesen Code mit deinen Freunden – Beitritt unter <strong>/beitreten</strong>.</p>
             </div>
-
-            <div className={styles.qrSection}>
-              {qrCodeUrl ? (
-                <>
-                  <img
-                    src={qrCodeUrl}
-                    alt="QR-Code zum Beitreten"
-                    className={styles.qrCode}
-                    onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
-                  />
-                  <p className={styles.qrHint}>QR-Code scannen zum Beitreten</p>
-                </>
-              ) : (
-                <div className={styles.qrPlaceholder}>
-                  <span>QR-Code wird geladen...</span>
-                </div>
+            <div className={styles.codeActions}>
+              <Button variant="secondary" onClick={handleCopyCode}>Kopieren</Button>
+              {qrCodeUrl && (
+                <figure className={styles.qr}>
+                  <img src={qrCodeUrl} alt="QR-Code zum Beitreten" className={styles.qrCode} onError={(e) => { (e.target as HTMLImageElement).closest('figure')?.setAttribute('hidden', ''); }} />
+                  <figcaption className={styles.qrHint}>QR-Code scannen zum Beitreten</figcaption>
+                </figure>
               )}
             </div>
-          </div>
-        </Card>
-      </div>
+          </section>
 
-      <Card padding="lg" className={styles.controls}>
-        <div className={styles.controlButtons}>
-          <Button variant="secondary" onClick={handleLockChat}>
-            {chatEnabled ? 'Chat sperren' : 'Chat entsperren'}
-          </Button>
-          <Button variant="danger" onClick={handleCloseRoom}>
-            Raum schließen
-          </Button>
-        </div>
-
-        <div className={styles.startSection}>
-          <p className={styles.hint}>
-            {connectedCount} Spieler verbunden, {readyCount} bereit
-            {!canStart && connectedCount < 2 && ' — Mindestens 2 Spieler benötigt'}
-            {!canStart && connectedCount >= 2 && readyCount < connectedCount && ' — Alle Spieler müssen bereit sein'}
-          </p>
-          <div className={styles.startButtons}>
-            <Button onClick={handleStart} disabled={!canStart || loading}>
-              {loading ? 'Startet...' : 'Spiel starten'}
-            </Button>
-            {canControlStart && (control?.preflight.warnings.length ?? 0) > 0 && (
-              <Button variant="secondary" disabled={loading} onClick={handleForceStart}>
-                Erzwingen
-              </Button>
+          <section aria-labelledby="lobby-players">
+            <div className={styles.sectionHead}>
+              <h2 id="lobby-players">Die Runde</h2>
+              <span className={styles.count}>Spieler ({players.length})</span>
+            </div>
+            {players.length === 0 ? (
+              <p className={styles.empty}>Warte auf Spieler …</p>
+            ) : (
+              <ul className={styles.playerGrid}>
+                {players.map((player) => (
+                  <li key={player.id} className={styles.playerCard} data-ready={player.ready && player.connected ? 'true' : undefined}>
+                    <span className={styles.avatar} aria-hidden="true">{String(player.displayName ?? '?').slice(0, 1).toUpperCase()}</span>
+                    <span className={styles.playerName}>{player.displayName}</span>
+                    <span className={styles.badges}>
+                      {player.role === 'HOST' && <Badge variant="accent" size="sm">Host</Badge>}
+                      {!player.connected && <Badge variant="muted" size="sm">Getrennt</Badge>}
+                      {player.ready && player.connected && <Badge variant="success" size="sm">Bereit ✓</Badge>}
+                      {player.ready === false && player.connected && <Badge variant="muted" size="sm">Wartet...</Badge>}
+                    </span>
+                  </li>
+                ))}
+              </ul>
             )}
-          </div>
+          </section>
+          <MediaDeviceCheck />
         </div>
-      </Card>
+
+        <aside className={styles.sideCol}>
+          <Card padding="lg" className={styles.startCard}>
+            <h2>Euer Spiel</h2>
+            <p className={styles.gameName}>{gameName}</p>
+            <dl className={styles.facts}>
+              <div><dt>Verbunden</dt><dd>{connectedCount}</dd></div>
+              <div><dt>Bereit</dt><dd>{readyCount}</dd></div>
+            </dl>
+            <p className={styles.hint} role="status">
+              {connectedCount} Spieler verbunden, {readyCount} bereit
+              {startHint && <> — {startHint}</>}
+            </p>
+            <div className={styles.startButtons}>
+              <Button onClick={handleStart} disabled={!canStart || loading} loading={loading} fullWidth size="lg">
+                Spiel starten
+              </Button>
+              {canControlStart && (control?.preflight.warnings.length ?? 0) > 0 && (
+                <Button variant="secondary" disabled={loading} onClick={handleForceStart} fullWidth>
+                  Erzwingen
+                </Button>
+              )}
+            </div>
+            <Button variant="ghost" size="sm" onClick={handleLockChat}>
+              {chatEnabled ? 'Chat sperren' : 'Chat entsperren'}
+            </Button>
+          </Card>
+        </aside>
+      </div>
     </div>
   );
 }

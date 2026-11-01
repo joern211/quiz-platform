@@ -29,6 +29,29 @@ export interface GameShellProps {
   children: ReactNode;
 }
 
+/** Verständliche Phasenbezeichnung statt interner Kennung (Kennung bleibt als data-phase erhalten). */
+const PHASE_LABELS: Record<string, string> = {
+  WAITING: 'Warten',
+  INPUT_OPEN: 'Antworten offen',
+  REVEAL: 'Auflösung',
+  PAUSED: 'Pausiert',
+  ERROR_RECOVERY: 'Angehalten · Prüfung nötig',
+  INTRO: 'Einleitung',
+  SELECTING: 'Feldwahl',
+  BUZZ_OPEN: 'Buzzer offen',
+  BUZZ_LOCKED: 'Antwort läuft',
+  STEAL_OPEN: 'Abstauben offen',
+  STEAL_LOCKED: 'Abstauben läuft',
+  FIELD_DONE: 'Feld beendet',
+  BOARD_COMPLETE: 'Board fertig',
+  ROUND_READY: 'Runde bereit',
+  ANSWERING: 'Antwort läuft',
+  GAME_END: 'Spielende',
+};
+export function phaseLabel(phase: string): string {
+  return PHASE_LABELS[phase] ?? phase;
+}
+
 export function GameShell({
   role,
   roomCode,
@@ -42,34 +65,32 @@ export function GameShell({
   children,
 }: GameShellProps) {
   return (
-    <div className={styles.shell}>
-      {/* ── Top Bar ── */}
-      <header className={styles.topBar}>
+    <div className={styles.shell} data-phase={phase}>
+      {/* ── Statusleiste ── */}
+      <div className={styles.topBar}>
         <div className={styles.topLeft}>
-          {phase && <span className={styles.phase}>{phase}</span>}
+          {phase && <span className={styles.phase} data-phase={phase}>{phaseLabel(phase)}</span>}
           <span className={styles.roomCode}>Code: {roomCode}</span>
+          <span className={styles.status}>
+            <span className={`${styles.statusDot} ${connected ? styles.connected : styles.disconnected}`} aria-hidden="true" />
+            <span className={styles.statusText}>{connected ? 'Verbunden' : 'Getrennt'}</span>
+          </span>
         </div>
         <div className={styles.topRight}>
           {endsAt && (
             <Timer endsAt={endsAt} />
           )}
         </div>
-      </header>
+      </div>
 
-      {/* ── Main Content ── */}
-      <main className={styles.main}>
+      {/* ── Spielfläche (kein zweites <main>: App stellt bereits den Hauptbereich) ── */}
+      <div className={styles.main}>
         {error && <p className={styles.error} role="alert">{error}</p>}
         {children}
-      </main>
+      </div>
 
       {/* ── Bottom Bar ── */}
-      <footer className={styles.bottomBar}>
-        <div className={styles.status}>
-          <span className={`${styles.statusDot} ${connected ? styles.connected : styles.disconnected}`} />
-          <span className={styles.statusText}>
-            {connected ? 'Verbunden' : 'Getrennt'}
-          </span>
-        </div>
+      {(totalPlayers !== undefined || onLeave) && <div className={styles.bottomBar}>
         {totalPlayers !== undefined && (
           <div className={styles.playerCount}>
             {readyCount !== undefined && (
@@ -91,7 +112,7 @@ export function GameShell({
             {role === 'moderator' ? 'Raum schließen' : 'Verlassen'}
           </button>
         )}
-      </footer>
+      </div>}
     </div>
   );
 }
