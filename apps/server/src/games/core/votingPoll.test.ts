@@ -562,6 +562,9 @@ describe('N4 visibility (domain projection only — no socket, rejoin or recover
     for (const who of ['host', 'blindHost', 'hostAsHost', 'stranger']) expect(project(who, closed, release).result, who).toBeNull();
     expect(err(() => projectVotingPoll(audiences.viewer, open, release))).toBe('VOTING_NOT_CLOSED'); // not counted live
     expect(err(() => projectVotingPoll(audiences.host, open, { options: [], result: ['HOST'] }))).toBe('VOTING_NOT_CLOSED');
+    // the decision itself is invalid for an open poll — whoever happens to be projected (also an audience that is not listed)
+    for (const who of ['owner', 'stranger', 'host', 'display']) expect(err(() => project(who, open, { options: [], result: ['VIEWERS'] })), who).toBe('VOTING_NOT_CLOSED');
+    for (const who of ['owner', 'viewer']) expect(project(who, open, { options: ['VIEWERS', 'VOTERS'], result: [] }).result, who).toBeNull(); // an empty result list is fine for an open poll
     for (const who of Object.keys(audiences)) {
       const p = project(who, open, none);
       expect(p.result, who).toBeNull();

@@ -478,6 +478,14 @@ describe('N4 VoteForm: lock keeps the confirmed ballot and the attempt echo (N2-
     h.set({ contextKey: 'r', attemptId: 'r#2', status: 'LOCKED' }); // the current attempt's own lock echo, no data
     expect((screen.getByRole('radio', { name: /^Enthalten/ }) as HTMLInputElement).checked).toBe(true);
   });
+  it('SUBMITTED without ballot data names what was actually sent: an abstention stays an abstention in the status line', async () => {
+    const h = setup();
+    await userEvent.click(screen.getByRole('radio', { name: /^Enthalten/ }));
+    await userEvent.click(send());
+    h.set({ contextKey: 'r', attemptId: 'r#1', status: 'SUBMITTED' });
+    expect(screen.getByRole('status')).toHaveTextContent('Enthaltung abgegeben.');
+    expect((screen.getByRole('radio', { name: /^Enthalten/ }) as HTMLInputElement).checked).toBe(true);
+  });
   it('R1: an older attempt\'s LOCKED — with or without ballot — never changes the display, before or after the real lock', async () => {
     const h = setup();
     await confirmedAfterRetry(h);

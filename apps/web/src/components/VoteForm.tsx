@@ -214,7 +214,7 @@ function VoteFormInner({ title, config, selectableOptionIds, allowAbstain, conte
 
   const errorText = setChanged ? CHANGED_ERROR : localError ?? (failed ? active?.message ?? GENERIC_ERROR : null);
   const statusText = pending ? 'Wird gesendet …'
-    : confirmed ? (current.accepted?.kind === 'ABSTAIN' ? 'Enthaltung abgegeben.' : 'Stimme abgegeben.')
+    : confirmed ? ((current.accepted?.kind ?? shown?.kind) === 'ABSTAIN' ? 'Enthaltung abgegeben.' : 'Stimme abgegeben.') // without ballot data the frozen local selection is what was sent
     : locked ? (confirmedBallot ? 'Die Abstimmung ist geschlossen.' : 'Die Abstimmung ist geschlossen. Diese Auswahl ist nicht als abgegebene Stimme bestätigt.')
     : null;
   const titleId = `${id}-title`, hintId = `${id}-hint`, name = `${id}-vote`;
