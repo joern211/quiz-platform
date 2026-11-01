@@ -26,6 +26,8 @@ Die ERROR/WARN-Zeilen im Serverlog stammen aus bestehenden Negativtests.
 | `a712bbe` (Code `292e003`) | vor Nachbesserung R1 | [41334406472](https://github.com/joern211/quiz-platform/actions/runs/41334406472) | `CI` und `E2E` grün (deckte den R1-UI-Ablauf noch nicht ab) |
 | `c48cc86` (Code `fa19b89`) | nach R1 | [41336455289](https://github.com/joern211/quiz-platform/actions/runs/41336455289) | `CI` **grün**, `E2E` **grün** (erster Anlauf, kein Re-run) |
 
+| `c2d7441` (Code `fa19b89`, nur Doku seit `c48cc86`) | Doku-Head | [41337491389](https://github.com/joern211/quiz-platform/actions/runs/41337491389) | `CI` **rot**: 957/958, ein vorbestehender Flake in `media/live.integration.test.ts:217` (nicht N4; auf unverändertem `origin/main` unter Last 7/30 reproduziert, siehe `review.md`); `E2E` übersprungen. Wiederholung ohne Codeänderung, Ergebnis im PR |
+
 Spätere Doku-Commits lösen weitere Läufe aus; der Lauf am letzten Head steht im PR (nicht im Repo, um keinen Doku-Regress zu erzeugen).
 
 ## Zählerableitung (aus echten Läufen)

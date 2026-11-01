@@ -8,6 +8,9 @@ Stand: 01.11.2026 (nach Nachbesserung R1).
 - **CI:** Lauf [41336455289](https://github.com/joern211/quiz-platform/actions/runs/41336455289) am Head `c48cc86` (Code `fa19b89`) — `CI` und `E2E` grün, erster Anlauf. Lokal am Code-Head: Server 958, Web 386, Browser 45, Typecheck/Lint/Build ok, Harness Exit 0 (`acceptance.md`). Der Lauf am allerletzten Doku-Head steht im PR.
 - **Offene Jobs/Dateien:** keine. Keine temporären Prozesse (Harness-Server beendet), Arbeitsbaum sauber.
 
+## Offene Beobachtung (vorbestehend, nicht N4)
+`apps/server/src/media/live.integration.test.ts:217` ist ein vorbestehender Race-Flake (Details und Reproduktion in `review.md`, letzter Abschnitt); er hat einen CI-Lauf am Doku-Head rot gefärbt. Nicht in PR #33 behoben. Empfehlung: separater kleiner Testfix (`vi.waitFor` auf die neue Route-ID in der Sicht des Spielers).
+
 ## Nächste konkrete Aktion
 1. PR #33 reviewen und selbst mergen (Claude merged nicht). Merge-Urteil für das **begrenzte Paket**: reviewbereit — alle Mindesttests, getrennte Eigenprüfung und CI/E2E grün; unvollständig bleibt bewusst die Runtime-Integration.
 2. Danach — nur nach Freigabe der jeweiligen Spielregel (DEC-SPI-01 / DEC-UND-01 / DEC-AGT-01) — der erste echte Verbraucher nach der Reihenfolge in `design.md` §6, inklusive Socket-/DB-/Neustart-/Rejoin-/Recovery-/Secret-/Browsernachweis und `createStateEvent`/CAS/Receipt-Verdrahtung. Erst mit zwei echten Engines ist Master §13.2 für dieses Core-Modul erfüllbar.
