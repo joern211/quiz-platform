@@ -31,6 +31,7 @@ Durchgeführt nach dem ersten integrierten Stand (Commit `155a237`: Typecheck, L
 | B9 | Timer-Fortschritt nahm pauschal 20 s an; CSS-Klassen des Timers existierten nicht | niedrig | Dauer ab erster Anzeige; Balken + Zahl gestaltet, `role="timer"` ohne Live-Region-Spam | Screens |
 | B10 | WID-Setup-Statusfarben fest auf Hell optimiert (`#1a7f37` auf Dunkel zu dunkel) | niedrig | Tokens `--ok`/`--danger` | – |
 | B11 | Fehlgeschlagenes QR-Bild zeigte Alt-Text, da `display:grid` das `hidden`-Attribut überschrieb | niedrig | `[hidden]` global erzwungen | Screens mobil |
+| B13 | E2E UI-5 maß ausgehende Events über den servergesteuerten Seitenwechsel hinweg; `media:join`/`media:self` stammen vom (bestehenden) Medien-Neubeitritt nach Spielstart, nicht vom Dialog. In der lokalen Vollsuite rot | Test | Messfenster auf die Dialoginteraktionen begrenzt, nach Seitenwechsel bis zur Ruhe der Events gewartet | 3× wiederholt ohne Retry grün |
 | B12 | E2E UI-1 maß die Buttonfarbe während des 150-ms-Übergangs (flaky) | Test | Wiederholende Assertion `toHaveCSS` | 3× wiederholt ohne Retry grün |
 
 ## Bewusst nicht geändert / verbleibend

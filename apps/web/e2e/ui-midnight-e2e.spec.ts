@@ -154,19 +154,26 @@ test('UI-5: Spielstart während offenem Darstellungsdialog – Route folgt dem S
   try {
     const { code, h, pa } = room;
     const player = trackSocket(pa);
+    const settingsOnly = (from: number) => player.emits.slice(from).filter(name => !READS.has(name));
     await pa.getByRole('button', { name: /Darstellung/ }).click();
     const dialog = pa.getByRole('dialog', { name: 'Darstellung' });
+    let mark = player.emits.length;
     await dialog.getByText('Grün', { exact: true }).click();
-    const before = player.emits.length;
-    // Host startet, während der Spieler noch im Dialog ist: Server-Ereignis navigiert den Spieler
+    expect(settingsOnly(mark)).toEqual([]);
+    // Host startet, während der Spieler noch im Dialog ist: Server-Ereignis navigiert den Spieler.
+    // (Der Seitenwechsel selbst abonniert Raum/Medien neu – das ist bestehendes Verhalten und nicht Teil der Messung.)
     await Promise.all([pa.waitForURL(new RegExp(`/raum/${code}/spiel$`)), h.getByRole('button', { name: 'Spiel starten' }).click()]);
     await expect(dialog).toBeVisible();
+    const option = pa.getByRole('button', { name: /^A\b/ }).first();
+    await expect(option).toBeEnabled({ timeout: 15000 });
+    // bis der Seitenwechsel abgeschlossen ist: keine neuen Events über drei Messpunkte
+    let last = -1;
+    await expect.poll(() => { const stable = player.emits.length === last; last = player.emits.length; return stable; }, { intervals: [400, 400, 400], timeout: 8000 }).toBe(true);
+    mark = player.emits.length;
     await dialog.getByText('Hell', { exact: true }).click();
     await dialog.getByRole('button', { name: 'Fertig' }).click();
     await expect(dialog).toHaveCount(0);
-    expect(player.emits.slice(before).filter(name => !READS.has(name) && name !== 'room:subscribe')).toEqual([]);
-    const option = pa.getByRole('button', { name: /^A\b/ }).first();
-    await expect(option).toBeEnabled({ timeout: 15000 });
+    expect(settingsOnly(mark)).toEqual([]);
     await option.click();
     await expect(pa.getByRole('status').filter({ hasText: 'Antwort gespeichert.' })).toBeVisible();
     expect(await appearance(pa)).toEqual({ theme: 'light', accent: 'gruen' });
