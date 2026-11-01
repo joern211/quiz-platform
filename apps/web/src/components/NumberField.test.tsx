@@ -412,3 +412,84 @@ describe('N1 NumberField R1: current submission survives stale and re-created fe
     expect(rField()).toHaveValue('4');
   });
 });
+
+describe('N1 NumberField (N3 pre-work): the server-confirmed value survives a status message without value', () => {
+  const rInput: NumberFieldProps['input'] = {
+    schemaVersion: 1, scale: 0, unit: null, allowNegative: true,
+    bounds: { min: { units: -100, scale: 0 }, max: { units: 100, scale: 0 } },
+  };
+  const rField = () => screen.getByLabelText('Schätzung');
+  const rButton = () => screen.getByRole('button', { name: /Abgeben|Erneut senden/ });
+  const mk = (over: Partial<NumberFieldProps> = {}) => {
+    const onSubmit = vi.fn();
+    const base: NumberFieldProps = { label: 'Schätzung', input: rInput, contextKey: 'run1:round1', onSubmit, ...over };
+    const view = render(<NumberField {...base} />);
+    return { onSubmit, view, set: (next: Partial<NumberFieldProps>) => view.rerender(<NumberField {...base} {...next} />) };
+  };
+  const ctx = 'run1:round1';
+
+  it('keeps the confirmed 5 when a context-bound LOCKED without value follows (draft 9 from the retry must not reappear)', async () => {
+    const { onSubmit, set } = mk();
+    await userEvent.type(rField(), '5');
+    await userEvent.click(rButton());
+    expect(onSubmit).toHaveBeenLastCalledWith({ units: 5, scale: 0 }, `${ctx}#1`);
+    set({ feedback: { contextKey: ctx, attemptId: `${ctx}#1`, status: 'ERROR', retryable: true, message: 'Bitte erneut versuchen.' } });
+    await userEvent.clear(rField());
+    await userEvent.type(rField(), '9');
+    await userEvent.click(rButton());
+    expect(onSubmit).toHaveBeenLastCalledWith({ units: 9, scale: 0 }, `${ctx}#2`);
+    // the server had in fact confirmed 5 (the first command arrived after all)
+    set({ feedback: { contextKey: ctx, attemptId: `${ctx}#2`, status: 'SUBMITTED', value: { units: 5, scale: 0 } } });
+    expect(rField()).toHaveValue('5');
+    // the round lock carries no value: it is no deletion of the confirmed value
+    set({ feedback: { contextKey: ctx, status: 'LOCKED' } });
+    expect(screen.getByRole('status')).toHaveTextContent('gesperrt');
+    expect(rField()).toHaveValue('5');
+    expect(rField()).toHaveAttribute('readonly');
+    expect(rButton()).toBeDisabled();
+  });
+
+  it('without a previously confirmed value a lock shows the local draft read-only', async () => {
+    const { set } = mk();
+    await userEvent.type(rField(), '9');
+    set({ feedback: { contextKey: ctx, status: 'LOCKED' } });
+    expect(rField()).toHaveValue('9');
+    expect(rField()).toHaveAttribute('readonly');
+    expect(rButton()).toBeDisabled();
+  });
+
+  it('an ignored old ACK with a value (other round / older attempt) never becomes the confirmed value', async () => {
+    const { set } = mk();
+    await userEvent.type(rField(), '5');
+    await userEvent.click(rButton());
+    // other context
+    set({ feedback: { contextKey: 'run0:round9', status: 'SUBMITTED', value: { units: 77, scale: 0 } } });
+    // older attempt of this context
+    set({ feedback: { contextKey: ctx, attemptId: `${ctx}#0`, status: 'SUBMITTED', value: { units: 88, scale: 0 } } });
+    set({ feedback: { contextKey: ctx, status: 'LOCKED' } });
+    expect(rField()).toHaveValue('5'); // the local draft — neither 77 nor 88
+    expect(rField()).toHaveAttribute('readonly');
+  });
+
+  it('a context change clears the confirmed value as well', async () => {
+    const { set } = mk();
+    await userEvent.type(rField(), '5');
+    await userEvent.click(rButton());
+    set({ feedback: { contextKey: ctx, attemptId: `${ctx}#1`, status: 'SUBMITTED', value: { units: 6, scale: 0 } } });
+    expect(rField()).toHaveValue('6');
+    set({ contextKey: 'run1:round2', feedback: null });
+    expect(rField()).toHaveValue('');
+    await userEvent.type(rField(), '3');
+    set({ contextKey: 'run1:round2', feedback: { contextKey: 'run1:round2', status: 'LOCKED' } });
+    expect(rField()).toHaveValue('3'); // not the 6 of the previous round
+  });
+
+  it('a later confirmed value from an applicable SUBMITTED/LOCKED replaces the earlier one', async () => {
+    const { set } = mk();
+    set({ feedback: { contextKey: ctx, status: 'SUBMITTED', value: { units: 4, scale: 0 } } });
+    expect(rField()).toHaveValue('4');
+    set({ feedback: { contextKey: ctx, status: 'LOCKED', value: { units: 4, scale: 0 } } });
+    expect(rField()).toHaveValue('4');
+    expect(rField()).toHaveAttribute('readonly');
+  });
+});

@@ -51,3 +51,13 @@ Rechenvergleich: Erwartungswerte (z. B. 2970−2962 = 8; 8/2962 ≈ 0,27 %; 5 % 
 - `@quiz/shared` hat kein eigenes Testskript; seine Numeric-Logik wird über die Server-Suite geprüft.
 - Das Feld wartet, wenn der Aufrufer nach `onSubmit` nie Feedback meldet (dokumentierte Zuständigkeit).
 - Die Pfadauflösung `@quiz/shared/numeric` ist in Vitest (web/server), Typecheck, Lint, Vite-Dev (Fixture) und Server-`tsc` belegt; der Produktions-Web-Build bündelt das ungenutzte Feld (Tree-Shaking) und beweist den Pfad daher nicht — das tut erst der erste Verbraucher.
+
+## Nachtrag R2-analog (N3-Vorarbeit, Anzeigefehler bestätigter Wert)
+
+**Befund** (aus dem finalen N2-Review, hier an der echten exportierten Komponente reproduziert): `NumberField` las den angezeigten bestätigten Wert aus der gehaltenen Rückmeldung (`active.value`). Eine gültige, kontextgebundene `LOCKED`-Meldung ohne `value` ersetzte die gehaltene Rückmeldung; danach erschien wieder der lokale Entwurf, obwohl der Server zuvor einen anderen Wert bestätigt hatte.
+
+**Reproduktion (vor der Korrektur rot):** Entwurf 5 senden (`#1`) → retryable ERROR für `#1` → Entwurf auf 9 ändern, manuell erneut senden (`#2`) → aktuelles `SUBMITTED` für `#2` mit bestätigtem Wert 5 (Anzeige 5) → aktuelles `LOCKED` ohne `value` (ohne `attemptId`, bei N1 optional) → **Anzeige war 9**, erwartet 5 (gesperrt).
+
+**Korrektur (klein, eigener Commit):** In der Sitzung wird der zuletzt bestätigte `NumericValue` getrennt vom Status gehalten (`confirmed`). Nur anwendbares `SUBMITTED`/`LOCKED` mit `value` setzt oder ändert ihn; eine Statusmeldung ohne `value` löscht nichts; nicht anwendbares Feedback (fremder Kontext, älterer Versuch) setzt ihn nie; nur der Kontextwechsel setzt ihn zurück; ohne bestätigten Wert zeigt `LOCKED` den lokalen Entwurf schreibgeschützt. Schnittstelle, Attempt-Vertrag und alle R1-Tests unverändert; keine Änderung an Numerik, Toleranz oder Scoring.
+
+**Nachweis:** 5 neue Tests in `NumberField.test.tsx` (Block „N3 pre-work“): die Reproduktion (gegen den Stand `b38df2b` rot: erwartet 5, erhalten 9), Lock ohne Bestätigung zeigt Entwurf, alter ACK mit Wert aus anderem Kontext bzw. älterem Versuch setzt nichts, Kontextwechsel löscht den bestätigten Wert, späterer anwendbarer Wert ersetzt den früheren. Die 25 bisherigen Tests laufen unverändert grün. Das macht N1 nicht zu einem integrierten Zahlen-Spielcore; Engine-Wiring bleibt offen (`matrix.md` §3).
