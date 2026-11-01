@@ -78,7 +78,9 @@ export function textCardIssueMessage(code: TextCardIssueCode | string, config: T
 }
 
 interface Attempt { id: string; answered: boolean }
-interface Session { context: string; seq: number; held: TextCardFeedback | null; attempt: Attempt | null }
+/** `accepted`: the last server-CONFIRMED card (from applicable SUBMITTED/LOCKED feedback). Kept apart from `held`, because a later
+ *  status message (e.g. a round lock without card data) replaces `held` but must not erase what the server accepted. */
+interface Session { context: string; seq: number; held: TextCardFeedback | null; attempt: Attempt | null; accepted: TextCardValue | null }
 
 /** Order inside ONE attempt: a later or equal stage may replace the held one, an earlier one never. */
 function rank(fb: TextCardFeedback): number {
@@ -105,14 +107,14 @@ function TextCardFormInner({ title, config, contextKey, onSubmit, feedback, disa
   const id = useId();
   const [drafts, setDrafts] = useState<ReadonlyMap<string, string>>(() => new Map());
   const [localIssues, setLocalIssues] = useState<readonly TextCardIssue[]>([]);
-  const [session, setSession] = useState<Session>({ context: contextKey, seq: 0, held: null, attempt: null });
+  const [session, setSession] = useState<Session>({ context: contextKey, seq: 0, held: null, attempt: null, accepted: null });
   const inputs = useRef(new Map<string, HTMLInputElement>());
   const composing = useRef(false);
 
   // Derived while rendering (no effect, no extra frame): context reset, then absorption of applicable feedback.
   let current = session;
   if (current.context !== contextKey) {
-    current = { context: contextKey, seq: current.seq, held: null, attempt: null };
+    current = { context: contextKey, seq: current.seq, held: null, attempt: null, accepted: null }; // the only reset, incl. the confirmed card
     setDrafts(new Map());
     setLocalIssues([]);
   }
@@ -120,9 +122,10 @@ function TextCardFormInner({ title, config, contextKey, onSubmit, feedback, disa
     const held = current.held, attempt = current.attempt;
     const isLock = feedback.status === 'LOCKED';
     const echo = feedback.attemptId ?? null; // a missing property counts like null: never an echo of an attempt
-    const applicable = held?.status === 'LOCKED' ? isLock
-      : isLock ? echo === null || attempt === null || echo === attempt.id
-      : attempt === null || echo === attempt.id;
+    // The attempt echo is enforced in EVERY state, also while LOCKED is already held: an explicitly older attempt of this
+    // round is never applicable. The real round lock (echo null / missing) is. LOCKED is final: nothing but LOCKED follows it.
+    const echoOk = echo === null || attempt === null || echo === attempt.id;
+    const applicable = isLock ? echoOk : held?.status !== 'LOCKED' && (attempt === null || echo === attempt.id);
     const sameAttempt = held !== null && held.attemptId !== null && held.attemptId === feedback.attemptId;
     const ordered = !sameAttempt || rank(feedback) >= rank(held as TextCardFeedback);
     if (applicable && ordered && !sameContent(held, feedback)) {
@@ -130,6 +133,9 @@ function TextCardFormInner({ title, config, contextKey, onSubmit, feedback, disa
     } else if (applicable && ordered && attempt && !attempt.answered) {
       current = { ...current, attempt: { ...attempt, answered: true } }; // identical content, but it does answer this attempt
     }
+    // Only applicable feedback may set or change the confirmed card; a status message without `card` never deletes it.
+    if (applicable && ordered && feedback.card && (feedback.status === 'SUBMITTED' || feedback.status === 'LOCKED')
+      && JSON.stringify(current.accepted) !== JSON.stringify(feedback.card)) current = { ...current, accepted: feedback.card };
     // `applicable` already guarantees that feedback answers the CURRENT attempt (or is the round lock, or no attempt is open).
   }
   if (current !== session) setSession(current);
@@ -160,7 +166,7 @@ function TextCardFormInner({ title, config, contextKey, onSubmit, feedback, disa
   const statusText = pending ? 'Wird gesendet …' : confirmed ? 'Abgegeben.' : locked ? 'Die Eingabe ist gesperrt.' : null;
 
   const valueOf = (fieldId: string): string => {
-    if ((confirmed || locked) && active?.card) return textCardAnswer(active.card, fieldId) ?? '';
+    if ((confirmed || locked) && current.accepted) return textCardAnswer(current.accepted, fieldId) ?? ''; // no confirmed card yet: the local draft, read-only
     return drafts.get(fieldId) ?? '';
   };
 

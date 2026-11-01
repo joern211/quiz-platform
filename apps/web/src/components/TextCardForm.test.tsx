@@ -379,6 +379,132 @@ describe('N2 TextCardForm: self-review regressions', () => {
   });
 });
 
+// Independent review of PR #31 (R1/R2): the confirmed card and the attempt echo must survive the round lock.
+describe('N2 TextCardForm: round lock keeps the confirmed card and the attempt echo (review R1/R2)', () => {
+  const single: TextCardConfig = { schemaVersion: 1, fields: [{ fieldId: 'answer', label: 'Antwort', help: null, required: true }], maxCodePointsPerField: 30, maxTotalCodePoints: 30 };
+  const answer = (value: string): TextCardValue => ({ schemaVersion: 1, answers: [{ fieldId: 'answer', value }] });
+  const accepted = answer('angenommen');
+  const setup = () => {
+    const onSubmit = vi.fn();
+    const base = { config: single, contextKey: 'r', onSubmit };
+    const view = render(<TextCardForm {...base} />);
+    const input = () => screen.getByRole('textbox', { name: /Antwort/ }) as HTMLInputElement;
+    const set = (feedback: TextCardFeedback | null, over: Partial<TextCardFormProps> = {}) => view.rerender(<TextCardForm {...base} {...over} feedback={feedback} />);
+    return { onSubmit, input, set };
+  };
+  /** Attempt r#1 is sent, an uncertain result allows a manual retry with a different local draft (r#2), and the server then
+   *  confirms the card it had really accepted. UI attempt and server command are different things. */
+  const confirmedAfterRetry = async (h: ReturnType<typeof setup>) => {
+    await userEvent.type(h.input(), 'angenommen');
+    await userEvent.click(screen.getByRole('button', { name: 'Abgeben' }));
+    h.set({ contextKey: 'r', attemptId: 'r#1', status: 'ERROR', retryable: true });
+    await userEvent.clear(h.input());
+    await userEvent.type(h.input(), 'nicht angenommener Entwurf');
+    await userEvent.click(screen.getByRole('button', { name: 'Erneut senden' }));
+    h.set({ contextKey: 'r', attemptId: 'r#2', status: 'SUBMITTED', card: accepted });
+    expect(h.input()).toHaveValue('angenommen');
+  };
+
+  it('R1: keeps the confirmed card when an older attempt LOCKED arrives after the round lock', async () => {
+    const h = setup();
+    await confirmedAfterRetry(h);
+    h.set({ contextKey: 'r', attemptId: 'r#1', status: 'LOCKED' }); // stale lock is ignored before the round lock …
+    expect(h.input()).toHaveValue('angenommen');
+    h.set({ contextKey: 'r', attemptId: null, status: 'LOCKED', card: accepted });
+    expect(h.input()).toHaveValue('angenommen');
+    h.set({ contextKey: 'r', attemptId: 'r#1', status: 'LOCKED' }); // … and still afterwards
+    expect(h.input()).toHaveValue('angenommen');
+    expect(screen.getByRole('status')).toHaveTextContent('gesperrt');
+    expect(h.onSubmit).toHaveBeenCalledTimes(2);
+  });
+  it('R2: a current round lock WITHOUT card data keeps the server-confirmed card', async () => {
+    const h = setup();
+    await confirmedAfterRetry(h);
+    h.set({ contextKey: 'r', attemptId: null, status: 'LOCKED' });
+    expect(h.input()).toHaveValue('angenommen');
+    expect(screen.getByRole('status')).toHaveTextContent('gesperrt');
+    expect(h.input()).toHaveAttribute('readonly');
+    expect(h.onSubmit).toHaveBeenCalledTimes(2);
+  });
+  it('an old attempt\'s LOCKED — with or without card — never changes the display, before or after the round lock', async () => {
+    const h = setup();
+    await confirmedAfterRetry(h);
+    h.set({ contextKey: 'r', attemptId: 'r#1', status: 'LOCKED', card: answer('fremd-alt') });
+    expect(h.input()).toHaveValue('angenommen');
+    expect(screen.getByRole('status')).toHaveTextContent('Abgegeben.'); // not even locked by a stale message
+    h.set({ contextKey: 'r', attemptId: null, status: 'LOCKED' });
+    expect(screen.getByRole('status')).toHaveTextContent('gesperrt');
+    h.set({ contextKey: 'r', attemptId: 'r#1', status: 'LOCKED', card: answer('fremd-alt') });
+    h.set({ contextKey: 'r', attemptId: 'r#1', status: 'LOCKED' });
+    h.set({ contextKey: 'r', attemptId: 'r#7', status: 'LOCKED', card: answer('fremd-neu') });
+    expect(h.input()).toHaveValue('angenommen');
+    expect(screen.getByRole('status')).toHaveTextContent('gesperrt');
+  });
+  it('a round lock without any confirmed card shows the local draft read-only (also after a PENDING)', async () => {
+    const h = setup();
+    await userEvent.type(h.input(), 'noch offen');
+    await userEvent.click(screen.getByRole('button', { name: 'Abgeben' }));
+    h.set({ contextKey: 'r', attemptId: 'r#1', status: 'PENDING' });
+    h.set({ contextKey: 'r', attemptId: null, status: 'LOCKED' }); // current, permitted lock after a pending attempt
+    expect(h.input()).toHaveValue('noch offen');
+    expect(h.input()).toHaveAttribute('readonly');
+    expect(screen.getByRole('status')).toHaveTextContent('gesperrt');
+    expect(screen.getByRole('button', { name: 'Abgeben' })).toBeDisabled();
+  });
+  it('LOCKED stays final and keeps the confirmed card: later PENDING/ERROR/SUBMITTED of any attempt change nothing', async () => {
+    const h = setup();
+    await confirmedAfterRetry(h);
+    h.set({ contextKey: 'r', attemptId: null, status: 'LOCKED' });
+    for (const fb of [{ attemptId: 'r#2', status: 'PENDING' }, { attemptId: 'r#2', status: 'ERROR', retryable: true, message: 'zu spät' },
+      { attemptId: 'r#2', status: 'SUBMITTED', card: answer('anders') }, { attemptId: null, status: 'SUBMITTED', card: answer('anders') }] as const) {
+      h.set({ contextKey: 'r', ...fb });
+      expect(h.input()).toHaveValue('angenommen');
+      expect(screen.getByRole('status')).toHaveTextContent('gesperrt');
+    }
+    expect(screen.queryByText('zu spät')).not.toBeInTheDocument();
+  });
+  it('a lock whose attemptId property is missing still keeps the confirmed card', async () => {
+    const h = setup();
+    await confirmedAfterRetry(h);
+    h.set({ contextKey: 'r', status: 'LOCKED' } as unknown as TextCardFeedback);
+    expect(h.input()).toHaveValue('angenommen');
+    expect(screen.getByRole('status')).toHaveTextContent('gesperrt');
+  });
+  it('an applicable lock WITH a card is authoritative and replaces the previously confirmed card', async () => {
+    const h = setup();
+    await confirmedAfterRetry(h);
+    h.set({ contextKey: 'r', attemptId: null, status: 'LOCKED', card: answer('serverstand') });
+    expect(h.input()).toHaveValue('serverstand');
+  });
+  it('a real context change clears the confirmed card: no carry-over into the new round, old feedback stays ignored', async () => {
+    const h = setup();
+    await confirmedAfterRetry(h);
+    h.set({ contextKey: 'r', attemptId: null, status: 'LOCKED' });
+    h.set({ contextKey: 'r', attemptId: null, status: 'LOCKED' }, { contextKey: 'r2' }); // stale feedback of the old context
+    expect(h.input()).toHaveValue('');
+    expect(h.input()).not.toHaveAttribute('readonly');
+    h.set({ contextKey: 'r2', attemptId: null, status: 'LOCKED' }, { contextKey: 'r2' }); // the new round locks without any card
+    expect(h.input()).toHaveValue('');
+    expect(h.input()).toHaveAttribute('readonly');
+    h.set({ contextKey: 'r2', attemptId: null, status: 'LOCKED' }, { contextKey: 'r' }); // and back: nothing resurrects
+    expect(h.input()).toHaveValue('');
+  });
+  it('a correct current ACK after a previously ignored old ACK is processed normally and sets the confirmed card', async () => {
+    const h = setup();
+    await userEvent.type(h.input(), 'eins');
+    await userEvent.click(screen.getByRole('button', { name: 'Abgeben' }));
+    h.set({ contextKey: 'r', attemptId: 'r#1', status: 'ERROR', retryable: true });
+    await userEvent.click(screen.getByRole('button', { name: 'Erneut senden' })); // r#2
+    h.set({ contextKey: 'r', attemptId: 'r#1', status: 'SUBMITTED', card: answer('alt') }); // ignored: older attempt, even with a card
+    expect(screen.queryByText('Abgegeben.')).not.toBeInTheDocument();
+    h.set({ contextKey: 'r', attemptId: 'r#2', status: 'SUBMITTED', card: answer('aktuell') });
+    expect(screen.getByRole('status')).toHaveTextContent('Abgegeben.');
+    expect(h.input()).toHaveValue('aktuell');
+    h.set({ contextKey: 'r', attemptId: null, status: 'LOCKED' });
+    expect(h.input()).toHaveValue('aktuell');
+  });
+});
+
 describe('N2 TextCardForm: identity, re-render and theme robustness', () => {
   it('keeps drafts bound to fieldId when the field order changes; the card follows the new order, values never swap', async () => {
     const { onSubmit, set } = mount();
