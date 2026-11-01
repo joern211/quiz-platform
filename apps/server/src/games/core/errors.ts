@@ -2,6 +2,7 @@ import { NUMERIC_ERROR_CODES } from '@quiz/shared/numeric';
 import { TEXT_CARD_ERROR_CODES } from '@quiz/shared/textcard';
 import { ORDERING_ERROR_CODES } from '@quiz/shared/ordering';
 import { VOTING_ERROR_CODES } from '@quiz/shared/voting';
+import { SECRET_INFO_ERROR_CODES } from '@quiz/shared/secretInfo';
 import { GameStateConflictError } from './state.js';
 
 // Wire codes kept stable for existing clients; internal messages are never returned.
@@ -33,6 +34,8 @@ const PUBLIC_CODES = new Set([
   ...ORDERING_ERROR_CODES,
   // N4: voting codes carry no choice, roster or allowlist data (issues hold configured optionIds only); no engine emits them yet.
   ...VOTING_ERROR_CODES,
+  // N5: secret information codes carry no role, term, recipient or id (issues are code-only); no engine emits them yet.
+  ...SECRET_INFO_ERROR_CODES,
 ]);
 
 export function gameErrorCode(error: unknown, gameSlug?: string): string {

@@ -213,8 +213,14 @@ it('restarts a receive-only viewer on both ends, isolates other routes and rejec
   const policy = views.get(viewer.id!)!.policy;
   expect((await gameAck(viewer, 'media:restart', { targetId: a.client.id })).error).toBe('INVALID_PAYLOAD');
   expect((await gameAck(viewer, 'media:restart', {})).success).toBe(true);
+  // The ACK reaches the viewer's socket only; the player's new snapshot travels on another socket and may arrive later.
+  // Observe the actual state change in the PLAYER's view first: both routes exist and neither keeps an old id.
+  await vi.waitFor(() => {
+    const nextAudio = route(a.client, viewer), nextVideo = route(a.client, viewer, 'video');
+    expect(nextAudio).toBeDefined(); expect(nextVideo).toBeDefined();
+    expect(nextAudio!.id).not.toBe(oldAudio.id); expect(nextVideo!.id).not.toBe(oldVideo.id);
+  });
   const audio = route(a.client, viewer)!, video = route(a.client, viewer, 'video')!;
-  expect(audio.id).not.toBe(oldAudio.id); expect(video.id).not.toBe(oldVideo.id);
   await vi.waitFor(() => expect(views.get(viewer.id!)!.routes.map(r => r.id)).toEqual(expect.arrayContaining([audio.id, video.id])));
   expect(route(a.client, f.host)!.id).toBe(unaffected.id);
   expect(views.get(viewer.id!)!.policy).toEqual(policy);
@@ -224,11 +230,49 @@ it('restarts a receive-only viewer on both ends, isolates other routes and rejec
   expect((await gameAck(a.client, 'media:signal', { routeId: audio.id, description: { type: 'offer', sdp: 'v=0\r\nm=audio 9 UDP/TLS/RTP/SAVPF 111\r\na=sendonly\r\n' } })).success).toBe(true);
   await vi.waitFor(() => expect(received).toHaveLength(1));
   await f.control({ policy: { channel: 'TEAM' } });
-  expect((await gameAck(viewer, 'media:restart', {})).success).toBe(true); expect(route(a.client, viewer)).toBeUndefined(); expect(route(a.client, viewer, 'video')).toBeDefined();
+  expect((await gameAck(viewer, 'media:restart', {})).success).toBe(true);
+  // Again observe the committed change in the player's view (a new video route for the viewer; the audio route stays gone under TEAM).
+  await vi.waitFor(() => {
+    expect(route(a.client, viewer)).toBeUndefined();
+    expect(route(a.client, viewer, 'video')).toBeDefined();
+    expect(route(a.client, viewer, 'video')!.id).not.toBe(video.id);
+  });
+  expect(views.get(viewer.id!)!.routes.some(r => r.kind === 'video' && r.from === a.client.id && r.id !== video.id)).toBe(true);
   await f.control({ targetId: a.client.id, hostMuted: true, cameraHidden: true });
   expect((await gameAck(a.client, 'media:restart', {})).success).toBe(true);
   expect(views.get(a.client.id!)!.routes).toHaveLength(0);
   expect(views.get(a.client.id!)!.self).toMatchObject({ mic: false, camera: false, hostMuted: true, cameraHidden: true });
   await db.participation.update({ where: { id: a.p.id }, data: { kickedAt: new Date() } });
   expect((await gameAck(a.client, 'media:restart', {})).success).toBe(false);
+});
+
+it('observes a viewer restart in the player view even when the player snapshot arrives after the viewer ACK', async () => {
+  const f = await fixture(), a = await f.player(), viewer = await socket();
+  await gameAck(viewer, 'room:subscribe', { roomCode: f.room.code }); await f.enter(viewer); await f.enter(a.client);
+  await self(a.client, { mic: true, camera: true });
+  const oldAudio = route(a.client, viewer)!, oldVideo = route(a.client, viewer, 'video')!, unaffected = route(a.client, f.host)!;
+  expect(oldAudio).toBeDefined(); expect(oldVideo).toBeDefined();
+  // Hold the PLAYER's snapshots to force the ordering the plain test cannot rule out: ACK on the viewer's socket first,
+  // the player's new snapshot later.
+  const remember = a.client.listeners('media:snapshot')[0] as (snapshot: LiveMediaSnapshot) => void;
+  let pending: LiveMediaSnapshot | undefined;
+  const hold = (snapshot: LiveMediaSnapshot) => { pending = snapshot; };
+  a.client.off('media:snapshot', remember); a.client.on('media:snapshot', hold);
+  try {
+    expect((await gameAck(viewer, 'media:restart', {})).success).toBe(true);
+    await vi.waitFor(() => expect(pending).toBeDefined());
+    // This is the window the old test read from: the viewer is acknowledged, the player's cached view still has the old ids.
+    expect(route(a.client, viewer)!.id).toBe(oldAudio.id);
+    expect(route(a.client, viewer, 'video')!.id).toBe(oldVideo.id);
+  } finally {
+    a.client.off('media:snapshot', hold); a.client.on('media:snapshot', remember);
+    if (pending) remember(pending);
+  }
+  await vi.waitFor(() => {
+    expect(route(a.client, viewer)?.id).toBeDefined(); expect(route(a.client, viewer, 'video')?.id).toBeDefined();
+    expect(route(a.client, viewer)!.id).not.toBe(oldAudio.id); expect(route(a.client, viewer, 'video')!.id).not.toBe(oldVideo.id);
+  });
+  const audio = route(a.client, viewer)!, video = route(a.client, viewer, 'video')!;
+  await vi.waitFor(() => expect(views.get(viewer.id!)!.routes.map(r => r.id)).toEqual(expect.arrayContaining([audio.id, video.id])));
+  expect(route(a.client, f.host)!.id).toBe(unaffected.id);
 });
