@@ -239,6 +239,13 @@ describe('N1 evaluation: neutral, exact, independent reference values', () => {
     expect(() => checkNumericTolerance(e, { kind: 'ABSOLUTE', max: v(0), boundary: 'EXCLUSIVE' })).toThrow(NumericError);
     expect(() => checkNumericTolerance(e, { kind: 'ABSOLUTE', max: v(1) } as unknown as NumericTolerance)).toThrow(NumericError);
     expect(() => checkNumericTolerance({ ...e, absoluteDeviationUnits: NaN }, { kind: 'ABSOLUTE', max: v(1), boundary: 'INCLUSIVE' })).toThrow(NumericError);
+    const tol: NumericTolerance = { kind: 'RELATIVE_PERCENT', max: v(5), boundary: 'INCLUSIVE' };
+    // tampered / corrupt evaluations are refused, not silently classified
+    expect(() => checkNumericTolerance({ ...e, relativeDeviation: { status: 'DEFINED', numerator: 1e300, denominator: 2 } }, tol)).toThrow(NumericError);
+    expect(() => checkNumericTolerance({ ...e, relativeDeviation: { status: 'DEFINED', numerator: 1, denominator: 0 } }, tol)).toThrow(NumericError);
+    expect(() => checkNumericTolerance({ ...e, relativeDeviation: { status: 'DEFINED', numerator: 5, denominator: 2 } }, tol)).toThrow(NumericError);
+    expect(() => checkNumericTolerance({ ...e, equal: true }, tol)).toThrow(NumericError);
+    expect(() => checkNumericTolerance({ ...e, direction: 'EQUAL' }, tol)).toThrow(NumericError);
   });
   it('keeps differences safe: extreme operands work, out-of-contract operands throw instead of overflowing silently', () => {
     const max = v(NUMERIC_MAX_ABS_UNITS), min = v(-NUMERIC_MAX_ABS_UNITS);
@@ -252,6 +259,16 @@ describe('N1 evaluation: neutral, exact, independent reference values', () => {
     expect(() => evaluateNumeric(v(1, 1), v(1, 0))).toThrow('NUMERIC_SCALE_MISMATCH');
     expect(() => evaluateNumeric({ units: NaN, scale: 0 }, v(1))).toThrow(NumericError);
     expect(() => evaluateNumeric({ units: '5' as unknown as number, scale: 0 }, v(1))).toThrow(NumericError);
+  });
+  it('compares exactly at the extreme end of the range (no float scaling error)', () => {
+    const e = evaluateNumeric(v(0), v(NUMERIC_MAX_ABS_UNITS)); // deviation is exactly 100 % of the target
+    expect(checkNumericTolerance(e, { kind: 'RELATIVE_PERCENT', max: v(100), boundary: 'INCLUSIVE' })).toBe('WITHIN');
+    expect(checkNumericTolerance(e, { kind: 'RELATIVE_PERCENT', max: v(100), boundary: 'EXCLUSIVE' })).toBe('OUTSIDE');
+    expect(checkNumericTolerance(e, { kind: 'RELATIVE_PERCENT', max: v(1000, 1), boundary: 'INCLUSIVE' })).toBe('WITHIN');
+    expect(checkNumericTolerance(e, { kind: 'RELATIVE_PERCENT', max: v(999, 1), boundary: 'INCLUSIVE' })).toBe('OUTSIDE');
+    const huge = evaluateNumeric(v(-NUMERIC_MAX_ABS_UNITS), v(NUMERIC_MAX_ABS_UNITS)); // 200 %
+    expect(checkNumericTolerance(huge, { kind: 'RELATIVE_PERCENT', max: v(NUMERIC_MAX_ABS_UNITS, 1), boundary: 'INCLUSIVE' })).toBe('WITHIN');
+    expect(checkNumericTolerance(huge, { kind: 'ABSOLUTE', max: v(NUMERIC_MAX_ABS_UNITS), boundary: 'INCLUSIVE' })).toBe('OUTSIDE'); // 1.999…e15 > 9.99…e14
   });
   it('is reproducible after a JSON roundtrip and repetition', () => {
     const input = v(1234, 1), target = v(-5678, 1);

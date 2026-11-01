@@ -196,10 +196,16 @@ export const NumericEvaluationSchema = z.object({
   absoluteDeviationUnits: z.number().int().nonnegative().max(2 * NUMERIC_MAX_ABS_UNITS),
   /** Exact ratio |input - target| / |target|; no float. UNDEFINED when the target is 0. */
   relativeDeviation: z.discriminatedUnion('status', [
-    z.object({ status: z.literal('DEFINED'), numerator: z.number().int().nonnegative(), denominator: z.number().int().positive() }).strict(),
+    z.object({ status: z.literal('DEFINED'), numerator: z.number().int().nonnegative().max(2 * NUMERIC_MAX_ABS_UNITS),
+      denominator: z.number().int().positive().max(NUMERIC_MAX_ABS_UNITS) }).strict(),
     z.object({ status: z.literal('UNDEFINED'), reason: z.literal('TARGET_ZERO') }).strict(),
   ]),
-}).strict();
+}).strict().superRefine((e, ctx) => {
+  // A stored/replayed evaluation must be self-consistent; anything else is tampering or corruption.
+  const consistent = e.equal === (e.absoluteDeviationUnits === 0) && e.equal === (e.direction === 'EQUAL')
+    && (e.relativeDeviation.status === 'UNDEFINED' || e.relativeDeviation.numerator === e.absoluteDeviationUnits);
+  if (!consistent) ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'EVALUATION_INCONSISTENT' });
+});
 export type NumericEvaluation = z.infer<typeof NumericEvaluationSchema>;
 
 /** Both operands must share one scale (the config scale) and the contract magnitude; otherwise it throws. */
