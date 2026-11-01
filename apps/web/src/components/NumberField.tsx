@@ -4,17 +4,28 @@
 // Responsibility: text entry → canonical NumericValue → onSubmit. It does
 // NOT own a command queue, socket or session. The embedding caller sends the
 // command (existing intent client, same commandId across RATE_LIMITED retries)
-// and reports back through `feedback`. Success is shown only after the caller
-// reports SUBMITTED. Feedback for another `contextKey` (round/run) is ignored,
-// so a late ACK never lands on a new draft. The field receives PUBLIC input
+// and reports back through `feedback`. The field receives PUBLIC input
 // metadata only — never targets, evaluation parameters or private bounds.
+//
+// Attempt contract (R1): every valid submit opens ONE attempt in the current
+// context; `onSubmit(value, attemptId)` hands out its id. From that moment the
+// field is locked against another submit until an applicable, DIFFERENT
+// feedback for this attempt arrives — also if the caller reports PENDING late.
+// Feedback is applicable only if its `contextKey` is the current one and, when it
+// carries an `attemptId`, that id is the current attempt's. Inapplicable
+// feedback (other round, older attempt) changes nothing: not the draft, not the
+// held state, not the lock. The field keeps the last applicable feedback, so
+// `feedback: null` or a stale object means "no new information", never "reset".
+// Content-identical feedback with a new object identity is not new information
+// either (typical parent re-render). A retry that fails with the very same error
+// is distinguished by echoing `attemptId`. A context change is the only reset.
 //
 // No theme/accent dependency and no key-based remounting: theme changes keep
 // draft, focus and identity. A caller that never reports feedback after
 // onSubmit leaves the field waiting (it will not resend by itself).
 // ============================================================
 
-import { useEffect, useId, useRef, useState, type FormEvent } from 'react';
+import { useId, useState, type FormEvent } from 'react';
 import { Button } from '@quiz/ui';
 import {
   formatNumericCanonical, parseNumericInputPublic,
@@ -23,8 +34,10 @@ import {
 import styles from './NumberField.module.css';
 
 export interface NumberFieldFeedback {
-  /** Must equal the field's current `contextKey`; otherwise the feedback is stale and ignored. */
+  /** Must equal the field's current `contextKey`; otherwise the feedback is inapplicable and ignored. */
   contextKey: string;
+  /** Optional echo of the id handed to `onSubmit`; makes identical consecutive answers distinguishable. */
+  attemptId?: string;
   status: 'PENDING' | 'SUBMITTED' | 'LOCKED' | 'ERROR';
   /** Server-confirmed value (shown instead of the draft once SUBMITTED/LOCKED). */
   value?: NumericValue;
@@ -37,9 +50,10 @@ export interface NumberFieldFeedback {
 export interface NumberFieldProps {
   label: string;
   input: NumericPublicInput;
-  /** Identity of the current run/round. A change resets the draft and drops older feedback. */
+  /** Identity of the current run/round. A change resets the draft, the held feedback and the current attempt. */
   contextKey: string;
-  onSubmit: (value: NumericValue) => void;
+  /** Called once per valid submit. `attemptId` identifies this attempt (`<contextKey>#<n>`); echo it in `feedback.attemptId`. */
+  onSubmit: (value: NumericValue, attemptId: string) => void;
   feedback?: NumberFieldFeedback | null;
   disabled?: boolean;
   hint?: string;
@@ -68,30 +82,42 @@ export function numericErrorMessage(code: string, meta: NumericPublicInput): str
   }
 }
 
+interface Attempt { id: string; answered: boolean }
+interface Session { context: string; seq: number; held: NumberFieldFeedback | null; attempt: Attempt | null }
+/** Content identity of a feedback (object identity is irrelevant). */
+const signature = (fb: NumberFieldFeedback | null): string =>
+  fb ? JSON.stringify([fb.contextKey, fb.attemptId ?? null, fb.status, fb.value ?? null, fb.message ?? null, fb.retryable ?? null]) : '';
+
 export function NumberField({ label, input, contextKey, onSubmit, feedback, disabled = false, hint, submitLabel = 'Abgeben' }: NumberFieldProps) {
   const id = useId();
   const [draft, setDraft] = useState('');
   const [localError, setLocalError] = useState<string | null>(null);
-  const [seenContext, setSeenContext] = useState(contextKey);
-  const sent = useRef(false);
+  const [session, setSession] = useState<Session>({ context: contextKey, seq: 0, held: null, attempt: null });
 
-  // New run/round: start with an empty draft. Adjusting state while rendering avoids one frame of stale text.
-  if (seenContext !== contextKey) {
-    setSeenContext(contextKey);
+  // Derived while rendering (no effect, no extra frame): context reset, then absorption of applicable feedback.
+  let current = session;
+  if (current.context !== contextKey) {
+    current = { context: contextKey, seq: current.seq, held: null, attempt: null };
     setDraft('');
     setLocalError(null);
   }
+  const applicable = !!feedback && feedback.contextKey === contextKey
+    && (feedback.attemptId === undefined || !current.attempt || feedback.attemptId === current.attempt.id);
+  if (applicable && signature(feedback) !== signature(current.held)) {
+    current = { ...current, held: feedback,
+      attempt: current.attempt && !current.attempt.answered ? { ...current.attempt, answered: true } : current.attempt };
+  }
+  if (current !== session) setSession(current);
 
-  const active = feedback && feedback.contextKey === contextKey ? feedback : null;
-  useEffect(() => { sent.current = false; }, [feedback, contextKey]);
-
-  const pending = active?.status === 'PENDING';
-  const confirmed = active?.status === 'SUBMITTED';
-  const locked = active?.status === 'LOCKED';
-  const failed = active?.status === 'ERROR';
+  const active = current.held;
+  const awaiting = current.attempt !== null && !current.attempt.answered; // submitted, no answer for THIS attempt yet
+  const pending = awaiting || active?.status === 'PENDING';
+  const confirmed = !awaiting && active?.status === 'SUBMITTED';
+  const locked = !awaiting && active?.status === 'LOCKED';
+  const failed = !awaiting && active?.status === 'ERROR';
   const fatal = failed && active?.retryable === false;
   const readOnly = pending || confirmed || locked || fatal;
-  const unavailable = disabled || locked || fatal || confirmed || pending;
+  const unavailable = disabled || pending || confirmed || locked || fatal;
   const shown = (confirmed || locked) && active?.value ? formatNumericCanonical(active.value, ',') : draft;
 
   function validate(text: string): string | null {
@@ -101,12 +127,13 @@ export function NumberField({ label, input, contextKey, onSubmit, feedback, disa
 
   function handleSubmit(event: FormEvent) {
     event.preventDefault();
-    if (unavailable || sent.current) return;
+    if (unavailable) return;
     const parsed = parseNumericInputPublic(input, draft);
     if (!parsed.ok) { setLocalError(numericErrorMessage(parsed.code, input)); return; }
     setLocalError(null);
-    sent.current = true;
-    onSubmit(parsed.value);
+    const attempt: Attempt = { id: `${contextKey}#${current.seq + 1}`, answered: false };
+    setSession({ ...current, seq: current.seq + 1, attempt });
+    onSubmit(parsed.value, attempt.id);
   }
 
   const errorText = localError ?? (failed ? active?.message ?? GENERIC_ERROR : null);

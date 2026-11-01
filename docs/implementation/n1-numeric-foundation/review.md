@@ -27,6 +27,21 @@ Zweiter Durchgang nach dem ersten grünen Stand: Auftrag und Diff erneut unabhä
 4. **Schwache Tests entfernt/ersetzt:** ein tautologischer Format-Vergleich (`text === … ? text : text`) und eine triviale Regex-Schleife über Code-Konstanten; eine Test-Fixture kollidierte zufällig mit dem Faktor 1 000 000 (Regex `10000`) und wurde auf einen eindeutigen privaten Wert (7777,7) geändert.
 5. **Mutationsprüfung** (je eine Mutation, Test muss rot werden): Überpräzision toleriert, Toleranzgrenze immer inklusiv, Frist ignoriert, Config-Bindung entfernt, leer = 0 — **alle fünf erkannt** (1/4/1/1/1 fehlschlagende Tests). Quellstand danach wiederhergestellt.
 
+## Nachprüfung PR #30 — Befund R1 (unabhängiges Review, P2)
+
+**Befund.** `NumberField` entsperrte die Sendesperre über `useEffect(..., [feedback, contextKey])`, also bei *jeder* neuen Feedback-Objektidentität — auch bei bewusst ignoriertem Feedback einer anderen Runde. Zudem hingen `pending`/`readOnly` nur vom gerade übergebenen Feedback ab. Folgen (mit drei roten Tests reproduziert):
+- A: ein verspäteter ACK der Vorrunde entfernte Pending und Sperre der neuen Runde.
+- B: danach war ein zweiter `onSubmit` der neuen Runde möglich (3 statt 2 Aufrufe).
+- C: ein inhaltlich identisches ERROR-Feedback als neues Objekt (Parent-Re-Render) entsperrte den noch unbeantworteten Retry.
+
+**Warum die eigene Eigenprüfung es übersah.** Die Tests deckten „altes Feedback im *leeren* neuen Kontext“ ab, nicht das Zusammenspiel mit einem bereits *laufenden* Versuch der neuen Runde, und kein Parent-Re-Render mit identischem Inhalt. Die Aussage „fremdes Feedback ignorieren“ galt nur für die Anzeige, nicht für die Sperre.
+
+**Korrektur.** Sendezustand an Kontext und aktuellen Versuch gebunden (Attempt-Vertrag, siehe `design.md` §7): Versuchs-Id über `onSubmit(value, attemptId)`, Sperre ab gültigem Submit, Feedback nur anwendbar bei passendem `contextKey` (und `attemptId`, falls vorhanden), letzte anwendbare Rückmeldung wird gehalten, inhaltliche Signatur statt Objektidentität, Reset nur durch Kontextwechsel. Kein Effect mehr, keine `ref`-Sperre; Ableitung während des Renderns.
+
+**Rot/Grün-Nachweis.** Die drei Gegenfälle des Reviews sind unverändert (nur lokale Helfernamen) in `NumberField.test.tsx` übernommen. Gegen den Stand `f71ef2c` rot (3/3), gegen den Fix grün. Zusätzliche Regressionen (7): Folgeantwort nach ignoriertem alten ACK wird normal verarbeitet; Sperre ab Submit auch vor spätem `PENDING`; Kontextwechsel räumt Versuch auf (auch bei Rückkehr); wiederholtes gleiches ERROR entsperrt und sendet nichts (inkl. `PENDING` → gleicher Fehler = echte Antwort); `null`/fremdes Feedback behält den gehaltenen Zustand; Attempt-Vertrag (`<ctx>#<n>`, Echo des alten Versuchs ignoriert, Echo des aktuellen entsperrt auch bei identischem Fehler); `LOCKED` und endgültiger Fehler wirken nach ignoriertem alten ACK. Die 15 bisherigen Tests bestehen (Erwartung an `onSubmit` um das zweite Argument ergänzt, Wertprüfung unverändert). Gegen den alten Komponentencode: 14 von 25 Tests rot (8 R1-bezogen, 6 wegen der neuen Signatur).
+
+**Zweiter Eigenprüfungsdurchgang nach dem Fix** (Fokus laut Auftrag): alte ACKs nach neuem Submit, beliebige Parent-Re-Renders, wiederholter Fehler, Wechsel Retry/Pending/Submitted/Locked und neue Runde — durch Tests abgedeckt; frische Durchsicht des Diffs ergab keinen weiteren Codefehler. Dokumentierte Restgrenzen (kein Fehler, sondern Vertrag): identische Folgefehler ohne dazwischenliegendes `PENDING` brauchen das `attemptId`-Echo; `contextKey` muss je Runde eindeutig sein; Out-of-order-Antworten ohne `attemptId` in derselben Runde sind nicht erkennbar; das Feld wartet endlos, wenn der Aufrufer nie antwortet.
+
 Rechenvergleich: Erwartungswerte (z. B. 2970−2962 = 8; 8/2962 ≈ 0,27 %; 5 % von 200 = 10; 12,5 % von 80 = 10; Extremdifferenz 2·(10^15−1) = 1 999 999 999 999 998) sind von Hand gerechnet, nicht aus der Implementierung abgeleitet.
 
 ## Verbleibend / bewusst nicht behauptet
