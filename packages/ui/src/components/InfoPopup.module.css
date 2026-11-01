@@ -11,8 +11,8 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 28px;
-  height: 28px;
+  width: 32px;
+  height: 32px;
   border: 1.5px solid var(--border);
   border-radius: 50%;
   background: var(--surface-2);
@@ -23,10 +23,10 @@
 }
 
 .trigger:hover {
-  background: rgba(29, 212, 212, 0.15);
+  background: var(--accent-tint);
   border-color: var(--accent);
   color: var(--accent);
-  transform: scale(1.1);
+  
 }
 
 .trigger svg {
@@ -39,11 +39,11 @@
   bottom: calc(100% + 8px);
   left: 50%;
   transform: translateX(-50%);
-  width: 280px;
+  width: min(280px, calc(100vw - 32px));
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
-  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.5);
+  box-shadow: var(--shadow-lg);
   z-index: 200;
   animation: popup-in 0.25s cubic-bezier(0.22, 1, 0.36, 1) both;
   overflow: hidden;
@@ -60,7 +60,7 @@
   justify-content: space-between;
   padding: var(--space-3) var(--space-4);
   border-bottom: 1px solid var(--border);
-  background: rgba(255, 255, 255, 0.02);
+  background: var(--surface-2);
 }
 
 .title {
@@ -75,8 +75,8 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 24px;
-  height: 24px;
+  width: 32px;
+  height: 32px;
   border: none;
   background: var(--surface-2);
   border-radius: 50%;
@@ -89,8 +89,7 @@
 }
 
 .close:hover {
-  color: var(--danger);
-  transform: rotate(90deg);
+  color: var(--fg);
 }
 
 .content {

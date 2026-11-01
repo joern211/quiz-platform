@@ -3,7 +3,8 @@
 // ============================================================
 
 import { Link } from 'react-router-dom';
-import { Card, Badge, InfoPopup } from '@quiz/ui';
+import { Badge, InfoPopup } from '@quiz/ui';
+import { GameArt } from './GameArt';
 import styles from './GameCard.module.css';
 
 interface Game {
@@ -39,40 +40,36 @@ export function GameCard({ game }: GameCardProps) {
   if (game.hasAudio) tags.push('Audio');
 
   return (
-    <Card interactive padding="md" className={styles.card}>
-      <div className={styles.header}>
-        <h3 className={styles.name}>{game.name}</h3>
-        <div className={styles.badges}>
+    <article className={styles.card} data-status={game.status}>
+      <GameArt slug={game.slug} className={styles.art} />
+      <div className={styles.body}>
+        <div className={styles.header}>
+          <h3 className={styles.name}>{game.name}</h3>
           <Badge variant={statusBadge.variant}>{statusBadge.label}</Badge>
-          {tags.map(tag => (
-            <Badge key={tag} variant="muted">{tag}</Badge>
-          ))}
+        </div>
+        <p className={styles.rules}>{game.shortRules}</p>
+        <p className={styles.meta}>
+          <span>{game.category}</span>
+          <span>{game.playerCount.min}–{game.playerCount.max} Spieler</span>
+          <span>{game.duration}</span>
+          {tags.map(tag => <span key={tag}>{tag}</span>)}
+        </p>
+        <div className={styles.actions}>
+          <InfoPopup
+            title={game.name}
+            content={game.shortRules}
+            rules={[
+              `Spieleranzahl: ${game.playerCount.min}-${game.playerCount.max}`,
+              `Dauer: ${game.duration}`,
+              ...(game.hasBuzzer ? ['Buzzer-Spiel'] : []),
+              ...(game.hasTeams ? ['Team-Modus verfügbar'] : []),
+            ]}
+          />
+          <Link to={`/spiel/${game.slug}`} className={styles.playLink}>
+            {game.status === 'PLANNED' ? 'Details' : 'Spielen'} <span aria-hidden="true">→</span>
+          </Link>
         </div>
       </div>
-
-      <p className={styles.category}>{game.category}</p>
-
-      <div className={styles.meta}>
-        <span>👥 {game.playerCount.min}-{game.playerCount.max} Spieler</span>
-        <span>⏱️ {game.duration}</span>
-      </div>
-
-      <div className={styles.actions}>
-        <InfoPopup
-          title={game.name}
-          content={game.shortRules}
-          rules={[
-            `Spieleranzahl: ${game.playerCount.min}-${game.playerCount.max}`,
-            `Dauer: ${game.duration}`,
-            ...(game.hasBuzzer ? ['Buzzer-Spiel'] : []),
-            ...(game.hasTeams ? ['Team-Modus verfügbar'] : []),
-          ]}
-        />
-        
-        <Link to={`/spiel/${game.slug}`} className={styles.playLink}>
-          Spielen →
-        </Link>
-      </div>
-    </Card>
+    </article>
   );
 }

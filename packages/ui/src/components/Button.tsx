@@ -3,6 +3,7 @@
 // ============================================================
 
 import { ButtonHTMLAttributes, forwardRef } from 'react';
+import { Link, type LinkProps } from 'react-router-dom';
 import styles from './Button.module.css';
 
 type ButtonVariant = 'primary' | 'secondary' | 'danger' | 'ghost';
@@ -57,3 +58,24 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(
 );
 
 Button.displayName = 'Button';
+
+/** Gleiche Gestaltung wie Button, aber als echter Link (keine Buttons in Links verschachteln). */
+interface ButtonLinkProps extends LinkProps {
+  variant?: ButtonVariant;
+  size?: ButtonSize;
+  fullWidth?: boolean;
+}
+
+export const ButtonLink = forwardRef<HTMLAnchorElement, ButtonLinkProps>(
+  ({ variant = 'primary', size = 'md', fullWidth = false, className = '', children, ...props }, ref) => (
+    <Link
+      ref={ref}
+      className={[styles.button, styles[variant], styles[size], fullWidth ? styles.fullWidth : '', className].filter(Boolean).join(' ')}
+      {...props}
+    >
+      {children}
+    </Link>
+  )
+);
+
+ButtonLink.displayName = 'ButtonLink';

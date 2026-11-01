@@ -6,7 +6,6 @@ import { LiveMediaPanel } from './components/LiveMediaPanel';
 
 import { Routes, Route, useLocation } from 'react-router-dom';
 import { useEffect } from 'react';
-import { useTheme } from '@quiz/ui';
 
 // Layout
 import { RoomPanel } from './components/RoomPanel';
@@ -48,13 +47,9 @@ import { WerIstDasSetupPage } from './pages/WerIstDasSetupPage';
 import { WerIstDasGamePage } from './pages/WerIstDasGamePage';
 
 export default function App() {
-  const { theme } = useTheme();
   const location = useLocation();
-
-  // Apply theme
-  useEffect(() => {
-    document.documentElement.setAttribute('data-theme', theme);
-  }, [theme]);
+  // Theme/Akzent setzt der ThemeProvider direkt am <html>-Element;
+  // App selbst hängt bewusst nicht davon ab (kein Neurendern des Baums).
 
   // Scroll to top on route change (respects prefers-reduced-motion)
   useEffect(() => {

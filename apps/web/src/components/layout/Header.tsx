@@ -1,16 +1,51 @@
 // ============================================================
-// Header Component – v0.3.0 (Active room back link)
+// Header – Midnight-Topbar (Navigation bleibt auch mobil oben)
 // ============================================================
 
-import { useState, useEffect, useRef } from 'react';
-import { Link } from 'react-router-dom';
+import { useState, useEffect, useRef, useCallback } from 'react';
+import { Link, NavLink, useLocation } from 'react-router-dom';
 import { Logo, useTheme } from '@quiz/ui';
 import { getActiveRoomCode } from '../../lib/socket';
+import { AppearanceSettings } from '../AppearanceSettings';
 import styles from './Header.module.css';
+
+const NAV_ITEMS = [
+  { to: '/kategorien', label: 'Spiele' },
+  { to: '/moderator/raeume', label: 'Räume' },
+  { to: '/inhalte', label: 'Fragen & Pools' },
+  { to: '/moderator/anmelden', label: 'Moderieren' },
+  { to: '/zuschauen', label: 'Zuschauen' },
+];
+
+function SunIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
+      <circle cx="12" cy="12" r="4" />
+      <path d="M12 2v2m0 16v2M2 12h2m16 0h2M5 5l1.4 1.4m11.2 11.2L19 19M19 5l-1.4 1.4M6.4 17.6 5 19" />
+    </svg>
+  );
+}
+function MoonIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M20 14a8 8 0 0 1-10-10A8 8 0 1 0 20 14Z" />
+    </svg>
+  );
+}
+function PaletteIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M12 3a9 9 0 1 0 0 18c1.1 0 1.7-.9 1.4-1.8-.4-1.2.4-2.2 1.6-2.2H17a4 4 0 0 0 4-4c0-5.5-4-10-9-10Z" />
+      <circle cx="7.5" cy="11" r="1.2" fill="currentColor" /><circle cx="10.5" cy="7" r="1.2" fill="currentColor" /><circle cx="15" cy="7.5" r="1.2" fill="currentColor" />
+    </svg>
+  );
+}
 
 export function Header() {
   const { theme, toggleTheme } = useTheme();
+  const location = useLocation();
   const [menuOpen, setMenuOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const [activeRoomCode, setActiveRoomCode] = useState<string | null>(null);
   const menuRef = useRef<HTMLDivElement>(null);
   const toggleRef = useRef<HTMLButtonElement>(null);
@@ -20,154 +55,145 @@ export function Header() {
     function checkActiveRoom() {
       setActiveRoomCode(getActiveRoomCode());
     }
-
     checkActiveRoom();
-
-    // Re-check on storage events (sessionStorage changes)
     const handler = () => checkActiveRoom();
     window.addEventListener('storage', handler);
-
     // Poll for sessionStorage changes within the same tab
     const interval = setInterval(checkActiveRoom, 1000);
-
     return () => {
       window.removeEventListener('storage', handler);
       clearInterval(interval);
     };
   }, []);
 
-  // Close on Escape
+  // Menü schließt bei Navigation
+  useEffect(() => { setMenuOpen(false); }, [location.pathname]);
+
+  const closeMenu = useCallback((returnFocus: boolean) => {
+    setMenuOpen(false);
+    if (returnFocus) toggleRef.current?.focus();
+  }, []);
+
+  // Close on Escape (nicht, wenn der Darstellungsdialog offen ist – der hat eigenes Escape)
   useEffect(() => {
+    if (!menuOpen) return;
     const handler = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' && menuOpen) {
-        setMenuOpen(false);
-        toggleRef.current?.focus();
-      }
+      if (e.key === 'Escape' && !settingsOpen) closeMenu(true);
     };
     document.addEventListener('keydown', handler);
     return () => document.removeEventListener('keydown', handler);
-  }, [menuOpen]);
+  }, [menuOpen, settingsOpen, closeMenu]);
 
   // Close on outside click
   useEffect(() => {
+    if (!menuOpen) return;
     const handler = (e: MouseEvent) => {
-      if (menuOpen && menuRef.current && !menuRef.current.contains(e.target as Node)) {
-        setMenuOpen(false);
-      }
+      const target = e.target as Node;
+      if (menuRef.current?.contains(target) || toggleRef.current?.contains(target)) return;
+      setMenuOpen(false);
     };
     document.addEventListener('mousedown', handler);
     return () => document.removeEventListener('mousedown', handler);
   }, [menuOpen]);
 
-  // Trap focus inside menu when open
+  // Focus first item when menu opens
   useEffect(() => {
-    if (menuOpen) {
-      const links = menuRef.current?.querySelectorAll<HTMLAnchorElement>('a, button');
-      links?.[0]?.focus();
-    }
+    if (menuOpen) menuRef.current?.querySelector<HTMLElement>('a, button')?.focus();
   }, [menuOpen]);
 
-  // Determine back URL based on role
   function getBackUrl() {
     const code = activeRoomCode;
     if (!code) return '/';
     const role = sessionStorage.getItem('qp_role');
-    if (role === 'HOST') {
-      return `/moderator/raum/${code}/lobby`;
-    }
+    if (role === 'HOST') return `/moderator/raum/${code}/lobby`;
     return `/raum/${code}/lobby`;
   }
+
+  const themeLabel = theme === 'dark' ? 'Zum hellen Theme wechseln' : 'Zum dunklen Theme wechseln';
 
   return (
     <header className={styles.header}>
       <div className={styles.container}>
-        {/* Logo */}
-        <Link to="/" className={styles.logo} aria-label="Zur Startseite">
+        <Link to="/" className={styles.logo} aria-label="Quiz Plattform – zur Startseite">
           <Logo />
-          <span className={styles.logoText}>Online Quiz Plattform</span>
         </Link>
 
-        {/* Active room back link */}
         {activeRoomCode && (
           <Link to={getBackUrl()} className={styles.backLink}>
-            ← Zurück zum Raum
+            <span aria-hidden="true">←</span> Zurück zum Raum
           </Link>
         )}
 
-        {/* Desktop Nav */}
         <nav className={styles.nav} aria-label="Hauptnavigation">
-          <Link to="/kategorien" className={styles.link}>Spiele</Link>
-          <Link to="/raeume" className={styles.link}>Räume</Link>
-          <Link to="/inhalte" className={styles.link}>Fragen & Pools</Link>
-          <Link to="/moderator/anmelden" className={styles.link}>Moderieren</Link>
-          <Link to="/zuschauen" className={styles.link}>Zuschauen</Link>
+          {NAV_ITEMS.map((item) => (
+            <NavLink key={item.to} to={item.to} className={({ isActive }) => `${styles.link} ${isActive ? styles.current : ''}`}>
+              {item.label}
+            </NavLink>
+          ))}
         </nav>
 
-        {/* Actions */}
         <div className={styles.actions}>
+          <Link to="/beitreten" className={styles.joinLink}>Raum beitreten</Link>
           <button
+            type="button"
+            onClick={() => setSettingsOpen(true)}
+            className={styles.iconButton}
+            aria-label="Darstellung: Hell/Dunkel und Akzentfarbe"
+            aria-haspopup="dialog"
+            title="Darstellung"
+          >
+            <PaletteIcon />
+          </button>
+          <button
+            type="button"
             onClick={toggleTheme}
-            className={styles.themeToggle}
-            aria-label={theme === 'dark' ? 'Zum hellen Theme wechseln' : 'Zum dunklen Theme wechseln'}
+            className={styles.iconButton}
+            aria-label={themeLabel}
             title={theme === 'dark' ? 'Heller Modus' : 'Dunkler Modus'}
           >
-            {theme === 'dark' ? (
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
-                <circle cx="12" cy="12" r="5" />
-                <path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42" />
-              </svg>
-            ) : (
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
-                <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
-              </svg>
-            )}
+            {theme === 'dark' ? <SunIcon /> : <MoonIcon />}
           </button>
 
-          {/* Mobile menu toggle */}
           <button
             ref={toggleRef}
+            type="button"
             className={styles.menuToggle}
-            onClick={() => setMenuOpen(!menuOpen)}
+            onClick={() => setMenuOpen((open) => !open)}
             aria-expanded={menuOpen}
             aria-controls="mobile-menu"
             aria-label={menuOpen ? 'Menü schließen' : 'Menü öffnen'}
           >
             {menuOpen ? (
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true" width="24" height="24">
-                <path d="M18 6L6 18M6 6l12 12" />
-              </svg>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true" width="22" height="22"><path d="M18 6 6 18M6 6l12 12" /></svg>
             ) : (
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true" width="24" height="24">
-                <path d="M3 12h18M3 6h18M3 18h18" />
-              </svg>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true" width="22" height="22"><path d="M4 7h16M4 12h16M4 17h16" /></svg>
             )}
           </button>
         </div>
       </div>
 
-      {/* Mobile Menu */}
       {menuOpen && (
-        <div
-          id="mobile-menu"
-          ref={menuRef}
-          className={styles.mobileMenu}
-          role="dialog"
-          aria-label="Navigation"
-        >
-          <nav className={styles.mobileNav}>
+        <div id="mobile-menu" ref={menuRef} className={styles.mobileMenu}>
+          <nav className={styles.mobileNav} aria-label="Navigation">
             {activeRoomCode && (
-              <Link to={getBackUrl()} className={styles.mobileLink} onClick={() => setMenuOpen(false)}>
-                ← Zurück zum Raum
+              <Link to={getBackUrl()} className={`${styles.mobileLink} ${styles.mobileBack}`} onClick={() => closeMenu(false)}>
+                <span aria-hidden="true">←</span> Zurück zum Raum
               </Link>
             )}
-            <Link to="/kategorien" className={styles.mobileLink} onClick={() => setMenuOpen(false)}>Spiele</Link>
-            <Link to="/raeume" className={styles.mobileLink} onClick={() => setMenuOpen(false)}>Räume</Link>
-            <Link to="/moderator/anmelden" className={styles.mobileLink} onClick={() => setMenuOpen(false)}>Moderieren</Link>
-            <Link to="/zuschauen" className={styles.mobileLink} onClick={() => setMenuOpen(false)}>Zuschauen</Link>
-            <Link to="/beitreten" className={styles.mobileLink} onClick={() => setMenuOpen(false)}>Beitreten</Link>
+            {NAV_ITEMS.map((item) => (
+              <NavLink key={item.to} to={item.to} className={({ isActive }) => `${styles.mobileLink} ${isActive ? styles.current : ''}`} onClick={() => closeMenu(false)}>
+                {item.label}
+              </NavLink>
+            ))}
+            <Link to="/beitreten" className={`${styles.mobileLink} ${styles.mobileJoin}`} onClick={() => closeMenu(false)}>Raum beitreten</Link>
+            <button type="button" className={styles.mobileLink} onClick={() => { closeMenu(true); setSettingsOpen(true); }}>
+              <PaletteIcon /> Darstellung
+            </button>
           </nav>
         </div>
       )}
+
+      <AppearanceSettings open={settingsOpen} onClose={() => setSettingsOpen(false)} />
     </header>
   );
 }

@@ -4,8 +4,8 @@
   "description": "Spieleplattform für Freundesgruppen - Quiz, Buzzer, Schätz- und Kreativspiele",
   "start_url": "/",
   "display": "standalone",
-  "background_color": "#0e1116",
-  "theme_color": "#0e1116",
+  "background_color": "#11101b",
+  "theme_color": "#11101b",
   "orientation": "any",
   "categories": ["games", "entertainment"],
   "icons": [
