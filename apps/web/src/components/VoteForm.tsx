@@ -80,10 +80,13 @@ const GENERIC_ERROR = 'Das hat nicht geklappt. Bitte versuche es erneut.';
 const CHANGED_ERROR = 'Die Abstimmung hat sich geändert. Bitte lade die Seite neu.';
 const NO_CHOICE_ERROR = 'Bitte wähle eine Option oder enthalte dich bewusst, bevor du abgibst.';
 
-interface Attempt { id: string; answered: boolean }
-/** `accepted`: the last server-CONFIRMED ballot. Kept apart from `held`, because a later status message without `ballot`
- *  (e.g. the lock) replaces `held` but must not erase what the server accepted. `setKey` pins options, choice list and right. */
-interface Session { context: string; setKey: string; seq: number; held: VoteFeedback | null; attempt: Attempt | null; accepted: VotingBallot | null }
+/** `sent`: an independent copy of the ballot handed to `onSubmit` for THIS attempt (bound to the attempt, never to a later draft). */
+interface Attempt { id: string; answered: boolean; sent: VotingBallot }
+/** `accepted`: the last server-CONFIRMED ballot (supplied by the server, or — for an ACK without data — the snapshot of the
+ *  attempt the ACK echoes). `acked`: an applicable success ACK (SUBMITTED) was seen in this context, with or without data.
+ *  Both are kept apart from `held`, because a later status message without `ballot` (e.g. the lock) replaces `held` but must
+ *  neither erase nor deny what the server accepted. `setKey` pins options, choice list and right. */
+interface Session { context: string; setKey: string; seq: number; held: VoteFeedback | null; attempt: Attempt | null; accepted: VotingBallot | null; acked: boolean }
 type Choice = { kind: 'OPTION'; optionId: string } | { kind: 'ABSTAIN' } | null;
 
 /** Order inside ONE attempt: a later or equal stage may replace the held one, an earlier one never. */
@@ -117,7 +120,7 @@ function VoteFormInner({ title, config, selectableOptionIds, allowAbstain, conte
   const voter = { allowedOptionIds: [...selectableOptionIds], allowAbstain };
   const [choice, setChoice] = useState<Choice>(null); // nothing is pre-selected
   const [localError, setLocalError] = useState<string | null>(null);
-  const [session, setSession] = useState<Session>({ context: contextKey, setKey, seq: 0, held: null, attempt: null, accepted: null });
+  const [session, setSession] = useState<Session>({ context: contextKey, setKey, seq: 0, held: null, attempt: null, accepted: null, acked: false });
   const radios = useRef(new Map<string, HTMLInputElement | null>());
   const abstainRef = useRef<HTMLInputElement | null>(null);
   const statusRef = useRef<HTMLParagraphElement | null>(null);
@@ -127,7 +130,7 @@ function VoteFormInner({ title, config, selectableOptionIds, allowAbstain, conte
   // Derived while rendering (no effect, no extra frame): context reset, then absorption of applicable feedback.
   let current = session;
   if (current.context !== contextKey) {
-    current = { context: contextKey, setKey, seq: current.seq, held: null, attempt: null, accepted: null }; // the only reset, incl. the confirmed ballot
+    current = { context: contextKey, setKey, seq: current.seq, held: null, attempt: null, accepted: null, acked: false }; // the only reset, incl. the confirmed ballot and the ACK
     setChoice(null);
     setLocalError(null);
   }
@@ -148,11 +151,19 @@ function VoteFormInner({ title, config, selectableOptionIds, allowAbstain, conte
     } else if (applicable && ordered && attempt && !attempt.answered) {
       current = { ...current, attempt: { ...attempt, answered: true } }; // identical content, but it does answer this attempt
     }
-    // Only applicable feedback may set or change the confirmed ballot, and only one that is valid for THIS voter and
-    // option set (an abstention only where allowed); a status message without `ballot` never deletes it.
+    // Only applicable feedback may set or change the confirmation, and only one that is valid for THIS voter and option set
+    // (an abstention only where allowed); a status message without `ballot` never deletes or denies it.
+    //  - SUBMITTED (applicable) is a success ACK: `acked`, even without optional ballot data.
+    //  - Supplied ballot data (SUBMITTED/LOCKED) that is valid becomes `accepted`.
+    //  - A SUBMITTED WITHOUT data that echoes the current attempt confirms exactly what that attempt sent: its own snapshot
+    //    becomes `accepted`. Without an echo of an attempt (e.g. a restored state) nothing is invented: only `acked`.
+    //    Supplied but INVALID data is no confirmation of the local draft either: `acked` only.
+    if (applicable && ordered && feedback.status === 'SUBMITTED' && !current.acked) current = { ...current, acked: true };
     if (applicable && ordered && feedback.ballot && (feedback.status === 'SUBMITTED' || feedback.status === 'LOCKED')) {
       const valid = validateVotingBallot(config, voter, feedback.ballot);
       if (valid.ok && JSON.stringify(current.accepted) !== JSON.stringify(valid.ballot)) current = { ...current, accepted: valid.ballot };
+    } else if (applicable && ordered && feedback.status === 'SUBMITTED' && !feedback.ballot && attempt && echo === attempt.id && current.accepted === null) {
+      current = { ...current, accepted: { ...attempt.sent } }; // only if the server has confirmed nothing else: data it supplied always wins
     }
   }
   if (current !== session) setSession(current);
@@ -175,7 +186,7 @@ function VoteFormInner({ title, config, selectableOptionIds, allowAbstain, conte
   const shown: Choice = (confirmed || locked) && current.accepted
     ? (current.accepted.kind === 'ABSTAIN' ? { kind: 'ABSTAIN' } : { kind: 'OPTION', optionId: current.accepted.optionId })
     : choice;
-  const confirmedBallot = (confirmed || locked) && current.accepted !== null;
+  const confirmedBallot = (confirmed || locked) && (current.accepted !== null || current.acked);
 
   // Focus management: after a valid submit the status line takes the focus (a disabled control must not hold it); after an
   // empty submit the first choosable radio does.
@@ -201,7 +212,7 @@ function VoteFormInner({ title, config, selectableOptionIds, allowAbstain, conte
     const result = validateVotingBallot(config, voter, built);
     if (!result.ok) { setLocalError(CHANGED_ERROR); return; }
     setLocalError(null);
-    const attempt: Attempt = { id: `${contextKey}#${current.seq + 1}`, answered: false };
+    const attempt: Attempt = { id: `${contextKey}#${current.seq + 1}`, answered: false, sent: { ...result.ballot } }; // own copy: onSubmit's object is not kept
     setSession({ ...current, seq: current.seq + 1, attempt });
     pendingFocus.current = 'status';
     onSubmit(result.ballot, attempt.id);

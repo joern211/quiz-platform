@@ -1,4 +1,4 @@
-import { act, render, screen } from '@testing-library/react';
+import { act, cleanup, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { useState } from 'react';
 import { ThemeProvider, useTheme, ACCENTS } from '@quiz/ui';
@@ -572,6 +572,171 @@ describe('N4 VoteForm: lock keeps the confirmed ballot and the attempt echo (N2-
     await userEvent.click(send());
     h.set({ contextKey: 'r', attemptId: 'r#1', status: 'SUBMITTED', ballot: opt('dd') }, { selectableOptionIds: ['aa', 'bb'] });
     expect(checkedIds()).toEqual(['aa']);
+  });
+});
+
+describe('N4 VoteForm: an ACK WITHOUT ballot data is a confirmation and a later lock cannot deny it (review R1)', () => {
+  const setup = () => {
+    const onSubmit = vi.fn();
+    const base: VoteFormProps = { config, selectableOptionIds: ALL, allowAbstain: true, contextKey: 'r', onSubmit };
+    const view = render(<VoteForm {...base} />);
+    const set = (feedback: VoteFeedback | null, next: Partial<VoteFormProps> = {}) => view.rerender(<VoteForm {...base} {...next} feedback={feedback} />);
+    return { onSubmit, set };
+  };
+  const status = () => screen.getByRole('status');
+  const lockNull = (): VoteFeedback => ({ contextKey: 'r', attemptId: null, status: 'LOCKED' });
+  const DENIAL = 'nicht als abgegebene Stimme bestätigt';
+  const abstainRadio = () => screen.getByRole('radio', { name: /^Enthalten/ }) as HTMLInputElement;
+
+  it('A: SUBMITTED without ballot → LOCKED without ballot keeps the confirmation, for an OPTION and for an ABSTENTION alike', async () => {
+    for (const abstain of [false, true]) {
+      const h = setup();
+      await userEvent.click(abstain ? abstainRadio() : radio('Beta'));
+      await userEvent.click(send());
+      h.set({ contextKey: 'r', attemptId: 'r#1', status: 'SUBMITTED' });
+      expect(status()).toHaveTextContent(abstain ? 'Enthaltung abgegeben.' : 'Stimme abgegeben.');
+      for (const lock of [lockNull(), { contextKey: 'r', attemptId: 'r#1', status: 'LOCKED' } as VoteFeedback, { contextKey: 'r', status: 'LOCKED' } as unknown as VoteFeedback]) {
+        h.set(lock);
+        expect(status()).toHaveTextContent('Die Abstimmung ist geschlossen.');
+        expect(status()).not.toHaveTextContent(DENIAL);
+        expect(checkedIds()).toEqual(abstain ? [''] : ['bb']); // the ballot that was sent, not "nothing"
+        expect(send()).toBeDisabled();
+      }
+      expect(h.onSubmit).toHaveBeenCalledTimes(1);
+      screen.getByRole('status'); cleanup();
+    }
+  });
+  it('A: the confirmation is the SNAPSHOT of the acknowledged attempt, not whatever draft exists later', async () => {
+    const h = setup();
+    await userEvent.click(radio('Alpha'));
+    await userEvent.click(send()); // attempt r#1 sends Alpha
+    h.set({ contextKey: 'r', attemptId: 'r#1', status: 'ERROR', retryable: true, message: 'Netzwerk' });
+    await userEvent.click(radio('Beta')); // the draft moves on, but is NOT sent
+    expect(checkedIds()).toEqual(['bb']);
+    h.set({ contextKey: 'r', attemptId: 'r#1', status: 'SUBMITTED' }); // the server had accepted r#1 after all
+    expect(checkedIds()).toEqual(['aa']); // what attempt 1 really sent
+    h.set(lockNull());
+    expect(checkedIds()).toEqual(['aa']);
+    expect(status()).not.toHaveTextContent(DENIAL);
+    expect(h.onSubmit).toHaveBeenCalledTimes(1);
+  });
+  it('A: the snapshot is an independent copy: changing the object handed to onSubmit changes nothing', async () => {
+    const h = setup();
+    await userEvent.click(radio('Alpha'));
+    await userEvent.click(send());
+    (h.onSubmit.mock.calls[0][0] as { optionId: string }).optionId = 'dd'; // a careless caller
+    h.set({ contextKey: 'r', attemptId: 'r#1', status: 'SUBMITTED' });
+    expect(checkedIds()).toEqual(['aa']);
+  });
+  it('B: SUBMITTED with a DIFFERENT confirmed ballot → LOCKED without data keeps the server\'s ballot, not the draft', async () => {
+    const h = setup();
+    await userEvent.click(radio('Alpha'));
+    await userEvent.click(send());
+    h.set({ contextKey: 'r', attemptId: 'r#1', status: 'SUBMITTED', ballot: opt('dd') });
+    expect(checkedIds()).toEqual(['dd']);
+    h.set(lockNull());
+    expect(checkedIds()).toEqual(['dd']);
+    expect(status()).toHaveTextContent('Die Abstimmung ist geschlossen.');
+    expect(status()).not.toHaveTextContent(DENIAL);
+  });
+  it('B: a later ACK WITHOUT data never overwrites a ballot the server already supplied', async () => {
+    const h = setup();
+    await userEvent.click(radio('Alpha'));
+    await userEvent.click(send());
+    h.set({ contextKey: 'r', attemptId: 'r#1', status: 'SUBMITTED', ballot: opt('dd') });
+    h.set({ contextKey: 'r', attemptId: 'r#1', status: 'SUBMITTED' });
+    h.set(lockNull());
+    expect(checkedIds()).toEqual(['dd']);
+  });
+  it('C: without a success ACK a lock never claims a cast vote — only submit, PENDING, a retryable error, or no submit at all', async () => {
+    const onlySubmit = setup();
+    await userEvent.click(radio('Alpha'));
+    await userEvent.click(send());
+    onlySubmit.set(lockNull());
+    expect(status()).toHaveTextContent(DENIAL);
+    expect(checkedIds()).toEqual(['aa']);
+    cleanup();
+    const pending = setup();
+    await userEvent.click(radio('Alpha'));
+    await userEvent.click(send());
+    pending.set({ contextKey: 'r', attemptId: 'r#1', status: 'PENDING' });
+    pending.set(lockNull());
+    expect(status()).toHaveTextContent(DENIAL);
+    cleanup();
+    const failed = setup();
+    await userEvent.click(radio('Alpha'));
+    await userEvent.click(send());
+    failed.set({ contextKey: 'r', attemptId: 'r#1', status: 'ERROR', retryable: true, message: 'x' });
+    failed.set(lockNull());
+    expect(status()).toHaveTextContent(DENIAL);
+    expect(checkedIds()).toEqual(['aa']);
+    cleanup();
+    const never = setup();
+    await userEvent.click(radio('Alpha'));
+    never.set(lockNull());
+    expect(status()).toHaveTextContent(DENIAL);
+    expect(never.onSubmit).not.toHaveBeenCalled();
+  });
+  it('D: an old, foreign or wrongly echoed SUBMITTED without data creates no confirmation, so the lock stays "not confirmed"', async () => {
+    const h = setup();
+    await userEvent.click(radio('Alpha'));
+    await userEvent.click(send()); // r#1
+    h.set({ contextKey: 'r', attemptId: 'r#1', status: 'ERROR', retryable: true });
+    await userEvent.click(send()); // r#2 is now the open attempt
+    h.set({ contextKey: 'r', attemptId: 'r#1', status: 'SUBMITTED' }); // OLD attempt
+    h.set({ contextKey: 'r', attemptId: 'r#9', status: 'SUBMITTED' }); // never handed out
+    h.set({ contextKey: 'r', attemptId: null, status: 'SUBMITTED' }); // no echo while an attempt is open
+    h.set({ contextKey: 'other-poll', attemptId: 'other-poll#1', status: 'SUBMITTED' }); // foreign context
+    expect(screen.queryByText('Stimme abgegeben.')).not.toBeInTheDocument();
+    h.set(lockNull());
+    expect(status()).toHaveTextContent(DENIAL);
+    expect(h.onSubmit).toHaveBeenCalledTimes(2);
+  });
+  it('D: an old ACK arriving AFTER the lock is ignored as well (the lock stays what it was)', async () => {
+    const h = setup();
+    await userEvent.click(radio('Alpha'));
+    await userEvent.click(send());
+    h.set(lockNull());
+    h.set({ contextKey: 'r', attemptId: 'r#1', status: 'SUBMITTED' }); // too late: LOCKED is final
+    expect(status()).toHaveTextContent(DENIAL);
+  });
+  it('E: a new context (second poll of the same round) clears this confirmation too; the old ACK cannot set it again', async () => {
+    const h = setup();
+    await userEvent.click(radio('Beta'));
+    await userEvent.click(send());
+    h.set({ contextKey: 'r', attemptId: 'r#1', status: 'SUBMITTED' });
+    expect(checkedIds()).toEqual(['bb']);
+    h.set(null, { contextKey: 'r2' });
+    expect(checkedIds()).toEqual([]);
+    expect(screen.queryByRole('status')).not.toBeInTheDocument();
+    h.set({ contextKey: 'r', attemptId: 'r#1', status: 'SUBMITTED' }, { contextKey: 'r2' }); // stale ACK of the old poll
+    expect(screen.queryByRole('status')).not.toBeInTheDocument();
+    h.set({ contextKey: 'r2', attemptId: null, status: 'LOCKED' }, { contextKey: 'r2' });
+    expect(status()).toHaveTextContent(DENIAL); // no vote in poll 2
+    expect(checkedIds()).toEqual([]);
+    h.set(null, { contextKey: 'r' }); // coming back does not resurrect it either
+    expect(checkedIds()).toEqual([]);
+    expect(screen.queryByRole('status')).not.toBeInTheDocument();
+  });
+  it('a restored ACK without data and without any attempt (e.g. after a reload) confirms a vote but invents no selection', async () => {
+    const h = setup();
+    h.set({ contextKey: 'r', attemptId: null, status: 'SUBMITTED' });
+    expect(status()).toHaveTextContent('Stimme abgegeben.');
+    expect(checkedIds()).toEqual([]);
+    h.set(lockNull());
+    expect(status()).toHaveTextContent('Die Abstimmung ist geschlossen.');
+    expect(status()).not.toHaveTextContent(DENIAL);
+    expect(checkedIds()).toEqual([]); // nothing is claimed about WHICH choice
+    expect(abstainRadio().checked).toBe(false);
+  });
+  it('supplied but INVALID ballot data confirms nothing about the local draft (no invented replacement)', async () => {
+    const h = setup();
+    await userEvent.click(radio('Alpha'));
+    await userEvent.click(send());
+    h.set({ contextKey: 'r', attemptId: 'r#1', status: 'SUBMITTED', ballot: { schemaVersion: 1, kind: 'OPTION', optionId: 'zz' } });
+    h.set(lockNull());
+    expect(checkedIds()).toEqual(['aa']); // the unchanged frozen draft, not the invalid data
+    expect(h.onSubmit).toHaveBeenCalledTimes(1);
   });
 });
 
