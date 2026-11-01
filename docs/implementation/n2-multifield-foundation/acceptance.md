@@ -1,6 +1,6 @@
 # N2 — Abnahme (tatsächlich ausgeführte Prüfungen)
 
-Base: `main` @ `d634e3eee3c228934ee3f8b11d01a45db66eebec` (N1 inkl. R1; main-CI-Job `CI` grün, Lauf 41306849919; der dortige `E2E`-Job lief beim Start noch und wird hier nicht als grün behauptet). Branch `feature/n2-multifield-foundation`. **Code-Head der Abschlussläufe: `a9b71c5`** (letzter Produktcode-Commit; `b08de69` und spätere Commits ändern nur Dokumentation). Node v22.23.4, pnpm 9.12.0 (`packageManager`), Lockfile unverändert (`--frozen-lockfile`). Keine neue Abhängigkeit, keine Migration.
+Base: `main` @ `d634e3eee3c228934ee3f8b11d01a45db66eebec` (N1 inkl. R1; main-CI-Job `CI` grün, Lauf 41306849919; der dortige `E2E`-Job lief beim Start noch und wird hier nicht als grün behauptet). Branch `feature/n2-multifield-foundation`. **Code-Head der Abschlussläufe: `b9e8928`** (letzter Produktcode-Commit, R1/R2-Nachbesserung nach unabhängigem Review; vorheriger Code-Head `a9b71c5`; `de2ff6e` und spätere Commits ändern nur Dokumentation). Node v22.23.4, pnpm 9.12.0 (`packageManager`), Lockfile unverändert (`--frozen-lockfile`). Keine neue Abhängigkeit, keine Migration.
 
 ## Lokal ausgeführt (Container, isolierte Test-DBs `/tmp/quiz-server-test.db`, `/tmp/test-e2e.db`)
 
@@ -10,7 +10,7 @@ Base: `main` @ `d634e3eee3c228934ee3f8b11d01a45db66eebec` (N1 inkl. R1; main-CI-
 | `pnpm lint` | 0 Fehler, 109 Warnungen — identisch zur Base, keine aus neuen Dateien |
 | `pnpm build` (Server `tsc` + Web `vite build`) | erfolgreich |
 | `pnpm --filter @quiz/server test` | **78 Dateien, 818 Tests bestanden, 0 übersprungen** (Base 763; +55 = 19 `textCard.test.ts` + 36 `textCardSubmission.test.ts`) |
-| `pnpm --filter @quiz/web test` | **37 Dateien, 267 Tests bestanden** (Base 235; +32 `TextCardForm.test.tsx`) |
+| `pnpm --filter @quiz/web test` | **37 Dateien, 276 Tests bestanden** (Base 235; +41 `TextCardForm.test.tsx`: 32 vorherige + 9 zur R1/R2-Nachbesserung) |
 | `pnpm exec playwright test --project=chromium` | **45 von 45 bestanden** (3,3 min) |
 | `git diff --check origin/main` | sauber |
 | `vitest list` | neue Testdateien werden von den Projekt-Testbefehlen erfasst (sie liefen in den Gesamtläufen) |
@@ -22,9 +22,11 @@ Die ERROR/WARN-Zeilen im Serverlog stammen aus bestehenden Negativtests (`STATE_
 
 - `core/textCard.test.ts` (19): Config (1/12/13 Felder, doppelte/gefährliche IDs, strikte Schlüssel, Config-Identität), Leerwert-Semantik (null/leer/Whitespace/Auslassung/Typ), Struktur (Zusatzschlüssel, Prototypschlüssel, Mehrfachfehler, Umordnung, frisches Objekt), Textregeln (Code-Point-Grenzen, Gesamtgröße, Unicode/Umlaute/Emoji/kombinierte Zeichen, Trennzeichen verlustfrei, Steuer-/Bidi-/Surrogat-Zeichen), UI-Grenze, JSON-Roundtrip, Strip-only-Ladetest.
 - `core/textCardSubmission.test.ts` (36): atomare Abgabe, Scope/Config, Frist/Pause, Rundenlock (inkl. Teilnehmer ohne Record, leere Runde, laufender Timer), abgeleiteter Status, Feldurteil (`cardRef`, Idempotenz, Abweisungen), Roundtrip, 20 korrupte Zustände, SDK-Replay (ohne Uhr/Zufall/Punkte), Legacy/N1-Kompatibilität, drei Bestandsengines, Projektion (eigener Player, Partner im Team, fremder Player, Host, Blind-Host, mitspielender Host, Viewer, Display, vor/nach Reveal), Matching-Adapter, Gruppierung.
-- `TextCardForm.test.tsx` (32): Eingabe/Fehlerzuordnung/Fokus, Enter-/IME-Vertrag, genau ein `onSubmit` je Versuch, die drei N1-R1-Gegenfälle an der echten Karte, Echo alter/aktueller Versuch, `null`/fremdes Feedback, Reihenfolge im Versuch, LOCKED/fatal, Kontextwechsel, Feldumordnung mit stabilen IDs, Theme-/Akzentwechsel, 12 Felder, fünf Regressionen der Eigenprüfung.
+- `TextCardForm.test.tsx` (41): Eingabe/Fehlerzuordnung/Fokus, Enter-/IME-Vertrag, genau ein `onSubmit` je Versuch, die drei N1-R1-Gegenfälle an der echten Karte, Echo alter/aktueller Versuch, `null`/fremdes Feedback, Reihenfolge im Versuch, LOCKED/fatal, Kontextwechsel, Feldumordnung mit stabilen IDs, Theme-/Akzentwechsel, 12 Felder, fünf Regressionen der Eigenprüfung sowie **neun Tests zu den Review-Befunden R1/R2** (Rundenlock: Echo-Zulässigkeit auch bei gehaltenem `LOCKED`, bestätigte Karte bleibt bei Sperre ohne `card`).
 
-Mutationsnachweise (Server 11/11, Karte 6 erkannt + 1 äquivalent bereinigt) stehen in `review.md`.
+Mutationsnachweise (Server 11/11, Karte 6 + 6 zu R1/R2) und der Rot/Grün-Nachweis zu R1/R2 stehen in `review.md`.
+
+**R1/R2 Rot/Grün (Web):** Die zwei Review-Tests, unverändert als eigene Datei am Stand `712781a` ausgeführt: beide rot (`Expected: angenommen / Received: nicht angenommener Entwurf`). Mit dem Fix (`b9e8928`) grün; in der offiziellen Suite schlagen am Stand `712781a` 6 der 9 neuen Tests fehl, mit dem Fix sind alle 41 grün.
 
 ## Browser-Nachweis der Antwortkarte (lokal, kein CI-Gate)
 
@@ -47,6 +49,6 @@ Ergebnis: **48 Kombinationen** (320/390/430/1280 px × Hell/Dunkel × 6 Akzente,
 
 ## CI am gepushten Head
 
-**Head `b08de699006817799684da4fa72388e7949fe6e8` (Code unverändert seit `a9b71c5`): Jobs `CI` und `E2E` erfolgreich** — https://github.com/joern211/quiz-platform/actions/runs/41308937463 (Typecheck, Lint, Build, Server-/Web-Tests, Playwright chromium).
-
-Der Head des letzten Doku-Commits (diese Datei) ändert keinen Produktcode; sein CI-Ergebnis steht in der PR-Beschreibung (hier nicht fortgeschrieben, damit dieser Eintrag keinen weiteren Head erzeugt).
+- **Code-Head `b9e8928`** (R1/R2-Fix) wurde durch den folgenden Doku-Push (`de2ff6e`) per `concurrency` abgelöst; maßgeblich ist der Lauf am direkt folgenden Head mit **identischem Produktcode**: **Head `de2ff6e11cbef3ff0d4a6c2b084dcb80ba4aa987` (Code unverändert seit `b9e8928`): Jobs `CI` und `E2E` erfolgreich** — https://github.com/joern211/quiz-platform/actions/runs/41318729244 (Typecheck, Lint, Build, Server-/Web-Tests, Playwright chromium).
+- Frühere Abnahme (vor der Review-Nachbesserung): Head `712781a`, Lauf 41309784980, grün — gilt **nicht** für den R1/R2-Code.
+- Der Head des letzten Doku-Commits (diese Datei) ändert keinen Produktcode; sein CI-Ergebnis steht in der PR-Beschreibung (hier nicht fortgeschrieben, damit dieser Eintrag keinen weiteren Head erzeugt).
