@@ -1,4 +1,5 @@
 import { NUMERIC_ERROR_CODES } from '@quiz/shared/numeric';
+import { TEXT_CARD_ERROR_CODES } from '@quiz/shared/textcard';
 import { GameStateConflictError } from './state.js';
 
 // Wire codes kept stable for existing clients; internal messages are never returned.
@@ -24,6 +25,8 @@ const PUBLIC_CODES = new Set([
   'COMMAND_OWNERSHIP_LOST', 'REVISION_CONFLICT', 'CONFIG_SNAPSHOT_INVALID', 'COMMAND_STATE_ADVANCED',
   // N1: numeric contract codes carry no values (see shared/numeric.ts); no engine emits them yet.
   ...NUMERIC_ERROR_CODES,
+  // N2: text card codes carry no texts (issues hold configured fieldIds only); no engine emits them yet.
+  ...TEXT_CARD_ERROR_CODES,
 ]);
 
 export function gameErrorCode(error: unknown, gameSlug?: string): string {

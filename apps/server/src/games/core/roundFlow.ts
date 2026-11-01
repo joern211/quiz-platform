@@ -35,6 +35,8 @@ export function advanceRound(currentIndex: number, totalRounds: number): { nextI
 export type MatchMode = 'EXACT' | 'NORMALIZED' | 'SYNONYM' | 'FUZZY' | 'MANUAL_ONLY';
 export type MatchResult = 'MATCH' | 'NO_MATCH' | 'NEEDS_JUDGE';
 function normalized(value: string) { return value.normalize('NFKC').trim().replace(/\s+/g, ' ').toLocaleLowerCase('de-DE'); }
+/** The comparison key of the NORMALIZED/SYNONYM/FUZZY modes (NFKC, trim, folded white space, de-DE lower case). Same function, exported for neutral grouping. */
+export function answerMatchKey(value: string): string { return normalized(value); }
 function distance(left: string, right: string): number {
   let previous = Array.from({ length: right.length + 1 }, (_, i) => i);
   for (let i = 1; i <= left.length; i++) {
