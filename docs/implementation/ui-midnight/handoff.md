@@ -3,22 +3,24 @@
 - **Base:** `main` `975165e` (G5 / joern211/quiz-platform#28 gemergt, vor Beginn geprüft).
 - **Branch:** `claude/laughing-gauss-hupzv6` (von der Umgebung vorgegeben statt `feature/ui-midnight`).
 - **PR:** joern211/quiz-platform#29 (Draft → nach Abnahme reviewbereit). **Nicht gemergt**, Merge-Entscheidung beim Nutzer.
-- **Produktstand / CI:** `669ba59` – CI-Lauf https://github.com/joern211/quiz-platform/actions/runs/41261345998 grün (Typecheck, Lint, Build, Server-Tests, Web-Tests, E2E 41/41 ohne Retry). Spätere Commits sind reine Doku und werden im PR genannt.
+- **Nachbesserung nach Prüfbericht (Head `11c2a56`):** R1–R3 und N1–N7 in `review.md`. Produktstand nach Nachbesserung: `82b89f8`. CI am finalen Head: im PR verlinkt (nach Abschluss des Laufs eingetragen).
+- *Historisch:* erste Abnahme `669ba59`, CI-Lauf 41261345998 grün (E2E 41/41) – gilt nicht mehr als aktueller Nachweis.
 
-## Lokal ausgeführte Pflichtprüfungen (am Produktstand)
+## Lokal ausgeführte Pflichtprüfungen (Nachbesserung, Commit `82b89f8`)
 
 | Befehl | Ergebnis |
 | --- | --- |
 | `pnpm typecheck` | grün |
 | `pnpm lint` | 0 Fehler, 109 Warnungen (identisch mit `main`) |
+| `git diff --check origin/main` | leer |
 | `pnpm build` | grün |
-| `pnpm --filter @quiz/server test` | 74 Dateien, 721 Tests grün |
-| `pnpm --filter @quiz/web test` | 35 Dateien, 210 Tests grün (26 neu) |
-| `pnpm exec playwright test --config=playwright.config.ts --project=chromium` | lokale Vollsuite: 40/41, UI-5 rot (Testfehler B13) → korrigiert, UI-1…5 danach 15/15 bei 3 Wiederholungen ohne Retry; CI-Vollsuite am Produktstand 41/41 |
+| `pnpm --filter @quiz/web test` | 35 Dateien, 210 Tests grün |
+| `pnpm exec playwright test --config=playwright.config.ts --project=chromium` (CI=true) | 45/45 passed, kein Flaky; UI-6 zusätzlich 3× ohne Retry 12/12 |
+| `pnpm --filter @quiz/server test` | lokal zuletzt am Stand `669ba59` (721/721); seitdem keine Server-/Shared-Änderung – aktueller Nachweis über CI am finalen Head |
 
 ## Geprüfte Zustände
 
-Siehe `acceptance.md` (Nachweise) und `review.md` (Eigenprüfung, Befunde B1–B12).
+Siehe `acceptance.md` (Nachweise) und `review.md` (Eigenprüfung B1–B14, Nachprüfung R1–R3, N1–N7).
 
 ## Echte Restgrenzen
 
@@ -27,6 +29,7 @@ Siehe `acceptance.md` (Nachweise) und `review.md` (Eigenprüfung, Befunde B1–B
 - Content-Editor-Bestätigungen bleiben native `confirm()`-Dialoge.
 - QR-Code der Host-Lobby nutzt weiterhin den externen Dienst `api.qrserver.com` (vorbestehend; Datenschutzentscheidung offen).
 - 200 % Browser-Zoom nicht separat gemessen (über 768/390/320-px-Läufe abgedeckt).
+- Info-Popup ist ein nicht-modaler Dialog: Tab verlässt ihn und schließt ihn (kein Focus-Trap, bewusst).
 
 ## Wiederaufnahme
 
