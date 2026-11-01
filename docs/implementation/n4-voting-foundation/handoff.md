@@ -1,11 +1,11 @@
 # N4 — Übergabe
 
-Stand: 01.11.2026.
+Stand: 01.11.2026 (nach Nachbesserung R1).
 
 - **main** beim Start und bei der Übergabe geprüft: `7ce1a785206af69d72c7ff02d14ca188fc68a5f2` (N3 gemergt, N1-Anzeigefix `b72ac34` in der Basis nachgewiesen; N3-main-CI vorher grün). Einziger andere offene PR beim Start: #21 (historischer Plan-Draft, keine Basis).
 - **Branch:** `claude/new-session-t4thly` (von der Sitzung vorgegeben, direkt von `main`). **PR:** [#33](https://github.com/joern211/quiz-platform/pull/33), Draft, gegen `main`.
-- **Commits:** `c229094` (Audio-Test-Flake, eigener Commit) · `04f53b2` (Vertrag + Domain) · `7cb4569` (VoteForm + Harness) · `576b8a8` (Doku) · `292e003` (Eigenprüfung E3 + Test E2) · `458916d` (review.md) · danach nur Doku. **Code-Head: `292e003`.**
-- **CI:** Lauf [41333519393](https://github.com/joern211/quiz-platform/actions/runs/41333519393) am Head `458916d` — `CI` und `E2E` grün. Lokal: Server 958, Web 373, Browser 45 (`acceptance.md`).
+- **Commits:** `c229094` (Audio-Test-Flake, eigener Commit) · `04f53b2` (Vertrag + Domain) · `7cb4569` (VoteForm + Harness) · `576b8a8` (Doku) · `292e003` (Eigenprüfung E3 + Test E2) · `458916d`/`a712bbe` (Doku) · **`fa19b89` (R1: erfolgreicher ACK ohne Ballotdaten bleibt nach dem Schluss bestätigt)** · `c48cc86` und danach nur Doku. **Code-Head: `fa19b89`.**
+- **CI:** Lauf [41336455289](https://github.com/joern211/quiz-platform/actions/runs/41336455289) am Head `c48cc86` (Code `fa19b89`) — `CI` und `E2E` grün, erster Anlauf. Lokal am Code-Head: Server 958, Web 386, Browser 45, Typecheck/Lint/Build ok, Harness Exit 0 (`acceptance.md`). Der Lauf am allerletzten Doku-Head steht im PR.
 - **Offene Jobs/Dateien:** keine. Keine temporären Prozesse (Harness-Server beendet), Arbeitsbaum sauber.
 
 ## Nächste konkrete Aktion

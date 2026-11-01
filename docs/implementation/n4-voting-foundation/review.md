@@ -1,6 +1,6 @@
 # N4 — Getrennte Eigenprüfung
 
-Durchgang nach dem ersten grünen Stand (Code-Head `7cb4569`, Server 958/958, Web 372/372), getrennt vom Umsetzungsablauf: Auftrag, Matrix und tatsächlich exportierte APIs neu gelesen, dann gegnerische Fälle und gezielte Mutationen (kein „100 % bewiesen“: Mutationen sind eine Stichprobe von 31 Änderungen, äquivalente Mutanten sind getrennt ausgewiesen).
+Durchgang nach dem ersten grünen Stand (Code-Head `7cb4569`, Server 958/958, Web 372/372); danach Nachbesserung R1 am Code-Head `fa19b89` (siehe unten), getrennt vom Umsetzungsablauf: Auftrag, Matrix und tatsächlich exportierte APIs neu gelesen, dann gegnerische Fälle und gezielte Mutationen (kein „100 % bewiesen“: Mutationen sind eine Stichprobe von 41 Änderungen — 31 im ersten Durchgang, 10 zur Nachbesserung R1 —, äquivalente Mutanten sind getrennt ausgewiesen).
 
 ## Gegnerische Fälle (Auftrag §12.2) — wo belegt
 
