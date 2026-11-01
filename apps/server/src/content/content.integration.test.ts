@@ -453,13 +453,45 @@ async function uploadContentImage(cookie: string) {
   const response = await supertest(app.app).post('/api/v1/media').set('Cookie', cookie).attach('file', bytes, { filename: 'content.png', contentType: 'image/png' });
   expect(response.status).toBe(201); const asset = await db.mediaAsset.findUniqueOrThrow({ where: { id: response.body.data.id } }); mediaFiles.push(asset.storagePath); return asset;
 }
-async function uploadContentAudio(cookie: string) {
+/**
+ * Deterministic, pairwise DISTINCT audio fixtures. The media path de-duplicates by the hash of the NORMALIZED (MP3)
+ * result, so two fixtures only count as different uploads if their audio signal differs — file name, header or
+ * metadata would not help. Fixture `index` is a pure tone at a frequency 50 Hz apart from every other index
+ * (normalization keeps that difference; see the dedupe regression test below). The earlier random frequency drew
+ * from only 400 values, so the four uploads of one run collided with probability ~1.5 % and the second upload
+ * returned the (correct) dedupe response 200 instead of the expected 201.
+ */
+let audioFixtureCounter = 0;
+const AUDIO_FIXTURE_LIMIT = 300; // 440 Hz + 50 Hz * 300 = 15 440 Hz < Nyquist (24 kHz)
+function audioFixtureWav(index: number): Buffer {
+  if (!Number.isInteger(index) || index < 0 || index >= AUDIO_FIXTURE_LIMIT) throw new Error('AUDIO_FIXTURE_INDEX_OUT_OF_RANGE');
   const size = 48000, bytes = Buffer.alloc(44 + size * 2); bytes.write('RIFF'); bytes.writeUInt32LE(bytes.length - 8, 4); bytes.write('WAVEfmt ', 8); bytes.writeUInt32LE(16, 16); bytes.writeUInt16LE(1, 20); bytes.writeUInt16LE(1, 22); bytes.writeUInt32LE(48000, 24); bytes.writeUInt32LE(96000, 28); bytes.writeUInt16LE(2, 32); bytes.writeUInt16LE(16, 34); bytes.write('data', 36); bytes.writeUInt32LE(size * 2, 40);
-  const frequency = 440 + Math.floor(Math.random() * 400);
+  const frequency = 440 + 50 * index;
   for (let i = 0; i < size; i++) bytes.writeInt16LE(Math.round(Math.sin(2 * Math.PI * frequency * i / 48000) * 100), 44 + i * 2);
-  const response = await supertest(app.app).post('/api/v1/media').set('Cookie', cookie).attach('file', bytes, { filename: 'content.wav', contentType: 'audio/wav' });
+  return bytes;
+}
+async function postAudio(cookie: string, bytes: Buffer) {
+  return supertest(app.app).post('/api/v1/media').set('Cookie', cookie).attach('file', bytes, { filename: 'content.wav', contentType: 'audio/wav' });
+}
+async function uploadContentAudio(cookie: string) {
+  const response = await postAudio(cookie, audioFixtureWav(audioFixtureCounter++));
   expect(response.status).toBe(201); const asset = await db.mediaAsset.findUniqueOrThrow({ where: { id: response.body.data.id } }); mediaFiles.push(asset.storagePath); return asset;
 }
+it('audio fixtures: identical audio is de-duplicated (200), every counter fixture stays distinct after normalization (201)', async () => {
+  const base = 200; // fixture indices reserved for this test; the counter-based helper starts at 0 and never reaches them
+  const first = await postAudio(owner, audioFixtureWav(base));
+  expect(first.status).toBe(201);
+  const again = await postAudio(owner, audioFixtureWav(base));
+  expect(again.status).toBe(200); expect(again.body.data).toMatchObject({ id: first.body.data.id, deduplicated: true });
+  const assets = [await db.mediaAsset.findUniqueOrThrow({ where: { id: first.body.data.id } })]; mediaFiles.push(assets[0].storagePath);
+  for (let i = 1; i < 6; i++) {
+    const response = await postAudio(owner, audioFixtureWav(base + i));
+    expect(response.status).toBe(201);
+    const asset = await db.mediaAsset.findUniqueOrThrow({ where: { id: response.body.data.id } }); mediaFiles.push(asset.storagePath); assets.push(asset);
+  }
+  expect(new Set(assets.map(a => a.sha256)).size).toBe(assets.length);
+  expect(new Set(assets.map(a => a.id)).size).toBe(assets.length);
+});
 const ownRights = { source: 'Eigenes Material', sourceUrl: '', author: 'Test', license: 'Eigene Rechte', ownMaterial: true, recognizablePerson: false, consent: false };
 it('authorizes private media through normalized references, requires rights/READY and protects historical asset rows', async () => {
   const asset = await uploadContentImage(owner), p = await pool('wissensduell', 'SHARED', [otherId]);
