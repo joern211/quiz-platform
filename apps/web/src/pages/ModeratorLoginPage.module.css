@@ -1,6 +1,6 @@
 /* Formularseite – Midnight: zentrierte Karte auf ruhiger Bühne */
 .page {
-  display: flex; align-items: flex-start; justify-content: center;
+  display: flex; flex-direction: column; align-items: center; justify-content: flex-start;
   min-height: calc(100dvh - 140px);
   padding: clamp(24px, 8vh, 72px) var(--space-4) var(--space-8);
   background: radial-gradient(ellipse at 50% 0, var(--stage-glow), transparent 55%);
@@ -14,4 +14,4 @@
 .hint { margin-top: var(--space-5); text-align: center; font-size: 0.9rem; color: var(--muted); }
 .hint a { color: var(--accent); text-decoration: underline; text-underline-offset: 3px; }
 .notice { padding: var(--space-3) var(--space-4); border-radius: var(--radius-md); background: var(--surface-2); border: 1px solid var(--border); color: var(--fg); font-size: 0.92rem; }
-.hero { text-align: center; margin-bottom: var(--space-4); }
+.hero { text-align: center; margin-bottom: var(--space-4); max-width: 440px; }

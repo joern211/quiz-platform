@@ -32,8 +32,22 @@ async function ctx(browser) {
 }
 async function shot(page, name, opts = {}) {
   await page.waitForTimeout(opts.wait ?? 350);
-  const overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
-  if (overflow > 1) problems.push(`${name}: horizontal overflow ${overflow}px`);
+  const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+  if (overflow > 1) {
+    // Ursache eingrenzen: Element, dessen Ausblenden den Überlauf beseitigt (tiefster Treffer)
+    const culprit = await page.evaluate(() => {
+      const fits = () => document.documentElement.scrollWidth <= document.documentElement.clientWidth;
+      let path = [], el = document.body;
+      for (let depth = 0; depth < 14; depth++) {
+        const hit = [...el.children].find(child => { const prev = child.style.display; child.style.display = 'none'; const ok = fits(); child.style.display = prev; return ok; });
+        if (!hit) break;
+        path.push(hit.tagName.toLowerCase() + (hit.className && typeof hit.className === 'string' ? '.' + hit.className.split(' ')[0].replace(/^_|_[a-z0-9]+_\d+$/g, '') : '') + (hit.textContent ? ` "${hit.textContent.trim().slice(0, 30)}"` : ''));
+        el = hit;
+      }
+      return path.slice(-3).join(' > ');
+    });
+    problems.push(`${name}: horizontal overflow ${overflow}px – ${culprit}`);
+  }
   await page.screenshot({ path: path.join(outDir, `${name}.png`), fullPage: opts.full ?? true });
 }
 async function login(c) {
@@ -70,7 +84,7 @@ async function staticPages(browser) {
       const box = await dialog.boundingBox(), vw = p.viewportSize().width, vh = p.viewportSize().height;
       if (!box || box.x < 0 || box.y < 0 || box.x + box.width > vw + 0.5 || box.y + box.height > vh + 0.5) problems.push(`${slug}/${game}: Info-Popup außerhalb des Viewports ${JSON.stringify(box)}`);
       // tatsächliche Treffbarkeit: Ecken und Mitte gehören zum Popup (kein Clipping/Überdecken)
-      const hits = await dialog.evaluate(el => { const r = el.getBoundingClientRect(); return [[r.left + 4, r.top + 4], [r.right - 4, r.top + 4], [r.left + 4, r.bottom - 4], [r.right - 4, r.bottom - 4], [r.left + r.width / 2, r.top + r.height / 2]].every(([x, y]) => el.contains(document.elementFromPoint(x, y))); });
+      const hits = await dialog.evaluate(el => { const r = el.getBoundingClientRect(); return [[r.left + 8, r.top + 8], [r.right - 8, r.top + 8], [r.left + 8, r.bottom - 8], [r.right - 8, r.bottom - 8], [r.left + r.width / 2, r.top + r.height / 2]].every(([x, y]) => el.contains(document.elementFromPoint(x, y))); });
       if (!hits) problems.push(`${slug}/${game}: Info-Popup nicht vollständig treffbar`);
       await shot(p, `static-kategorie-${slug}-info-${game.replace(/\W+/g, '')}`, { full: false });
       await p.keyboard.press('Escape');

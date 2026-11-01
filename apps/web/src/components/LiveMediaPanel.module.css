@@ -27,7 +27,8 @@
   min-height: 44px; max-width: 100%; padding: 6px 10px; border: 1px solid var(--border-strong); border-radius: 12px;
   color: var(--fg); background: var(--surface); font: inherit; font-size: 0.95rem;
 }
-.panel label { display: inline-flex; gap: var(--space-2); align-items: center; min-height: 44px; font-size: 0.9rem; flex-wrap: wrap; }
+.panel label { display: inline-flex; gap: var(--space-2); align-items: center; min-height: 44px; font-size: 0.9rem; flex-wrap: wrap; max-width: 100%; min-width: 0; }
+.panel label > input:not([type=checkbox]), .panel label > select { flex: 1 1 12rem; min-width: 0; }
 .panel input[type=checkbox] { width: 20px; height: 20px; }
 .panel fieldset { border: 1px solid var(--border); border-radius: var(--radius-md); padding: var(--space-3) var(--space-4) var(--space-4); margin: 0; min-width: 0; }
 .panel legend { padding: 0 var(--space-2); font-weight: 700; }

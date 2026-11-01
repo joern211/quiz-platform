@@ -123,7 +123,7 @@ test('UI-3: Navigation bleibt mobil oben; Menü und Darstellungsdialog sind per 
     await page.keyboard.press('Escape');
     await expect(dialog).toHaveCount(0);
     await expect(page.getByRole('button', { name: 'Menü öffnen' })).toBeFocused();
-    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1)).toBe(true);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth + 1)).toBe(true);
   } finally { await context.close(); }
 });
 
@@ -210,7 +210,7 @@ for (const [width, height, theme] of [[320, 640, 'dark'], [390, 844, 'light'], [
             return points.filter(([x, y]) => !el.contains(document.elementFromPoint(x, y))).map(([x, y]) => `${Math.round(x)},${Math.round(y)}`);
           });
           expect(allHit, 'Punkte, an denen das Popup verdeckt/abgeschnitten ist').toEqual([]);
-          expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1)).toBe(true);
+          expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth + 1)).toBe(true);
           // Schließen per echtem Mausklick an der Position des Buttons, Fokus zurück an den Trigger
           const close = dialog.getByRole('button', { name: 'Schließen' }); const cb = (await close.boundingBox())!;
           expect(cb.width).toBeGreaterThanOrEqual(44);

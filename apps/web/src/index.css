@@ -144,6 +144,8 @@ input[type="range"] { accent-color: var(--accent); }
 
 label:not([class]) { color: var(--fg); }
 
+/* Fieldsets haben standardmäßig min-width: min-content und sprengen sonst schmale Layouts */
+fieldset { min-width: 0; }
 fieldset:not([class]) {
   border: 1px solid var(--border);
   border-radius: var(--radius-md);

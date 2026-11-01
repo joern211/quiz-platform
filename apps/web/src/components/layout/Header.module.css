@@ -162,6 +162,13 @@
   .actions { margin-left: auto; }
 }
 
+/* Mit aktivem Raum braucht „Zurück zum Raum“ Platz: Navigation früher ins obere Menü */
+@media (max-width: 1279px) {
+  .withRoom .nav, .withRoom .joinLink { display: none; }
+  .withRoom .menuToggle { display: inline-grid; }
+  .withRoom .actions { margin-left: auto; }
+}
+
 @media (max-width: 640px) {
   .container { padding-left: max(var(--space-4), env(safe-area-inset-left)); padding-right: max(var(--space-4), env(safe-area-inset-right)); min-height: 60px; gap: var(--space-2); }
   .backLink { display: none; }

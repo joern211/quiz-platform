@@ -12,7 +12,7 @@ function countEmits(page: Page) {
   }));
   return counts;
 }
-const noHorizontalScroll = (page: Page) => page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1);
+const noHorizontalScroll = (page: Page) => page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth + 1);
 async function inViewport(page: Page, locator: ReturnType<Page['getByRole']>) {
   await locator.scrollIntoViewIfNeeded();
   const box = (await locator.boundingBox())!; const width = page.viewportSize()!.width;

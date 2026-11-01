@@ -96,7 +96,9 @@
 }
 
 .clueBtn {
-  flex: 1;
+  flex: 1 1 0;
+  min-width: 0;
+  min-height: var(--tap);
   padding: var(--space-2);
   background: var(--surface-2);
   border: 2px solid transparent;

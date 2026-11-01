@@ -113,7 +113,7 @@ export function Header() {
 
   return (
     <header className={styles.header}>
-      <div className={styles.container}>
+      <div className={`${styles.container} ${activeRoomCode ? styles.withRoom : ''}`}>
         <Link to="/" className={styles.logo} aria-label="Online Quiz Plattform – zur Startseite">
           <Logo />
         </Link>
