@@ -11,7 +11,7 @@ Base: `main` @ `d634e3e`. Stufen wie G5/N1: **R** in einer echten Engine verwend
 | Matching-Adapter | `apps/server/src/games/core/textCardMatching.ts` | nur Tests | `textCardSubmission.test.ts` („matching adapter“) | Ergebnis `{status, mode, referenceRevision}` | Referenz/Synonyme bleiben serverseitig, nie im Ergebnis | H | Referenzpool/Content, Revisions-Pinning, Wahl des Modus je Kategorie |
 | Wire-Codes `TEXT_CARD_*` | `core/errors.ts` (`PUBLIC_CODES`) | `gameErrorCode` | `textCardSubmission.test.ts` (Mapping) | – | Codes ohne Texte | H | `messageKey`-Abbildung in `appError.ts` am ersten Verbraucher prüfen |
 | Normalisierungsschlüssel `answerMatchKey` | `core/roundFlow.ts` (nur `export`) | `findSharedAnswers` | `roundFlow.test.ts` (unverändert grün), Gruppentests | – | – | H | – |
-| Antwortkarte | `apps/web/src/components/TextCardForm.{tsx,module.css}` | nur Tests, Harness | `TextCardForm.test.tsx` (32), lokaler Browserlauf (`acceptance.md`) | – | erhält nur öffentliche, streng geprüfte Config | H | Einbindung in Engine-UI; Intentclient, Command-ID-Erhalt bei `RATE_LIMITED`; `attemptId` im Feedback zurückgeben |
+| Antwortkarte | `apps/web/src/components/TextCardForm.{tsx,module.css}` | nur Tests, Harness | `TextCardForm.test.tsx` (41), lokaler Browserlauf (`acceptance.md`) | – | erhält nur öffentliche, streng geprüfte Config | H | Einbindung in Engine-UI; Intentclient, Command-ID-Erhalt bei `RATE_LIMITED`; `attemptId` im Feedback zurückgeben |
 
 ## 2. Beziehung zu bestehenden Bausteinen
 
