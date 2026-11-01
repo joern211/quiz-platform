@@ -11,6 +11,7 @@
     "./textcard": "./src/textcard.ts",
     "./ordering": "./src/ordering.ts",
     "./voting": "./src/voting.ts",
+    "./secretInfo": "./src/secretInfo.ts",
     "./schemas": "./src/schemas/index.ts",
     "./types": "./src/types/index.ts"
   },
