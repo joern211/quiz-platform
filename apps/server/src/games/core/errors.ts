@@ -1,3 +1,4 @@
+import { NUMERIC_ERROR_CODES } from '@quiz/shared/numeric';
 import { GameStateConflictError } from './state.js';
 
 // Wire codes kept stable for existing clients; internal messages are never returned.
@@ -21,6 +22,8 @@ const PUBLIC_CODES = new Set([
   // falscher State, kein crash).
   'UNSUPPORTED_ENGINE_VERSION',
   'COMMAND_OWNERSHIP_LOST', 'REVISION_CONFLICT', 'CONFIG_SNAPSHOT_INVALID', 'COMMAND_STATE_ADVANCED',
+  // N1: numeric contract codes carry no values (see shared/numeric.ts); no engine emits them yet.
+  ...NUMERIC_ERROR_CODES,
 ]);
 
 export function gameErrorCode(error: unknown, gameSlug?: string): string {
