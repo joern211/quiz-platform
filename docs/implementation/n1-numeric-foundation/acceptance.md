@@ -1,6 +1,6 @@
 # N1 — Abnahme (tatsächlich ausgeführte Prüfungen)
 
-Base: `main` @ `2082265`. Branch `claude/new-session-3mw74c`. Produktcode-Stand der lokalen Abschlussläufe: `422854f` (alle späteren Commits ändern nur Dokumentation). Node v22.23.4, pnpm 9.12.0 (`packageManager`), Lockfile unverändert (`--frozen-lockfile`).
+Base: `main` @ `2082265`. Branch `claude/new-session-3mw74c`. **Code-Head der Abschlussläufe: `654315ddc903598a8faa0e708d1a8f6b78487678`** (R1-Nachbesserung). Frühere Stände: `f71ef2c` (Erstabnahme, CI grün, Run 41301733968), `422854f` (Strip-only-Fix). Spätere Commits nach `654315d` ändern nur Dokumentation. Node v22.23.4, pnpm 9.12.0 (`packageManager`), Lockfile unverändert (`--frozen-lockfile`).
 
 ## Lokal ausgeführt (Container, isolierte Test-DBs `/tmp/quiz-server-test.db`, `/tmp/test-e2e.db`)
 
@@ -9,13 +9,15 @@ Base: `main` @ `2082265`. Branch `claude/new-session-3mw74c`. Produktcode-Stand 
 | `pnpm typecheck` | 0 Fehler |
 | `pnpm lint` | 0 Fehler, 109 Warnungen — identisch zur Base, keine aus neuen Dateien |
 | `pnpm build` (Server `tsc` + Web `vite build`) | erfolgreich |
-| `pnpm --filter @quiz/server test` | **76 Dateien, 763 Tests bestanden, 0 übersprungen** (Base laut Auftrag: 721; +42 = 29 `numeric.test.ts` + 13 `numericSubmission.test.ts`) |
-| `pnpm --filter @quiz/web test` | **36 Dateien, 225 Tests bestanden** (Base 210; +15 `NumberField.test.tsx`) |
+| `pnpm --filter @quiz/server test` | **76 Dateien, 763 Tests bestanden, 0 übersprungen** (Base laut Auftrag: 721; +42 = 29 `numeric.test.ts` + 13 `numericSubmission.test.ts`; R1 betrifft nur das Web-Feld, Serverstand unverändert) |
+| `pnpm --filter @quiz/web test` | **36 Dateien, 235 Tests bestanden** (Base 210; +25 `NumberField.test.tsx`: 15 ursprüngliche + 3 R1-Gegenfälle des Reviews + 7 zusätzliche R1-Regressionen) |
 | `pnpm exec playwright test --project=chromium` | **45 von 45 bestanden** (3,2 min) |
 | `git diff --check origin/main` | sauber |
 | `vitest list` | neue Testdateien werden von den Projekt-Testbefehlen erfasst |
 
-Hinweis zu einem Zwischenlauf: Ein früherer Serverlauf am Stand davor (`fe9341c`) hatte `rate-limiter.integration` mit „Server startup timed out“ (759 bestanden, 3 übersprungen). Ursache war ein echter Fehler im neuen Code (siehe `review.md` Befund 3), kein vorbestehender Flake; nach der Korrektur ist die Datei grün und es gibt keine Skips. Die ERROR/WARN-Zeilen im Serverlog stammen aus bestehenden Negativtests (STATE_INVARIANT_FAILED, Asset-Repair).
+**R1-Rot/Grün-Nachweis (Web):** Die drei Gegenfälle des Reviews sind am Stand `f71ef2c` rot (3 fehlgeschlagen, 15 grün); mit dem Fix `654315d` sind alle 25 Tests grün. Gegen den alten Komponentencode (Datei aus `f71ef2c` eingesetzt) schlagen 14 von 25 Tests fehl (8 R1-bezogen, 6 wegen der erweiterten Signatur `onSubmit(value, attemptId)`), danach wiederhergestellt.
+
+Hinweis zu einem Zwischenlauf (Erstabnahme): Ein früherer Serverlauf am Stand davor (`fe9341c`) hatte `rate-limiter.integration` mit „Server startup timed out“ (759 bestanden, 3 übersprungen). Ursache war ein echter Fehler im neuen Code (siehe `review.md` Befund 3), kein vorbestehender Flake; nach der Korrektur ist die Datei grün und es gibt keine Skips. Die ERROR/WARN-Zeilen im Serverlog stammen aus bestehenden Negativtests (STATE_INVARIANT_FAILED, Asset-Repair).
 
 ## Browser-Nachweis des Zahlenfelds (lokal, kein CI-Gate)
 
@@ -33,6 +35,8 @@ Eine **nicht eingecheckte** Fixture (separate Vite-Instanz, nie als Route ausgel
 - Der Browserlauf ist lokal und nicht Teil der CI; es gibt keinen echten iPhone-/Safari-Nachweis (Chromium-Emulation ersetzt ihn nicht).
 - Zwei-Engines-Kriterium Master §13.2: **nicht erfüllt**.
 
-## CI am gepushten PR-Head
+## CI am gepushten Head
 
-Wird nach dem letzten Push am PR-Head geprüft; Ergebnis und Link stehen in der PR-Beschreibung und in der Abschlussmeldung (hier nicht fortgeschrieben, damit dieser Eintrag nicht einen weiteren Doku-Commit und damit einen neuen Head erzeugt).
+**Code-Head `654315ddc903598a8faa0e708d1a8f6b78487678`: Jobs `CI` und `E2E` erfolgreich** — https://github.com/joern211/quiz-platform/actions/runs/41303819026 (Typecheck, Lint, Build, Server-/Web-Tests, Playwright chromium; Checkout als synthetischer Merge in `main` @ `2082265`, laut GitHub konfliktfrei). Der Browser-Layoutlauf wurde für R1 **nicht** wiederholt (die Korrektur betrifft Zustandslogik, nicht Layout/CSS); der Nachweis dazu sind die Komponenteninteraktionstests.
+
+Der Head des letzten Doku-Commits (diese Datei) ändert keinen Produktcode; sein CI-Ergebnis steht in der PR-Beschreibung (hier nicht fortgeschrieben, damit dieser Eintrag keinen weiteren Head erzeugt).
