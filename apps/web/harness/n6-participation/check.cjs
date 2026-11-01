@@ -79,6 +79,17 @@ const expect = (cond, message, detail) => { if (!cond) failures.push(detail === 
   expect((await R()).join('|') === 'Status Ausgeschieden|Leben 0', 'switch: a late v4 snapshot must not revive Aktiv / 2', await R());
   const lateLog = await logFrom(afterNewer);
   expect(!lateLog.some(t => /Aktiv/.test(t.replace('Wechselnder Kontext', ''))), 'switch: "Aktiv" was present in at least one commit after the late old snapshot', lateLog.length);
+  // withdrawal with the minimum NOT raised: the data are gone at once, the version knowledge (v6) of this context stays
+  await act('withdraw');
+  expect(/nicht verfügbar/.test(await T()) && !/Aktiv|Ausgeschieden|[0-9]/.test((await T()).replace('Wechselnder Kontext', '')), 'switch: a withdrawn projection must show nothing', await T());
+  const afterWithdraw = await mark();
+  await act('late'); // a late OLD package (v4) after the withdrawal, expected minimum still 1
+  expect(/nicht verfügbar/.test(await T()) && !/Aktiv|Ausgeschieden|[0-9]/.test((await T()).replace('Wechselnder Kontext', '')), 'switch: a late v4 after a withdrawal must stay neutral (no revived Aktiv / 2)', await T());
+  const wLog = await logFrom(afterWithdraw);
+  expect(!wLog.some(t => /Aktiv|Ausgeschieden/.test(t.replace('Wechselnder Kontext', ''))), 'switch: old values were present in a commit after the withdrawal', wLog.length);
+  await act('newer'); // the genuine v6 again: shown normally
+  expect((await R()).join('|') === 'Status Ausgeschieden|Leben 0', 'switch: a projection at the known version is shown again after the withdrawal', await R());
+  await act('late'); // the old v4 package is the one in hand again (the newer v6 view stays shown meanwhile)
   await act('raise'); // the caller now knows snapshot 6 independently: v4 is stale by the EXPECTED stand, not only by the card's memory
   expect(/nicht verfügbar/.test(await T()) && !/Aktiv|Ausgeschieden|[0-9]/.test((await T()).replace('Wechselnder Kontext', '')), 'switch: v4 below the expected minimum 6 must show nothing', await T());
   await act('newer');

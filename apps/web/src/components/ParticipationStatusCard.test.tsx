@@ -1,4 +1,4 @@
-import { Profiler, useState } from 'react';
+import { Profiler, StrictMode, useState } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { act, cleanup, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
@@ -231,15 +231,85 @@ describe('N6 ParticipationStatusCard: snapshot order — a late old snapshot nev
 });
 
 describe('N6 ParticipationStatusCard: withdrawal, regain, role change', () => {
-  it('shows nothing of a withdrawn projection and starts fresh with the NEW values when one is received again — an old value is never revived', () => {
+  it('discards everything on withdrawal but KEEPS the version knowledge: a late older package after the withdrawal neither revives "Aktiv" nor old lives; a real newer projection is shown again', () => {
     const { set } = mount({ projection: projection(view('p1', 'ELIMINATED', 777), [], 9) });
     expect(screen.getByText('Ausgeschieden')).toBeInTheDocument();
     set({ projection: null });
     expect(text()).not.toMatch(/Ausgeschieden|777/);
-    set({ projection: projection(view('p1', 'ACTIVE', 555), [], 5) }); // an older snapshot number after the withdrawal: it is shown as it is, nothing old is mixed in
+    set({ projection: projection(view('p1', 'ACTIVE', 555), [], 5) }); // older than the v9 already known in THIS context
+    expect(screen.getByText('Der Status ist zurzeit nicht verfügbar.')).toBeInTheDocument();
+    expect(text()).not.toMatch(/Aktiv|555|777|Ausgeschieden/);
+    set({ projection: projection(view('p1', 'ACTIVE', 555), [], 10) }); // a real newer admissible projection works normally again
     expect(screen.getByText('Aktiv')).toBeInTheDocument();
     expect(screen.getByText('555')).toBeInTheDocument();
     expect(text()).not.toMatch(/777|Ausgeschieden/);
+  });
+  it('treats undefined like null: private data are gone at once and the version mark survives', () => {
+    const { set } = mount({ projection: projection(view('p1', 'ELIMINATED', 777), [], 9) });
+    set({ projection: undefined });
+    expect(text()).not.toMatch(/Ausgeschieden|777/);
+    expect(screen.getByText('Der Status ist zurzeit nicht verfügbar.')).toBeInTheDocument();
+    set({ projection: projection(view('p1', 'ACTIVE', 3), [], 5) });
+    expect(text()).not.toMatch(/Aktiv|3/);
+    set({ projection: projection(view('p1', 'ACTIVE', 3), [], 9) }); // the same snapshot number is not older
+    expect(screen.getByText('Aktiv')).toBeInTheDocument();
+  });
+  it('is not poisoned by invalid, foreign or below-minimum projections: their (even huge or tiny) version numbers move nothing', () => {
+    const { set } = mount({ projection: projection(view('p1', 'ELIMINATED', 0), [], 9) });
+    const base = projection(view('p1', 'ACTIVE', 3), [], 1000);
+    set({ projection: { ...base, maxLives: 3 } as never }); // malformed (extra field) with a huge version
+    expect(screen.getByText('Der Status ist zurzeit nicht verfügbar.')).toBeInTheDocument();
+    set({ projection: projection(view('p1', 'ACTIVE', 3), [], 5000, { ...SCOPE, runIndex: 3 }) }); // another run, huge version
+    expect(screen.getByText('Der Status ist zurzeit nicht verfügbar.')).toBeInTheDocument();
+    set({ projection: projection(view('p1', 'ACTIVE', 3), [], 5000, { ...SCOPE, trackId: 'track-2' }) });
+    set({ projection: { ...projection(view('p1', 'ACTIVE', 3), [], 5), contract: 'PARTICIPATION_STATUS_V2' } as never });
+    set({ projection: projection(view('p1', 'ACTIVE', 3), [], 2) }); // valid scope but BELOW the caller's minimum 3: ignored, also does not lower the mark
+    expect(screen.getByText('Der Status ist zurzeit nicht verfügbar.')).toBeInTheDocument();
+    set({ projection: projection(view('p1', 'ACTIVE', 3), [], 6) }); // still older than the genuine v9: refused
+    expect(text()).not.toMatch(/Aktiv|\b3\b/);
+    set({ projection: projection(view('p1', 'ELIMINATED', 0), [], 10) }); // genuine newer: accepted although a poisoned 1000 / 5000 had been seen
+    expect(screen.getByText('Ausgeschieden')).toBeInTheDocument();
+  });
+  it('counts a valid newer projection WITHOUT a record for the actor as an observation: the old private value does not come back from an older package', () => {
+    const { set } = mount({ projection: projection(view('p1', 'ACTIVE', 777), [], 8) });
+    expect(screen.getByText('777')).toBeInTheDocument();
+    set({ projection: projection(null, [view('p2', 'ACTIVE', 'HIDDEN')], 10) }); // valid, matching, but no entry for p1
+    expect(text()).not.toMatch(/777/);
+    expect(screen.getByText('Der Status ist zurzeit nicht verfügbar.')).toBeInTheDocument();
+    set({ projection: projection(view('p1', 'ACTIVE', 555), [], 9) });
+    expect(text()).not.toMatch(/555|Deine eigene Angabe/);
+    set({ projection: projection(view('p1', 'ACTIVE', 555), [], 11) }); // a real newer, admissible release is shown again
+    expect(screen.getByText('555')).toBeInTheDocument();
+    expect(screen.getByText('Deine eigene Angabe.')).toBeInTheDocument();
+  });
+  it('keeps refusing the same old package over repeated deliveries and parent re-renders with fresh wrapper objects — in no committed DOM state', () => {
+    const commits: string[] = [];
+    const App = ({ p, tick }: { p: ParticipationProjection | null; tick: number }) => (
+      <StrictMode><Profiler id="card" onRender={() => { commits.push(document.body.textContent ?? ''); }}>
+        <ParticipationStatusCard expected={{ ...EXPECTED }} projection={p} label={`Spielstatus ${tick}`} />
+      </Profiler></StrictMode>
+    );
+    const { rerender } = render(<App p={projection(view('p1', 'ELIMINATED', 777), [], 9)} tick={0} />);
+    expect(screen.getByText('Ausgeschieden')).toBeInTheDocument();
+    rerender(<App p={null} tick={1} />);
+    const mark = commits.length;
+    for (let i = 2; i < 6; i++) {
+      rerender(<App p={JSON.parse(JSON.stringify(projection(view('p1', 'ACTIVE', 555), [], 5))) as ParticipationProjection} tick={i} />);
+      expect(text()).not.toMatch(/Aktiv|555/);
+      rerender(<App p={null} tick={i} />);
+    }
+    expect(commits.slice(mark).some(c => /Aktiv|555|777|Ausgeschieden/.test(c))).toBe(false); // not in ANY commit after the withdrawal
+    rerender(<App p={projection(view('p1', 'ELIMINATED', 777), [], 9)} tick={9} />); // an equal-version re-delivery of the legitimately known snapshot is fine
+    expect(screen.getByText('Ausgeschieden')).toBeInTheDocument();
+  });
+  it('separates a real context change from a withdrawal: another actor / run starts with an empty mark and is not judged by the old context\'s version', () => {
+    const { set } = mount({ projection: projection(view('p1', 'ELIMINATED', 0), [view('p2', 'ACTIVE', 'HIDDEN')], 9) });
+    expect(screen.getByText('Ausgeschieden')).toBeInTheDocument();
+    set({ expected: { ...EXPECTED, actorId: 'p2' }, projection: projection(null, [view('p2', 'ACTIVE', 'HIDDEN')], 4) }); // v4 < v9 of p1's context: p2 is another context
+    expect(screen.getByText('Aktiv')).toBeInTheDocument();
+    expect(text()).not.toMatch(/Ausgeschieden/);
+    set({ expected: { ...EXPECTED, runIndex: 3 }, projection: projection(view('p1', 'ACTIVE', 3), [], 3, { ...SCOPE, runIndex: 3 }) });
+    expect(screen.getByText('Aktiv')).toBeInTheDocument(); // another run: fresh, the old run's v9 does not apply
   });
   it('shows no private value after a switch to a viewer-like projection and again after regaining the private one', () => {
     const { set } = mount({ projection: projection(view('p1', 'ACTIVE', 777), [view('p1', 'ACTIVE', 'HIDDEN')], 9) });
