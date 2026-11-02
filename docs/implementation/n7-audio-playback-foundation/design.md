@@ -1,7 +1,7 @@
 # N7 — Servergesteuerte, synchronisierte Audio-Wiedergabe, technische Grundlage: Design
 
 Base: `main` @ `1ac064f4933df90067bccd8dfb2c20115501c44e` (N1–N6 gemergt; PR #36 mit dem Restart-/ACK-Fix gemergt; main-CI-Lauf 41411675476 grün). Arbeitsbranch `claude/n7-audio-playback-foundation` (neu von diesem main, kein Merge-Commit, kein alter Branch).
-Status: **Entwurf vor der Implementierung; wird mit dem Stand der Umsetzung fortgeschrieben (siehe `acceptance.md`).**
+Status: **N7-Grundlagenpaket umgesetzt und reviewbereit; kein produktiver Verbraucher, vollständiges Core-DoD offen.** Der Entwurf wurde vor der Implementierung geschrieben; Abweichungen/Verfeinerungen stehen in §10 und in `review.md`. Weitere Dokumente: `matrix.md`, `review.md`, `acceptance.md`, `handoff.md`.
 
 ## 1. Scope und ausdrückliche Grenze
 
@@ -105,3 +105,10 @@ Toleranzen (begründet, am Browser gemessen; siehe `acceptance.md`): Driftkorrek
 ## 9. Tests (Auszug; vollständige Matrix in `matrix.md`)
 
 Server rein (Zeitgrenzen, Pause vor Start, Fortsetzen mit Offset, Terminalität, Duplikate/Versionen, Einheiten, JSON-Roundtrip), Freigabe/Projektion (alle Rollen, NONE ohne Resolver, Marker), Web-Intake (PLAY→Entzug→altes PLAY, PLAY→null→altes PLAY, fremder hoher Kontext, Mindeststand), Controller mit kontrollierbarem Audio-Fake (Rennen aller Art), Komponente (StrictMode/Unmount/Rerender/Theme), echter Chromium mit zwei Kontexten und deterministischen Tönen (normalisiert durch die vorhandene Pipeline). Offen für die spätere Engine: Befehle/Auth, Freigabeprojektion je Phase, Uhr-/Transportanbindung (Round-Trip), Persistenz/Receipts, fachliche Fehlerreaktion.
+
+## 10. Verfeinerungen nach dem Entwurf (aus der Eigenprüfung, siehe review.md §7)
+
+* **Terminaler Plan ohne Quelle (R1).** Ein STOPPED/ENDED-Plan wird als `release: PLAY` mit Plan und Dauer, aber **ohne** `source` projiziert (das Schema erzwingt dies in beide Richtungen). Es wird keine URL aufgelöst und kein Clip geladen; der Controller hält dafür kein Element. Das präzisiert §6: die lazy Auflösung gilt nur, wenn noch etwas abzuspielen ist.
+* **Autoplay-Sperre pro Plan (R2).** Ein neuer Plan ist eine neue Entscheidung; eine frühere Ablehnung wird nicht festgeschrieben (`blocked` wird beim Planwechsel gelöscht, `play()` erneut versucht).
+* **Entscheidung Intake bei gleichem Stand.** Bei identischem (Snapshot-, Plan-)Versionspaar wird eine Wiederzustellung mit gleicher oder engerer Freigabe angenommen (erneuerte URL), eine **weitere** Freigabe nicht (ein Entzug an genau diesem Snapshot wird nicht durch dessen früheres Paket zurückgenommen).
+* **Entscheidung Abgrenzung ENDED.** `AUDIO_PLAYBACK_ENDED` (Ablehnung) statt stillem Umschreiben; `settle` persistiert das Ende ausdrücklich.

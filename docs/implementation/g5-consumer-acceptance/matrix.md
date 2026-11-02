@@ -55,6 +55,7 @@ Base: main `bafbc61`. Stufen: **R** im benannten Teilumfang in einer echten Engi
 
 - **Zwei-Engines-Kriterium erfüllt (bei weiteren DoD-Punkten nach Master §13.2 bleibt das Urteil beim Nutzer):** Command-Hülle, Event/State-Version, Config/Version, Countdown/Pause-Timer (W, J), Buzzer (J, WID), Einzel-Antwortbesitzer (J, WID), `submitOnce` (W, J), Rundenübergang (3), Score-Ledger (3), Ergebnis/Korrektur (3), Recovery (3), Invarianten (3), Judge/Punktelogik (W, J).
 - **Nur eine Engine / nur H:** EXACT (W), MANUAL_ONLY (J), `lockSubmission` (W), Auswahlabgabe als Eingabeformat (W), NORMALIZED/SYNONYM/FUZZY (H), `extendTimer`/Count-up (H), PARTIAL/CANCELLED (H), weitere Tie-Strategien (H/S), Mehrspieler-Turnzyklus (S).
-- **O/S:** Rollen-/Voting-/Leben-Core, Song-Clip-Zeitplan, Event/Olympia, Würfel-/Brett-/Bietmechaniken, numerische/Mehrfeld-/Sortierabgaben.
+- **Nur Grundlage/Helfer, 0 Verbraucher (N7):** Song-Clip-Zeitplan — serverprivater Plan, Projektion und Browsercontroller vorhanden (`docs/implementation/n7-audio-playback-foundation/`), **kein** echter Engine-Verbraucher; das Song-Spiel und seine offenen Entscheidungen (DEC-SNG-01) sind unverändert offen.
+- **O/S:** Rollen-/Voting-/Leben-Core, Event/Olympia, Würfel-/Brett-/Bietmechaniken, numerische/Mehrfeld-/Sortierabgaben.
 - **Offene DEC-Punkte:** Tie-Strategien außer ALLOW_TIE (unverändert); keine neuen.
 - **Keine Aussage** „alle Mechaniken fertig“ und keine Prozentwerte.
