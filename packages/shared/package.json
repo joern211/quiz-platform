@@ -14,6 +14,7 @@
     "./secretInfo": "./src/secretInfo.ts",
     "./participation": "./src/participation.ts",
     "./audioPlayback": "./src/audioPlayback.ts",
+    "./turnSequence": "./src/turnSequence.ts",
     "./schemas": "./src/schemas/index.ts",
     "./types": "./src/types/index.ts"
   },
