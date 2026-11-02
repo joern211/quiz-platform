@@ -618,6 +618,22 @@ describe('N9 F: an N6 basis update in the same turn raises the sequence version 
     expect(codeOf(() => turnEligibilityAdvancesBasis(seq, { scope: sc(seq), eligibility: newer, extra: 1 } as never))).toBe('TURN_SEQ_ARGS_INVALID');
   });
 
+  it('team mode: the same rules hold — a newer N6 stand on EITHER level is reported, the basis is fenced afterwards, and the dice stay untouched by the basis step', () => {
+    const seq = teamSequence();
+    const dice = open(seq);
+    const teamsNow = ['T1', 'T2'], membersNow = ['A', 'B', 'C', 'D', 'E'];
+    expect(roll(dice, seq, [1, 2, 3, 4, 5]).sequenceBasisAdvanced).toBe(false);
+    expect(roll(dice, seq, [1, 2, 3, 4, 5], { eligibility: tel(teamsNow, membersNow, 4) }).sequenceBasisAdvanced).toBe(true); // both levels newer
+    const onlyMembers: TurnEligibility = { actors: level(teamsNow, 1, 'teams-track', KNOWN_TEAMS), members: level(membersNow, 6, 'members-track', KNOWN_MEMBERS) };
+    expect(roll(dice, seq, [1, 2, 3, 4, 5], { eligibility: onlyMembers }).sequenceBasisAdvanced).toBe(true); // only the member level is newer: still knowledge worth keeping
+    expect(codeOf(() => roll(dice, seq, [1, 2, 3, 4, 5], { eligibility: pel(PLAYERS, 4) }))).toBe('TURN_SEQ_ELIGIBILITY_INVALID'); // a player-level stand for a team sequence is no stand
+    const rolled = roll(dice, seq, [1, 2, 3, 4, 5], { eligibility: onlyMembers }).state;
+    const seq1 = refreshEligibilityBasis(seq, { scope: sc(seq), expectedVersion: seq.version, eligibility: onlyMembers }).state;
+    expect(seq1).toMatchObject({ turnNumber: seq.turnNumber, version: seq.version + 1 });
+    expect(codeOf(() => roll(rolled, seq1, [6, 6, 6, 6, 6], { eligibility: everyone(seq1, 1) }))).toBe('TURN_SEQ_ELIGIBILITY_STALE'); // the older member stand is fenced for dice actions too
+    expect(rolled.rollCount).toBe(1);
+  });
+
   it('HELD in N8 is not a new dice process and not a reset: the values stay readable, every action is blocked, and the next turn needs a new process', () => {
     const { seq, dice } = rig();
     const rolled = roll(dice, seq, [4, 4, 4, 4, 4]).state;

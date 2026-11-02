@@ -20,7 +20,7 @@ import { createTestDatabase } from '../../../server/src/test-helpers.js';
 import { singleConnectionSqliteUrl } from '../../../server/src/persistence/sqliteUrl.js';
 import { runReceipted } from '../../../server/src/games/core/commands.js';
 import { materializeGameEvent } from '../../../server/src/games/core/events.js';
-import { GameStateConflictError, saveGameStateIfRevision } from '../../../server/src/games/core/state.js';
+import { saveGameStateIfRevision } from '../../../server/src/games/core/state.js';
 import {
   closeDiceTurn, diceTurnScopeOf, openDiceTurn, parseDiceTurnState, projectDiceTurn, readDiceHoldIntent, readDiceRollIntent, rollDice, setDiceHeld, type DiceIntSource,
 } from '../../../server/src/games/core/diceTurn.js';
@@ -66,8 +66,7 @@ async function load(): Promise<Stored> {
 /** The stand-in commit: ONE transaction with the state event (real SDK path) and the shared CAS write on the revision that was loaded. */
 async function persist(loaded: Stored, state: StandIn, type: string): Promise<void> {
   await db.$transaction(async tx => {
-    const before = await tx.roomGameState.findUnique({ where: { roomId } });
-    if (!before || before.revision !== loaded.revision) throw new GameStateConflictError(roomId);
+    const before = await tx.roomGameState.findUniqueOrThrow({ where: { roomId } }); // no own pre-check: the conditional UPDATE of the shared primitive is the only guard
     await materializeGameEvent(tx, { roomId, gameSlug: SLUG, engineVersion: before.engineVersion, before, nextState: state, type });
     await saveGameStateIfRevision(tx, { roomId, expectedRevision: loaded.revision, phase: loaded.phase, state });
   });

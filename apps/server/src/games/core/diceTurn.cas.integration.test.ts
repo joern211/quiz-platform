@@ -86,8 +86,8 @@ async function load(roomId: string): Promise<Stored> {
 /** The stand-in's commit: ONE transaction with the state event (real SDK path) and the shared CAS write on the revision that was LOADED. */
 async function persist(roomId: string, loaded: Stored, state: StandInState, type: string): Promise<void> {
   await db.$transaction(async tx => {
-    const before = await tx.roomGameState.findUnique({ where: { roomId } });
-    if (!before || before.revision !== loaded.revision) throw new GameStateConflictError(roomId);
+    // NO own revision pre-check here: the conditional UPDATE of the shared primitive is the ONLY guard (a pre-check would make the primitive's CAS redundant and unproven).
+    const before = await tx.roomGameState.findUniqueOrThrow({ where: { roomId } });
     await materializeGameEvent(tx, { roomId, gameSlug: SLUG, engineVersion: before.engineVersion, before, nextState: state, type });
     await saveGameStateIfRevision(tx, { roomId, expectedRevision: loaded.revision, phase: loaded.phase, state });
   });
@@ -397,6 +397,7 @@ describe('N9 integration: dice rolls and holds on the real CAS / receipt / state
     });
     await expect(send()).rejects.toThrow('DICE_VERSION_STALE');
     await expect(send()).rejects.toThrow('DICE_VERSION_STALE'); // the handler may run again (nothing was mutated) — and fails again
+    expect(effects).toBe(2); // the receipt allowed the retry of a command that failed before any mutation: the body ran again and failed the same way
     expect(draws.state.draws).toBe(0);
     expect(await load(roomId)).toEqual(stored);
     expect(diceOf(stored).values).toEqual([1, 2, 3, 4, 5]);
@@ -423,6 +424,25 @@ describe('N9 integration: dice rolls and holds on the real CAS / receipt / state
     const current = await load(roomId);
     await handle(current, roomId, 'a', holdIntent(bindingOf(current), [0]), counted().source, newer);
     expect(diceOf(await load(roomId))).toMatchObject({ rollCount: 1, held: [true, false, false, false, false], values: [1, 2, 3, 4, 5] });
+  });
+
+  it('a hold that changes NOTHING but saw a newer N6 stand still persists the basis (N8-02): one revision step, sequence version +1, no new turn, the dice are bit for bit the same', async () => {
+    const { roomId } = await fixture();
+    let stored = await load(roomId);
+    await handle(stored, roomId, 'a', roll(bindingOf(stored)), counted([1, 2, 3, 4, 5]).source);
+    stored = await load(roomId);
+    await handle(stored, roomId, 'a', holdIntent(bindingOf(stored), [0]), counted().source);
+    stored = await load(roomId);
+    const diceBefore = diceOf(stored);
+    const seqBefore = seqOf(stored);
+    const result = await handle(stored, roomId, 'a', holdIntent(bindingOf(stored), [0]), counted().source, eligibility(8)); // the SAME assignment again, with a newer stand
+    expect(result.changed).toBe(false); // the dice did not change ...
+    const after = await load(roomId);
+    expect(after.revision).toBe(stored.revision + 1); // ... but the commit that carried the newer knowledge happened
+    expect(seqOf(after)).toMatchObject({ turnNumber: seqBefore.turnNumber, version: seqBefore.version + 1 });
+    expect(seqOf(after).eligibility!.actors.version).toBe(8);
+    expect(diceOf(after)).toEqual(diceBefore);
+    await expect(handle(after, roomId, 'a', holdIntent(bindingOf(after), [0, 1]), counted().source, eligibility(1))).rejects.toThrow('TURN_SEQ_ELIGIBILITY_STALE'); // the older stand can not pass any more
   });
 
   it('the roll limit and the closing survive in the database: the third roll exhausts, a fourth is refused without a draw or a revision step, closing is terminal', async () => {
