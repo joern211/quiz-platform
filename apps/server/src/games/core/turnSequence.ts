@@ -477,7 +477,7 @@ export type TurnOutcome = 'COMPLETE' | 'SKIP';
  *   no winner, no invented id, no team KO.
  * - Expected: the sequence version AND the turn number the caller saw. Neither a repeated call nor a late one with the old pair is accepted.
  */
-export function advanceTurn(rawState: unknown, args: { scope: TurnSequenceScope; expectedVersion: number; expectedTurnNumber: number; outcome: TurnOutcome; eligibility: TurnEligibility }): TurnSequenceChange {
+export function advanceTurnSequence(rawState: unknown, args: { scope: TurnSequenceScope; expectedVersion: number; expectedTurnNumber: number; outcome: TurnOutcome; eligibility: TurnEligibility }): TurnSequenceChange {
   const state = parseTurnSequenceState(rawState);
   args_(isPlain(args) && keysWithin(args, ['scope', 'expectedVersion', 'expectedTurnNumber', 'outcome', 'eligibility']));
   assertScope(state, args.scope);
@@ -533,7 +533,7 @@ export function withholdCurrentHolder(rawState: unknown, args: { scope: TurnSequ
  * controlled no-op (`changed:false`, no turn, no version) — AFTER scope, version and turn were checked. `reason` and `now` go to the
  * server-private transition; the state keeps only the time and the turn numbers.
  */
-export function overrideTurn(rawState: unknown, args: {
+export function overrideTurnSequence(rawState: unknown, args: {
   scope: TurnSequenceScope; expectedVersion: number; expectedTurnNumber: number; target: { playerId: string; teamId?: string };
   eligibility: TurnEligibility; now: number; reason?: string;
 }): TurnSequenceChange {

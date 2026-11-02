@@ -13,7 +13,7 @@ import { changeLives, createParticipationTrack, eliminateActor, findNextActiveTu
 import type { ProjectionAudience } from './visibility.js';
 import * as domain from './turnSequence.js';
 import {
-  advanceTurn, authorizeTurnAction, closeTurnSequence, currentTurnHolder, decideTurnOrder, eligibilityFromParticipation, overrideTurn, parseTurnSequenceState,
+  advanceTurnSequence, authorizeTurnAction, closeTurnSequence, currentTurnHolder, decideTurnOrder, eligibilityFromParticipation, overrideTurnSequence, parseTurnSequenceState,
   prepareTurnSequence, projectTurnSequence, startTurnSequence, turnSequenceScopeOf, turnSequenceToCoreTurn, withholdCurrentHolder,
   type TurnEligibility, type TurnOutcome, type TurnSequenceState,
 } from './turnSequence.js';
@@ -45,7 +45,7 @@ const sc = (state: TurnSequenceState) => turnSequenceScopeOf(state);
 
 const start = (state: TurnSequenceState, eligibility: TurnEligibility = everyone(state)) => startTurnSequence(state, { scope: sc(state), expectedVersion: state.version, eligibility }).state;
 const adv = (state: TurnSequenceState, eligibility: TurnEligibility = everyone(state), outcome: TurnOutcome = 'COMPLETE', over: Record<string, unknown> = {}) =>
-  advanceTurn(state, { scope: sc(state), expectedVersion: state.version, expectedTurnNumber: state.turnNumber, outcome, eligibility, ...over });
+  advanceTurnSequence(state, { scope: sc(state), expectedVersion: state.version, expectedTurnNumber: state.turnNumber, outcome, eligibility, ...over });
 const label = (state: TurnSequenceState): string | null => { const h = currentTurnHolder(state); return h === null ? null : h.teamId === null ? h.playerId : `${h.teamId}/${h.playerId}`; };
 const walk = (state: TurnSequenceState, steps: number, eligibility?: TurnEligibility): { states: TurnSequenceState[]; holders: Array<string | null> } => {
   const states = [state]; let current = state;
@@ -294,7 +294,7 @@ describe('N8 B: a sequence of players', () => {
       }
     }
     expect(compared).toBe(320);
-    // and for the plain all-active case it is the existing advanceTurn
+    // and for the plain all-active case it is the existing advanceTurnSequence
     let core = createTurn(ids, 'FIXED'); let ours = started(prepareTurnSequence({ ...BASE, unit: 'PLAYER', mode: 'FIXED', order: ids }));
     for (let i = 0; i < 12; i++) { core = advanceCoreTurn(core); ours = adv(ours).state; expect(turnSequenceToCoreTurn(ours)).toEqual(core); }
   });
@@ -455,14 +455,14 @@ describe('N8 D: actions, stale intents, held turns, override and close', () => {
   it('a second "next" with the same expected turn and version is rejected and changes nothing; with the new version but the old turn it is rejected as a stale turn', () => {
     const s1 = started(playerSequence());
     const intent = { scope: sc(s1), expectedVersion: s1.version, expectedTurnNumber: s1.turnNumber, outcome: 'COMPLETE' as const, eligibility: everyone(s1) };
-    const s2 = advanceTurn(s1, intent).state;
-    expect(codeOf(() => advanceTurn(s2, intent))).toBe('TURN_SEQ_VERSION_STALE'); // the SAME intent again: not applied twice
-    expect(codeOf(() => advanceTurn(s2, { ...intent, expectedVersion: s2.version }))).toBe('TURN_SEQ_TURN_STALE');
+    const s2 = advanceTurnSequence(s1, intent).state;
+    expect(codeOf(() => advanceTurnSequence(s2, intent))).toBe('TURN_SEQ_VERSION_STALE'); // the SAME intent again: not applied twice
+    expect(codeOf(() => advanceTurnSequence(s2, { ...intent, expectedVersion: s2.version }))).toBe('TURN_SEQ_TURN_STALE');
     expect(label(s2)).toBe('b');
     expect(s2.turnNumber).toBe(2);
-    expect(codeOf(() => advanceTurn(s1, { ...intent, expectedVersion: s1.version + 1 }))).toBe('TURN_SEQ_VERSION_STALE'); // also a future version is no match
-    for (const bad of [NaN, 1.5, '1', null, undefined, -1, 2 ** 53]) expect(codeOf(() => advanceTurn(s1, { ...intent, expectedVersion: bad as never })), String(bad)).toBe('TURN_SEQ_VERSION_STALE');
-    for (const bad of [NaN, 1.5, '1', null, undefined, -1]) expect(codeOf(() => advanceTurn(s1, { ...intent, expectedTurnNumber: bad as never })), String(bad)).toBe('TURN_SEQ_TURN_STALE');
+    expect(codeOf(() => advanceTurnSequence(s1, { ...intent, expectedVersion: s1.version + 1 }))).toBe('TURN_SEQ_VERSION_STALE'); // also a future version is no match
+    for (const bad of [NaN, 1.5, '1', null, undefined, -1, 2 ** 53]) expect(codeOf(() => advanceTurnSequence(s1, { ...intent, expectedVersion: bad as never })), String(bad)).toBe('TURN_SEQ_VERSION_STALE');
+    for (const bad of [NaN, 1.5, '1', null, undefined, -1]) expect(codeOf(() => advanceTurnSequence(s1, { ...intent, expectedTurnNumber: bad as never })), String(bad)).toBe('TURN_SEQ_TURN_STALE');
   });
   it('the SAME player in a later turn is not the old turn: a late action from turn 1 is stale in turn 4 (A → B → C → A), by version and by turn', () => {
     const states = walk(started(playerSequence()), 3).states;
@@ -484,7 +484,7 @@ describe('N8 D: actions, stale intents, held turns, override and close', () => {
     const ready = playerSequence();
     for (const fn of [
       () => adv(ready), () => withholdCurrentHolder(ready, { scope: sc(ready), expectedVersion: 0, expectedTurnNumber: 0, eligibility: pel([]) }),
-      () => overrideTurn(ready, { scope: sc(ready), expectedVersion: 0, expectedTurnNumber: 0, target: { playerId: 'a' }, eligibility: pel(['a']), now: 1 }), () => authorize(ready),
+      () => overrideTurnSequence(ready, { scope: sc(ready), expectedVersion: 0, expectedTurnNumber: 0, target: { playerId: 'a' }, eligibility: pel(['a']), now: 1 }), () => authorize(ready),
     ]) expect(codeOf(fn)).toBe('TURN_SEQ_NOT_STARTED');
     const live = started(playerSequence());
     expect(codeOf(() => startTurnSequence(live, { scope: sc(live), expectedVersion: live.version, eligibility: everyone(live) }))).toBe('TURN_SEQ_ALREADY_STARTED');
@@ -496,7 +496,7 @@ describe('N8 D: actions, stale intents, held turns, override and close', () => {
     expect(codeOf(() => authorize(none, { eligibility: pel([], 2) }))).toBe('TURN_SEQ_NO_CURRENT');
     const closed = closeTurnSequence(live, { scope: sc(live), expectedVersion: live.version }).state;
     for (const fn of [() => adv(closed), () => authorize(closed), () => startTurnSequence(closed, { scope: sc(closed), expectedVersion: closed.version, eligibility: everyone(closed) }),
-      () => overrideTurn(closed, { scope: sc(closed), expectedVersion: closed.version, expectedTurnNumber: closed.turnNumber, target: { playerId: 'a' }, eligibility: everyone(closed), now: 1 }),
+      () => overrideTurnSequence(closed, { scope: sc(closed), expectedVersion: closed.version, expectedTurnNumber: closed.turnNumber, target: { playerId: 'a' }, eligibility: everyone(closed), now: 1 }),
       () => withholdCurrentHolder(closed, { scope: sc(closed), expectedVersion: closed.version, expectedTurnNumber: closed.turnNumber, eligibility: everyone(closed) })]) expect(codeOf(fn)).toBe('TURN_SEQ_CLOSED');
   });
   it('pause, phase lock and missing admission block the action; the booleans are mandatory and exact', () => {
@@ -545,7 +545,7 @@ describe('N8 D: actions, stale intents, held turns, override and close', () => {
   });
   describe('override', () => {
     const base = () => adv(started(teamSequence())).state; // T2/C, cursors [1, 0]
-    const over = (state: TurnSequenceState, target: unknown, extra: Record<string, unknown> = {}) => overrideTurn(state, {
+    const over = (state: TurnSequenceState, target: unknown, extra: Record<string, unknown> = {}) => overrideTurnSequence(state, {
       scope: sc(state), expectedVersion: state.version, expectedTurnNumber: state.turnNumber, target: target as never, eligibility: everyone(state, 5), now: 7000, ...extra });
     it('names a new holder with a new turn, consumes no completion and no cursor, and the previous turn\'s open actions become void', () => {
       const s = base();
@@ -605,18 +605,18 @@ describe('N8 D: actions, stale intents, held turns, override and close', () => {
       expect(over(s, { teamId: 'T1', playerId: 'A' }, { reason: '   ' }).transition!.reason).toBeNull();
       expect(parseTurnSequenceState(s)).toEqual(base());
       const players = started(playerSequence());
-      expect(codeOf(() => overrideTurn(players, { scope: sc(players), expectedVersion: 1, expectedTurnNumber: 1, target: { playerId: 'zz' }, eligibility: pel(['a'], 2), now: 1 }))).toBe('TURN_SEQ_ACTOR_UNKNOWN');
-      expect(codeOf(() => overrideTurn(players, { scope: sc(players), expectedVersion: 1, expectedTurnNumber: 1, target: { playerId: 'b' }, eligibility: pel(['a'], 2), now: 1 }))).toBe('TURN_SEQ_ACTOR_NOT_ELIGIBLE');
-      expect(codeOf(() => overrideTurn(players, { scope: sc(players), expectedVersion: 1, expectedTurnNumber: 1, target: { playerId: 'b', teamId: 'T1' }, eligibility: pel(['a', 'b'], 2), now: 1 }))).toBe('TURN_SEQ_ARGS_INVALID');
+      expect(codeOf(() => overrideTurnSequence(players, { scope: sc(players), expectedVersion: 1, expectedTurnNumber: 1, target: { playerId: 'zz' }, eligibility: pel(['a'], 2), now: 1 }))).toBe('TURN_SEQ_ACTOR_UNKNOWN');
+      expect(codeOf(() => overrideTurnSequence(players, { scope: sc(players), expectedVersion: 1, expectedTurnNumber: 1, target: { playerId: 'b' }, eligibility: pel(['a'], 2), now: 1 }))).toBe('TURN_SEQ_ACTOR_NOT_ELIGIBLE');
+      expect(codeOf(() => overrideTurnSequence(players, { scope: sc(players), expectedVersion: 1, expectedTurnNumber: 1, target: { playerId: 'b', teamId: 'T1' }, eligibility: pel(['a', 'b'], 2), now: 1 }))).toBe('TURN_SEQ_ARGS_INVALID');
     });
     it('restores a held turn when the SAME target is named again and is eligible (a new turn), and can also select out of NO_ELIGIBLE', () => {
       const live = started(playerSequence(), pel(['a', 'b', 'c'], 1));
       const held = withholdCurrentHolder(live, { scope: sc(live), expectedVersion: 1, expectedTurnNumber: 1, eligibility: pel(['b', 'c'], 2) }).state;
-      const back = overrideTurn(held, { scope: sc(held), expectedVersion: held.version, expectedTurnNumber: 1, target: { playerId: 'a' }, eligibility: pel(['a', 'b', 'c'], 3), now: 5 });
+      const back = overrideTurnSequence(held, { scope: sc(held), expectedVersion: held.version, expectedTurnNumber: 1, target: { playerId: 'a' }, eligibility: pel(['a', 'b', 'c'], 3), now: 5 });
       expect(back.changed).toBe(true);
       expect(back.state).toMatchObject({ phase: 'ACTIVE', turnNumber: 2, entitlementRevision: 3 });
       const none = adv(live, pel([], 2)).state;
-      const chosen = overrideTurn(none, { scope: sc(none), expectedVersion: none.version, expectedTurnNumber: none.turnNumber, target: { playerId: 'c' }, eligibility: pel(['c'], 3), now: 9 });
+      const chosen = overrideTurnSequence(none, { scope: sc(none), expectedVersion: none.version, expectedTurnNumber: none.turnNumber, target: { playerId: 'c' }, eligibility: pel(['c'], 3), now: 9 });
       expect(label(chosen.state)).toBe('c');
       expect(chosen.state.turnNumber).toBe(none.turnNumber + 1);
     });
@@ -700,10 +700,10 @@ describe('N8 D2: transition table', () => {
   type Bind = { scope: ReturnType<typeof sc>; expectedVersion: number; expectedTurnNumber: number; extra?: Record<string, unknown> };
   const ops: Record<string, (s: TurnSequenceState, b: Bind, phase: Phase) => unknown> = {
     start: (s, { scope, expectedVersion, extra = {} }, phase) => startTurnSequence(s, { scope, expectedVersion, eligibility: eligFor(phase), ...extra }),
-    complete: (s, { extra = {}, ...b }, phase) => advanceTurn(s, { ...b, outcome: 'COMPLETE', eligibility: eligFor(phase), ...extra }),
-    skip: (s, { extra = {}, ...b }, phase) => advanceTurn(s, { ...b, outcome: 'SKIP', eligibility: eligFor(phase), ...extra }),
+    complete: (s, { extra = {}, ...b }, phase) => advanceTurnSequence(s, { ...b, outcome: 'COMPLETE', eligibility: eligFor(phase), ...extra }),
+    skip: (s, { extra = {}, ...b }, phase) => advanceTurnSequence(s, { ...b, outcome: 'SKIP', eligibility: eligFor(phase), ...extra }),
     withhold: (s, { extra = {}, ...b }, phase) => withholdCurrentHolder(s, { ...b, eligibility: phase === 'ACTIVE' ? heldEligibility : eligFor(phase), ...extra }),
-    override: (s, { extra = {}, ...b }, phase) => overrideTurn(s, { ...b, target: { playerId: 'b' }, eligibility: eligFor(phase).actors.activeIds.includes('b') ? eligFor(phase) : pel(['b'], 9), now: 1, ...extra }),
+    override: (s, { extra = {}, ...b }, phase) => overrideTurnSequence(s, { ...b, target: { playerId: 'b' }, eligibility: eligFor(phase).actors.activeIds.includes('b') ? eligFor(phase) : pel(['b'], 9), now: 1, ...extra }),
     close: (s, { scope, expectedVersion, extra = {} }) => closeTurnSequence(s, { scope, expectedVersion, ...extra }),
     authorize: (s, { extra = {}, ...b }, phase) => authorizeTurnAction(s, { ...b, caller: { role: 'PLAYER', participantId: 'a', teamId: null }, gate: { admitted: true, phaseOpen: true, paused: false }, eligibility: eligFor(phase), ...extra }),
   };
@@ -759,7 +759,7 @@ describe('N8 D2: transition table', () => {
       const withExtra = () => ops[op](state, { ...good, extra: { surprise: true } }, 'ACTIVE');
       expect(describeResult(withExtra), `${op} with an extra key`).toMatch(/^TURN_SEQ_ARGS_INVALID$/);
     }
-    for (const fn of [startTurnSequence, advanceTurn, withholdCurrentHolder, overrideTurn, closeTurnSequence, authorizeTurnAction] as Array<(state: unknown, args: unknown) => unknown>) {
+    for (const fn of [startTurnSequence, advanceTurnSequence, withholdCurrentHolder, overrideTurnSequence, closeTurnSequence, authorizeTurnAction] as Array<(state: unknown, args: unknown) => unknown>) {
       const state = make('ACTIVE');
       for (const bad of [undefined, null, 'x', 3, [], {}]) expect(describeResult(() => fn(state, bad)), `${fn.name}(${JSON.stringify(bad)})`).toBe('TURN_SEQ_ARGS_INVALID');
     }
@@ -786,7 +786,7 @@ describe('N8 E: projection through an explicit release', () => {
   ];
   const mid = () => {
     let s = started(prepareTurnSequence({ ...BASE, unit: 'TEAM', mode: 'FIXED', order: ['TEAM_RED', 'TEAM_BLUE'], teams: marker.teams }), tel(['TEAM_RED', 'TEAM_BLUE'], ['MBR_ONE', 'MBR_TWO', 'MBR_THREE', 'MBR_FOUR', 'MBR_FIVE'], 1));
-    s = overrideTurn(s, { scope: sc(s), expectedVersion: s.version, expectedTurnNumber: s.turnNumber, target: { teamId: 'TEAM_RED', playerId: 'MBR_TWO' }, eligibility: tel(['TEAM_RED', 'TEAM_BLUE'], ['MBR_ONE', 'MBR_TWO', 'MBR_THREE', 'MBR_FOUR', 'MBR_FIVE'], 2), now: 1234, reason: 'PRIVATE_REASON_MARKER' }).state;
+    s = overrideTurnSequence(s, { scope: sc(s), expectedVersion: s.version, expectedTurnNumber: s.turnNumber, target: { teamId: 'TEAM_RED', playerId: 'MBR_TWO' }, eligibility: tel(['TEAM_RED', 'TEAM_BLUE'], ['MBR_ONE', 'MBR_TWO', 'MBR_THREE', 'MBR_FOUR', 'MBR_FIVE'], 2), now: 1234, reason: 'PRIVATE_REASON_MARKER' }).state;
     return s;
   };
   it('NONE carries only the ordering counters; CURRENT adds state, holder and the caller\'s own view; ORDER adds the outer order — nothing else, per allowlist', () => {
@@ -885,7 +885,7 @@ describe('N8 F: persistence, replay and damaged state', () => {
   const played = () => {
     let s = started(teamSequence(), tel(['T1', 'T2'], ALL_TEAM_MEMBERS, 1));
     for (let i = 0; i < 5; i++) s = adv(s, tel(['T1', 'T2'], ALL_TEAM_MEMBERS, 1 + i)).state;
-    return overrideTurn(s, { scope: sc(s), expectedVersion: s.version, expectedTurnNumber: s.turnNumber, target: { teamId: 'T1', playerId: 'B' }, eligibility: tel(['T1', 'T2'], ALL_TEAM_MEMBERS, 9), now: 777, reason: 'x' }).state;
+    return overrideTurnSequence(s, { scope: sc(s), expectedVersion: s.version, expectedTurnNumber: s.turnNumber, target: { teamId: 'T1', playerId: 'B' }, eligibility: tel(['T1', 'T2'], ALL_TEAM_MEMBERS, 9), now: 777, reason: 'x' }).state;
   };
   it('round-trips through JSON with the same holder, cursors, counters and configuration, and continues exactly like the original', () => {
     const original = played();
@@ -977,7 +977,7 @@ describe('N8 contract surface', () => {
     expect(gameErrorCode(new Error('TURN_OWNER_CONFLICT'))).toBe('TURN_OWNER_CONFLICT'); // the older single-owner code is untouched
     const s = started(teamSequence([{ teamId: 'MARK_TEAM', members: ['MARK_MEMBER'] }, { teamId: 'MARK_TEAM2', members: ['MARK_MEMBER2'] }]), tel(['MARK_TEAM', 'MARK_TEAM2'], ['MARK_MEMBER', 'MARK_MEMBER2'], 4));
     const attempts: Array<() => unknown> = [
-      () => adv(s, tel(['MARK_TEAM'], ['MARK_MEMBER'], 3)), () => overrideTurn(s, { scope: sc(s), expectedVersion: s.version, expectedTurnNumber: s.turnNumber, target: { teamId: 'MARK_TEAM', playerId: 'MARK_OTHER' }, eligibility: everyone(s, 5), now: 1 }),
+      () => adv(s, tel(['MARK_TEAM'], ['MARK_MEMBER'], 3)), () => overrideTurnSequence(s, { scope: sc(s), expectedVersion: s.version, expectedTurnNumber: s.turnNumber, target: { teamId: 'MARK_TEAM', playerId: 'MARK_OTHER' }, eligibility: everyone(s, 5), now: 1 }),
       () => parseTurnSequenceState({ ...s, teams: [{ teamId: 'MARK_TEAM', members: ['MARK_MEMBER', 'MARK_MEMBER'], cursor: 0 }] }), () => decideTurnOrder({ mode: 'CUSTOM_HOST_ORDER', ids: ['MARK_A'], customOrder: ['MARK_B'] }),
     ];
     for (const attempt of attempts) {
@@ -992,7 +992,7 @@ describe('N8 contract surface', () => {
   it('exports no server-private schema, no sequence state and no mutation to the browser; imports nothing but zod; is a registered subpath', () => {
     const names = Object.keys(contract);
     expect(names.filter(name => !/^TURN_(SEQUENCE_|ORDER_MODES)/.test(name) && /Sequence(State(?!Version)|Private)|Cursor|Eligib|Override|Mutation|advance|withhold|prepare|decide/i.test(name))).toEqual([]);
-    for (const forbidden of ['prepareTurnSequence', 'decideTurnOrder', 'advanceTurn', 'overrideTurn', 'TurnSequenceStateSchema', 'authorizeTurnAction']) expect(names).not.toContain(forbidden);
+    for (const forbidden of ['prepareTurnSequence', 'decideTurnOrder', 'advanceTurnSequence', 'overrideTurnSequence', 'TurnSequenceStateSchema', 'authorizeTurnAction']) expect(names).not.toContain(forbidden);
     const file = fileURLToPath(new URL('../../../../../packages/shared/src/turnSequence.ts', import.meta.url));
     const imports = readFileSync(file, 'utf8').split('\n').filter(line => /^\s*(import|export)\b.*\bfrom\b/.test(line));
     expect(imports).toEqual(["import { z } from 'zod';"]);

@@ -1,6 +1,6 @@
 # G5 — Mechanik-, Verbraucher- und Nachweismatrix
 
-Base: main `bafbc61`. Stufen: **R** im benannten Teilumfang in einer echten Engine verwendet · **H** Helper/Schema ohne volle Integration · **O** im Kern nicht als vollständiger Baustein vorhanden · **S** bewusst später. Verbraucher: W = Wissensduell, J = Jeopardy, WID = Wer ist das?.
+Base der Abschnitte 1–4: main `bafbc61` (**historischer G5-Prüfstand**, hier unverändert erhalten; die Zeilen dort gelten für diesen Stand). **Aktueller Bezugsstand: main `6c42f55`** — die Fortschreibung für die Grundlagen N1–N8 steht in **Abschnitt 5**. Stufen: **R** im benannten Teilumfang in einer echten Engine verwendet · **H** Helper/Schema ohne volle Integration · **O** im Kern nicht als vollständiger Baustein vorhanden · **S** bewusst später. Verbraucher: W = Wissensduell, J = Jeopardy, WID = Wer ist das?.
 **Core-DoD-Spalte** bewertet nur das Kriterium „von mindestens zwei unterschiedlichen echten Engines erfolgreich genutzt“ **für den genannten Teilumfang**, nicht die übrigen DoD-Punkte (Master §13.2). Prüfstand: Codeprüfung der genannten Aufrufer (Zeilen am Base-Stand `bafbc61`) und Ausführung der genannten Tests; die G1–G4-Matrizen ([G1](../g1-command-contract/matrix.md), [G2](../g2-runtime-flow/matrix.md), [G3](../g3-submission-judging/matrix.md), [G4](../g4-results-protection/matrix.md)) sind die Detailquellen, hier fortgeführt und nicht neu implementiert.
 
 ## 1. Kernbausteine nach Teilumfang
@@ -54,8 +54,27 @@ Base: main `bafbc61`. Stufen: **R** im benannten Teilumfang in einer echten Engi
 ## 4. Abschlussliste (pro Teilumfang, keine pauschale Aussage)
 
 - **Zwei-Engines-Kriterium erfüllt (bei weiteren DoD-Punkten nach Master §13.2 bleibt das Urteil beim Nutzer):** Command-Hülle, Event/State-Version, Config/Version, Countdown/Pause-Timer (W, J), Buzzer (J, WID), Einzel-Antwortbesitzer (J, WID), `submitOnce` (W, J), Rundenübergang (3), Score-Ledger (3), Ergebnis/Korrektur (3), Recovery (3), Invarianten (3), Judge/Punktelogik (W, J).
-- **Nur eine Engine / nur H:** EXACT (W), MANUAL_ONLY (J), `lockSubmission` (W), Auswahlabgabe als Eingabeformat (W), NORMALIZED/SYNONYM/FUZZY (H), `extendTimer`/Count-up (H), PARTIAL/CANCELLED (H), weitere Tie-Strategien (H/S), Mehrspieler-Turnzyklus (S).
+- **Nur eine Engine / nur H:** EXACT (W), MANUAL_ONLY (J), `lockSubmission` (W), Auswahlabgabe als Eingabeformat (W), NORMALIZED/SYNONYM/FUZZY (H), `extendTimer`/Count-up (H), PARTIAL/CANCELLED (H), weitere Tie-Strategien (H/S). *Mehrspieler-Turnzyklus: Stand `bafbc61` „S“ — inzwischen Grundlage N8 (H, 0 Verbraucher), siehe Abschnitt 5.*
 - **Nur Grundlage/Helfer, 0 Verbraucher (N7):** Song-Clip-Zeitplan — serverprivater Plan, Projektion und Browsercontroller vorhanden (`docs/implementation/n7-audio-playback-foundation/`), **kein** echter Engine-Verbraucher; das Song-Spiel und seine offenen Entscheidungen (DEC-SNG-01) sind unverändert offen.
-- **O/S:** Rollen-/Voting-/Leben-Core, Event/Olympia, Würfel-/Brett-/Bietmechaniken, numerische/Mehrfeld-/Sortierabgaben.
+- **O/S (Stand `bafbc61`, historisch):** Rollen-/Voting-/Leben-Core, Event/Olympia, Würfel-/Brett-/Bietmechaniken, numerische/Mehrfeld-/Sortierabgaben. **Überholt für einen Teil:** numerische, Mehrfeld- und Sortierabgaben (N1–N3), Voting (N4), geheime Informationen (N5) und Leben/Teilnahme (N6) haben inzwischen **Grundlagen (H)** — ohne echten Verbraucher, siehe Abschnitt 5. **Weiter offen (O/S):** Event-/Olympia-Core, Würfel-, Figuren-/Brett- und Biet-/Gebotsmechaniken, Medienverkettung über N7 hinaus, alle neuen Spiele-Engines.
 - **Offene DEC-Punkte:** Tie-Strategien außer ALLOW_TIE (unverändert); keine neuen.
 - **Keine Aussage** „alle Mechaniken fertig“ und keine Prozentwerte.
+
+## 5. Fortschreibung: Grundlagen N1–N8 (Bezugsstand main `6c42f55`, Prüfstand N8)
+
+**H** bedeutet hier ausschließlich: Baustein, Vertrag und Tests vorhanden, **kein** echter Engine-Verbraucher. Tests, Testadapter, Harnesses und Komponenten-Demonstrationen zählen nicht als Verbraucher (Master §13.2). Keine Zeile in diesem Abschnitt ist `R`; keine Mechanik ist dadurch „fertig“.
+
+| Mechanik | Grundlage (Dateien) | Nachweis | Echte Engine-Verbraucher | Stufe | Weiter offen |
+| --- | --- | --- | --- | --- | --- |
+| N1 Numerische Abgabe | `shared/numeric.ts`, `core/numericSubmission.ts`, `NumberField` | `numeric.test.ts`, `numericSubmission.test.ts`, `NumberField.test.tsx` ([N1](../n1-numeric-foundation/matrix.md)) | 0 | H | Admission/CAS/Receipt/Persistenz, Engine-Regel (Bewertung, Punkte) |
+| N2 Mehrfeld-/Kartenabgabe | `shared/textcard.ts`, `core/textCardSubmission.ts`, `textCardMatching.ts`, `TextCardForm` | `textCard.test.ts`, `textCardSubmission.test.ts` ([N2](../n2-multifield-foundation/matrix.md)) | 0 | H | wie N1; Referenzpool/Content |
+| N3 Reihenfolgeabgabe | `shared/ordering.ts`, `core/orderingSubmission.ts`, `OrderingForm` | `ordering.test.ts`, `orderingSubmission.test.ts` ([N3](../n3-ordering-foundation/matrix.md)) | 0 | H | wie N1 |
+| N4 Private Abstimmung | `shared/voting.ts`, `core/votingPoll.ts`, `VoteForm` | `voting.test.ts`, `votingPoll.test.ts` ([N4](../n4-voting-foundation/matrix.md)) | 0 | H | Wahlberechtigung/Regeln (DEC-SPI-01), Engine-Wiring |
+| N5 Geheime Rollen/Informationen | `shared/secretInfo.ts`, `core/secretRoleDeal.ts`, `SecretInfoCard` | `secretInfo.test.ts`, `secretRoleDeal.test.ts` ([N5](../n5-secret-info-foundation/matrix.md)) | 0 | H | Zuteilung über den Serverzufallspfad, Persistenz |
+| N6 Teilnahme, Leben, Ausscheiden | `shared/participation.ts`, `core/participationTrack.ts`, `ParticipationStatusCard` | `participationTrack.test.ts`, `participation.test.ts`, Karte + Harness ([N6](../n6-participation-foundation/matrix.md)) | 0 | H | Verlust-/Eliminierungsregeln (DEC-LMS-01 u. a.), Verdrahtung |
+| N7 Audio-Wiedergabeplan | `shared/audioPlayback.ts`, `core/audioPlaybackPlan.ts`, `ServerAudioPlayer`, `audioPlayback/` | `audioPlayback.test.ts`, Controller-/Komponententests, Chromium-Harness ([N7](../n7-audio-playback-foundation/matrix.md)) | 0 | H | Song-Spiel und seine offenen Entscheidungen (DEC-SNG-01) |
+| **N8 Mehrspieler-Zugfolge, Teamrotation** | `shared/turnSequence.ts`, `core/turnSequence.ts`, `TurnStatusCard`, `turnSequence/turnIntake.ts` | `turnSequence.test.ts` (Vertrag, Übergangstabelle, Orakel, Recovery), `turnSequence.cas.integration.test.ts` (echte SQLite-CAS/Receipts), `TurnStatusCard.test.tsx`, `turnIntake.test.ts`, Chromium-Harness `harness/n8-turn` ([N8](../n8-turn-foundation/matrix.md)) | **0** | H | Last Man Standing, Yacht, „Wie weit gehst du?“ als echte Engines (nicht begonnen); Verdrahtung von Auth/Admission, Team, Eligibility, Phase/Pause, CAS/Receipt, Persistenz |
+| Einzel-Antwortbesitzer (`CoreTurn`) | `roundFlow.ts` — J, WID | siehe Abschnitt 1 | 2 (J, WID) | **R** (unverändert) | **kein** Mehrspieler-Zug, **keine** Teamrotation (N8 ist ein eigener Baustein daneben; `roundFlow.ts` unberührt) |
+| Event-/Olympia-Core, Würfel-/Brett-/Figuren-, Biet-/Gebotsmechaniken | — | — | 0 | O/S | vollständig offen, **nicht** durch N8 erledigt |
+
+**Core-DoD (Master §13.2):** für jeden N-Baustein offen — es fehlen die von zwei unterschiedlichen echten Engines getragene Nutzung und die übrigen Nachweise (Permissions, Persistenz, Rejoin/Resync/Recovery im Betrieb, Monitoring/Logging). Keine Aussage „alle Mechaniken fertig“, kein „Core vollständig DONE“, keine Prozentwerte.

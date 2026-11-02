@@ -24,7 +24,7 @@ import { singleConnectionSqliteUrl } from '../../persistence/sqliteUrl.js';
 import { runReceipted } from './commands.js';
 import { GameStateConflictError, saveGameStateIfRevision } from './state.js';
 import {
-  advanceTurn, currentTurnHolder, parseTurnSequenceState, prepareTurnSequence, startTurnSequence, turnSequenceScopeOf, type TurnEligibility, type TurnSequenceState,
+  advanceTurnSequence, currentTurnHolder, parseTurnSequenceState, prepareTurnSequence, startTurnSequence, turnSequenceScopeOf, type TurnEligibility, type TurnSequenceState,
 } from './turnSequence.js';
 
 const run = promisify(execFile);
@@ -73,7 +73,7 @@ interface Intent { expectedVersion: number; expectedTurnNumber: number; outcome:
 /** TEST-ONLY stand-in for an engine handler's last two steps: the pure domain call on the loaded state, then the shared CAS write on the loaded revision. */
 async function commit(loaded: Stored, roomId: string, intent: Intent): Promise<{ turnNumber: number; version: number }> {
   const current = sequenceOf(loaded);
-  const change = advanceTurn(current, { scope: turnSequenceScopeOf(current), ...intent, eligibility: everyone });
+  const change = advanceTurnSequence(current, { scope: turnSequenceScopeOf(current), ...intent, eligibility: everyone });
   await db.$transaction(tx => saveGameStateIfRevision(tx, { roomId, expectedRevision: loaded.revision, phase: loaded.phase, state: { ...loaded.state, turnSequence: change.state } }));
   return { turnNumber: change.state.turnNumber, version: change.state.version };
 }
@@ -206,13 +206,13 @@ describe('N8 integration: concurrent turn changes on the real CAS / receipt stac
     const script = `
       const { PrismaClient } = require('@prisma/client');
       (async () => {
-        const { parseTurnSequenceState, advanceTurn, turnSequenceScopeOf, currentTurnHolder } = await import(${JSON.stringify(join(serverRoot, 'src/games/core/turnSequence.ts'))});
+        const { parseTurnSequenceState, advanceTurnSequence, turnSequenceScopeOf, currentTurnHolder } = await import(${JSON.stringify(join(serverRoot, 'src/games/core/turnSequence.ts'))});
         const client = new PrismaClient({ datasourceUrl: process.env.CHILD_DB });
         const row = await client.roomGameState.findUniqueOrThrow({ where: { roomId: process.env.CHILD_ROOM } });
         const state = parseTurnSequenceState(JSON.parse(row.stateJson).turnSequence);
         const level = (ids, trackId) => ({ trackId, rosterRevision: 'track-roster-1', version: 1, knownIds: ids, activeIds: ids });
         const everyone = { actors: level(['T1', 'T2'], 'teams-track'), members: level(['A', 'B', 'C', 'D', 'E'], 'members-track') };
-        const next = advanceTurn(state, { scope: turnSequenceScopeOf(state), expectedVersion: state.version, expectedTurnNumber: state.turnNumber, outcome: 'COMPLETE', eligibility: everyone });
+        const next = advanceTurnSequence(state, { scope: turnSequenceScopeOf(state), expectedVersion: state.version, expectedTurnNumber: state.turnNumber, outcome: 'COMPLETE', eligibility: everyone });
         console.log(JSON.stringify({ revision: row.revision, state, holder: currentTurnHolder(state), nextHolder: currentTurnHolder(next.state), next: next.state }));
         await client.$disconnect();
       })().catch(error => { console.error(error); process.exit(1); });
@@ -226,7 +226,7 @@ describe('N8 integration: concurrent turn changes on the real CAS / receipt stac
     // the child computed on the stored stand only; the stored state is untouched by it
     expect(await load(roomId)).toEqual(stored);
     // and the parent, continuing from the stored stand, reaches exactly the same next state
-    const mine = advanceTurn(before, { scope: turnSequenceScopeOf(before), expectedVersion: before.version, expectedTurnNumber: before.turnNumber, outcome: 'COMPLETE', eligibility: everyone });
+    const mine = advanceTurnSequence(before, { scope: turnSequenceScopeOf(before), expectedVersion: before.version, expectedTurnNumber: before.turnNumber, outcome: 'COMPLETE', eligibility: everyone });
     expect(seen.next).toEqual(mine.state);
   });
 });

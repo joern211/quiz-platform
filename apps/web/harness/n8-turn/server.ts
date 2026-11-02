@@ -5,7 +5,7 @@
 // It is NOT an engine consumer. Run: node --import tsx apps/web/harness/n8-turn/server.ts [port]
 import http from 'node:http';
 import {
-  advanceTurn, authorizeTurnAction, closeTurnSequence, currentTurnHolder, overrideTurn, prepareTurnSequence, projectTurnSequence, startTurnSequence,
+  advanceTurnSequence, authorizeTurnAction, closeTurnSequence, currentTurnHolder, overrideTurnSequence, prepareTurnSequence, projectTurnSequence, startTurnSequence,
   turnSequenceScopeOf, withholdCurrentHolder, type TurnEligibility, type TurnSequenceState,
 } from '../../../server/src/games/core/turnSequence.js';
 import type { ProjectionAudience } from '../../../server/src/games/core/visibility.js';
@@ -67,10 +67,10 @@ function host(body: Record<string, unknown>): object {
   const scope = turnSequenceScopeOf(state);
   switch (body.type) {
     case 'reset': reset(); return { ok: true, ...view() };
-    case 'skip': return apply('skip', () => advanceTurn(state, { scope, ...binding(), outcome: 'SKIP', eligibility: elig() }));
-    case 'complete': return apply('host-complete', () => advanceTurn(state, { scope, ...binding(), outcome: 'COMPLETE', eligibility: elig() }));
+    case 'skip': return apply('skip', () => advanceTurnSequence(state, { scope, ...binding(), outcome: 'SKIP', eligibility: elig() }));
+    case 'complete': return apply('host-complete', () => advanceTurnSequence(state, { scope, ...binding(), outcome: 'COMPLETE', eligibility: elig() }));
     case 'withhold': return apply('withhold', () => withholdCurrentHolder(state, { scope, ...binding(), eligibility: elig() }));
-    case 'override': return apply('override', () => overrideTurn(state, { scope, ...binding(), target: { teamId: String(body.teamId), playerId: String(body.playerId) }, eligibility: elig(), now: Date.now(), reason: 'harness' }));
+    case 'override': return apply('override', () => overrideTurnSequence(state, { scope, ...binding(), target: { teamId: String(body.teamId), playerId: String(body.playerId) }, eligibility: elig(), now: Date.now(), reason: 'harness' }));
     case 'close': return apply('close', () => closeTurnSequence(state, { scope, expectedVersion: state.version }));
     case 'eligibility': {
       eligibility = { teams: body.teams as string[], members: body.members as string[], version: eligibility.version + 1 };
@@ -92,7 +92,7 @@ function advance(body: { recipient: string; turnNumber: number; sequenceVersion:
       caller: { role: audience.role as 'PLAYER', participantId: audience.participantId ?? 'none', teamId: audience.teamId ?? null },
       gate: { admitted: true, phaseOpen: true, paused }, eligibility: elig(),
     });
-    return advanceTurn(state, { scope, expectedVersion: body.sequenceVersion, expectedTurnNumber: body.turnNumber, outcome: 'COMPLETE', eligibility: elig() });
+    return advanceTurnSequence(state, { scope, expectedVersion: body.sequenceVersion, expectedTurnNumber: body.turnNumber, outcome: 'COMPLETE', eligibility: elig() });
   });
 }
 
