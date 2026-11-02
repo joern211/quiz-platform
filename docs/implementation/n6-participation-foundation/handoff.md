@@ -1,0 +1,28 @@
+# N6 — Übergabe
+
+Stand: 02.11.2026.
+
+- **Basis:** `main` @ `fc5bd21c82a9b87f0372b856f7b5312aeaf9e2ca` (N5-Squash-Merge von PR #34; main-CI-Lauf 41348036419 grün), beim Start per `git fetch` geprüft und unverändert; kein Konflikt, kein Rebase nötig. Einziger andere offene PR: #21 (historischer Plan-Draft, keine Basis).
+- **Branch:** `claude/new-session-im4em9` (vom Sitzungsrahmen vorgegeben; nach dem N5-Merge auf `origin/main` neu aufgesetzt). **PR:** siehe `acceptance.md` (Draft gegen `main`).
+- **Commits (Code):** `04a7678` (Vertrag + Domain + Tests) · `db3834c` (ParticipationStatusCard + Harness) · `254be7e` (Test Versionsgrenze) · **`b38d921` (Nachbesserung P2 aus dem unabhängigen PR-Prüfbericht: Versionsmerker getrennt von Anzeigedaten, siehe `review.md` B/R4)**. Dazu `38316f5` — ein Merge **ohne Inhalt**, der die bereits per Squash gemergten N5-Zwischencommits als zweiten Elternteil einbindet (Prozessfehler, siehe `review.md` B; der Diff gegen `main` ist unberührt). Danach nur Dokumentation. Exakte Head-/CI-Angaben in `acceptance.md`.
+- **Offene Jobs/Dateien:** keine. Der Harness-Server ist beendet, keine temporären Prozesse; Arbeitsbaum sauber.
+
+## Was N6 liefert (und was nicht)
+Ein serverprivater Track (Spielstatus ACTIVE/ELIMINATED getrennt von optionalen, ausdrücklich konfigurierten Leben), `changeLives`/`eliminateActor` mit lokaler Version, Aktivitätsabfragen, ein Aktiv-Filter für feste Reihenfolgen (`CoreTurn`-kompatibel), ein Projektionsvertrag mit ausdrücklicher Freigabe (`NONE|STATUS|STATUS_AND_LIVES`) und die Karte `ParticipationStatusCard`. **Alles H.** **0 neue echte Engine-Verbraucher.** Keine Engine, kein Command, keine Route, keine Tabelle, keine Spielregel, keine Verfügbarkeitsänderung, keine DEC-Regel als entschieden markiert. **Core-DoD (Master §13.2) bleibt offen.** Formulierung: **N6-Grundlagenpaket umgesetzt/reviewbereit** — nicht „Leben-/Teilnahme-Core für alle Spiele fertig“.
+
+## Nächste konkrete Aktion
+1. PR reviewen und selbst mergen (Claude merged nicht). Urteil für das **begrenzte Paket**: reviewbereit (siehe `acceptance.md`); unvollständig bleibt bewusst die Runtime-Integration.
+2. Danach — nur nach Freigabe der jeweiligen Spielregel (DEC-LMS-01 / DEC-UND-01 / DEC-AGT-01) — der erste echte Verbraucher (naheliegend Last Man Standing). Verbindliche Pflichten (Auftrag §15):
+   - **Ebenen verbinden:** aktuelle Admission/Session/Mitgliedschaft/Teamzuordnung/Rechte/Phase/Timer (Ebene B, auch nach Kick, Leave, Host-Transfer und Gerätewechsel) **und** `isActorActive` (Ebene C) für genau diese Aktion prüfen; `audience`, `participantId`, `teamId` nur aus der **aktuellen** zugelassenen Session ableiten — eine bekannte ID ist keine Authentifizierung. Ein Disconnect ist kein Lebensverlust; Leave/Kick bestimmt keine Verlustregel.
+   - **Regeln ableiten und pinnen:** Lebens-/Eliminierungsentscheidungen nur aus bestätigten Spielregeln; Track und Konfiguration (`maxLives`, `zeroLivesPolicy`, Startleben) im GameConfigSnapshot pinnen; `trackId`/`rosterRevision` einmal vergeben, **opak** (nie aus Roster/Leben ableiten) und eindeutig persistieren (z. B. UNIQUE auf Raum + Run + trackId).
+   - **Track über Runden erhalten:** kein Neuanlegen bei `ROUND_TRANSITION`; Rematch/neuer Run = ausdrücklich neuer Track aus neu übergebenen Anfangsdaten; keine stillen Resets, keine Übertragung an Nachrücker (Ersatzspieler = neue Identität).
+   - **Atomar verdrahten:** `track.version` als `expectedVersion` mit der **globalen** `stateVersion`, CAS, Receipt und State-Event in **einem** Commit verbinden (neuer Track + Game-State-Event zusammen); kein Event bei `changed === false`; Doppelwirkung paralleler/erneuter Commands über den vorhandenen Receipt-/Intent-Pfad verhindern; `transition` nur serverintern nutzen.
+   - **Aktions-/Zugfilter gezielt einbinden:** `roundFlow.ts`/Engine-Aktionsregeln bewusst umverdrahten; historische gültige Abgaben/Ergebnisse nicht rückwirkend löschen; N4-Wahlberechtigungen sind gepinnte Roster, **keine** aktuelle Authentifizierung — ein Ausgeschiedener verliert dadurch keine bereits gültige Stimme.
+   - **Projektionen unabhängig halten:** Rollen-/Secret-Projektion (N5) und Teilnahmestatus getrennt ausliefern; nur erlaubte Daten; kein „ELIMINATED ⇒ alle Secrets sichtbar“; freigegebenes Wissen ist eine Momentaufnahme und nicht zurücknehmbar.
+   - **Auslieferung testen:** echte Socket-Auslieferung (eine Projektion je Empfänger), Rejoin, Resync und Prozessneustart mit Persistenz; die Anzeige braucht `stateVersion` und ein vom Aufrufer **angehobenes** `minStateVersion` aus dem eigenen Snapshot-Kanal.
+   - **Kein Automatismus nach KO:** kein automatischer Gewinner, kein allwissender Zuschauerstatus, kein neuer Medienzugriff; Voice/Kamera folgen den bestehenden Medienrechten.
+   - **Logging:** Monitoring/Logging ohne private Nutzlasten (keine Lebenswerte, Policies, Ursachen, Roster, Rohzustände); Fehler nur als Code melden (`ParticipationError.issues` darf serverseitig geloggt werden, nie Rohzustand/`transition`).
+   - **Core-DoD:** erst mit mindestens **zwei verschiedenen realen Engines** (Master §13.2) und Persistenz, Permissions, Rejoin/Resync/Recovery, Monitoring/Logging kann dieses Core-Modul als DONE bewertet werden.
+
+## Ehrliche Grenze
+Keine Socket-/Rejoin-/Resync-/DB-/Neustart-Nachweise (SDK-Replay und Domainprojektion sind Vorbereitung, kein Ersatz). Keine Host-Vorschau. Die Karte zeigt einen Akteur und führt je angezeigtem Kontext genau einen Versionsmerker (kein Cache alter Kontexte). Layout nur im Chromium-Emulator geprüft. Das bestehende `Scoreboard.tsx`-KO (aus `lives === 0`) und die Spalte `Participation.lives` sind unverändert.

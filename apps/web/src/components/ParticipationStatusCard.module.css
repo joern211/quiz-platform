@@ -1,0 +1,15 @@
+/* N6 ParticipationStatusCard — Midnight tokens only: theme and accent families switch via the root attributes. No animation. */
+.card {
+  display: flex; flex-direction: column; gap: var(--space-2); min-width: 0; max-width: 100%; box-sizing: border-box;
+  padding: var(--space-3); background: var(--surface); border: 1px solid var(--border-strong); border-radius: var(--radius-md);
+}
+.title { margin: 0; font-size: 1.05rem; font-weight: 700; color: var(--fg); overflow-wrap: anywhere; }
+.source { margin: 0; font-size: 0.8rem; color: var(--muted); overflow-wrap: anywhere; }
+.unavailable { margin: 0; font-size: 0.85rem; color: var(--muted); overflow-wrap: anywhere; }
+.list { display: flex; flex-direction: column; gap: var(--space-1); margin: 0; min-width: 0; }
+.row { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--space-2); min-width: 0; }
+.term { margin: 0; font-size: 0.85rem; color: var(--muted); }
+.value { margin: 0; font-size: 1rem; font-weight: 650; color: var(--fg); overflow-wrap: anywhere; }
+/* the status is always also written as text; the colour is only a second cue */
+.active { color: var(--ok); }
+.eliminated { color: var(--danger); }
