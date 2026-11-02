@@ -298,6 +298,18 @@ async function startChildren() {
   expect((await RN.evaluate(() => window.__recs.length)) === madeBefore, 'S6: the late older renewal created an element');
   checkOnPlan('S6 after the late renewal', await measure(RN));
   expect((await stats()).state.version === 1, 'S6: renewals changed nothing in the plan (version stays 1)', (await stats()).state.version);
+  // an EMPTY intermediate view must not make the order forgotten: the older answer arriving afterwards loads nothing old
+  await inject(RN, null);
+  await waitUntil(async () => live(await probe(RN)).length === 0, 3000, 'S6: element released for the empty view');
+  const recsAtEmpty = await RN.evaluate(() => window.__recs.length);
+  await inject(RN, R1);
+  await sleep(900);
+  expect(live(await probe(RN)).length === 0 && (await RN.evaluate(() => window.__recs.length)) === recsAtEmpty, 'S6: an older renewal after an empty view loaded the old URL (audio object created)');
+  expect((await statusOf(RN)) === 'ERROR' && /nicht geladen werden/.test(await RN.locator('section').innerText()) && !/tok=|harness-media/.test(await RN.content()), 'S6: neutral state with the retrieval action expected', await statusOf(RN));
+  await inject(RN, R2); // the CURRENT source (same number) is accepted again
+  await waitUntil(async () => (await statusOf(RN)) === 'PLAYING', 6000, 'S6: PLAYING again on the current URL');
+  expect(/tok=3/.test(live(await probe(RN))[0]?.src ?? ''), 'S6: the current URL must be the live one after the empty view');
+  checkOnPlan('S6 after the empty view', await measure(RN), { signal: false });
   // withdrawal during a renewal stays effective
   await cmd({ type: 'release', role: 'VIEWER', release: 'NONE' });
   await inject(RN, await fetchProjection('VIEWER'));
@@ -320,7 +332,10 @@ async function startChildren() {
   const pausedAt = (await stats()).state.positionMs;
   await waitUntil(async () => (await statusOf(RE)) === 'PAUSED' && live(await probe(RE)).every(e => e.paused), 3000, 'S7: PAUSED');
   // an already-queued `ended`, dispatched AFTER the pause, while the element really sits at its end (the demanding variant: `ended` is true of the element)
-  const atEnd = await RE.evaluate(async () => { const rec = window.__recs.filter(r => r.el.getAttribute('src') !== null).at(-1); await new Promise(resolve => { rec.el.addEventListener('seeked', resolve, { once: true }); setTimeout(resolve, 2000); rec.el.currentTime = rec.el.duration; }); rec.el.dispatchEvent(new Event('ended')); return rec.el.ended; });
+  const atEnd = await RE.evaluate(async () => { const rec = window.__recs.filter(r => r.el.getAttribute('src') !== null).at(-1); await new Promise(resolve => { rec.el.addEventListener('seeked', resolve, { once: true }); setTimeout(resolve, 4000); rec.el.currentTime = rec.el.duration; });
+    // the seek settles asynchronously (slower on a loaded machine): wait for the element to REPORT its end instead of assuming it
+    for (let i = 0; i < 50 && rec.el.ended !== true; i++) await new Promise(r => setTimeout(r, 100));
+    rec.el.dispatchEvent(new Event('ended')); return rec.el.ended; });
   expect(atEnd === true, 'S7: the element must really be at its end for this probe', atEnd);
   await sleep(400);
   expect((await statusOf(RE)) === 'PAUSED', 'S7: a trailing ended after a pause changed the status', await statusOf(RE));

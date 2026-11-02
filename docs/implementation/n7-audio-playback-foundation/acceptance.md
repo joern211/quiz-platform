@@ -15,12 +15,12 @@ Base: `main` @ `1ac064f4933df90067bccd8dfb2c20115501c44e` (N1–N6 und PR #36 ge
 | `pnpm typecheck` | grün (shared, game-sdk, web, server) |
 | `pnpm lint` | 0 Fehler (Warnungen unverändert zum Bestand) |
 | `pnpm build` | grün |
-| `pnpm --filter @quiz/server test` (Skript legt frische Testdatenbank an) | **88 Dateien, 1169 Tests grün** (davor 87 / 1086; +83 = `audioPlayback.test.ts`) |
-| `pnpm --filter @quiz/web test` | **48 Dateien, 565 Tests grün** (davor 439; +126 = Uhr 14, Intake 26, Controller 63, Komponente 18, unabhängige Gegenproben 5) |
+| `pnpm --filter @quiz/server test` (Skript legt frische Testdatenbank an) | **89 Dateien, 1173 Tests grün** (davor 87 / 1086; +87 = `audioPlayback.test.ts` 85, Gegenprobe zum Issuer 2) |
+| `pnpm --filter @quiz/web test` | **49 Dateien, 584 Tests grün** (davor 439; +145 = Uhr 14, Intake 38, Controller 65, Komponente 20, Gegenproben der beiden Prüfungen 5 + 3) |
 | Chromium-E2E wie in der CI (frische DB, `playwright test --project=chromium`) | **45 von 45 grün** |
-| N7-Chromium-Harness `node apps/web/harness/n7-audio/check.cjs` (S1–S8 + Layout) | 3 Läufe an der ruhigen Maschine und 1 Lauf unter 6 CPU-Dauerschleifen: **je 0 Probleme** |
+| N7-Chromium-Harness `node apps/web/harness/n7-audio/check.cjs` (S1–S8 + Layout) | am Endstand: 5 Läufe an der ruhigen Maschine und 3 unter 6 CPU-Dauerschleifen mit **je 0 Probleme**; ein früherer Lauf unter Last scheiterte an einer zu optimistischen Probe-Vorbedingung (siehe review.md §10, R9), die Probe wartet jetzt auf das tatsächlich gemeldete Elementende |
 
-Stand dieser Tabelle: nach der Nachbesserung zu PR #37 (§7). Zum ersten Head `1cc8cb3` war es Server 88/1166, Web 47/526, Harness S1–S5.
+Stand dieser Tabelle: nach der Nachprüfung 2 (§8). Zum ersten Head `1cc8cb3` war es Server 88/1166, Web 47/526, Harness S1–S5; zu `84821b2` Server 88/1169, Web 48/565.
 
 Nicht ausgeführt: Safari/WebKit, Firefox, mobile Hardware, Produktionsnetz, echte Lautsprecherausgabe.
 
@@ -30,13 +30,11 @@ Gemessen wird der Abstand der `currentTime` des echten Elements zur Zielposition
 
 | Lauf | max. Abweichung zum Plan | max. Abweichung zwischen zwei Kontexten | Proben |
 |---|---|---|---|
-| ruhig 1 | 70 ms | 3 ms | 24 |
-| ruhig 2 | 95 ms | 9 ms | 24 |
-| ruhig 3 | 66 ms | 5 ms | 24 |
-| unter Last (6 Dauerschleifen) | 132 ms | 21 ms | 24 |
+| ruhig (5 Läufe) | 67–233 ms | 9–22 ms | 25 |
+| unter Last (6 Dauerschleifen, 3 gültige Läufe) | 62–155 ms | 15–19 ms | 25 |
 | (erster Head `1cc8cb3`: ruhig / unter Last) | 11–67 ms / 17 ms | ≤ 9 ms / 14 ms | 21 |
 
-**CI-Toleranz 500 ms** (`N7_TOL_MS`): bewusst großzügig gegenüber den gemessenen ≤ 132 ms, weil CI-Runner langsamer sind und die Messung (Roundtrip der Probe, Timerjitter) selbst Millisekunden-Rauschen enthält; sie liegt oberhalb der Driftkorrektur-Toleranz (250 ms), damit eine korrekt arbeitende Korrektur nicht als Fehler zählt, und weit unter der Größenordnung „falsche Position“ (Sekunden). Es wird **keine** samplegenaue oder geräteübergreifend garantierte Synchronität behauptet.
+**CI-Toleranz 500 ms** (`N7_TOL_MS`): bewusst großzügig gegenüber den gemessenen ≤ 233 ms, weil CI-Runner langsamer sind und die Messung (Roundtrip der Probe, Timerjitter) selbst Millisekunden-Rauschen enthält; sie liegt oberhalb der Driftkorrektur-Toleranz (250 ms), damit eine korrekt arbeitende Korrektur nicht als Fehler zählt, und weit unter der Größenordnung „falsche Position“ (Sekunden). Es wird **keine** samplegenaue oder geräteübergreifend garantierte Synchronität behauptet.
 
 Zusätzlich gemessen/assertiert: Pegel am Analyser (RMS > 0,02; gemessen ≈ 0,116) und Frequenz (440 ± 40 Hz; gemessen ≈ 430–441 Hz); vor dem Anker kein laufendes Element und kein Pegel (mindestens 10 Proben, assertiert); Spät-Zuschaltung landet bei > 2 s statt bei 0; Pause friert die Position (< 60 ms Bewegung in 1,5 s); Fortsetzen ab gespeicherter Position; Entzug gibt Element und Quelle frei (kein `src` im DOM); BLIND_HOST: **kein Audioobjekt**, **0 URL-Auflösungen**, Wiedergabe erst nach Öffentlichwerden.
 
@@ -83,3 +81,11 @@ Der Bericht fand am Head `1cc8cb3` drei P2-Befunde (URL-Erneuerung ohne Ordnung,
 * **Browser (S6–S8, echtes Chromium):** Die Erneuerungsreihenfolge bleibt für die laufende Ressource wirkungslos; nachlaufendes `ended` nach Pause bei real am Ende stehendem Element und echtes lokales Ende vor dem autoritativen Ende; später Einstieg auf einem nicht seekbaren Stream: 20 Proben ohne laufendes Element, neutraler Fehler, Retry an der Planposition. Rot-Nachweise im Browser: N01, N02c, N03; **nicht** gefangen: N02d (nur Schicht 2 entfernt; Schicht 1 schützt).
 * **Aussagen, die ich nicht mache:** keine Aussage zu Safari/iOS; keine Aussage, dass der produktive Medienpfad Range unterstützt, über das Lesen von `res.sendFile` hinaus (nicht durch N7 getestet); Erneuerungsfehler des Adapters sind nicht modelliert.
 * **Verbleibende Unsicherheit der Nachbesserung selbst:** Die Schicht „Merker an die Plan-Entscheidung“ (N7-02) ist im echten Browser nicht isoliert prüfbar; sie ist nur durch Unit-Tests und die Unit-Mutation M25 belegt.
+
+## 8. Nachprüfung 2 (Head 84821b2): N7-01-Rest [P2] und N7-04 [P3]
+
+Die Nachprüfung bestätigte die Korrekturen zu N7-02 und N7-03 und fand zwei Reste: (1) die Ordnungskenntnis der Erneuerung ging über eine leere/ungültige Zwischenansicht verloren (U20 → null/undefined/ungültig → U10 lud die ältere URL wieder) und (2) die Behauptung „neustartfest“ des Nummerngebers war ohne gespeicherten Zähler nicht haltbar. Beides ist behoben; Details `design.md` §11 (Nachprüfung 2), `review.md` §10.
+
+* **N7-01-Rest:** `seenRenewal` als Zahl im Memo, getrennt von `held` (überlebt leere, ungültige, fremde Sichten und Entzug, nie eine URL, neuer Kontext beginnt leer); eine ältere Quelle wird nie gehalten, Plan und Versionen (Pause/Stop) werden trotzdem übernommen; ohne gehaltene Quelle hält der Controller **kein** Element und zeigt neutral die Wiederbeschaffung. Nachweise: die 3 Proben des Prüfers (rot → grün), Intake-Tests inkl. erschöpfender Prüfung über 5^5 Folgen, Controller-, Komponenten- und Browser-Nachweis (S6: nach leerer Ansicht entsteht **kein** Audioobjekt mit der alten URL, danach die aktuelle URL an der Planposition). Mutationen M36–M41 (Unit) und N01r (echter Browser) werden gefangen.
+* **N7-04:** `createRenewalIssuer(lastIssued?)` / `issuer.last()` als Wiederherstellungsanschluss für den Persistenz-/Recoverypfad des späteren Adapters. Garantiert: streng wachsend innerhalb einer Instanz; über einen Neustart nur mit wiederhergestelltem Wert oder bei nicht rückwärts laufender Uhr. Die unbedingte Form ist als **dokumentierte Grenze** getestet (ohne Wiederherstellung und mit rückwärts korrigierter Uhr kann eine niedrigere Nummer entstehen). Kein Zeitdienst, keine Persistenz in N7.
+* **Verbleibende Grenzen:** Der Ausgang der Wiederbeschaffungsanfrage (`onRenewUrl`) ist Sache der Anwendung und nicht modelliert; der Issuer-Neustart ohne gespeicherten Wert ist Pflicht des Adapters (`handoff.md`); Browserbelege nur Chromium. 0 Verbraucher, Core-DoD offen.

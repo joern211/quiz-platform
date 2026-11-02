@@ -169,3 +169,12 @@ Auch das ist Eigenprüfung. Die externe Nachprüfung fand an meiner N7-01-Korrek
 | N7-04 [P3] Issuer „neustartfest“ | eine neue Instanz kennt frühere Nummern nicht; die Wanduhr ist kein persistierter Zähler | Anschluss `last()` / `createRenewalIssuer(last)`; Behauptung auf das Garantierte reduziert (Instanz streng wachsend; über Neustart nur mit wiederhergestelltem Wert oder nicht rückwärts laufender Uhr) | Probe des Prüfers rot (99 000 < 100 000) → Wiederherstellungsfall grün; die unbedingte Form bleibt als **dokumentierte Grenze** (Test erwartet den niedrigeren Wert) | keine Persistenz und kein Zeitdienst in N7; Pflicht des späteren Adapters |
 
 Die Probe des Prüfers für den Issuer ist angepasst: sie prüft jetzt den Fall **mit** wiederhergestelltem Wert (grün) und hält die unbedingte Form als dokumentierte Grenze fest, statt eine Garantie zu behaupten, die ohne gespeicherten Zähler nicht gegeben werden kann.
+
+### 10.1 Gegenversuche und weitere Befunde der Nachprüfung 2
+
+Unit: M36 Entzug/leere Sicht vergisst die Nummer (gefangen, 14) · M37 „älter“ wird nie erkannt (gefangen, 23) · M38 ohne gehaltene Quelle wird die ältere doch benutzt = der gemeldete Fehler (gefangen, 15) · M39 Wiederbeschaffung ruft die Anwendung nicht (gefangen, 2) · M40 Issuer ignoriert den wiederhergestellten Wert (gefangen, 1) · M41 RUNNING ohne Quelle ist kein Fehler (gefangen, 2). Echter Browser: N01r (leere Ansicht vergisst die Nummer) → rot (S6: Audioobjekt für die alte URL entstanden, Status PLAYING statt neutral).
+
+| # | Befund | Folge |
+|---|---|---|
+| R9 | Ein Harnesslauf unter Last scheiterte an `S7: the element must really be at its end`: die Probe nahm an, das Element melde nach dem Seek ans Ende sofort `ended`; unter Last braucht der asynchrone Seek länger. Kein Produktfehler, aber eine Probe, die bei Last rot werden kann. | Die Probe wartet auf das tatsächlich gemeldete Elementende (bis 5 s) statt es anzunehmen; danach 3 Läufe unter Last grün. Die Vorbedingung bleibt eine Behauptung. |
+| R10 | Mein erster Test der Issuer-Neustartfestigkeit gab die Uhrzeit für die neue Instanz schon größer vor und setzte damit die Eigenschaft voraus (so auch im Bericht). | Der Test prüft jetzt beide Fälle ausdrücklich: mit wiederhergestelltem Wert (Ordnung hält) und ohne (Grenze, niedrigere Nummer möglich). |
