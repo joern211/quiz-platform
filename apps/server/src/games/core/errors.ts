@@ -6,6 +6,7 @@ import { SECRET_INFO_ERROR_CODES } from '@quiz/shared/secretInfo';
 import { PARTICIPATION_ERROR_CODES } from '@quiz/shared/participation';
 import { AUDIO_PLAYBACK_ERROR_CODES } from '@quiz/shared/audioPlayback';
 import { TURN_SEQUENCE_ERROR_CODES } from '@quiz/shared/turnSequence';
+import { DICE_ERROR_CODES } from '@quiz/shared/dice';
 import { GameStateConflictError } from './state.js';
 
 // Wire codes kept stable for existing clients; internal messages are never returned.
@@ -44,6 +45,8 @@ const PUBLIC_CODES = new Set([
   ...AUDIO_PLAYBACK_ERROR_CODES,
   // N8: turn sequence codes carry no order, roster, member list, actor id, cursor or reason (issues are code-only); no engine emits them yet.
   ...TURN_SEQUENCE_ERROR_CODES,
+  // N9: dice codes carry no value, position list, order, roster, actor id or reason (issues are code-only); no engine emits them yet.
+  ...DICE_ERROR_CODES,
 ]);
 
 export function gameErrorCode(error: unknown, gameSlug?: string): string {
