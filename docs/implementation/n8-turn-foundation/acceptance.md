@@ -40,3 +40,39 @@ Head, PR-Nummer und die CI am **finalen** Head stehen in der PR-Beschreibung (ei
 | §9 Prüfkatalog A–G | siehe `design.md` §8 und `review.md`; G: Harness S1–S9 |
 | §10 zweite Eigenprüfung | `review.md` (Befunde F1/F2, Übergangstabelle, aktive Gegenfälle, Orakel, Mutationen) — Eigenprüfung, keine unabhängige |
 | §11 Matrix/Doku | `matrix.md`, `g5-consumer-acceptance/matrix.md` (Abschnitt 5, historischer Stand gekennzeichnet), `handoff.md` |
+
+---
+
+# Nachbesserungsrunde zu PR #38 (unabhängiger Prüfbericht, Ausgangspunkt `93b8797`)
+
+Befunde: **N8-01** Empfängerbindung, **N8-02** neuere Eligibility-Basis in Kein-Op-Pfaden, **N8-03** Run-Bindung der N6-Daten (Ursache, Änderung, Nachweis, Grenzen: `review.md` Abschnitt H). Die sechs Gegenproben des Berichts laufen unverändert (nur das neue Pflichtfeld ergänzt): am alten Stand **6/6 rot** (Server 4, Web 2), jetzt **6/6 grün**.
+
+## Prüfläufe der Nachbesserung (lokal, nacheinander, am Code-Stand nach den Korrekturen)
+
+| Prüfung | Befehl | Ergebnis |
+|---|---|---|
+| Typecheck | `pnpm typecheck` | Exit 0 |
+| Lint | `pnpm lint` | Exit 0 — 0 Fehler, 109 Warnungen (= Ausgangswert) |
+| Build | `pnpm build` | Exit 0 |
+| Server | `pnpm --filter @quiz/server test` | Exit 0 — **92 Dateien, 1264 Tests** (Ausgangswert 1173; N8 gesamt +91: `turnSequence.test.ts` 79, `turnSequence.cas.integration.test.ts` 8, `n8IndependentReview.test.ts` 4) |
+| Web | `pnpm --filter @quiz/web test` | Exit 0 — **52 Dateien, 631 Tests** (Ausgangswert 584; N8 gesamt +47: `TurnStatusCard.test.tsx` 24, `turnIntake.test.ts` 21, `n8IndependentReview.test.tsx` 2) |
+| E2E (Chromium) | `CI=true pnpm exec playwright test --config=playwright.config.ts --project=chromium`, frische SQLite-DB | Exit 0 — **45 bestanden** |
+| N8-Harness | `node apps/web/harness/n8-turn/check.cjs` | **5 Läufe, 0 Probleme** (je ~9 s), neues Szenario **S1b** (fremdes Empfängerpaket in andere Browserkontexte zugestellt); Kindprozesse danach beendet |
+| Mutationen | `review.md` F | **29 von 29** gefangen (21 erste Runde + R1–R8), 2 Harness-Gegenproben; Arbeitsbaum danach sauber |
+| GitHub-CI am letzten Head | siehe PR / Abschlussbericht | nach dem Push zu prüfen |
+
+Erstes Grün ≠ Abschluss: nach den Korrekturen folgte die zweite Eigenprüfung (Kein-Op-Pfade einzeln, mehrstufige Folgen, Empfängerwechsel, getrennte Team-/Mitgliederstände, Recovery) — dabei ergänzt: die ausdrückliche Operation `refreshEligibilityBasis` (kein bisheriger Weg, einen neueren Stand ohne weitere Wirkung festzuhalten).
+
+## Anforderungen des Berichts → Nachweis
+
+| Pflichtnachweis | Nachweis |
+|---|---|
+| N8-01: Alice → Bob, Alice-Paket liegt noch an; spätes Alice-Paket nach Bob; zwei Teammitglieder; Viewer/Display/Host; gleiche Projektion ohne Reset | `turnIntake.test.ts` „recipient binding (N8-01)“ (7), `TurnStatusCard.test.tsx` „recipient binding“ (6), Server-Test „names the recipient in EVERY packet“, Harness S1b |
+| N8-02: alle drei Folgen; actor- und member-Basis unabhängig; Basisfortschreibung bewegt nichts; Recovery; gleicher Stand ohne Zusatzwechsel | `turnSequence.test.ts` „D3 … no-op paths“ (7), DB-Test „newer eligibility basis … persisted through the CAS“, `n8IndependentReview.test.ts` (3 der 4) |
+| N8-03: Run-1-Track an Run-2-Folge; gleiches Run ok; Team-/Mitglieder-Track je fremd; nach Recovery | `turnSequence.test.ts` „D3 … run of the sequence“ (6), `n8IndependentReview.test.ts` (1 der 4) |
+
+## Ehrliche Grenzen (neu)
+- Fremdes **gültiges** Empfängerpaket ⇒ leere Anzeige (fail-closed), nicht „alte Sicht bleibt“ — bewusste Entscheidung, siehe `review.md` H.
+- Abgelehnte Aufrufe speichern keine neuere Basis; `refreshEligibilityBasis` ist der ausdrückliche Weg. Jede BASIS-Änderung erhöht die lokale Version (laufende Spieleraktionen werden veraltet).
+- Run-Bindung beweist nicht, dass es der richtige Track **derselben** Partie ist.
+- Weiterhin: Stand-in-Zustand statt Engine, Chromium-Emulation statt iPhone/Safari.

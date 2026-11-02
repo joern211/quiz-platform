@@ -57,32 +57,41 @@ Ausgeführt in `turnSequence.test.ts` „N8 D2: transition table“ (jede Operat
 
 ## F. Mutationsprüfung (lokal reversibel, tatsächlich ausgeführt)
 
-Jede Mutation wurde einzeln eingebaut, die betroffenen Testdateien liefen (Server: `turnSequence.test.ts` + `turnSequence.cas.integration.test.ts`; Web: `turnIntake.test.ts` + `TurnStatusCard.test.tsx`), die Mutation wurde zurückgenommen. Ergebnis am Endstand: **21 von 21 gefangen**, `git status` danach leer.
+Jede Mutation wurde einzeln eingebaut, die betroffenen Testdateien liefen (Server: `turnSequence.test.ts` + `turnSequence.cas.integration.test.ts`; Web: `turnIntake.test.ts` + `TurnStatusCard.test.tsx`), die Mutation wurde zurückgenommen. Ergebnis (neu ausgeführt am Stand nach der PR-#38-Nachbesserung; Mutationen P1–P21 der ersten Runde plus **R1–R8** zu den drei Prüfberichts-Befunden): **29 von 29 gefangen**, `git status` danach leer. (P8 und P13 mussten nach der Nachbesserung mit angepasstem Muster erneut laufen, weil ich ihre Zielzeilen geändert hatte; beide rot.)
 
 | # | Eingebauter Fehler | rote Tests |
 |---|---|---|
 | P1 | fehlender Zugbezug (`assertTurn` wirkungslos) | 4 |
-| P2 | vergessene Versionsprüfung | 10 |
+| P2 | vergessene Versionsprüfung | 11 |
 | P3 | Teamzeiger bewegt sich doppelt je Abschluss | 13 |
 | P4 | Zeiger des **falschen** Teams bewegt sich | 14 |
-| P5 | `SKIP` verbraucht Zeiger und zählt als Abschluss | 5 |
-| P6 | veralteter Eligibility-Stand wird akzeptiert | 3 |
+| P5 | `SKIP` verbraucht Zeiger und zählt als Abschluss | 7 |
+| P6 | veralteter Eligibility-Stand wird akzeptiert | 13 |
 | P7 | Override zählt als Abschluss | 2 |
-| P8 | Override auf identisches Ziel erzeugt neuen Zug | 1 |
-| P9 | `withhold` ohne Grund (Halter noch geeignet) | 1 |
+| P8 | Override auf identisches Ziel erzeugt neuen Zug | 4 |
+| P9 | `withhold` ohne Grund (Halter noch geeignet) | 2 |
 | P10 | `you.holdsTurn` nur aus Spieler-ID (Team ignoriert) | 1 |
-| P11 | Halter-Eligibility in `authorize` nicht geprüft | 2 |
+| P11 | Halter-Eligibility in `authorize` nicht geprüft | 3 |
 | P12 | beschädigter Zustand wird repariert statt abgelehnt (Zeiger) | 1 |
-| P13 | CAS im Stand-in-Handler entfernt (unbedingtes Schreiben) | 3 |
+| P13 | CAS im Stand-in-Handler entfernt (unbedingtes Schreiben) | 2 |
 | P14 | Intake vergisst die Zugidentität | 2 |
-| P15 | Entzug löscht auch die Versionskenntnis | 7 |
+| P15 | Entzug löscht auch die Versionskenntnis | 9 |
 | P16 | breitere Freigabe am gleichen Stand akzeptiert | 1 |
 | P17 | Intake vergisst die Folgeversion | 2 |
-| P18 | keine Scope-/Mindestbindung im Intake | 4 |
+| P18 | keine Scope-/Mindestbindung im Intake | 15 |
 | P19 | Sendesperre wird bei neuem Projektionsobjekt gelöscht (N1-Muster) | 3 |
-| P20 | Karte ruft den Callback von selbst nach dem Mount | 7 |
-| P21 | Sperre nur nach Zugnummer (kein Kontext) | 1 |
-| H1 | Harness-Gegenprobe: Intake nie veraltet (`older` wirkungslos) | Harness: 5 Meldungen (S3, S4, S5) |
+| P20 | Karte ruft den Callback von selbst nach dem Mount | 9 |
+| P21 | Sperre nur nach Zugnummer (kein Kontext) | 2 |
+| **R1** | **N8-01:** Empfänger wird nicht verglichen | 11 |
+| **R2** | **N8-02:** neuere Basis wird in Kein-Op-Pfaden verworfen | 11 |
+| **R3** | **N8-03:** Run der Eligibility nicht gegen die Folge geprüft | 5 |
+| **R4** | **N8-02:** BASIS-Änderung verbraucht zusätzlich einen Zug | 8 |
+| **R5** | **N8-02:** nur Team-Ebene wird fortgeschrieben (Mitglieder-Ebene ignoriert) | 1 |
+| **R6** | **N8-03:** Run nur auf Team-Ebene geprüft | 1 |
+| **R7** | **N8-01:** Server-Projektion setzt `recipientId` immer `null` | 3 |
+| **R8** | **N8-01:** Sendesperre ohne Empfänger im Schlüssel | 2 |
+| H1 | Harness-Gegenprobe: Intake nie veraltet | Harness: 5 Meldungen (S3, S4, S5) |
+| H2 | Harness-Gegenprobe: Empfängerprüfung ausgebaut | Harness: 3 Meldungen (S1b) — reproduziert den Fehler: B zeigt „Du bist am Zug … Zug beenden“ für As Paket |
 
 Ehrliche Lesart: P19/P20 wurden zunächst mit einem fehlenden `useEffect`-Import gebaut und färbten dadurch **alle** Karten-Tests rot (18) — kein Nachweis; nach Korrektur des Mutanten 3 bzw. 7 gezielte Treffer. Eine Mutation „Projektion leakt Mitgliederliste“ ist **nicht** sinnvoll testbar, weil das strikte Clientschema die Ausgabe schon vorher ablehnt (`TURN_SEQ_STATE_INVALID`); der Schutz ist dort die Schema-Strenge (Tests „strict at every level“, „never serialises …“).
 
