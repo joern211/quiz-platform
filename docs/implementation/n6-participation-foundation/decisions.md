@@ -28,7 +28,7 @@
 | Eigener Datensatz | `own` zeigt Status **und** Leben; Lebenssicht `HIDDEN` für den Eigentümer per Schema ausgeschlossen | Auftrag §9: eigene Teilnehmer-/Teamdaten über PLAYER_PRIVATE/TEAM_PRIVATE |
 | `stateVersion` im Umschlag | vom Aufrufer gelieferte Snapshot-Version; nie der lokale Zähler | Auftrag §9: der lokale Zähler würde die Zahl verborgener Lebensverluste verraten |
 | Audience-Prüfung | unbekannte Rolle (z. B. `ADMIN`)/ungültige ID ⇒ `PARTICIPATION_AUDIENCE_INVALID` | kein ADMIN-Shortcut; fail-closed statt raten |
-| UI: erwarteter Mindest-Snapshot | `minStateVersion` kommt vom Aufrufer, nie aus der Projektion; zusätzlich **ein** Merker-Slot je angezeigtem Kontext | Auftrag §10; der Slot schützt gegen späte ältere Pakete, ersetzt aber nicht die Pflicht des Aufrufers, `minStateVersion` anzuheben |
+| UI: erwarteter Mindest-Snapshot | `minStateVersion` kommt vom Aufrufer, nie aus der Projektion; zusätzlich ein **Versionsmerker je angezeigtem Kontext, getrennt von den Anzeigedaten** (überlebt einen Entzug; steigt auch durch gültige datensatzlose Projektionen; nur streng gültige, passende Beobachtungen) | Auftrag §10 und PR-Prüfbericht P2: ein gemeinsamer Zustand für Daten und Version verlor beim Entzug die Versionskenntnis (alte Pakete tauchten wieder auf). Der Merker schützt gegen späte ältere Pakete, ersetzt aber nicht die Pflicht des Aufrufers, `minStateVersion` anzuheben |
 | UI: Lebensanzeige | nur Zahl; keine Zeile bei verborgen/ohne Modell | 0 ist ein Wert, `null`/verborgen darf nie als 0 erscheinen |
 | Browser-Harness | wie N4/N5 unter `apps/web/harness/n6-participation/` (nur künstliche Daten, nicht Teil des Builds) | wiederholbarer Browsernachweis ohne produktive Route |
 

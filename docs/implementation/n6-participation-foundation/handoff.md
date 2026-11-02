@@ -4,7 +4,7 @@ Stand: 02.11.2026.
 
 - **Basis:** `main` @ `fc5bd21c82a9b87f0372b856f7b5312aeaf9e2ca` (N5-Squash-Merge von PR #34; main-CI-Lauf 41348036419 grün), beim Start per `git fetch` geprüft und unverändert; kein Konflikt, kein Rebase nötig. Einziger andere offene PR: #21 (historischer Plan-Draft, keine Basis).
 - **Branch:** `claude/new-session-im4em9` (vom Sitzungsrahmen vorgegeben; nach dem N5-Merge auf `origin/main` neu aufgesetzt). **PR:** siehe `acceptance.md` (Draft gegen `main`).
-- **Commits (Code):** `04a7678` (Vertrag + Domain + Tests) · `db3834c` (ParticipationStatusCard + Harness) · `254be7e` (Test Versionsgrenze). Dazu `38316f5` — ein Merge **ohne Inhalt**, der die bereits per Squash gemergten N5-Zwischencommits als zweiten Elternteil einbindet (Prozessfehler, siehe `review.md` B; der Diff gegen `main` ist unberührt). Danach nur Dokumentation. Exakte Head-/CI-Angaben in `acceptance.md`.
+- **Commits (Code):** `04a7678` (Vertrag + Domain + Tests) · `db3834c` (ParticipationStatusCard + Harness) · `254be7e` (Test Versionsgrenze) · **`b38d921` (Nachbesserung P2 aus dem unabhängigen PR-Prüfbericht: Versionsmerker getrennt von Anzeigedaten, siehe `review.md` B/R4)**. Dazu `38316f5` — ein Merge **ohne Inhalt**, der die bereits per Squash gemergten N5-Zwischencommits als zweiten Elternteil einbindet (Prozessfehler, siehe `review.md` B; der Diff gegen `main` ist unberührt). Danach nur Dokumentation. Exakte Head-/CI-Angaben in `acceptance.md`.
 - **Offene Jobs/Dateien:** keine. Der Harness-Server ist beendet, keine temporären Prozesse; Arbeitsbaum sauber.
 
 ## Was N6 liefert (und was nicht)
@@ -25,4 +25,4 @@ Ein serverprivater Track (Spielstatus ACTIVE/ELIMINATED getrennt von optionalen,
    - **Core-DoD:** erst mit mindestens **zwei verschiedenen realen Engines** (Master §13.2) und Persistenz, Permissions, Rejoin/Resync/Recovery, Monitoring/Logging kann dieses Core-Modul als DONE bewertet werden.
 
 ## Ehrliche Grenze
-Keine Socket-/Rejoin-/Resync-/DB-/Neustart-Nachweise (SDK-Replay und Domainprojektion sind Vorbereitung, kein Ersatz). Keine Host-Vorschau. Die Karte zeigt einen Akteur und hält einen Merker-Slot. Layout nur im Chromium-Emulator geprüft. Das bestehende `Scoreboard.tsx`-KO (aus `lives === 0`) und die Spalte `Participation.lives` sind unverändert.
+Keine Socket-/Rejoin-/Resync-/DB-/Neustart-Nachweise (SDK-Replay und Domainprojektion sind Vorbereitung, kein Ersatz). Keine Host-Vorschau. Die Karte zeigt einen Akteur und führt je angezeigtem Kontext genau einen Versionsmerker (kein Cache alter Kontexte). Layout nur im Chromium-Emulator geprüft. Das bestehende `Scoreboard.tsx`-KO (aus `lives === 0`) und die Spalte `Participation.lives` sind unverändert.
