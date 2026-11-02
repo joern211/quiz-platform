@@ -20,10 +20,13 @@ const NAMES: Record<string, string> = params.get('long') === '1'
 
 type Sent = { kind: 'ROLL' | 'HOLD'; intent: Record<string, unknown>; commandId: string };
 interface Settled { commandId: string; ok: boolean }
-interface Received { stateVersion: number; sequenceVersion: number; turnNumber: number; diceVersion: number; rollCount: number; release: string }
+interface Received { stateVersion: number; sequenceVersion: number; turnNumber: number; diceVersion: number; rollCount: number; release: string; diceId: string; scope: { runIndex: number; sequenceId: string; rosterRevision: string; unit: string } }
 declare global { interface Window { __harness: { calls: Sent[]; settled: Settled[]; received: Received | null; polls: number; ackDelayMs: number; failNext: number;
+  holdSends: boolean; pending: Array<() => void>; releaseSends: () => void;
+  context: { runIndex: number; sequenceId: string; rosterRevision: string; unit: string } | null;
   deliver: (raw: unknown) => void; freeze: (on: boolean) => void; setMin: (n: number) => void; errors: string[]; animationEnds: number } } }
-window.__harness = { calls: [], settled: [], received: null, polls: 0, ackDelayMs: 0, failNext: 0, deliver: () => undefined, freeze: () => undefined, setMin: () => undefined, errors: [], animationEnds: 0 };
+window.__harness = { calls: [], settled: [], holdSends: false, context: null, pending: [], releaseSends: () => undefined, received: null, polls: 0, ackDelayMs: 0, failNext: 0, deliver: () => undefined, freeze: () => undefined, setMin: () => undefined, errors: [], animationEnds: 0 };
+window.__harness.releaseSends = () => { window.__harness.holdSends = false; for (const resume of window.__harness.pending.splice(0)) resume(); };
 document.addEventListener('animationend', () => { window.__harness.animationEnds++; }, true); // observation only: the component itself has no such handler
 
 const commandIds = new Map<string, string>();
@@ -46,7 +49,7 @@ function App() {
     const load = async () => {
       try {
         const info = await (await fetch(`/api/context?recipient=${recipient}`)).json() as { scope: Omit<DiceExpectedContext, 'recipientId' | 'minStateVersion'>; recipientId: string | null };
-        if (live) setContext({ scope: { ...info.scope, recipientId: info.recipientId, minStateVersion: 0 } });
+        if (live) { setContext({ scope: { ...info.scope, recipientId: info.recipientId, minStateVersion: 0 } }); window.__harness.context = { ...info.scope }; } // what THIS page currently expects (measurement aid)
       } catch (error) { window.__harness.errors.push(String(error)); }
     };
     void load();
@@ -61,7 +64,7 @@ function App() {
         const raw = await (await fetch(`/api/projection?recipient=${recipient}`)).json() as DiceProjection;
         if (!live) return;
         window.__harness.polls++;
-        window.__harness.received = { stateVersion: raw.stateVersion, sequenceVersion: raw.sequenceVersion, turnNumber: raw.turnNumber, diceVersion: raw.diceVersion, rollCount: raw.rollCount, release: raw.release };
+        window.__harness.received = { stateVersion: raw.stateVersion, sequenceVersion: raw.sequenceVersion, turnNumber: raw.turnNumber, diceVersion: raw.diceVersion, rollCount: raw.rollCount, release: raw.release, diceId: raw.diceId, scope: { ...raw.scope } };
         setPayload(raw);
       } catch (error) { if (live) window.__harness.errors.push(String(error)); }
     };
@@ -80,6 +83,8 @@ function App() {
     const fail = window.__harness.failNext > 0;
     if (fail) window.__harness.failNext--;
     try {
+      // a DELAYED send: the intent was built (with its origin) when the user clicked; the request leaves only when the check releases it — after the context may have changed
+      if (window.__harness.holdSends) await new Promise<void>(resume => { window.__harness.pending.push(resume); });
       const response = await fetch('/api/intent', { method: 'POST', body: JSON.stringify({ kind, recipient, commandId: sent.commandId, intent }) });
       const result = await response.json() as { ok?: boolean; code?: string };
       if (delay > 0) await sleep(delay); // a LATE acknowledgement: the answer reaches the tray long after the server has moved on

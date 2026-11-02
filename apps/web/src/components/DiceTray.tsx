@@ -26,6 +26,9 @@
 // Chromium: focus falls back to <body> after every applied hold), and a keyboard user would have to start over. Presses on a locked control do nothing — the
 // guard above, not the attribute, is what blocks a second send.
 //
+// Origin: an intent carries the target it was made for (run, sequence, roster revision, unit, dice process) next to the counters — see `binding` below. The local
+// lock key contains the same parts.
+//
 // Hold: a click sends the COMPLETE target assignment (the shown assignment with that die flipped), never a toggle the server would have to guess.
 //
 // Presentation: values are shown only after a first roll (before it: text, no placeholder digits). Every die is a position with a visible caption
@@ -106,7 +109,12 @@ export function DiceTray({ expected, projection, label = 'Würfel', names, rollL
   }
 
   const nameOf = (id: string): string => names?.[id] ?? id;
-  const binding: DiceActionBinding = { turnNumber: held.turnNumber, sequenceVersion: held.sequenceVersion, diceVersion: held.diceVersion, rollCount: held.rollCount };
+  // the ORIGIN of every intent is fixed HERE, from the projection that is shown (target AND counters): the counters alone are unique only inside one target, and the
+  // application may deliver the intent after the context has changed. Copies, so that nothing downstream can alias the projection.
+  const binding: DiceActionBinding = {
+    scope: { runIndex: held.scope.runIndex, sequenceId: held.scope.sequenceId, rosterRevision: held.scope.rosterRevision, unit: held.scope.unit }, diceId: held.diceId,
+    turnNumber: held.turnNumber, sequenceVersion: held.sequenceVersion, diceVersion: held.diceVersion, rollCount: held.rollCount,
+  };
   const lockKey = `${key}|${diceActionBindingKey(binding)}`;
   const locked = sent === lockKey;
   const you = held.you;
@@ -124,11 +132,11 @@ export function DiceTray({ expected, projection, label = 'Würfel', names, rollL
       if (result !== undefined && result !== null && typeof (result as Promise<unknown>).then === 'function') (result as Promise<unknown>).then(undefined, unlock);
     } catch (error) { unlock(); throw error; }
   };
-  const roll = () => { if (onRoll !== undefined) send(() => onRoll({ ...binding })); };
+  const roll = () => { if (onRoll !== undefined) send(() => onRoll({ ...binding, scope: { ...binding.scope } })); };
   const toggle = (index: number) => {
     if (onHold === undefined) return;
     const target = held.held.flatMap((isHeld, position) => ((position === index ? !isHeld : isHeld) ? [position] : []));
-    send(() => onHold({ ...binding, held: target }));
+    send(() => onHold({ ...binding, scope: { ...binding.scope }, held: target }));
   };
 
   const faces = values === null ? '' : values.join(', ');

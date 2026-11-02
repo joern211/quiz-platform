@@ -33,7 +33,7 @@ import { runReceipted } from './commands.js';
 import { materializeGameEvent } from './events.js';
 import { GameStateConflictError, saveGameStateIfRevision } from './state.js';
 import {
-  closeDiceTurn, diceTurnScopeOf, openDiceTurn, parseDiceTurnState, projectDiceTurn, readDiceHoldIntent, readDiceRollIntent, rollDice, setDiceHeld, type DiceIntSource, type DiceTurnState,
+  closeDiceTurn, diceActionArgsFromIntent, diceTurnScopeOf, openDiceTurn, parseDiceTurnState, projectDiceTurn, readDiceHoldIntent, readDiceRollIntent, rollDice, setDiceHeld, type DiceIntSource, type DiceTurnState,
 } from './diceTurn.js';
 import {
   advanceTurnSequence, parseTurnSequenceState, prepareTurnSequence, refreshEligibilityBasis, startTurnSequence, turnSequenceScopeOf, type TurnEligibility, type TurnSequenceState,
@@ -48,8 +48,8 @@ const STAND_IN_ACTION = 'ROUND_ADVANCE' as const;
 const PLAYERS = ['a', 'b', 'c'];
 let db: PrismaClient, dir: string, url: string, previousGlobal: PrismaClient | undefined, sequence = 0, hostId: string, definitionId: string;
 
-const level = (ids: string[], version: number) => ({ runIndex: 1, trackId: 'players-track', rosterRevision: 'track-roster-1', version, knownIds: ids, activeIds: ids });
-const eligibility = (version = 1): TurnEligibility => ({ actors: level(PLAYERS, version), members: null });
+const level = (ids: string[], version: number, runIndex = 1) => ({ runIndex, trackId: 'players-track', rosterRevision: 'track-roster-1', version, knownIds: ids, activeIds: ids });
+const eligibility = (version = 1, runIndex = 1): TurnEligibility => ({ actors: level(PLAYERS, version, runIndex), members: null });
 
 beforeAll(async () => {
   dir = await mkdtemp(join(tmpdir(), 'quiz-n9-cas-'));
@@ -71,13 +71,20 @@ afterAll(async () => {
 interface StandInState { phase: string; standIn: boolean; turnSequence: unknown; dice: unknown }
 interface Stored { revision: number; phase: string; state: StandInState }
 
-/** A fresh room whose stand-in state holds a started player sequence (a, b, c; turn 1 = a) and a PREPARED five-dice process for that turn. */
-async function fixture(): Promise<{ roomId: string; seq: TurnSequenceState; dice: DiceTurnState }> {
+interface WorldOver { runIndex?: number; sequenceId?: string; rosterRevision?: string; diceId?: string }
+/** A started player sequence (a, b, c; turn 1 = a) and a PREPARED five-dice process for that turn. Every world has the SAME counters. */
+function buildWorld(over: WorldOver = {}): { seq: TurnSequenceState; dice: DiceTurnState } {
+  const runIndex = over.runIndex ?? 1;
+  const prepared = prepareTurnSequence({ runIndex, sequenceId: over.sequenceId ?? 'seq-n9', rosterRevision: over.rosterRevision ?? 'roster-1', unit: 'PLAYER', mode: 'FIXED', order: PLAYERS });
+  const seq = startTurnSequence(prepared, { scope: turnSequenceScopeOf(prepared), expectedVersion: 0, eligibility: eligibility(1, runIndex) }).state;
+  const dice = openDiceTurn({ scope: turnSequenceScopeOf(seq), diceId: over.diceId ?? 'dice-t1', config: DICE_CONFIG_FIVE_D6_HOLD, sequence: seq, expectedTurnNumber: seq.turnNumber });
+  return { seq, dice };
+}
+/** A fresh room whose stand-in state holds a world. */
+async function fixture(over: WorldOver = {}): Promise<{ roomId: string; seq: TurnSequenceState; dice: DiceTurnState }> {
   const code = String(940000 + sequence++).replace(/(\d{3})(\d{3})/, '$1-$2');
   const room = await db.room.create({ data: { code, roomName: 'N9 stand-in', hostUserId: hostId, gameDefinitionId: definitionId, status: 'RUNNING', runPhase: 'ROUND_ACTIVE', viewerRequiresPin: false } });
-  const prepared = prepareTurnSequence({ runIndex: 1, sequenceId: 'seq-n9', rosterRevision: 'roster-1', unit: 'PLAYER', mode: 'FIXED', order: PLAYERS });
-  const seq = startTurnSequence(prepared, { scope: turnSequenceScopeOf(prepared), expectedVersion: 0, eligibility: eligibility() }).state;
-  const dice = openDiceTurn({ scope: turnSequenceScopeOf(seq), diceId: 'dice-t1', config: DICE_CONFIG_FIVE_D6_HOLD, sequence: seq, expectedTurnNumber: seq.turnNumber });
+  const { seq, dice } = buildWorld(over);
   await db.roomGameState.create({ data: { roomId: room.id, engineVersion: 1, phase: 'ROUND_ACTIVE', revision: 4, stateJson: JSON.stringify({ phase: 'ROUND_ACTIVE', standIn: true, turnSequence: seq, dice }) } });
   return { roomId: room.id, seq, dice };
 }
@@ -106,9 +113,10 @@ function counted(values?: number[]) {
 }
 
 /** The client's intent: the four numbers it saw (from ITS last projection — never from the stored state). */
-interface Binding { turnNumber: number; sequenceVersion: number; diceVersion: number; rollCount: number }
+/** The ORIGIN of an intent: target (run, sequence, roster revision, unit, process) AND the four counters, as the client saw them (N9-01). */
+interface Binding { scope: ReturnType<typeof turnSequenceScopeOf>; diceId: string; turnNumber: number; sequenceVersion: number; diceVersion: number; rollCount: number }
 type Intent = { kind: 'ROLL'; binding: Binding } | { kind: 'HOLD'; binding: Binding; held: number[] };
-const bindingOf = (stored: Stored): Binding => ({ turnNumber: seqOf(stored).turnNumber, sequenceVersion: seqOf(stored).version, diceVersion: diceOf(stored).version, rollCount: diceOf(stored).rollCount });
+const bindingOf = (stored: Stored): Binding => ({ scope: turnSequenceScopeOf(seqOf(stored)), diceId: diceOf(stored).diceId, turnNumber: seqOf(stored).turnNumber, sequenceVersion: seqOf(stored).version, diceVersion: diceOf(stored).version, rollCount: diceOf(stored).rollCount });
 const CALLER = (participantId: string) => ({ role: 'PLAYER' as const, participantId, teamId: null });
 const OPEN = { admitted: true, phaseOpen: true, paused: false };
 
@@ -116,16 +124,15 @@ const OPEN = { admitted: true, phaseOpen: true, paused: false };
  * TEST-ONLY stand-in for an engine handler's last steps: parse the stored state, validate the client intent at the server boundary, call the pure domain
  * (N8 authorisation first, draw last), persist what N8-02 demands, then the commit (state event + shared CAS write on the REVISION THAT WAS LOADED). There is NO retry here: a lost CAS is the answer.
  */
-async function handle(loaded: Stored, roomId: string, who: string, intent: Intent, rng: DiceIntSource, stand: TurnEligibility = eligibility()) {
+async function handle(loaded: Stored, roomId: string, who: string, intent: Intent, rng: DiceIntSource, stand?: TurnEligibility) {
   const seq = seqOf(loaded), dice = diceOf(loaded);
+  const trusted = stand ?? eligibility(1, seq.runIndex); // the server's own N6 stand
   const parsed = intent.kind === 'ROLL' ? readDiceRollIntent(intent.binding) : readDiceHoldIntent({ ...intent.binding, held: intent.held });
-  const common = {
-    scope: turnSequenceScopeOf(seq), diceId: dice.diceId, sequence: seq, expectedTurnNumber: parsed.turnNumber, expectedSequenceVersion: parsed.sequenceVersion,
-    expectedVersion: parsed.diceVersion, expectedRollCount: parsed.rollCount, caller: CALLER(who), gate: OPEN, eligibility: stand,
-  };
+  // the ORIGIN comes from the INTENT (what the client saw); only the trusted facts come from the loaded state and the server session
+  const common = { ...diceActionArgsFromIntent(parsed), sequence: seq, caller: CALLER(who), gate: OPEN, eligibility: trusted };
   const result = intent.kind === 'ROLL' ? rollDice(dice, { ...common, source: rng }) : setDiceHeld(dice, { ...common, held: (parsed as DiceHoldIntent).held });
   // N8-02: a newer N6 stand that the action saw is persisted in the SAME commit (version +1 of the sequence, no new turn)
-  const nextSeq = result.sequenceBasisAdvanced ? refreshEligibilityBasis(seq, { scope: turnSequenceScopeOf(seq), expectedVersion: seq.version, eligibility: stand }).state : seq;
+  const nextSeq = result.sequenceBasisAdvanced ? refreshEligibilityBasis(seq, { scope: turnSequenceScopeOf(seq), expectedVersion: seq.version, eligibility: trusted }).state : seq;
   if (result.changed || nextSeq !== seq) {
     await persist(roomId, loaded, { ...loaded.state, turnSequence: nextSeq, dice: result.state }, 'DICE_CHANGED');
   }
@@ -315,6 +322,72 @@ describe('N9 integration: dice rolls and holds on the real CAS / receipt / state
     expect(diceOf(await load(roomId))).toMatchObject({ rollCount: 1, values: [6, 6, 6, 6, 6], diceId: 'dice-t4' });
   });
 
+  /** The consumer replaces the room's state by another world (a rematch, a new sequence, a new roster): ONE commit, a NEW global revision. */
+  async function replaceWorld(roomId: string, over: WorldOver, rolledOnce: boolean): Promise<Stored> {
+    const loaded = await load(roomId);
+    const world = buildWorld(over);
+    const seq = world.seq;
+    let dice = world.dice;
+    if (rolledOnce) {
+      const r = rollDice(dice, { ...diceActionArgsFromIntent(readDiceRollIntent({ scope: turnSequenceScopeOf(seq), diceId: dice.diceId, turnNumber: seq.turnNumber, sequenceVersion: seq.version, diceVersion: dice.version, rollCount: dice.rollCount })), sequence: seq, caller: CALLER('a'), gate: OPEN, eligibility: eligibility(1, seq.runIndex), source: counted([1, 2, 3, 4, 5]).source });
+      dice = r.state;
+    }
+    await persist(roomId, loaded, { ...loaded.state, turnSequence: seq, dice }, 'WORLD_REPLACED');
+    return load(roomId);
+  }
+  const TARGET_CASES: Array<[string, WorldOver, RegExp]> = [
+    ['another run (same player ids, valid NEW N6 track)', { runIndex: 2 }, /TURN_SEQ_RUN_STALE/],
+    ['another sequence of the same run', { sequenceId: 'seq-n9-next' }, /TURN_SEQ_SEQUENCE_STALE/],
+    ['another pinned roster revision', { rosterRevision: 'roster-2' }, /TURN_SEQ_ROSTER_STALE/],
+    ['another dice process of the same sequence and turn', { diceId: 'dice-t1-other' }, /DICE_SCOPE_STALE/],
+  ];
+  it.each(TARGET_CASES)('a late intent of an OLD target, delivered for the FIRST time (no receipt yet) after %s: refused on the real DB path — no draw, no event, no revision step, no stored effect; the fresh intent works (N9-01)', async (_name, over, expected) => {
+    for (const kind of ['ROLL', 'HOLD'] as const) {
+      const { roomId } = await fixture();
+      let old = await load(roomId);
+      if (kind === 'HOLD') { await handle(old, roomId, 'a', roll(bindingOf(old)), counted([1, 2, 3, 4, 5]).source); old = await load(roomId); }
+      const delayed: Intent = kind === 'ROLL' ? roll(bindingOf(old)) : holdIntent(bindingOf(old), [1, 3]); // prepared against the old target; it did NOT reach the server then
+      const current = await replaceWorld(roomId, over, kind === 'HOLD'); // same player, same local counters, a NEW global revision
+      const fresh: Intent = kind === 'ROLL' ? roll(bindingOf(current)) : holdIntent(bindingOf(current), [1, 3]);
+      const counters = (i: Intent) => [i.binding.turnNumber, i.binding.sequenceVersion, i.binding.diceVersion, i.binding.rollCount];
+      expect(counters(delayed)).toEqual(counters(fresh)); // the precondition of the failure: only the origin differs
+      expect(current.revision).toBeGreaterThan(old.revision);
+      const eventsBefore = await db.gameDomainEvent.count({ where: { roomId } });
+      const late = counted([6, 6, 6, 6, 6]);
+      const commandId = `cmd-${randomUUID()}`;
+      await expect(runReceipted(db, {
+        roomId, commandId, actor: { actorId: 'a', actorRole: 'PLAYER' }, action: STAND_IN_ACTION, payload: delayed,
+        mutate: async () => handle(await load(roomId), roomId, 'a', delayed, late.source), toResponse: data => ({ success: true, ...data }),
+      }), `${kind}: ${_name}`).rejects.toThrow(expected);
+      expect(late.state.draws).toBe(0);
+      expect(await load(roomId)).toEqual(current);
+      expect(await db.gameDomainEvent.count({ where: { roomId } })).toBe(eventsBefore);
+      expect((await db.commandReceipt.findUniqueOrThrow({ where: { roomId_commandId: { roomId, commandId } } })).status).not.toBe('COMPLETED'); // no success was ever recorded for it
+      const ok = counted([6, 6, 6, 6, 6]);
+      expect((await handle(current, roomId, 'a', fresh, ok.source)).changed).toBe(true); // positive control: the fresh intent of the NEW target
+    }
+  });
+
+  it('the receipt payload carries the origin: the same commandId with an intent of ANOTHER target is a conflict, never a replay of the other target\'s answer; the exact same intent replays', async () => {
+    const { roomId } = await fixture();
+    const stored = await load(roomId);
+    const intent = roll(bindingOf(stored));
+    const commandId = `cmd-${randomUUID()}`;
+    const draws = counted([3, 1, 4, 1, 5]);
+    const send = (i: Intent) => runReceipted(db, {
+      roomId, commandId, actor: { actorId: 'a', actorRole: 'PLAYER' }, action: STAND_IN_ACTION, payload: i,
+      mutate: async () => handle(await load(roomId), roomId, 'a', i, draws.source), toResponse: data => ({ success: true, ...data }),
+    });
+    expect((await send(intent)).success).toBe(true);
+    expect(await send(intent)).toMatchObject({ success: true, replayed: true }); // positive control: the exact same intent
+    const other: Intent = roll({ ...intent.binding, scope: { ...intent.binding.scope, sequenceId: 'seq-other' } });
+    expect(await send(other)).toMatchObject({ success: false, error: 'COMMAND_CONFLICT' });
+    const otherProcess: Intent = roll({ ...intent.binding, diceId: 'dice-other' });
+    expect(await send(otherProcess)).toMatchObject({ success: false, error: 'COMMAND_CONFLICT' });
+    expect(draws.state.draws).toBe(5);
+    expect(diceOf(await load(roomId))).toMatchObject({ rollCount: 1, values: [3, 1, 4, 1, 5] });
+  });
+
   it('a consumer that moves the N8 turn on but forgets the dice: the stored process of the OLD turn is refused from the database state, even for the SAME player and with the current sequence numbers', async () => {
     const { roomId } = await fixture();
     let stored = await load(roomId);
@@ -329,7 +402,7 @@ describe('N9 integration: dice rolls and holds on the real CAS / receipt / state
     expect(seqOf(stored).turnNumber).toBe(4);
     expect(diceOf(stored).binding.turnNumber).toBe(1);
     const late = counted([6, 6, 6, 6, 6]);
-    const current = { turnNumber: 4, sequenceVersion: seqOf(stored).version, diceVersion: diceOf(stored).version, rollCount: diceOf(stored).rollCount }; // the numbers the client WOULD have seen for the current sequence
+    const current = { ...bindingOf(stored), turnNumber: 4 }; // the origin the client WOULD have built for the current sequence (target = current sequence, process = the stored one, counters current)
     await expect(handle(stored, roomId, 'a', roll(current), late.source)).rejects.toThrow('DICE_TURN_STALE');
     await expect(handle(stored, roomId, 'a', holdIntent(current, [0]), late.source)).rejects.toThrow('DICE_TURN_STALE');
     expect(late.state.draws).toBe(0);

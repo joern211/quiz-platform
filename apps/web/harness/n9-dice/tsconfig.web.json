@@ -1,0 +1,6 @@
+{
+  "extends": "../../tsconfig.json",
+  "compilerOptions": { "noEmit": true, "baseUrl": "../../" },
+  "include": ["main.tsx", "../../src/types/**/*"],
+  "exclude": []
+}

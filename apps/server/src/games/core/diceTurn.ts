@@ -26,7 +26,7 @@
 import { randomInt } from 'node:crypto';
 import { z } from 'zod';
 import {
-  DICE_ERROR_CODES, DICE_MAX_COUNT, DICE_MAX_SIDES, DICE_RELEASES, DICE_SCHEMA_VERSION, DICE_CONTRACT, DiceActionBindingSchema, DiceActorIdSchema, DiceConfigSchema, DiceCounterSchema,
+  DICE_ERROR_CODES, DICE_MAX_COUNT, DICE_MAX_COUNTER, DICE_MAX_SIDES, DICE_RELEASES, DICE_SCHEMA_VERSION, DICE_CONTRACT, DiceActionBindingSchema, DiceActorIdSchema, DiceConfigSchema, DiceCounterSchema,
   DiceHoldIntentSchema, DicePhaseSchema, DiceProjectionSchema, DiceRefSchema, DiceRunIndexSchema, DiceScopeSchema, DiceStateVersionSchema, DiceTurnError, DiceUnitSchema,
   type DiceConfig, type DiceHoldIntent, type DiceIssueCode, type DicePhase, type DiceProjection, type DiceRollIntent, type DiceScope,
 } from '@quiz/shared/dice';
@@ -34,6 +34,7 @@ import {
   authorizeTurnAction, currentTurnHolder, parseTurnSequenceState, turnEligibilityAdvancesBasis,
   type TurnActionCaller, type TurnActionGate, type TurnEligibility, type TurnSequenceState,
 } from './turnSequence.js';
+import { TURN_SEQUENCE_MAX_COUNTER } from '@quiz/shared/turnSequence';
 import { canView, type ProjectionAudience } from './visibility.js';
 
 export { DiceTurnError, DICE_ERROR_CODES };
@@ -222,6 +223,7 @@ export function applyDecidedDiceRoll(rawState: unknown, args: { expectedVersion:
     || args.indices.some((position, i) => position !== expectedIndices[i])
     || args.values.some(value => typeof value !== 'number' || !Number.isSafeInteger(value) || value < 1 || value > state.config.sides)) throw new DiceTurnError('DICE_RESULT_INVALID');
   if (expectedIndices.length === 0) throw new DiceTurnError('DICE_NOTHING_TO_ROLL');
+  assertCapacity(state.version, 2);
   const next: number[] = state.values === null ? new Array<number>(state.config.diceCount).fill(0) : [...state.values];
   expectedIndices.forEach((position, i) => { next[position] = args.values[i]; });
   const rollCount = state.rollCount + 1;
@@ -232,17 +234,41 @@ export function applyDecidedDiceRoll(rawState: unknown, args: { expectedVersion:
 export type DiceIntSource = (minInclusive: number, maxExclusive: number) => number;
 
 export interface DiceActionArgs {
-  /** the N8 scope of the sequence */
+  /**
+   * The TARGET the client prepared the action for (run, N8 sequence, roster revision, unit) and the dice process it saw — taken from the client's intent
+   * (`diceActionArgsFromIntent`), NEVER from the state the consumer happens to load now. This function compares it with that state; filling it from the loaded
+   * state would turn every comparison into a tautology and let a late intent of an old process roll a new one.
+   */
   scope: DiceScope;
-  /** the dice process the consumer loaded */
   diceId: string;
   /** the CURRENT N8 state (read only — a dice action never changes the sequence) */
   sequence: unknown;
-  /** from the CLIENT's intent: what it saw. All four are compared; none is taken from the stored state. */
+  /** from the CLIENT's intent: what it saw. All four are compared with the loaded state; none is taken from it. */
   expectedTurnNumber: number; expectedSequenceVersion: number; expectedVersion: number; expectedRollCount: number;
   /** from the CURRENTLY admitted session and team assignment, never from a payload */
   caller: TurnActionCaller; gate: TurnActionGate; eligibility: TurnEligibility;
 }
+/**
+ * The ONLY intended way to turn a validated client intent into the origin part of the action arguments: target (`scope`, `diceId`) and the four counters all come
+ * from the intent. Spread its result into the arguments and add what comes from the SERVER (`sequence`, `caller`, `gate`, `eligibility`, and `held` from a hold
+ * intent). It accepts an already parsed intent (`readDiceRollIntent` / `readDiceHoldIntent`); an intent without its origin has been refused there.
+ */
+export function diceActionArgsFromIntent(intent: DiceRollIntent | DiceHoldIntent): Pick<DiceActionArgs, 'scope' | 'diceId' | 'expectedTurnNumber' | 'expectedSequenceVersion' | 'expectedVersion' | 'expectedRollCount'> {
+  const parsed = DiceActionBindingSchema.safeParse({ scope: intent?.scope, diceId: intent?.diceId, turnNumber: intent?.turnNumber, sequenceVersion: intent?.sequenceVersion, diceVersion: intent?.diceVersion, rollCount: intent?.rollCount });
+  if (!parsed.success) throw new DiceTurnError('DICE_ARGS_INVALID');
+  const b = parsed.data;
+  return { scope: b.scope, diceId: b.diceId, expectedTurnNumber: b.turnNumber, expectedSequenceVersion: b.sequenceVersion, expectedVersion: b.diceVersion, expectedRollCount: b.rollCount };
+}
+
+/**
+ * Counter capacity, checked BEFORE any random draw (a predictable refusal must not consume randomness). Every change of a process needs one local version step, and a
+ * roll or a hold change must leave one more for the closing — a process whose counter is exhausted could otherwise never be closed. Nothing wraps, clamps or is
+ * re-drawn: the process simply accepts no further roll/hold (`DICE_COUNTER_LIMIT`); the consumer ends it with its turn and opens a new process.
+ */
+function assertCapacity(version: number, steps: number): void {
+  if (version + steps > DICE_MAX_COUNTER) throw new DiceTurnError('DICE_COUNTER_LIMIT');
+}
+
 const ACTION_KEYS = ['scope', 'diceId', 'sequence', 'expectedTurnNumber', 'expectedSequenceVersion', 'expectedVersion', 'expectedRollCount', 'caller', 'gate', 'eligibility'];
 
 /** Shared prefix of roll and hold: the N8 turn check first, then the binding of the dice process to that turn. Nothing here draws. */
@@ -256,7 +282,10 @@ function authorizeAction(rawDice: unknown, args: DiceActionArgs, extraKeys: read
   if (dice.phase === 'CLOSED') throw new DiceTurnError('DICE_CLOSED');
   assertVersion(dice, args.expectedVersion);
   assertRollCount(dice, args.expectedRollCount);
-  return { dice, sequenceBasisAdvanced: turnEligibilityAdvancesBasis(sequence, { scope: args.scope, eligibility: args.eligibility }) };
+  const sequenceBasisAdvanced = turnEligibilityAdvancesBasis(sequence, { scope: args.scope, eligibility: args.eligibility });
+  // the consumer must persist that basis step (N8 `refreshEligibilityBasis`: sequence version +1): refuse BEFORE a draw if the sequence counter has no room for it
+  if (sequenceBasisAdvanced && sequence.version + 1 > TURN_SEQUENCE_MAX_COUNTER) throw new DiceTurnError('DICE_COUNTER_LIMIT');
+  return { dice, sequenceBasisAdvanced };
 }
 
 /**
@@ -271,6 +300,7 @@ export function rollDice(rawDice: unknown, args: DiceActionArgs & { source?: Dic
   if (dice.rollCount >= dice.config.maxRolls) throw new DiceTurnError('DICE_ROLLS_EXHAUSTED');
   const indices = unheldPositions(dice);
   if (indices.length === 0) throw new DiceTurnError('DICE_NOTHING_TO_ROLL');
+  assertCapacity(dice.version, 2); // before the random source: a refusal that is foreseeable here consumes nothing
   const source = args.source ?? randomInt;
   args_(typeof source === 'function');
   const values = indices.map(() => {
@@ -297,6 +327,7 @@ export function setDiceHeld(rawDice: unknown, args: DiceActionArgs & { held: rea
   if (!Array.isArray(target) || target.length > dice.config.diceCount || target.some(position => typeof position !== 'number' || !Number.isSafeInteger(position) || position < 0 || position >= dice.config.diceCount) || new Set(target).size !== target.length) throw new DiceTurnError('DICE_HOLD_INVALID');
   const next = dice.held.map((_, index) => target.includes(index));
   if (next.every((isHeld, index) => isHeld === dice.held[index])) return { state: dice, changed: false, transition: null, sequenceBasisAdvanced };
+  assertCapacity(dice.version, 2);
   return { ...commit(dice, 'HOLD', { held: next }, null), sequenceBasisAdvanced };
 }
 
@@ -313,12 +344,16 @@ export function closeDiceTurn(rawDice: unknown, args: { scope: DiceScope; diceId
   if (typeof args.expectedTurnNumber !== 'number' || !Number.isSafeInteger(args.expectedTurnNumber) || args.expectedTurnNumber !== dice.binding.turnNumber) throw new DiceTurnError('DICE_TURN_STALE');
   assertVersion(dice, args.expectedVersion);
   if (dice.phase === 'CLOSED') return { state: dice, changed: false, transition: null };
+  assertCapacity(dice.version, 1);
   return commit(dice, 'CLOSE', { phase: 'CLOSED' }, null);
 }
 
 // ── Client intents at the server boundary ────────────────────
 
-/** Parses a client intent strictly (unknown keys such as `values`, `seed` or `roll` are rejected). Returns a fresh copy; failure is DICE_ARGS_INVALID. */
+/**
+ * Parses a client intent strictly (unknown keys such as `values`, `seed` or `roll` are rejected). The ORIGIN is required: target (`scope`, `diceId`) and all four
+ * counters; an intent without them is DICE_ARGS_INVALID, never completed from current state. Returns a fresh copy; failure is DICE_ARGS_INVALID.
+ */
 export function readDiceRollIntent(raw: unknown): DiceRollIntent {
   const parsed = DiceActionBindingSchema.safeParse(raw);
   if (!parsed.success) throw new DiceTurnError('DICE_ARGS_INVALID');

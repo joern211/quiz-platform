@@ -62,7 +62,7 @@ export const DICE_ERROR_CODES = [
   'DICE_ARGS_INVALID', 'DICE_CONFIG_INVALID', 'DICE_STATE_INVALID',
   'DICE_SCOPE_STALE', 'DICE_TURN_STALE', 'DICE_VERSION_STALE', 'DICE_ROLL_STALE',
   'DICE_SEQUENCE_NOT_ACTIVE', 'DICE_CLOSED', 'DICE_NOT_ROLLED', 'DICE_ROLLS_EXHAUSTED', 'DICE_HOLD_DISABLED', 'DICE_HOLD_INVALID', 'DICE_NOTHING_TO_ROLL',
-  'DICE_RANDOM_INVALID', 'DICE_RESULT_INVALID',
+  'DICE_RANDOM_INVALID', 'DICE_RESULT_INVALID', 'DICE_COUNTER_LIMIT',
   'DICE_AUDIENCE_INVALID', 'DICE_RELEASE_INVALID', 'DICE_PROJECTION_INVALID',
 ] as const;
 export type DiceErrorCode = typeof DICE_ERROR_CODES[number];
@@ -116,8 +116,19 @@ export type DiceScope = z.infer<typeof DiceScopeSchema>;
 
 // ── Client intents (no values, no seed — the server decides) ───────────────────────────────
 
-/** What a UI action must carry: the concrete turn, the N8 sequence version and the dice version / roll number it was shown for. */
+/**
+ * What a UI action must carry — the COMPLETE ORIGIN of the action, fixed when the intent is made from what the user was shown:
+ *   - the TARGET: `scope` (run, N8 sequence, pinned roster revision, unit) and `diceId` (the process). The four counters below are only unique inside ONE such
+ *     target (a new game or a new sequence starts again at turn 1, sequence version 1, dice version 0, roll 0); without the target a late, never-applied intent
+ *     of an old process would be indistinguishable from a fresh one of the new process.
+ *   - the COUNTERS: the concrete turn, the N8 sequence version and the dice version / roll number it was shown for.
+ * Every field is REQUIRED (an intent without its origin is invalid, never completed from the server's current state). The server compares the target with the
+ * trusted state it loads — it never inserts its own current target for a missing or different one. The target is NOT an authorisation: caller, admission and
+ * rights still come only from the server session.
+ */
 export const DiceActionBindingSchema = z.object({
+  scope: DiceScopeSchema,
+  diceId: DiceRefSchema,
   turnNumber: DiceCounterSchema.min(1),
   sequenceVersion: DiceCounterSchema,
   diceVersion: DiceCounterSchema,
@@ -126,8 +137,10 @@ export const DiceActionBindingSchema = z.object({
 export type DiceActionBinding = z.infer<typeof DiceActionBindingSchema>;
 export const DiceRollIntentSchema = DiceActionBindingSchema;
 export type DiceRollIntent = DiceActionBinding;
-/** `held` is the COMPLETE target assignment (positions held afterwards). `[]` means "release all". Never a toggle. */
+/** `held` is the COMPLETE target assignment (positions held afterwards). `[]` means "release all". Never a toggle. Same origin binding as a roll. */
 export const DiceHoldIntentSchema = z.object({
+  scope: DiceScopeSchema,
+  diceId: DiceRefSchema,
   turnNumber: DiceCounterSchema.min(1),
   sequenceVersion: DiceCounterSchema,
   diceVersion: DiceCounterSchema,
@@ -135,8 +148,10 @@ export const DiceHoldIntentSchema = z.object({
   held: z.array(DicePositionSchema).max(DICE_MAX_COUNT),
 }).strict();
 export type DiceHoldIntent = z.infer<typeof DiceHoldIntentSchema>;
+/** Local send-lock key of one binding (target AND counters). Labels and numbers only. */
 export function diceActionBindingKey(binding: DiceActionBinding): string {
-  return JSON.stringify(['DICE_BINDING', binding.turnNumber, binding.sequenceVersion, binding.diceVersion, binding.rollCount]);
+  const { scope } = binding;
+  return JSON.stringify(['DICE_BINDING', scope.runIndex, scope.sequenceId, scope.rosterRevision, scope.unit, binding.diceId, binding.turnNumber, binding.sequenceVersion, binding.diceVersion, binding.rollCount]);
 }
 
 // ── Client projection ────────────────────────────────────────

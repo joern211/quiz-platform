@@ -39,6 +39,8 @@ const none = (stand: Stand): DiceProjection => ({ contract: DICE_CONTRACT, scope
 const PREPARED: Stand = { state: 5, seq: 2, turn: 1, dv: 0, roll: 0 };
 const ROLL1: Stand = { state: 6, seq: 2, turn: 1, dv: 1, roll: 1 };
 const text = () => document.body.textContent ?? '';
+/** The origin an intent must carry for a fixture of turn `turn`: target (scope + process) next to the counters. */
+const origin = (turn: number, counters: { sequenceVersion: number; diceVersion: number; rollCount: number }) => ({ scope: { ...SCOPE }, diceId: `dice-t${turn}`, turnNumber: turn, ...counters });
 const dieButtons = () => screen.queryAllByRole('button', { name: /^Würfel \d/ });
 
 interface Mount { expected?: DiceExpectedContext; projection?: DiceProjection | null; names?: Record<string, string>; onRoll?: (i: DiceRollIntent) => void | Promise<unknown>; onHold?: (i: DiceHoldIntent) => void | Promise<unknown>; label?: string }
@@ -165,8 +167,48 @@ describe('N9 DiceTray: sending', () => {
     mount({ projection: view({ state: 9, seq: 4, turn: 3, dv: 2, roll: 1 }), onRoll });
     await user.click(screen.getByRole('button', { name: 'Würfeln' }));
     expect(onRoll).toHaveBeenCalledTimes(1);
-    expect(onRoll).toHaveBeenCalledWith({ turnNumber: 3, sequenceVersion: 4, diceVersion: 2, rollCount: 1 });
-    expect(Object.keys(onRoll.mock.calls[0][0]).sort()).toEqual(['diceVersion', 'rollCount', 'sequenceVersion', 'turnNumber']);
+    expect(onRoll).toHaveBeenCalledWith(origin(3, { sequenceVersion: 4, diceVersion: 2, rollCount: 1 }));
+    expect(Object.keys(onRoll.mock.calls[0][0]).sort()).toEqual(['diceId', 'diceVersion', 'rollCount', 'scope', 'sequenceVersion', 'turnNumber']);
+  });
+
+  it('every intent carries the ORIGIN it was made for — target (run, sequence, roster revision, unit, process) next to the counters — taken from the projection that is SHOWN, also for a team unit (N9-01)', async () => {
+    const user = userEvent.setup();
+    const onRoll = vi.fn(), onHold = vi.fn();
+    const team = { ...view({ ...ROLL1, turn: 7 }, { unit: 'TEAM', recipient: 'm1', holder: 'm1' }) } as DiceProjection;
+    const scope = { runIndex: 3, sequenceId: 'seq-run3', rosterRevision: 'roster-9', unit: 'TEAM' as const };
+    const shown = { ...team, scope, diceId: 'dice-seven' } as DiceProjection;
+    mount({ expected: { ...scope, recipientId: 'm1', minStateVersion: 1 }, projection: shown, onRoll, onHold });
+    await user.click(screen.getByRole('button', { name: 'Würfeln' }));
+    expect(onRoll).toHaveBeenCalledWith({ scope, diceId: 'dice-seven', turnNumber: 7, sequenceVersion: 2, diceVersion: 1, rollCount: 1 });
+    cleanup();
+    mount({ expected: { ...scope, recipientId: 'm1', minStateVersion: 1 }, projection: shown, onRoll, onHold });
+    await user.click(dieButtons()[2]);
+    expect(onHold).toHaveBeenCalledWith({ scope, diceId: 'dice-seven', turnNumber: 7, sequenceVersion: 2, diceVersion: 1, rollCount: 1, held: [2] });
+    // the emitted target is a COPY: changing it can not change what is shown or what the next intent carries
+    onHold.mock.calls[0][0].scope.sequenceId = 'tampered';
+    expect(shown.scope.sequenceId).toBe('seq-run3');
+  });
+
+  it('two valid contexts that show IDENTICAL counters emit DIFFERENT intents — for roll and for hold (the independent reproduction of N9-01)', async () => {
+    const user = userEvent.setup();
+    for (const kind of ['ROLL', 'HOLD'] as const) {
+      const send = vi.fn();
+      const packet = (sequenceId: string) => ({ ...view(kind === 'HOLD' ? ROLL1 : PREPARED), scope: { ...SCOPE, sequenceId }, diceId: `dice-${sequenceId}` }) as DiceProjection;
+      const props = (p: DiceProjection) => ({ projection: p, expected: { ...p.scope, recipientId: 'p1', minStateVersion: 1 }, onRoll: send, onHold: send });
+      const view1 = render(<DiceTray {...props(packet('seq-old'))} />);
+      const click = () => user.click(kind === 'ROLL' ? screen.getByRole('button', { name: 'Würfeln' }) : dieButtons()[0]);
+      await click();
+      view1.rerender(<DiceTray {...props(packet('seq-new'))} />);
+      await click();
+      expect(send).toHaveBeenCalledTimes(2); // both are current and actionable when clicked: the lock is per origin, not per counters
+      const [first, second] = [send.mock.calls[0][0], send.mock.calls[1][0]];
+      expect([first.turnNumber, first.sequenceVersion, first.diceVersion, first.rollCount]).toEqual([second.turnNumber, second.sequenceVersion, second.diceVersion, second.rollCount]);
+      expect(first).not.toEqual(second);
+      expect(first.scope.sequenceId).toBe('seq-old');
+      expect(second.scope.sequenceId).toBe('seq-new');
+      expect(first.diceId).toBe('dice-seq-old');
+      cleanup();
+    }
   });
 
   it('a hold click sends the COMPLETE target assignment (the shown one with that die flipped), never a toggle', async () => {
@@ -174,10 +216,10 @@ describe('N9 DiceTray: sending', () => {
     const onHold = vi.fn();
     const { set } = mount({ projection: view(ROLL1, { held: [false, true, false, false, false] }), onHold });
     await user.click(dieButtons()[3]);
-    expect(onHold).toHaveBeenLastCalledWith({ turnNumber: 1, sequenceVersion: 2, diceVersion: 1, rollCount: 1, held: [1, 3] });
+    expect(onHold).toHaveBeenLastCalledWith({ ...origin(1, { sequenceVersion: 2, diceVersion: 1, rollCount: 1 }), held: [1, 3] });
     set({ projection: view({ ...ROLL1, state: 7, dv: 2 }, { held: [false, true, false, true, false] }) }); // the server confirmed: a new binding
     await user.click(dieButtons()[1]); // release the held die
-    expect(onHold).toHaveBeenLastCalledWith({ turnNumber: 1, sequenceVersion: 2, diceVersion: 2, rollCount: 1, held: [3] });
+    expect(onHold).toHaveBeenLastCalledWith({ ...origin(1, { sequenceVersion: 2, diceVersion: 2, rollCount: 1 }), held: [3] });
     expect(onHold).toHaveBeenCalledTimes(2);
   });
 
@@ -343,7 +385,7 @@ describe('N9 DiceTray: ordering, withdrawal and the required chains in the real 
     expect(shown()).toBe('Noch nicht gewürfelt.');
     expect(text()).not.toContain('1, 1, 1, 1, 1');
     await user.click(screen.getByRole('button', { name: 'Würfeln' }));
-    expect(onRoll).toHaveBeenCalledWith({ turnNumber: 3, sequenceVersion: 4, diceVersion: 0, rollCount: 0 }); // the binding of TURN 3
+    expect(onRoll).toHaveBeenCalledWith(origin(3, { sequenceVersion: 4, diceVersion: 0, rollCount: 0 })); // the binding of TURN 3
   });
 
   it('a packet made for A rendered under B\'s expectation shows nothing — also in a team; the right recipient shows it', () => {
@@ -368,7 +410,7 @@ describe('N9 DiceTray: ordering, withdrawal and the required chains in the real 
     set({ projection: before }); // the old binding arrives late
     expect(shown()).toBe('Wurf 1 von 3: 2, 4, 6, 1, 3.');
     await user.click(screen.getByRole('button', { name: 'Würfeln' }));
-    expect(onRoll).toHaveBeenCalledWith({ turnNumber: 2, sequenceVersion: 4, diceVersion: 2, rollCount: 1 });
+    expect(onRoll).toHaveBeenCalledWith(origin(2, { sequenceVersion: 4, diceVersion: 2, rollCount: 1 }));
   });
 });
 

@@ -22,13 +22,13 @@ import { runReceipted } from '../../../server/src/games/core/commands.js';
 import { materializeGameEvent } from '../../../server/src/games/core/events.js';
 import { saveGameStateIfRevision } from '../../../server/src/games/core/state.js';
 import {
-  closeDiceTurn, diceTurnScopeOf, openDiceTurn, parseDiceTurnState, projectDiceTurn, readDiceHoldIntent, readDiceRollIntent, rollDice, setDiceHeld, type DiceIntSource,
+  closeDiceTurn, diceActionArgsFromIntent, diceTurnScopeOf, openDiceTurn, parseDiceTurnState, projectDiceTurn, readDiceHoldIntent, readDiceRollIntent, rollDice, setDiceHeld, type DiceIntSource,
 } from '../../../server/src/games/core/diceTurn.js';
 import {
   advanceTurnSequence, overrideTurnSequence, parseTurnSequenceState, prepareTurnSequence, refreshEligibilityBasis, startTurnSequence, turnSequenceScopeOf, type TurnEligibility,
 } from '../../../server/src/games/core/turnSequence.js';
 import type { ProjectionAudience } from '../../../server/src/games/core/visibility.js';
-import { DICE_CONFIG_FIVE_D6_HOLD, DICE_CONFIG_SINGLE_D6, type DiceRelease } from '@quiz/shared/dice';
+import { DICE_CONFIG_FIVE_D6_HOLD, DICE_CONFIG_SINGLE_D6, type DiceHoldIntent, type DiceRelease } from '@quiz/shared/dice';
 
 const port = Number(process.argv[2] ?? 5196);
 const SLUG = 'n9-harness';
@@ -45,6 +45,9 @@ let hostId = '';
 let definitionId = '';
 let config = DICE_CONFIG_FIVE_D6_HOLD as typeof DICE_CONFIG_FIVE_D6_HOLD;
 let eligibilityVersion = 1;
+let runIndex = 1;
+let rosterRevision = 'roster-1';
+let keepSequenceId: string | null = null;
 let release: Record<string, DiceRelease> = { ...DEFAULT_RELEASE };
 let paused = false;
 let scripted: number[] = [];
@@ -53,8 +56,8 @@ let log: Array<{ kind: string; recipient: string; ok: boolean; code?: string; re
 
 const source: DiceIntSource = (min, max) => { draws++; return scripted.length > 0 ? (scripted.shift() as number) : randomInt(min, max); };
 const elig = (version = eligibilityVersion): TurnEligibility => ({
-  actors: { runIndex: 1, trackId: 'teams-track', rosterRevision: 'track-roster-1', version, knownIds: ['T1', 'T2'], activeIds: ['T1', 'T2'] },
-  members: { runIndex: 1, trackId: 'members-track', rosterRevision: 'track-roster-1', version, knownIds: ['A', 'B', 'C', 'D', 'E'], activeIds: ['A', 'B', 'C', 'D', 'E'] },
+  actors: { runIndex, trackId: 'teams-track', rosterRevision: 'track-roster-1', version, knownIds: ['T1', 'T2'], activeIds: ['T1', 'T2'] },
+  members: { runIndex, trackId: 'members-track', rosterRevision: 'track-roster-1', version, knownIds: ['A', 'B', 'C', 'D', 'E'], activeIds: ['A', 'B', 'C', 'D', 'E'] },
 });
 
 interface StandIn { phase: string; standIn: boolean; turnSequence: unknown; dice: unknown }
@@ -78,7 +81,7 @@ async function createRoom(): Promise<void> {
   const room = await db.room.create({ data: { code, roomName: 'N9 harness', hostUserId: hostId, gameDefinitionId: definitionId, status: 'RUNNING', runPhase: 'ROUND_ACTIVE', viewerRequiresPin: false } });
   roomId = room.id;
   eligibilityVersion = 1;
-  const prepared = prepareTurnSequence({ runIndex: 1, sequenceId: `seq-${count + 1}`, rosterRevision: 'roster-1', unit: 'TEAM', mode: 'FIXED', order: ['T1', 'T2'], teams: TEAMS });
+  const prepared = prepareTurnSequence({ runIndex, sequenceId: keepSequenceId ?? `seq-${count + 1}`, rosterRevision, unit: 'TEAM', mode: 'FIXED', order: ['T1', 'T2'], teams: TEAMS });
   const seq = startTurnSequence(prepared, { scope: turnSequenceScopeOf(prepared), expectedVersion: 0, eligibility: elig() }).state;
   const dice = openDiceTurn({ scope: turnSequenceScopeOf(seq), diceId: `dice-t${seq.turnNumber}-${count + 1}`, config, sequence: seq, expectedTurnNumber: seq.turnNumber });
   await db.roomGameState.create({ data: { roomId, engineVersion: 1, phase: 'ROUND_ACTIVE', revision: 4, stateJson: JSON.stringify({ phase: 'ROUND_ACTIVE', standIn: true, turnSequence: seq, dice }) } });
@@ -91,7 +94,7 @@ async function view(): Promise<Record<string, unknown>> {
   const dice = parseDiceTurnState(stored.state.dice);
   const holder = seq.phase === 'ACTIVE' || seq.phase === 'HELD' ? (seq.unit === 'TEAM' ? `${seq.teams![seq.position!].teamId}/${seq.teams![seq.position!].members[seq.memberIndex!]}` : seq.order[seq.position!]) : null;
   return {
-    revision: stored.revision, turnNumber: seq.turnNumber, sequenceVersion: seq.version, sequenceId: seq.sequenceId, holder, basisVersion: seq.eligibility?.actors.version ?? null, dice,
+    revision: stored.revision, turnNumber: seq.turnNumber, sequenceVersion: seq.version, sequenceId: seq.sequenceId, scope: turnSequenceScopeOf(seq), holder, basisVersion: seq.eligibility?.actors.version ?? null, dice,
     draws, paused, release, scripted: scripted.length, log,
     receipts: await db.commandReceipt.count({ where: { roomId } }), events: await db.gameDomainEvent.count({ where: { roomId } }), rooms: await db.room.count(),
   };
@@ -104,16 +107,21 @@ async function intent(body: { kind: 'ROLL' | 'HOLD'; recipient: string; commandI
   const label = body.kind.toLowerCase();
   try {
     const result = await runReceipted(db, {
-      roomId, commandId: String(body.commandId), actor: { actorId: body.recipient, actorRole: audience.role }, action: 'ROUND_ADVANCE', // a STAND-IN action name (CRITICAL_COMMAND_ACTIONS is a closed whitelist; the real consumer adds its own dice actions) payload: body.intent,
+      roomId, commandId: String(body.commandId), actor: { actorId: body.recipient, actorRole: audience.role },
+      // a STAND-IN action name (CRITICAL_COMMAND_ACTIONS is a closed whitelist; the real consumer adds its own dice actions) — roll and hold therefore share it, so the PAYLOAD
+      // must tell them apart: the semantic kind and the complete intent (origin + counters + hold target)
+      action: 'ROUND_ADVANCE',
+      payload: { kind: body.kind, intent: body.intent },
       mutate: async () => {
         const loaded = await load();
         const seq = parseTurnSequenceState(loaded.state.turnSequence), dice = parseDiceTurnState(loaded.state.dice);
         const parsed = body.kind === 'ROLL' ? readDiceRollIntent(body.intent) : readDiceHoldIntent(body.intent);
+        // the ORIGIN (target + counters) comes from the INTENT; only the trusted facts come from the loaded state and the table of this harness
         const common = {
-          scope: turnSequenceScopeOf(seq), diceId: dice.diceId, sequence: seq, expectedTurnNumber: parsed.turnNumber, expectedSequenceVersion: parsed.sequenceVersion, expectedVersion: parsed.diceVersion, expectedRollCount: parsed.rollCount,
+          ...diceActionArgsFromIntent(parsed), sequence: seq,
           caller: { role: audience.role as 'PLAYER', participantId: audience.participantId ?? 'none', teamId: audience.teamId ?? null }, gate: { admitted: true, phaseOpen: true, paused }, eligibility: elig(),
         };
-        const done = body.kind === 'ROLL' ? rollDice(dice, { ...common, source }) : setDiceHeld(dice, { ...common, held: (parsed as { held: number[] }).held });
+        const done = body.kind === 'ROLL' ? rollDice(dice, { ...common, source }) : setDiceHeld(dice, { ...common, held: (parsed as DiceHoldIntent).held });
         const nextSeq = done.sequenceBasisAdvanced ? refreshEligibilityBasis(seq, { scope: turnSequenceScopeOf(seq), expectedVersion: seq.version, eligibility: elig() }).state : seq;
         if (done.changed || nextSeq !== seq) await persist(loaded, { ...loaded.state, turnSequence: nextSeq, dice: done.state }, body.kind === 'ROLL' ? 'DICE_ROLLED' : 'DICE_HELD');
         return { values: done.state.values, rollCount: done.state.rollCount, diceVersion: done.state.version, changed: done.changed };
@@ -137,7 +145,7 @@ async function host(body: Record<string, unknown>): Promise<Record<string, unkno
   const closeOld = () => closeDiceTurn(dice, { scope: diceTurnScopeOf(dice), diceId: dice.diceId, expectedTurnNumber: dice.binding.turnNumber, expectedVersion: dice.version });
   const nextProcess = (next: typeof seq) => openDiceTurn({ scope: turnSequenceScopeOf(next), diceId: `dice-t${next.turnNumber}-${Date.now() % 100000}`, config, sequence: next, expectedTurnNumber: next.turnNumber });
   switch (body.type) {
-    case 'reset': if (body.single === true) config = DICE_CONFIG_SINGLE_D6 as never; else config = DICE_CONFIG_FIVE_D6_HOLD; release = { ...DEFAULT_RELEASE }; paused = false; scripted = []; draws = 0; log = []; await createRoom(); return { ok: true, ...(await view()) };
+    case 'reset': keepSequenceId = typeof body.sequenceId === 'string' ? body.sequenceId : null; runIndex = typeof body.runIndex === 'number' ? body.runIndex : 1; rosterRevision = typeof body.rosterRevision === 'string' ? body.rosterRevision : 'roster-1'; if (body.single === true) config = DICE_CONFIG_SINGLE_D6 as never; else config = DICE_CONFIG_FIVE_D6_HOLD; release = { ...DEFAULT_RELEASE }; paused = false; scripted = []; draws = 0; log = []; await createRoom(); return { ok: true, ...(await view()) };
     case 'endTurn': {
       const next = advanceTurnSequence(seq, { scope, expectedVersion: seq.version, expectedTurnNumber: seq.turnNumber, outcome: 'COMPLETE', eligibility: elig() }).state;
       closeOld();
@@ -163,7 +171,11 @@ async function host(body: Record<string, unknown>): Promise<Record<string, unkno
     }
     case 'closeDice': { const closed = closeDiceTurn(dice, { scope: diceTurnScopeOf(dice), diceId: dice.diceId, expectedTurnNumber: dice.binding.turnNumber, expectedVersion: dice.version }); await persist(loaded, { ...loaded.state, dice: closed.state }, 'DICE_CLOSED'); return { ok: true, ...(await view()) }; }
     case 'pause': paused = body.on === true; return { ok: true, ...(await view()) };
-    case 'release': release[String(body.recipient)] = body.release as DiceRelease; return { ok: true, ...(await view()) };
+    case 'release': { // a release change is a change of what the snapshot shows: the stand (database revision) moves with it, as in a real system — otherwise a wider packet at the SAME stand would rightly be refused as stale
+      release[String(body.recipient)] = body.release as DiceRelease;
+      await persist(loaded, { ...loaded.state }, 'RELEASE_CHANGED');
+      return { ok: true, ...(await view()) };
+    }
     case 'script': scripted = (body.values as number[]).slice(); return { ok: true, ...(await view()) };
     default: throw new Error('unknown host command');
   }
@@ -196,6 +208,7 @@ async function main(): Promise<void> {
     definitionId = (await db.gameDefinition.findFirstOrThrow({ where: { slug: SLUG } })).id;
     roomId = (await db.room.findFirstOrThrow({ orderBy: { code: 'desc' } })).id;
     const stored = parseTurnSequenceState((await load()).state.turnSequence);
+    runIndex = stored.runIndex; rosterRevision = stored.rosterRevision;
     eligibilityVersion = stored.eligibility?.actors.version ?? 1; // the committed basis, not a freshly minted higher value
     config = parseDiceTurnState((await load()).state.dice).config.maxRolls === 1 ? (DICE_CONFIG_SINGLE_D6 as never) : DICE_CONFIG_FIVE_D6_HOLD;
   }

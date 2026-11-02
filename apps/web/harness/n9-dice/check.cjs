@@ -27,6 +27,9 @@ const api = (p, body) => fetch(`${BASE}${p}`, body === undefined ? undefined : {
 const host = body => api('/api/host', body);
 const state = () => api('/api/state');
 const projectionOf = recipient => api(`/api/projection?recipient=${recipient}`);
+/** The ORIGIN of an intent (target + counters) as a client that looked at the CURRENT stored state would build it; `over` replaces single parts (stale counters, a foreign target …). */
+const origin = (s, over = {}) => ({ scope: s.scope, diceId: s.dice.diceId, turnNumber: s.turnNumber, sequenceVersion: s.sequenceVersion, diceVersion: s.dice.version, rollCount: s.dice.rollCount, ...over });
+const o = async (over = {}) => origin(await state(), over);
 const sendIntent = (recipient, kind, commandId, intent) => api('/api/intent', { kind, recipient, commandId, intent });
 const FRESH = () => `cmd-${Math.random().toString(36).slice(2)}-${Date.now()}`;
 
@@ -52,14 +55,15 @@ const rollButton = page => page.getByRole('button', { name: /^(Würfeln|Gesendet
 const dieButtons = page => page.getByRole('button', { name: /^Würfel \d/ });
 const calls = page => page.evaluate(() => window.__harness.calls);
 const settled = page => page.evaluate(() => window.__harness.settled);
-const received = page => page.evaluate(() => window.__harness.received);
 const tumbling = page => page.evaluate(() => [...document.querySelectorAll('ul li')].flatMap((li, i) => (li.querySelector('[data-tumble="true"]') ? [i] : [])));
 const bodyText = page => page.locator('body').innerText();
 
 /** Waits until THIS recipient's page has RECEIVED the stored stand (all counters) AND has RENDERED it (status line); `effect` adds a recipient-specific rendered check. */
 async function delivered(page, label, effect) {
   const s = await state();
-  await waitUntil(() => received(page).then(r => r && r.turnNumber === s.dice.binding.turnNumber && r.sequenceVersion === s.sequenceVersion && r.diceVersion === s.dice.version && r.rollCount === s.dice.rollCount), 8000, `${label}: page received turn ${s.dice.binding.turnNumber} / seq ${s.sequenceVersion} / dice v${s.dice.version} / roll ${s.dice.rollCount}`);
+  const sameTarget = (a, b) => a && a.runIndex === b.runIndex && a.sequenceId === b.sequenceId && a.rosterRevision === b.rosterRevision && a.unit === b.unit;
+  // the page must have RECEIVED the stored stand of the stored TARGET (process and scope) and must EXPECT that target (its own context follows the server), not only show the same words
+  await waitUntil(() => page.evaluate(() => ({ r: window.__harness.received, c: window.__harness.context })).then(({ r, c }) => r && sameTarget(c, s.scope) && sameTarget(r.scope, s.scope) && r.diceId === s.dice.diceId && r.turnNumber === s.dice.binding.turnNumber && r.sequenceVersion === s.sequenceVersion && r.diceVersion === s.dice.version && r.rollCount === s.dice.rollCount), 8000, `${label}: page received turn ${s.dice.binding.turnNumber} / seq ${s.sequenceVersion} / dice v${s.dice.version} / roll ${s.dice.rollCount}`);
   await waitUntil(async () => (await statusText(page)) === statusFor(s.dice), 8000, `${label}: page rendered "${statusFor(s.dice)}"`);
   if (effect) await waitUntil(async () => effect(page, s), 8000, `${label}: rendered effect`);
   return s;
@@ -178,7 +182,7 @@ const contrast = (a, b) => { const [l1, l2] = [lum(a), lum(b)].sort((x, y) => y 
     await rollButton(A).click();
     await waitUntil(async () => (await state()).dice.rollCount === 1, 8000, 'S2: the server stored roll 1');
     const s1 = await state();
-    expect(JSON.stringify(s1.dice.values) === '[1,2,3,4,5]' && s1.dice.version === 1 && s1.dice.phase === 'IN_PROGRESS' && s1.revision === s0.revision + 1 && s1.draws === 5 && s1.receipts === 1 && s1.events === 1,
+    expect(JSON.stringify(s1.dice.values) === '[1,2,3,4,5]' && s1.dice.version === 1 && s1.dice.phase === 'IN_PROGRESS' && s1.revision === s0.revision + 1 && s1.draws === 5 && s1.receipts === 1 && s1.events === s0.events + 1,
       'S2: the DATABASE holds roll 1: values, version, ONE revision step, five draws, one receipt, one event', s1);
     pA1 = await projectionOf('A');
     for (const [page, name] of [[A, 'A'], [B, 'B'], [C, 'C'], [V, 'VIEWER']]) {
@@ -188,7 +192,7 @@ const contrast = (a, b) => { const [l1, l2] = [lum(a), lum(b)].sort((x, y) => y 
     expect(JSON.stringify(await tumbling(A)) === '[0,1,2,3,4]', 'S2: A saw the five dice of the first roll tumble (decoration for a newly observed roll)', await tumbling(A));
     expect(JSON.stringify(await tumbling(V)) === '[0,1,2,3,4]', 'S2: the viewer too', await tumbling(V));
     const sent = await calls(A);
-    expect(sent.length === 1 && sent[0].kind === 'ROLL' && JSON.stringify(sent[0].intent) === '{"turnNumber":1,"sequenceVersion":1,"diceVersion":0,"rollCount":0}', 'S2: A\'s callback ran once with the binding of the SHOWN stand — and carried no value', sent);
+    expect(sent.length === 1 && sent[0].kind === 'ROLL' && JSON.stringify(sent[0].intent) === JSON.stringify(origin(s0)), 'S2: A\'s callback ran once with the ORIGIN of the SHOWN stand (target and counters) — and carried no value', { sent, expected: origin(s0) });
     expect((await dieButtons(A).count()) === 5 && (await dieButtons(B).count()) === 0 && (await dieButtons(C).count()) === 0 && (await dieButtons(V).count()) === 0, 'S2: only A can hold dice; B, C and the viewer only see them');
     await shot(A, 's2-A-roll1');
   });
@@ -273,9 +277,9 @@ const contrast = (a, b) => { const [l1, l2] = [lum(a), lum(b)].sort((x, y) => y 
       expect((await rollButton(page).count()) === 0 && (await dieButtons(page).count()) === 0, `S6: ${name} is offered nothing any more`);
     }
     expect((await A.getByText('Im Moment ist keine Aktion möglich.').count()) === 1, 'S6: A is told in words that nothing is possible now');
-    const stale = await sendIntent('A', 'ROLL', FRESH(), { turnNumber: 1, sequenceVersion: 1, diceVersion: 5, rollCount: 2 }); // the binding of the previous stand, brand-new commandId
+    const stale = await sendIntent('A', 'ROLL', FRESH(), await o({ turnNumber: 1, sequenceVersion: 1, diceVersion: 5, rollCount: 2 })); // the binding of the previous stand, brand-new commandId
     expect(stale.ok === false && stale.code === 'DICE_VERSION_STALE', 'S6: a new commandId with the previous binding is refused by the real domain', stale);
-    const fourth = await sendIntent('A', 'ROLL', FRESH(), { turnNumber: 1, sequenceVersion: 1, diceVersion: s.dice.version, rollCount: 3 });
+    const fourth = await sendIntent('A', 'ROLL', FRESH(), await o({ turnNumber: 1, sequenceVersion: 1, diceVersion: s.dice.version, rollCount: 3 }));
     expect(fourth.ok === false && fourth.code === 'DICE_ROLLS_EXHAUSTED', 'S6: a fourth roll with the CURRENT binding is refused: the limit holds', fourth);
     const after = await state();
     expect(after.revision === s.revision && after.draws === s.draws && JSON.stringify(after.dice) === JSON.stringify(s.dice), 'S6: both refusals changed nothing and drew nothing', after);
@@ -342,7 +346,7 @@ const contrast = (a, b) => { const [l1, l2] = [lum(a), lum(b)].sort((x, y) => y 
     await A.evaluate(raw => window.__harness.deliver(raw), pA1);
     await sleep(250);
     expect((await statusText(A)) === 'Noch nicht gewürfelt.' && !/1, 2, 3, 4, 5/.test(await bodyText(A)), 'S10: the late packet of A\'s turn 1 does not come back in turn 5');
-    const old = await sendIntent('A', 'ROLL', FRESH(), { turnNumber: 1, sequenceVersion: 1, diceVersion: 0, rollCount: 0 });
+    const old = await sendIntent('A', 'ROLL', FRESH(), await o({ turnNumber: 1, sequenceVersion: 1, diceVersion: 0, rollCount: 0 }));
     expect(old.ok === false && old.code === 'TURN_SEQ_VERSION_STALE', 'S10: the intent bound to A\'s FIRST turn is refused although it names the same player', old);
     const draws = (await state()).draws;
     await A.evaluate(() => window.__harness.freeze(false));
@@ -367,7 +371,7 @@ const contrast = (a, b) => { const [l1, l2] = [lum(a), lum(b)].sort((x, y) => y 
       'S11: the sequence version rose by one, NO new turn, the stored dice are bit for bit the same (values, held, roll number, version)', s);
     await delivered(A, 'S11 A');
     expect((await statusText(A)) === statusFor(s.dice) && (await rollButton(A).isEnabled()), 'S11: A still shows the same dice and still has the roll');
-    const old = await sendIntent('A', 'ROLL', FRESH(), { turnNumber: s.turnNumber, sequenceVersion: before.sequenceVersion, diceVersion: s.dice.version, rollCount: 1 });
+    const old = await sendIntent('A', 'ROLL', FRESH(), await o({ turnNumber: s.turnNumber, sequenceVersion: before.sequenceVersion, diceVersion: s.dice.version, rollCount: 1 }));
     expect(old.ok === false && old.code === 'TURN_SEQ_VERSION_STALE', 'S11: the action binding from BEFORE the update is refused', old);
     const check = await state();
     expect(JSON.stringify(check.dice) === JSON.stringify(s.dice) && check.draws === s.draws && check.revision === s.revision, 'S11: the refusal changed nothing and drew nothing', check);
@@ -426,17 +430,17 @@ const contrast = (a, b) => { const [l1, l2] = [lum(a), lum(b)].sort((x, y) => y 
     await host({ type: 'endTurn' }); await host({ type: 'endTurn' }); await host({ type: 'endTurn' }); await host({ type: 'endTurn' }); // turn 9: T1/A again, a fresh process
     const s = await state();
     expect(s.turnNumber === 9 && s.holder === 'T1/A' && s.dice.phase === 'PREPARED', 'S13: turn 9 is A\'s again', s);
-    const binding = { turnNumber: 9, sequenceVersion: s.sequenceVersion, diceVersion: 0, rollCount: 0 };
+    const binding = origin(s, { turnNumber: 9, diceVersion: 0, rollCount: 0 });
     const expectations = [['B', 'TURN_SEQ_NOT_CURRENT_ACTOR'], ['C', 'TURN_SEQ_NOT_CURRENT_ACTOR'], ['VIEWER', 'TURN_SEQ_ROLE_NOT_ALLOWED'], ['DISPLAY', 'TURN_SEQ_ROLE_NOT_ALLOWED'], ['HOST', 'TURN_SEQ_ROLE_NOT_ALLOWED']];
     for (const [who, code] of expectations) {
       const r = await sendIntent(who, 'ROLL', FRESH(), binding);
       expect(r.ok === false && r.code === code, `S13: ${who} cannot roll A's dice (${code})`, r);
-      const h = await sendIntent(who, 'HOLD', FRESH(), { ...binding, held: [0] });
+      const h = await sendIntent(who, 'HOLD', FRESH(), await o({ ...binding, held: [0] }));
       expect(h.ok === false && h.code === code, `S13: ${who} cannot hold either`, h);
     }
-    const hostBody = await sendIntent('A', 'ROLL', FRESH(), { ...binding, values: [6, 6, 6, 6, 6] });
+    const hostBody = await sendIntent('A', 'ROLL', FRESH(), await o({ ...binding, values: [6, 6, 6, 6, 6] }));
     expect(hostBody.ok === false && hostBody.code === 'DICE_ARGS_INVALID', 'S13: a roll intent that carries VALUES is refused at the boundary — the client has no way to name a result', hostBody);
-    const seed = await sendIntent('A', 'ROLL', FRESH(), { ...binding, seed: 'x' });
+    const seed = await sendIntent('A', 'ROLL', FRESH(), await o({ ...binding, seed: 'x' }));
     expect(seed.ok === false && seed.code === 'DICE_ARGS_INVALID', 'S13: a seed is refused as well', seed);
     const after = await state();
     expect(after.draws === s.draws && after.revision === s.revision && JSON.stringify(after.dice) === JSON.stringify(s.dice), 'S13: none of these drew or changed anything', after);
@@ -482,7 +486,7 @@ const contrast = (a, b) => { const [l1, l2] = [lum(a), lum(b)].sort((x, y) => y 
   await scenario('S10b old process after a turn change without dice handling', async () => {
     await host({ type: 'reset' });
     await host({ type: 'script', values: [1, 2, 3, 4, 5] });
-    const r = await sendIntent('A', 'ROLL', FRESH(), { turnNumber: 1, sequenceVersion: 1, diceVersion: 0, rollCount: 0 });
+    const r = await sendIntent('A', 'ROLL', FRESH(), await o({ turnNumber: 1, sequenceVersion: 1, diceVersion: 0, rollCount: 0 }));
     expect(r.ok === true, 'S10b: roll 1 stored in turn 1', r);
     for (let i = 0; i < 4; i++) await host({ type: 'endTurnN8Only' }); // turn 5: A is the holder again, but the stored process still belongs to turn 1
     const s = await state();
@@ -490,20 +494,99 @@ const contrast = (a, b) => { const [l1, l2] = [lum(a), lum(b)].sort((x, y) => y 
     await delivered(A, 'S10b A');
     expect((await rollButton(A).count()) === 0 && (await dieButtons(A).count()) === 0 && (await A.getByText('Im Moment ist keine Aktion möglich.').count()) === 1, 'S10b: A is offered NOTHING for the old process although A holds the turn again');
     const draws = s.draws;
-    const direct = await sendIntent('A', 'ROLL', FRESH(), { turnNumber: 5, sequenceVersion: s.sequenceVersion, diceVersion: s.dice.version, rollCount: s.dice.rollCount }); // even with the CURRENT numbers of the sequence
+    const direct = await sendIntent('A', 'ROLL', FRESH(), await o({ turnNumber: 5, sequenceVersion: s.sequenceVersion, diceVersion: s.dice.version, rollCount: s.dice.rollCount })); // even with the CURRENT numbers of the sequence
     expect(direct.ok === false && direct.code === 'DICE_TURN_STALE', 'S10b: the server refuses a roll on the turn-1 process even with the current sequence numbers', direct);
-    const held = await sendIntent('A', 'HOLD', FRESH(), { turnNumber: 5, sequenceVersion: s.sequenceVersion, diceVersion: s.dice.version, rollCount: s.dice.rollCount, held: [0] });
+    const held = await sendIntent('A', 'HOLD', FRESH(), await o({ turnNumber: 5, sequenceVersion: s.sequenceVersion, diceVersion: s.dice.version, rollCount: s.dice.rollCount, held: [0] }));
     expect(held.ok === false && held.code === 'DICE_TURN_STALE', 'S10b: and a hold as well', held);
     const after = await state();
     expect(after.draws === draws && after.revision === s.revision && JSON.stringify(after.dice) === JSON.stringify(s.dice), 'S10b: nothing was drawn or changed', after);
+  });
+
+  // ── S10c (N9-01): a DELAYED command, delivered by the browser itself after the target changed — same player, same local counters, a NEW global revision ──
+  for (const [kind, over, code] of [
+    ['ROLL', {}, 'TURN_SEQ_SEQUENCE_STALE'], ['ROLL', { runIndex: 2, sameSequence: true }, 'TURN_SEQ_RUN_STALE'], ['ROLL', { rosterRevision: 'roster-2', sameSequence: true }, 'TURN_SEQ_ROSTER_STALE'],
+    ['HOLD', {}, 'TURN_SEQ_SEQUENCE_STALE'], ['HOLD', { runIndex: 2, sameSequence: true }, 'TURN_SEQ_RUN_STALE'], ['HOLD', { rosterRevision: 'roster-2', sameSequence: true }, 'TURN_SEQ_ROSTER_STALE'],
+  ]) {
+    await scenario(`S10c late ${kind} command after ${JSON.stringify(over)}`, async () => {
+      const prime = async () => { // a world in which A has the very same local counters (turn 1, sequence version 1; dice version 0/roll 0, or 1/1 after one roll)
+        if (kind === 'HOLD') { await host({ type: 'script', values: [1, 2, 3, 4, 5] }); const r = await sendIntent('A', 'ROLL', FRESH(), await o()); expect(r.ok === true, 'S10c: roll in the prepared world', r); }
+      };
+      await host({ type: 'reset' });
+      await prime();
+      const old = await state();
+      await delivered(A, 'S10c A old target');
+      await A.evaluate(() => { window.__harness.holdSends = true; });
+      const callsBefore = (await calls(A)).length;
+      if (kind === 'ROLL') await rollButton(A).click(); else await dieButtons(A).nth(1).click();
+      await waitUntil(async () => (await calls(A)).length === callsBefore + 1, 4000, 'S10c: the click built an intent');
+      const delayed = (await calls(A)).slice(-1)[0];
+      expect(delayed.kind === kind && delayed.intent.scope.sequenceId === old.scope.sequenceId && delayed.intent.diceId === old.dice.diceId, 'S10c: the delayed intent carries the ORIGIN it was made for (target and process)', delayed.intent);
+      expect(JSON.stringify(await state()) === JSON.stringify(old), 'S10c: nothing reached the server yet (no effect, no receipt)');
+      // the target changes while the request is still on the way
+      const { sameSequence, ...resetOver } = over; // run / roster cases keep the SEQUENCE id so that exactly ONE part of the origin differs
+      await host({ type: 'reset', ...resetOver, ...(sameSequence ? { sequenceId: old.scope.sequenceId } : {}) });
+      await prime();
+      const now = await state();
+      const differing = ['runIndex', 'sequenceId', 'rosterRevision', 'unit'].filter(k => now.scope[k] !== old.scope[k]);
+      expect(now.revision >= 4 && differing.length === 1 && now.dice.diceId !== old.dice.diceId, 'S10c: exactly ONE part of the target differs (plus the other process)', { old: old.scope, now: now.scope, differing });
+      expect(now.turnNumber === old.turnNumber && now.sequenceVersion === old.sequenceVersion && now.dice.version === old.dice.version && now.dice.rollCount === old.dice.rollCount, 'S10c: precondition — ALL local counters are identical, only the origin differs', { old: [old.turnNumber, old.sequenceVersion, old.dice.version, old.dice.rollCount], now: [now.turnNumber, now.sequenceVersion, now.dice.version, now.dice.rollCount] });
+      await delivered(A, 'S10c A new target');
+      const draws = now.draws, rev = now.revision, receipts = now.receipts, events = now.events;
+      const settledBefore = (await settled(A)).length;
+      await A.evaluate(() => window.__harness.releaseSends()); // the OLD command arrives NOW, for the first time (no receipt exists for it)
+      await waitUntil(async () => (await settled(A)).length > settledBefore, 8000, 'S10c: the delayed command settled');
+      const after = await state();
+      expect((await settled(A)).slice(-1)[0].ok === false, 'S10c: the late command was refused');
+      expect(after.log.some(l => l.code === code), `S10c: the real server refused it with ${code}`, after.log.slice(-3));
+      expect(after.draws === draws && after.revision === rev && after.events === events && JSON.stringify(after.dice) === JSON.stringify(now.dice), 'S10c: no draw, no revision step, no event, the NEW process is untouched', after);
+      expect(after.receipts === receipts + 1, 'S10c: only a failed receipt row was written, never a success', { before: receipts, after: after.receipts });
+      // positive control: the fresh action of the NEW target works
+      await host({ type: 'script', values: [6, 6, 6, 6, 6] });
+      await waitUntil(async () => { const t = kind === 'ROLL' ? rollButton(A) : dieButtons(A).nth(1); return (await t.count()) > 0; }, 5000, 'S10c: the control of the new target is there');
+      if (kind === 'ROLL') await rollButton(A).click(); else await dieButtons(A).nth(1).click();
+      await waitUntil(async () => (await state()).dice.version === now.dice.version + 1, 8000, 'S10c: the fresh action was stored');
+    });
+  }
+
+  // ── S7b (N9-02): the receipt payload: exact replay, conflicts for another operation, another hold target, another origin ───────────────────────
+  await scenario('S7b receipt conflicts at the real harness path', async () => {
+    await host({ type: 'reset' });
+    await host({ type: 'script', values: [1, 2, 3, 4, 5] });
+    const rollId = `cmd-${FRESH()}`;
+    const rollIntent = await o();
+    const first = await sendIntent('A', 'ROLL', rollId, rollIntent);
+    expect(first.ok === true && first.replayed === false && first.rollCount === 1, 'S7b: the roll is applied', first);
+    const afterRoll = await state();
+    const replay = await sendIntent('A', 'ROLL', rollId, rollIntent);
+    expect(replay.ok === true && replay.replayed === true && JSON.stringify(replay.values) === JSON.stringify(afterRoll.dice.values), 'S7b: positive control — the exact same intent with the same commandId is a REPLAY of the stored answer', replay);
+    const asHold = await sendIntent('A', 'HOLD', rollId, { ...(await o()), held: [0] }); // same commandId, another OPERATION, current binding
+    expect(asHold.ok === false && asHold.code === 'COMMAND_CONFLICT', 'S7b: the same commandId for another operation is a COMMAND_CONFLICT, not the roll\'s answer', asHold);
+    const otherCounters = await sendIntent('A', 'ROLL', rollId, await o({ diceVersion: 9 }));
+    expect(otherCounters.ok === false && otherCounters.code === 'COMMAND_CONFLICT', 'S7b: the same commandId with other counters is a conflict', otherCounters);
+    const holdId = `cmd-${FRESH()}`;
+    const holdIntent = { ...(await o()), held: [0] };
+    const held = await sendIntent('A', 'HOLD', holdId, holdIntent);
+    expect(held.ok === true && held.changed === true, 'S7b: the hold is applied', held);
+    const afterHold = await state();
+    expect(JSON.stringify(afterHold.dice.held) === '[true,false,false,false,false]', 'S7b: stored hold assignment', afterHold.dice.held);
+    const otherTarget = await sendIntent('A', 'HOLD', holdId, { ...holdIntent, held: [1] });
+    expect(otherTarget.ok === false && otherTarget.code === 'COMMAND_CONFLICT', 'S7b: the same commandId with another hold TARGET is a conflict (never a success for an action that was not applied)', otherTarget);
+    const otherOrigin = await sendIntent('A', 'HOLD', holdId, { ...holdIntent, scope: { ...holdIntent.scope, sequenceId: 'seq-other' } });
+    expect(otherOrigin.ok === false && otherOrigin.code === 'COMMAND_CONFLICT', 'S7b: the same commandId with another ORIGIN is a conflict', otherOrigin);
+    const otherProcess = await sendIntent('A', 'HOLD', holdId, { ...holdIntent, diceId: 'dice-other' });
+    expect(otherProcess.ok === false && otherProcess.code === 'COMMAND_CONFLICT', 'S7b: and with another process', otherProcess);
+    const holdReplay = await sendIntent('A', 'HOLD', holdId, holdIntent);
+    expect(holdReplay.ok === true && holdReplay.replayed === true, 'S7b: the exact same hold replays', holdReplay);
+    const end = await state();
+    expect(end.draws === 5 && end.revision === afterHold.revision && JSON.stringify(end.dice) === JSON.stringify(afterHold.dice), 'S7b: none of the conflicts or replays changed or drew anything', end);
   });
 
   // ── S17: layout, themes, accent, reduced motion, long names, touch targets ───────────────────────────────────────────────────────────────
   await scenario('S17 layout, themes and motion', async () => {
     await host({ type: 'reset' });
     await host({ type: 'script', values: [2, 4, 6, 1, 3] });
-    await sendIntent('A', 'ROLL', FRESH(), { turnNumber: 1, sequenceVersion: 1, diceVersion: 0, rollCount: 0 });
-    await sendIntent('A', 'HOLD', FRESH(), { turnNumber: 1, sequenceVersion: 1, diceVersion: 1, rollCount: 1, held: [1, 3] });
+    await sendIntent('A', 'ROLL', FRESH(), await o({ turnNumber: 1, sequenceVersion: 1, diceVersion: 0, rollCount: 0 }));
+    await sendIntent('A', 'HOLD', FRESH(), await o({ turnNumber: 1, sequenceVersion: 1, diceVersion: 1, rollCount: 1, held: [1, 3] }));
     const s = await state();
     expect(JSON.stringify(s.dice.values) === '[2,4,6,1,3]' && JSON.stringify(s.dice.held) === '[false,true,false,true,false]' && s.dice.rollCount === 1, 'S17: the stored process behind the layout measurements has values and two held dice', s.dice);
     const variants = [
@@ -543,16 +626,16 @@ const contrast = (a, b) => { const [l1, l2] = [lum(a), lum(b)].sort((x, y) => y 
     for (const [name, mode] of [['normal', 'no-preference'], ['reduced', 'reduce']]) {
       const page = track(await newPage(browser, 'recipient=A', { reducedMotion: mode }));
       await delivered(page, `S17 motion ${name}`);
-      await page.evaluate(() => { window.__maxAnims = 0; (function loop() { window.__maxAnims = Math.max(window.__maxAnims, document.getAnimations().length); requestAnimationFrame(loop); })(); });
+      await page.evaluate(() => { window.__maxAnims = 0; window.__cssAnims = 0; window.__animNames = new Set(); (function loop() { const list = document.getAnimations(); window.__maxAnims = Math.max(window.__maxAnims, list.length); for (const a of list) { if (a.constructor.name === 'CSSAnimation') window.__cssAnims = Math.max(window.__cssAnims, list.filter(x => x.constructor.name === 'CSSAnimation').length); window.__animNames.add(`${a.constructor.name}:${a.animationName || a.transitionProperty || ''}@${a.effect && a.effect.target ? a.effect.target.tagName : ''}`); } requestAnimationFrame(loop); })(); });
       await host({ type: 'script', values: [5, 5, 5] });
       const cur = await state();
-      const r = await sendIntent('A', 'ROLL', FRESH(), { turnNumber: 1, sequenceVersion: cur.sequenceVersion, diceVersion: cur.dice.version, rollCount: cur.dice.rollCount });
+      const r = await sendIntent('A', 'ROLL', FRESH(), await o({ turnNumber: 1, sequenceVersion: cur.sequenceVersion, diceVersion: cur.dice.version, rollCount: cur.dice.rollCount }));
       expect(r.ok === true, `S17 motion ${name}: the roll that drives the animation was stored`, r);
       await delivered(page, `S17 motion ${name} after the roll`);
       await sleep(700);
-      const seen = await page.evaluate(() => ({ max: window.__maxAnims, ends: window.__harness.animationEnds, marks: document.querySelectorAll('[data-tumble="true"]').length }));
-      if (mode === 'reduce') expect(seen.max === 0 && seen.ends === 0, 'S17 motion: under prefers-reduced-motion NO animation runs at all', seen);
-      else expect(seen.max > 0 && seen.marks === 3, 'S17 motion: without the preference the three re-rolled dice animate', seen);
+      const seen = await page.evaluate(() => ({ max: window.__maxAnims, css: window.__cssAnims, names: [...window.__animNames], ends: window.__harness.animationEnds, marks: document.querySelectorAll('[data-tumble="true"]').length }));
+      if (mode === 'reduce') expect(seen.css === 0 && seen.ends === 0, 'S17 motion: under prefers-reduced-motion NO CSS animation (the dice tumble) runs — colour transitions of other elements are a different thing and are listed in `names`', seen);
+      else expect(seen.css > 0 && seen.marks === 3, 'S17 motion: without the preference the three re-rolled dice animate', seen);
       expect((await calls(page)).length === 0 && (await statusText(page)) === statusFor((await state()).dice), `S17 motion ${name}: the animation (or its end) sent nothing and the shown values are the stored ones`);
     }
   });

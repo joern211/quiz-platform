@@ -11,7 +11,7 @@ import {
 import { TURN_SEQUENCE_ERROR_CODES, TurnSequenceScopeSchema } from '@quiz/shared/turnSequence';
 import { gameErrorCode } from './errors.js';
 import {
-  applyDecidedDiceRoll, closeDiceTurn, DiceTurnError, diceTurnScopeOf, openDiceTurn, parseDiceTurnState, projectDiceTurn, readDiceHoldIntent, readDiceRollIntent, rollDice, setDiceHeld,
+  applyDecidedDiceRoll, closeDiceTurn, diceActionArgsFromIntent, DiceTurnError, diceTurnScopeOf, openDiceTurn, parseDiceTurnState, projectDiceTurn, readDiceHoldIntent, readDiceRollIntent, rollDice, setDiceHeld,
   type DiceIntSource, type DiceTurnState,
 } from './diceTurn.js';
 import {
@@ -804,9 +804,10 @@ describe('N9 H: applying an already decided result — no random source, no cloc
 // ── I. Client contract: intents, projection, no secrets ──────
 
 describe('N9 I: intents carry no result; projections carry nothing secret', () => {
-  const binding = { turnNumber: 1, sequenceVersion: 1, diceVersion: 0, rollCount: 0 };
+  const TARGET = { scope: { runIndex: 1, sequenceId: 'seq-1', rosterRevision: 'roster-1', unit: 'PLAYER' as const }, diceId: 'dice-1' };
+  const binding = { ...TARGET, turnNumber: 1, sequenceVersion: 1, diceVersion: 0, rollCount: 0 };
 
-  it('the roll intent is strictly a binding: a client cannot name values, a seed, positions or a roll count to draw', () => {
+  it('the roll intent is strictly an ORIGIN binding (target + counters): a client cannot name values, a seed, positions or a roll count to draw', () => {
     expect(readDiceRollIntent(binding)).toEqual(binding);
     for (const extra of [{ values: [6, 6, 6, 6, 6] }, { seed: 'x' }, { held: [0] }, { dice: [1] }, { random: 4 }, { result: 6 }, { __proto__: null, values: [1] }]) {
       expect(codeOf(() => readDiceRollIntent({ ...binding, ...extra })), JSON.stringify(extra)).toBe('DICE_ARGS_INVALID');
@@ -819,7 +820,39 @@ describe('N9 I: intents carry no result; projections carry nothing secret', () =
     expect(codeOf(() => readDiceRollIntent([]))).toBe('DICE_ARGS_INVALID');
   });
 
-  it('the hold intent is the binding plus a bounded list of positions — and nothing else', () => {
+  it('an intent WITHOUT its origin is invalid — a missing, partial or malformed target is refused, never completed from current state (N9-01)', () => {
+    const { scope, diceId, ...counters } = binding;
+    void scope; void diceId;
+    const broken: Array<[string, Record<string, unknown>]> = [
+      ['counters only (the old contract)', counters], ['no diceId', { ...counters, scope: TARGET.scope }], ['no scope', { ...counters, diceId: TARGET.diceId }],
+      ['scope without run', { ...binding, scope: { sequenceId: 'seq-1', rosterRevision: 'roster-1', unit: 'PLAYER' } }], ['scope without sequence', { ...binding, scope: { runIndex: 1, rosterRevision: 'roster-1', unit: 'PLAYER' } }],
+      ['scope without roster revision', { ...binding, scope: { runIndex: 1, sequenceId: 'seq-1', unit: 'PLAYER' } }], ['scope without unit', { ...binding, scope: { runIndex: 1, sequenceId: 'seq-1', rosterRevision: 'roster-1' } }],
+      ['scope with an extra key', { ...binding, scope: { ...TARGET.scope, extra: 1 } }], ['scope as a string', { ...binding, scope: 'seq-1' }], ['null scope', { ...binding, scope: null }],
+      ['malformed diceId', { ...binding, diceId: 'bad id!' }], ['empty diceId', { ...binding, diceId: '' }], ['numeric diceId', { ...binding, diceId: 5 }], ['unknown unit', { ...binding, scope: { ...TARGET.scope, unit: 'GROUP' } }],
+      ['run zero', { ...binding, scope: { ...TARGET.scope, runIndex: 0 } }],
+    ];
+    for (const [name, raw] of broken) {
+      expect(codeOf(() => readDiceRollIntent(raw)), `roll: ${name}`).toBe('DICE_ARGS_INVALID');
+      expect(codeOf(() => readDiceHoldIntent({ ...raw, held: [0] })), `hold: ${name}`).toBe('DICE_ARGS_INVALID');
+    }
+    expect(codeOf(() => diceActionArgsFromIntent(counters as never))).toBe('DICE_ARGS_INVALID');
+    expect(codeOf(() => diceActionArgsFromIntent(null as never))).toBe('DICE_ARGS_INVALID');
+  });
+
+  it('the origin is carried unchanged into the action arguments, and every part of it changes the local send-lock key', () => {
+    expect(diceActionArgsFromIntent(binding)).toEqual({ scope: TARGET.scope, diceId: 'dice-1', expectedTurnNumber: 1, expectedSequenceVersion: 1, expectedVersion: 0, expectedRollCount: 0 });
+    expect(diceActionArgsFromIntent({ ...binding, held: [1, 3] })).toEqual(diceActionArgsFromIntent(binding)); // `held` is not part of the origin
+    const keys = new Set([
+      diceActionBindingKey(binding),
+      diceActionBindingKey({ ...binding, scope: { ...binding.scope, runIndex: 2 } }), diceActionBindingKey({ ...binding, scope: { ...binding.scope, sequenceId: 'seq-2' } }),
+      diceActionBindingKey({ ...binding, scope: { ...binding.scope, rosterRevision: 'roster-2' } }), diceActionBindingKey({ ...binding, scope: { ...binding.scope, unit: 'TEAM' } }),
+      diceActionBindingKey({ ...binding, diceId: 'dice-2' }), diceActionBindingKey({ ...binding, turnNumber: 2 }), diceActionBindingKey({ ...binding, sequenceVersion: 2 }),
+      diceActionBindingKey({ ...binding, diceVersion: 1 }), diceActionBindingKey({ ...binding, rollCount: 1 }),
+    ]);
+    expect(keys.size).toBe(10);
+  });
+
+  it('the hold intent is the origin binding plus a bounded list of positions — and nothing else', () => {
     expect(readDiceHoldIntent({ ...binding, held: [1, 3] })).toEqual({ ...binding, held: [1, 3] });
     expect(readDiceHoldIntent({ ...binding, held: [] }).held).toEqual([]);
     for (const bad of [{ held: [-1] }, { held: [10] }, { held: [1.5] }, { held: ['1'] }, { held: new Array(11).fill(0) }, { held: 'all' }, { values: [1] }, { held: [0], seed: 1 }]) {
@@ -828,7 +861,6 @@ describe('N9 I: intents carry no result; projections carry nothing secret', () =
     expect(codeOf(() => readDiceHoldIntent(binding))).toBe('DICE_ARGS_INVALID'); // the target is mandatory
     expect(DiceHoldIntentSchema.safeParse({ ...binding, held: [0, 1, 2, 3, 4] }).success).toBe(true);
     expect(DiceActionBindingSchema.safeParse(binding).success).toBe(true);
-    expect(diceActionBindingKey(binding)).toBe(JSON.stringify(['DICE_BINDING', 1, 1, 0, 0]));
     // the shared module exports no schema that could carry values from a client
     expect(Object.keys(contract).filter(name => /Roll|Result|Values/i.test(name) && name.endsWith('Schema'))).toEqual(['DiceRollIntentSchema']);
   });
@@ -1021,5 +1053,149 @@ describe('N9 J: contract, codes and module boundaries', () => {
         expect(text).not.toContain('9,9,9');
       }
     }
+  });
+});
+
+// ── K. The ORIGIN of an action (N9-01): a late intent of an old target is no intent for the new one ──────────────
+
+interface World { seq: TurnSequenceState; dice: DiceTurnState; eligibility: TurnEligibility }
+/** One complete, valid target: a started player sequence (a, b, c; turn 1 = a) and a prepared process for that turn. Every world has the SAME counters. */
+function world(over: { runIndex?: number; sequenceId?: string; rosterRevision?: string; diceId?: string } = {}): World {
+  const runIndex = over.runIndex ?? 1;
+  const prepared = prepareTurnSequence({ runIndex, sequenceId: over.sequenceId ?? 'seq-1', rosterRevision: over.rosterRevision ?? 'roster-1', unit: 'PLAYER', mode: 'FIXED', order: PLAYERS });
+  const eligibility = pel(PLAYERS, 1, runIndex);
+  const seq = startTurnSequence(prepared, { scope: sc(prepared), expectedVersion: 0, eligibility }).state;
+  return { seq, dice: openDiceTurn({ scope: sc(seq), diceId: over.diceId ?? 'dice-1', config: DICE_CONFIG_FIVE_D6_HOLD, sequence: seq, expectedTurnNumber: seq.turnNumber }), eligibility };
+}
+const afterRoll = (w: World): World => ({ ...w, dice: rollDice(w.dice, { ...diceActionArgsFromIntent(intentOf(w, 'ROLL')), sequence: w.seq, caller: callerOf(w.seq), gate: OPEN_GATE, eligibility: w.eligibility, source: source([1, 2, 3, 4, 5]).fn }).state });
+/** What the UI builds from what it SHOWS: the origin comes from the world the user looked at. */
+function intentOf(w: World, kind: 'ROLL'): ReturnType<typeof readDiceRollIntent>;
+function intentOf(w: World, kind: 'HOLD', held: number[]): ReturnType<typeof readDiceHoldIntent>;
+function intentOf(w: World, kind: 'ROLL' | 'HOLD', held: number[] = []) {
+  const origin = { scope: sc(w.seq), diceId: w.dice.diceId, turnNumber: w.seq.turnNumber, sequenceVersion: w.seq.version, diceVersion: w.dice.version, rollCount: w.dice.rollCount };
+  return kind === 'ROLL' ? readDiceRollIntent(origin) : readDiceHoldIntent({ ...origin, held });
+}
+/** The server adapter as a consumer must write it: origin from the INTENT, the trusted facts (state, caller, gate, eligibility) from the SERVER. */
+function deliver(current: World, intent: ReturnType<typeof readDiceRollIntent> | ReturnType<typeof readDiceHoldIntent>, src: ReturnType<typeof source> = source([6, 6, 6, 6, 6])) {
+  const common = { ...diceActionArgsFromIntent(intent), sequence: current.seq, caller: callerOf(current.seq), gate: OPEN_GATE, eligibility: current.eligibility };
+  return 'held' in intent ? setDiceHeld(current.dice, { ...common, held: intent.held }) : rollDice(current.dice, { ...common, source: src.fn });
+}
+
+describe('N9 K: a late, never-applied intent of an old target is refused by the new target — roll and hold', () => {
+  const CASES: Array<[string, Parameters<typeof world>[0], string]> = [
+    ['another run (same player ids, valid NEW N6 track)', { runIndex: 2 }, 'TURN_SEQ_RUN_STALE'],
+    ['another sequence of the same run', { sequenceId: 'seq-2' }, 'TURN_SEQ_SEQUENCE_STALE'],
+    ['another pinned roster revision', { rosterRevision: 'roster-2' }, 'TURN_SEQ_ROSTER_STALE'],
+    ['another dice process of the very same sequence and turn', { diceId: 'dice-other' }, 'DICE_SCOPE_STALE'],
+  ];
+  it.each(CASES)('%s: the old intent is refused with %s — no draw, nothing changed — while the fresh intent of the new target works', (_name, over, code) => {
+    const old = afterRoll(world());
+    const current = afterRoll(world(over));
+    for (const kind of ['ROLL', 'HOLD'] as const) {
+      const delayed = kind === 'ROLL' ? intentOf(old, 'ROLL') : intentOf(old, 'HOLD', [1, 3]);
+      const fresh = kind === 'ROLL' ? intentOf(current, 'ROLL') : intentOf(current, 'HOLD', [1, 3]);
+      // precondition of the case: the LOCAL counters are identical — only the origin tells the two apart (the very failure of the old contract)
+      const counters = (i: typeof delayed) => [i.turnNumber, i.sequenceVersion, i.diceVersion, i.rollCount];
+      expect(counters(delayed)).toEqual(counters(fresh));
+      expect(delayed).not.toEqual(fresh);
+      const before = clone(current.dice);
+      const draws = source([6, 6, 6, 6, 6]);
+      expect(codeOf(() => deliver(current, delayed, draws)), `${kind} delayed`).toBe(code);
+      expect(draws.calls).toHaveLength(0);
+      expect(current.dice).toEqual(before);
+      const done = deliver(current, fresh, source([6, 6, 6, 6, 6])); // a fresh roll with nothing held draws five
+      expect(done.changed, `${kind} fresh (positive control)`).toBe(true);
+      expect(done.state.version).toBe(current.dice.version + 1);
+    }
+  });
+
+  it('a late intent of the SAME player in a NEW process with identical counters is refused; the same intent against its own process still works (positive control)', () => {
+    const old = afterRoll(world({ diceId: 'dice-t1-a' }));
+    const next = afterRoll(world({ diceId: 'dice-t1-b' }));
+    const delayed = intentOf(old, 'ROLL');
+    expect(deliver(old, delayed, source([6, 6, 6, 6, 6])).changed).toBe(true);
+    expect(codeOf(() => deliver(next, delayed))).toBe('DICE_SCOPE_STALE');
+    expect(callerOf(old.seq)).toEqual(callerOf(next.seq)); // same participant, same team, same session facts: the origin is what differs
+  });
+
+  it('a mis-wired adapter that fills the target from the CURRENT state would accept the late intent — which is exactly why the arguments are derived from the intent', () => {
+    const old = afterRoll(world());
+    const current = afterRoll(world({ sequenceId: 'seq-2' }));
+    const delayed = intentOf(old, 'ROLL');
+    const miswired = () => rollDice(current.dice, { scope: sc(current.seq), diceId: current.dice.diceId, expectedTurnNumber: delayed.turnNumber, expectedSequenceVersion: delayed.sequenceVersion, expectedVersion: delayed.diceVersion, expectedRollCount: delayed.rollCount, sequence: current.seq, caller: callerOf(current.seq), gate: OPEN_GATE, eligibility: current.eligibility, source: source([6, 6, 6, 6, 6]).fn });
+    expect(miswired().changed).toBe(true); // documents the anti-pattern the independent review found; the supported path is diceActionArgsFromIntent
+    expect(codeOf(() => deliver(current, delayed))).toBe('TURN_SEQ_SEQUENCE_STALE');
+  });
+
+  it('BASIS in the same target: the intent still names its origin, the old sequence version is refused, the dice stay and the roll limit is not reset', () => {
+    const w = afterRoll(world());
+    const intent = intentOf(w, 'ROLL');
+    const newer = pel(PLAYERS, 5);
+    const seq1 = refreshEligibilityBasis(w.seq, { scope: sc(w.seq), expectedVersion: w.seq.version, eligibility: newer }).state;
+    const current: World = { ...w, seq: seq1, eligibility: newer };
+    expect(codeOf(() => deliver(current, intent))).toBe('TURN_SEQ_VERSION_STALE'); // the origin still matches; the counter does not
+    const fresh = intentOf(current, 'ROLL');
+    expect(fresh.scope).toEqual(intent.scope);
+    expect(fresh.diceId).toBe(intent.diceId);
+    expect(deliver(current, fresh, source([6, 6, 6, 6, 6])).state.rollCount).toBe(2);
+  });
+});
+
+describe('N9 K2: counter capacity is checked BEFORE the random source (N9-03)', () => {
+  const MAX = contract.DICE_MAX_COUNTER;
+  const rolledAt = (version: number) => { const w = afterRoll(world()); return { ...w, dice: { ...w.dice, version } as DiceTurnState }; };
+  const rollAt = (w: World, src = source([6, 6, 6, 6, 6])) => ({ run: () => deliver(w, intentOf(w, 'ROLL'), src), src });
+
+  it('a roll needs one version step AND leaves one for the closing: allowed up to MAX-2, refused from MAX-1 with DICE_COUNTER_LIMIT — never after a draw, never wrapping', () => {
+    const ok = rollAt(rolledAt(MAX - 2));
+    const done = ok.run();
+    expect(done.state.version).toBe(MAX - 1);
+    expect(ok.src.calls.length).toBeGreaterThan(0); // positive control: below the limit the source IS used
+    for (const version of [MAX - 1, MAX]) {
+      const w = rolledAt(version);
+      const r = rollAt(w);
+      const before = clone(w.dice);
+      expect(codeOf(r.run), `version ${version}`).toBe('DICE_COUNTER_LIMIT');
+      expect(r.src.calls).toHaveLength(0); // the reproduction of the independent review: the source was called five times before
+      expect(w.dice).toEqual(before);
+    }
+  });
+
+  it('a hold CHANGE obeys the same capacity; the identical assignment is a no-op that needs none; the closing has the reserved last step; at the limit closing is refused too', () => {
+    const w = rolledAt(MAX - 1);
+    const hold = (target: number[]) => () => deliver(w, intentOf(w, 'HOLD', target));
+    expect(codeOf(hold([0]))).toBe('DICE_COUNTER_LIMIT');
+    expect(hold([])()).toMatchObject({ changed: false }); // nothing is held: "release all" changes nothing and costs no step
+    const closed = closeDiceTurn(w.dice, { scope: diceTurnScopeOf(w.dice), diceId: w.dice.diceId, expectedTurnNumber: 1, expectedVersion: MAX - 1 });
+    expect(closed.state).toMatchObject({ phase: 'CLOSED', version: MAX });
+    expect(codeOf(() => closeDiceTurn(closed.state, { scope: diceTurnScopeOf(w.dice), diceId: w.dice.diceId, expectedTurnNumber: 1, expectedVersion: MAX }))).toBe('NO_THROW'); // already closed: a no-op
+    const atMax = rolledAt(MAX);
+    expect(codeOf(() => closeDiceTurn(atMax.dice, { scope: diceTurnScopeOf(atMax.dice), diceId: atMax.dice.diceId, expectedTurnNumber: 1, expectedVersion: MAX }))).toBe('DICE_COUNTER_LIMIT');
+    expect(hold([0, 1]) && codeOf(() => deliver(rolledAt(MAX - 2), intentOf(rolledAt(MAX - 2), 'HOLD', [0, 1])))).toBe('NO_THROW'); // below the limit a hold change works
+  });
+
+  it('applying an already decided result obeys it as well (replay can not push a counter over the schema)', () => {
+    const w = rolledAt(MAX - 1);
+    expect(codeOf(() => applyDecidedDiceRoll(w.dice, { expectedVersion: MAX - 1, expectedRollCount: 1, indices: [0, 1, 2, 3, 4], values: [1, 1, 1, 1, 1] }))).toBe('DICE_COUNTER_LIMIT');
+    expect(codeOf(() => applyDecidedDiceRoll(rolledAt(MAX - 2).dice, { expectedVersion: MAX - 2, expectedRollCount: 1, indices: [0, 1, 2, 3, 4], values: [1, 1, 1, 1, 1] }))).toBe('NO_THROW');
+  });
+
+  it('the N8 basis step the consumer must persist has room BEFORE the draw: a newer N6 stand at a sequence version at its limit is refused without a draw; without a newer stand the same roll works', () => {
+    const base = afterRoll(world());
+    const full: World = { ...base, seq: { ...base.seq, version: MAX } };
+    const intent = (w: World) => intentOf(w, 'ROLL');
+    const plain = source([6, 6, 6, 6, 6]);
+    expect(deliver(full, intent(full), plain).changed).toBe(true); // no newer stand: no basis step needed, the sequence is not touched
+    const withNewer: World = { ...full, eligibility: pel(PLAYERS, 9) };
+    const src = source([6, 6, 6, 6, 6]);
+    expect(codeOf(() => deliver(withNewer, intent(withNewer), src))).toBe('DICE_COUNTER_LIMIT');
+    expect(src.calls).toHaveLength(0);
+  });
+
+  it('related bounds hold by construction: the roll number can not exceed 10, positions 10, and the N8 counters share the same 1e9 bound', () => {
+    expect(MAX).toBe(1_000_000_000);
+    expect(DICE_ERROR_CODES).toContain('DICE_COUNTER_LIMIT');
+    expect(gameErrorCode(new DiceTurnError('DICE_COUNTER_LIMIT'))).toBe('DICE_COUNTER_LIMIT');
+    expect(contract.DICE_MAX_ROLLS).toBeLessThanOrEqual(10);
   });
 });
