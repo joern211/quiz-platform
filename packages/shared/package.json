@@ -13,6 +13,7 @@
     "./voting": "./src/voting.ts",
     "./secretInfo": "./src/secretInfo.ts",
     "./participation": "./src/participation.ts",
+    "./audioPlayback": "./src/audioPlayback.ts",
     "./schemas": "./src/schemas/index.ts",
     "./types": "./src/types/index.ts"
   },

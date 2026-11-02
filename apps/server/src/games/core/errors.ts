@@ -4,6 +4,7 @@ import { ORDERING_ERROR_CODES } from '@quiz/shared/ordering';
 import { VOTING_ERROR_CODES } from '@quiz/shared/voting';
 import { SECRET_INFO_ERROR_CODES } from '@quiz/shared/secretInfo';
 import { PARTICIPATION_ERROR_CODES } from '@quiz/shared/participation';
+import { AUDIO_PLAYBACK_ERROR_CODES } from '@quiz/shared/audioPlayback';
 import { GameStateConflictError } from './state.js';
 
 // Wire codes kept stable for existing clients; internal messages are never returned.
@@ -39,6 +40,7 @@ const PUBLIC_CODES = new Set([
   ...SECRET_INFO_ERROR_CODES,
   // N6: participation codes carry no life value, bound, roster, actor id or cause (issues are code-only); no engine emits them yet.
   ...PARTICIPATION_ERROR_CODES,
+  ...AUDIO_PLAYBACK_ERROR_CODES,
 ]);
 
 export function gameErrorCode(error: unknown, gameSlug?: string): string {
