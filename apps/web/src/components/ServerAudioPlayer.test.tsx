@@ -102,6 +102,20 @@ describe('N7 ServerAudioPlayer: no restart, no leftovers', () => {
     expect(text()).toContain('nicht verfügbar');
     expect(m.world.elements).toHaveLength(2);
   });
+  it('no committed frame after a withdrawal still says the audio is playing (status is derived from the current authorisation, not from the controller alone)', async () => {
+    const frames: string[] = [];
+    const world = createWorld();
+    const props = { expected: EXPECTED, clock: world.clock, createAudio: world.createAudio, scheduler: world.scheduler, monoNow: world.monoNow };
+    const tree = (p: unknown) => <Profiler id="w" onRender={() => frames.push(document.body.textContent ?? '')}><ServerAudioPlayer {...props} projection={p} /></Profiler>;
+    const view = render(tree(playProjection({ anchorMono: 0, stateVersion: 9 })));
+    await act(async () => { await flush(); const el = world.newestElement(); el.loadMetadata(); await flush(); el.startPlayback(); await flush(); });
+    expect(document.body.textContent).toContain('Das Audio läuft.');
+    const mark = frames.length;
+    view.rerender(tree(none(10)));
+    expect(frames.length).toBeGreaterThan(mark);
+    expect(frames.slice(mark).some(f => /läuft|puffert|geladen/.test(f))).toBe(false);
+    expect(document.body.textContent).toContain('nicht verfügbar');
+  });
   it('unmount releases element, listeners and timers; a late play() fulfilment afterwards is silent', async () => {
     const m = mount({ projection: playProjection({ anchorMono: 0 }) });
     await act(async () => { await flush(); liveElements(m.world)[0].loadMetadata(); await flush(); });

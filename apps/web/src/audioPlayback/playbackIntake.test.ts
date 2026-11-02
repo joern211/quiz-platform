@@ -99,4 +99,31 @@ describe('N7 intake: version knowledge is kept apart from what is playable (anal
     expect(r.map(x => x.held?.source?.url ?? null)).toEqual(['/api/v1/media/a?sig=1', '/api/v1/media/a?sig=1', '/api/v1/media/a?sig=9']);
     expect(r[1].held?.plan).toBeNull();
   });
+
+  it('EXHAUSTIVE order check: over every sequence of 5 inputs from a mixed alphabet, nothing older than a seen withdrawal or newer-than-seen knowledge is ever playable again', () => {
+    const foreign = { ...play(99), scope: { ...SCOPE, playbackId: 'other' } };
+    const alphabet: Array<[string, unknown]> = [['P8', play(8)], ['P9', play(9)], ['N10', none(10)], ['null', null], ['P11', play(11)], ['X99', foreign]];
+    const length = 5;
+    let checked = 0;
+    const walk = (prefix: number[]) => {
+      if (prefix.length === length) {
+        let memo: IntakeMemo | null = null;
+        let maxAccepted = -1, withdrawnAt = -1;
+        for (const index of prefix) {
+          const r = intakeAudioPlayback(memo, EXPECTED, alphabet[index][1]);
+          memo = r.memo;
+          const input = alphabet[index][1] as { stateVersion?: number; release?: string } | null;
+          if (r.outcome === 'ACCEPTED' || r.outcome === 'RELEASE_NONE') { maxAccepted = Math.max(maxAccepted, input!.stateVersion!); if (r.outcome === 'RELEASE_NONE') withdrawnAt = Math.max(withdrawnAt, input!.stateVersion!); }
+          // (1) what is playable is never older than anything already accepted; (2) never at or below a withdrawal seen before; (3) the foreign context changes nothing
+          if (r.held) { expect(r.held.stateVersion, alphabet.filter((_, i) => prefix.includes(i)).map(a => a[0]).join()).toBeGreaterThanOrEqual(maxAccepted); expect(r.held.stateVersion).toBeGreaterThan(withdrawnAt); }
+          expect(r.memo.seenStateVersion).toBe(maxAccepted);
+        }
+        checked++;
+        return;
+      }
+      for (let i = 0; i < alphabet.length; i++) walk([...prefix, i]);
+    };
+    walk([]);
+    expect(checked).toBe(6 ** 5);
+  });
 });

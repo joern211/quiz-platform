@@ -133,6 +133,23 @@ describe('C. Asynchronous races: nothing stale can start, stop, break or keep pl
     expect(el.paused).toBe(false);
   });
 
+  it('a LATE REJECTION of an overtaken attempt cannot mark the resource blocked or cancel the newer attempt (pause → resume while the first play() is pending)', async () => {
+    for (const name of ['NotAllowedError', 'AbortError', 'NotSupportedError']) {
+      const m = mount();
+      m.controller.apply(playProjection({ anchorMono: 0 }));
+      await loaded(m);
+      const el = m.el();
+      m.controller.apply(playProjection({ status: 'PAUSED', positionMs: 0, playbackVersion: 2, stateVersion: 6 }));
+      m.controller.apply(playProjection({ anchorMono: 0, playbackVersion: 3, stateVersion: 7 }));
+      expect(el.playCalls).toBe(2);
+      el.pending[0].reject(Object.assign(new Error(name), { name })); await flush(); // the OLD attempt fails late
+      expect(m.status(), name).not.toBe('AUTOPLAY_BLOCKED');
+      expect(m.status(), name).not.toBe('ERROR');
+      el.startPlayback(); await flush(); // the NEWER attempt is fulfilled
+      expect(m.status(), name).toBe('PLAYING');
+      expect(el.running, name).toBe(true);
+    }
+  });
   it('start() → stop() → start() on the same instance (StrictMode) leaves exactly one live element, no listener or timer of the first life', async () => {
     const m = mount();
     m.controller.apply(playProjection({ anchorMono: 0 }));
