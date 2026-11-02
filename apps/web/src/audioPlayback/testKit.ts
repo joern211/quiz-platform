@@ -17,7 +17,8 @@ export class FakeAudio implements AudioLike {
   pending: Pending[] = [];
   private listeners = new Map<string, Set<() => void>>();
   private t = 0; // playhead in seconds
-  get currentTime(): number { return this.t; }
+  /** While a seek is in flight the REAL element reports the requested position (the official playback position) — only `seeking` tells the truth. */
+  get currentTime(): number { return this.seeking ? this.pendingSeek : this.t; }
   /** Every assignment is a seek and is recorded. */
   set currentTime(v: number) {
     if (this.seekMode === 'ignore') return; // the setter does nothing (no seekable range yet)

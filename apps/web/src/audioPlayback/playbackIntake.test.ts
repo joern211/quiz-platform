@@ -5,7 +5,7 @@ import { intakeAudioPlayback, type IntakeMemo, type IntakeResult } from './playb
 import { SCOPE, SERVER_BASE, playProjection } from './testKit';
 
 const EXPECTED: AudioPlaybackExpectedContext = { ...SCOPE, minStateVersion: 3 };
-const play = (stateVersion: number, playbackVersion = 1, url = '/api/v1/media/a?sig=1'): AudioPlaybackProjection => playProjection({ stateVersion, playbackVersion, url });
+const play = (stateVersion: number, playbackVersion = 1, url = '/api/v1/media/a?sig=1', renewal = 1): AudioPlaybackProjection => playProjection({ stateVersion, playbackVersion, url, renewal });
 const none = (stateVersion: number, playbackVersion = 1): AudioPlaybackProjection =>
   ({ contract: AUDIO_PLAYBACK_CONTRACT, scope: { ...SCOPE }, stateVersion, playbackVersion, release: 'NONE', serverNowMs: 1, durationMs: null, source: null, plan: null });
 const loadOnly = (stateVersion: number, playbackVersion = 1): AudioPlaybackProjection =>
@@ -67,7 +67,7 @@ describe('N7 intake: version knowledge is kept apart from what is playable (anal
     expect(r[1].held?.stateVersion).toBe(9); // the previously held newer view stays
   });
   it('at the SAME snapshot and plan version a renewed URL is accepted; a wider release than the one already seen is not', () => {
-    const r = run([play(9, 1, '/api/v1/media/a?sig=1'), play(9, 1, '/api/v1/media/a?sig=2'), none(9, 1), play(9, 1)]);
+    const r = run([play(9, 1, '/api/v1/media/a?sig=1', 1), play(9, 1, '/api/v1/media/a?sig=2', 2), none(9, 1), play(9, 1)]);
     expect(r.map(x => x.outcome)).toEqual(['ACCEPTED', 'ACCEPTED', 'RELEASE_NONE', 'STALE']);
     expect(r[1].held?.source?.url).toBe('/api/v1/media/a?sig=2');
     expect(r[3].held).toBeNull();
@@ -95,7 +95,7 @@ describe('N7 intake: version knowledge is kept apart from what is playable (anal
     expect(JSON.stringify(r[1].memo)).not.toMatch(/api\/v1|sig=/);
   });
   it('consecutive updates: LOAD_ONLY after PLAY keeps a source but drops the plan (nothing playable), a newer PLAY brings a new source', () => {
-    const r = run([play(5, 1, '/api/v1/media/a?sig=1'), loadOnly(6, 1), play(7, 2, '/api/v1/media/a?sig=9')]);
+    const r = run([play(5, 1, '/api/v1/media/a?sig=1', 1), loadOnly(6, 1), play(7, 2, '/api/v1/media/a?sig=9', 2)]);
     expect(r.map(x => x.held?.source?.url ?? null)).toEqual(['/api/v1/media/a?sig=1', '/api/v1/media/a?sig=1', '/api/v1/media/a?sig=9']);
     expect(r[1].held?.plan).toBeNull();
   });
@@ -147,6 +147,10 @@ describe('N7-01. Access-URL renewals are ordered by the issuer\'s renewal number
     const small = withUrl('/api/v1/media/clip-a?exp=1&sig=aa', 2, { serverNowMs: SERVER_BASE + 1 });
     expect(urls(run([big, small]))[1]).toBe(small.source!.url);
     expect(urls(run([small, big]))[1]).toBe(small.source!.url);
+  });
+  it('the same number with a DIFFERENT url contradicts the issuer: the first accepted source stays (no flapping reloads)', () => {
+    const r = run([withUrl(U1, 4), withUrl(U2, 4), withUrl(U1, 4)]);
+    expect(urls(r)).toEqual([U1, U1, U1]);
   });
   it('a late older URL at a NEWER snapshot/plan version still brings its plan (a pause must not be lost) but never the older source', () => {
     const r = run([withUrl(U2, 2), withUrl(U1, 1, { status: 'PAUSED', positionMs: 3000, stateVersion: 10, playbackVersion: 2 })]);

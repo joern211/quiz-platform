@@ -41,6 +41,7 @@ export interface ServerAudioPlayerProps {
   createAudio?: () => AudioLike;
   scheduler?: Scheduler;
   monoNow?: () => number;
+  startPositionTimeoutMs?: number;
 }
 
 const STATUS_TEXT: Record<LocalStatus, string> = {
@@ -62,9 +63,9 @@ const fmt = (ms: number): string => { const s = Math.floor(ms / 1000); return `$
 const sameMemo = (a: IntakeMemo | null, b: IntakeMemo): boolean => a !== null && a.key === b.key && a.seenStateVersion === b.seenStateVersion
   && a.seenPlaybackVersion === b.seenPlaybackVersion && a.seenRelease === b.seenRelease && JSON.stringify(a.held) === JSON.stringify(b.held);
 
-export function ServerAudioPlayer({ expected, projection, clock, label = 'Audio', onRenewUrl, createAudio, scheduler, monoNow }: ServerAudioPlayerProps) {
+export function ServerAudioPlayer({ expected, projection, clock, label = 'Audio', onRenewUrl, createAudio, scheduler, monoNow, startPositionTimeoutMs }: ServerAudioPlayerProps) {
   const titleId = `${useId()}-title`;
-  const seams = useRef({ createAudio, scheduler, monoNow });
+  const seams = useRef({ createAudio, scheduler, monoNow, startPositionTimeoutMs });
 
   // Bind first (pure, derived while rendering): only a strictly valid, matching, not-too-old projection is an observation at all.
   const [memo, setMemo] = useState<IntakeMemo | null>(null);

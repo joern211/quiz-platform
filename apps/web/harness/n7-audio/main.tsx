@@ -17,13 +17,15 @@ import type { AudioLike } from '../../src/audioPlayback/AudioPlaybackController'
 
 interface Rec { el: HTMLAudioElement; analyser: AnalyserNode | null }
 interface ProbeEntry { index: number; src: string | null; paused: boolean; currentTimeMs: number; readyState: number; rms: number | null; freqHz: number | null }
-declare global { interface Window { __recs: Rec[]; __probe: () => ProbeEntry[]; __log: Array<{ t: number; status: string }>; __renewCalls: number; __errors: string[] } }
+declare global { interface Window { __recs: Rec[]; __probe: () => ProbeEntry[]; __log: Array<{ t: number; status: string }>; __renewCalls: number; __errors: string[]; __setProjection: (projection: unknown) => void } }
 window.__recs = []; window.__log = []; window.__renewCalls = 0; window.__errors = [];
 window.addEventListener('error', e => window.__errors.push(String(e.message)));
 window.addEventListener('unhandledrejection', e => window.__errors.push(String(e.reason)));
 
 const params = new URLSearchParams(location.search);
 const role = params.get('role') ?? 'VIEWER', gated = params.get('gate') === '1', analyse = params.get('analyse') === '1';
+/** poll=0: the check script delivers projections itself through window.__setProjection (deliberate delivery ORDER, e.g. a late older renewal). */
+const polling = params.get('poll') !== '0';
 let audioContext: AudioContext | null = null;
 
 function createAudio(): AudioLike {
@@ -71,9 +73,11 @@ function App() {
         if (alive) { setExpected({ ...c.scope, minStateVersion: c.minStateVersion }); setProjection(p); }
       } catch { /* backend restarting: keep what we have */ }
     };
-    void poll();
-    const poller = setInterval(() => { void poll(); }, 150);
-    return () => { alive = false; clearInterval(poller); clearInterval(sampler); };
+    if (polling) void poll();
+    else void fetch('/api/context').then(r => r.json()).then(c => { if (alive) setExpected({ ...c.scope, minStateVersion: c.minStateVersion }); });
+    window.__setProjection = (projection: unknown) => { if (alive) setProjection(projection); };
+    const poller = polling ? setInterval(() => { void poll(); }, 150) : undefined;
+    return () => { alive = false; if (poller) clearInterval(poller); clearInterval(sampler); };
   }, [started]);
   useEffect(() => {
     const observer = new MutationObserver(() => {
@@ -88,7 +92,7 @@ function App() {
     <main style={{ padding: 16, maxWidth: 560 }}>
       <p data-role>Empfänger: {role}</p>
       {!started && <button type="button" data-action="join" onClick={() => { void audioContext?.resume(); setStarted(true); }}>Raum betreten</button>}
-      {expected && <ServerAudioPlayer expected={expected} projection={projection} clock={clock} label={params.get('label') ?? 'Audio zur Runde'} onRenewUrl={onRenewUrl} createAudio={createAudio} />}
+      {expected && <ServerAudioPlayer expected={expected} projection={projection} clock={clock} label={params.get('label') ?? 'Audio zur Runde'} onRenewUrl={onRenewUrl} createAudio={createAudio} startPositionTimeoutMs={Number(params.get('startTimeout')) || undefined} />}
     </main>
   );
 }

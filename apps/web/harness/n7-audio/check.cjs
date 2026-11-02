@@ -273,6 +273,106 @@ async function startChildren() {
   expect((await stats()).state.version === versionAtError, 'S4: a local failure and retry changed nothing in the server plan');
   await E.context().close();
 
+  // ── S6 (N7-01): renewal order in the browser — R1 begins, R2 begins, R2 returns, R1 returns late: the newer URL stays, nothing is interrupted ──
+  await cmd({ type: 'reset' });
+  const RN = await newPage(browser, 'role=VIEWER&gate=1&analyse=1&poll=0'); // projections are delivered by this script, in a deliberate ORDER
+  await RN.click('[data-action=join]');
+  const fetchProjection = async role => (await fetch(`${BASE}/api/projection?role=${role}`)).json();
+  const inject = (page, projection) => page.evaluate(p => window.__setProjection(p), projection);
+  await cmd({ type: 'start', leadMs: 300 });
+  await inject(RN, await fetchProjection('VIEWER'));
+  await waitUntil(async () => (await statusOf(RN)) === 'PLAYING', 6000, 'S6: PLAYING');
+  await sleep(1200);
+  const idx1 = live(await probe(RN))[0].index;
+  await cmd({ type: 'renew' }); const R1 = await fetchProjection('VIEWER'); // the result of the FIRST renewal request
+  await cmd({ type: 'renew' }); const R2 = await fetchProjection('VIEWER'); // the result of the SECOND one
+  expect(R1.stateVersion === R2.stateVersion && R1.playbackVersion === R2.playbackVersion && R2.source.renewal > R1.source.renewal && R1.source.url !== R2.source.url, 'S6: the two results differ only in URL and renewal number', [R1.source, R2.source]);
+  await inject(RN, R2); // R2 returns first
+  await waitUntil(async () => { const l = live(await probe(RN)); return l.length === 1 && l[0].index !== idx1 && /tok=3/.test(l[0].src); }, 4000, 'S6: element swapped for the newest URL');
+  await waitUntil(async () => (await statusOf(RN)) === 'PLAYING', 4000, 'S6: PLAYING on the newest URL');
+  const idx2 = live(await probe(RN))[0].index, madeBefore = await RN.evaluate(() => window.__recs.length);
+  await inject(RN, R1); // R1 returns late, same snapshot version and plan version
+  await sleep(1200); // observation window: nothing may happen
+  const afterLate = live(await probe(RN));
+  expect(afterLate.length === 1 && afterLate[0].index === idx2 && /tok=3/.test(afterLate[0].src) && afterLate[0].paused === false, 'S6: the late older renewal must not replace or interrupt the live resource', afterLate);
+  expect((await RN.evaluate(() => window.__recs.length)) === madeBefore, 'S6: the late older renewal created an element');
+  checkOnPlan('S6 after the late renewal', await measure(RN));
+  expect((await stats()).state.version === 1, 'S6: renewals changed nothing in the plan (version stays 1)', (await stats()).state.version);
+  // withdrawal during a renewal stays effective
+  await cmd({ type: 'release', role: 'VIEWER', release: 'NONE' });
+  await inject(RN, await fetchProjection('VIEWER'));
+  await waitUntil(async () => live(await probe(RN)).length === 0, 3000, 'S6: withdrawal releases the element');
+  const recsAtWithdrawal = await RN.evaluate(() => window.__recs.length);
+  await inject(RN, R2); // the late answer of the renewal, older snapshot, higher URL number than anything shown
+  await sleep(800);
+  expect(live(await probe(RN)).length === 0 && (await RN.evaluate(() => window.__recs.length)) === recsAtWithdrawal, 'S6: a late renewal answer after a withdrawal brought a source back');
+  expect(RN.errors.length === 0, 'S6 page errors', RN.errors);
+  await RN.context().close();
+
+  // ── S7 (N7-02): a local end belongs to the plan decision ──────────────────────────────────────────────────────────────────────
+  await cmd({ type: 'reset' });
+  const RE = await newPage(browser, 'role=VIEWER&gate=1&analyse=1');
+  await RE.click('[data-action=join]');
+  await cmd({ type: 'start', leadMs: 300 });
+  await waitUntil(async () => (await statusOf(RE)) === 'PLAYING', 6000, 'S7: PLAYING');
+  await sleep(1500);
+  await cmd({ type: 'pause' });
+  const pausedAt = (await stats()).state.positionMs;
+  await waitUntil(async () => (await statusOf(RE)) === 'PAUSED' && live(await probe(RE)).every(e => e.paused), 3000, 'S7: PAUSED');
+  // an already-queued `ended`, dispatched AFTER the pause, while the element really sits at its end (the demanding variant: `ended` is true of the element)
+  const atEnd = await RE.evaluate(async () => { const rec = window.__recs.filter(r => r.el.getAttribute('src') !== null).at(-1); await new Promise(resolve => { rec.el.addEventListener('seeked', resolve, { once: true }); setTimeout(resolve, 2000); rec.el.currentTime = rec.el.duration; }); rec.el.dispatchEvent(new Event('ended')); return rec.el.ended; });
+  expect(atEnd === true, 'S7: the element must really be at its end for this probe', atEnd);
+  await sleep(400);
+  expect((await statusOf(RE)) === 'PAUSED', 'S7: a trailing ended after a pause changed the status', await statusOf(RE));
+  await cmd({ type: 'resume', leadMs: 800 });
+  await waitUntil(async () => (await statusOf(RE)) === 'PLAYING', 5000, 'S7: PLAYING after the resume despite the trailing ended');
+  const resumed = checkOnPlan('S7 resumed', await measure(RE), { signal: false });
+  await expectSignal('S7 resumed', RE);
+  if (resumed) expect(resumed.currentTimeMs > pausedAt - 200, 'S7: resume restarted before the stored position', [resumed.currentTimeMs, pausedAt]);
+  expect(RE.errors.length === 0, 'S7 page errors', RE.errors);
+  await RE.context().close();
+  // a REAL local end before the authoritative end (the file lasts 8 s, the plan claims 12 s): final under this plan, no loop, no restart at 0
+  await cmd({ type: 'reset', clip: 'clip-short' });
+  const SH = await newPage(browser, 'role=VIEWER&gate=1');
+  await SH.click('[data-action=join]');
+  await cmd({ type: 'start', leadMs: 300 });
+  await waitUntil(async () => (await statusOf(SH)) === 'PLAYING', 6000, 'S7b: PLAYING');
+  await waitUntil(async () => (await statusOf(SH)) === 'ENDED', 12_000, 'S7b: local end of the media');
+  const endState = (await stats()).state;
+  expect(endState.status === 'RUNNING', 'S7b: the SERVER plan is still running (the end is local)', endState.status);
+  const recsAtEnd = await SH.evaluate(() => window.__recs.length);
+  const positions = [];
+  for (let i = 0; i < 10; i++) { const e = live(await probe(SH))[0]; positions.push(e ? [e.paused, e.currentTimeMs] : null); await sleep(300); }
+  expect(positions.every(x => x && x[0] === true && x[1] > 7000), 'S7b: after the local end the element must stay silent and not restart at 0', positions);
+  expect((await statusOf(SH)) === 'ENDED' || (await statusOf(SH)) === 'ENDED', 'S7b: the local end stays final');
+  expect((await SH.evaluate(() => window.__recs.length)) === recsAtEnd, 'S7b: no new element after the local end');
+  await SH.context().close();
+
+  // ── S8 (N7-03): late join on a stream Chromium cannot seek into (no Range support, throttled): never an audible wrong start ──────
+  await cmd({ type: 'reset' });
+  await cmd({ type: 'media', mode: 'slow' });
+  await cmd({ type: 'start', leadMs: 0 });
+  await sleep(4500); // the joiner arrives about 5 s into the clip
+  const LT = await newPage(browser, 'role=VIEWER&gate=1&startTimeout=3000');
+  await LT.click('[data-action=join]');
+  await waitUntil(async () => (await LT.locator('[data-status]').count()) > 0, 5000, 'S8: player rendered');
+  let wrongStart = 0, samples8 = 0;
+  for (let i = 0; i < 20 && (await statusOf(LT)) !== 'ERROR'; i++) { const e = live(await probe(LT)); samples8++; if (e.some(x => !x.paused)) wrongStart++; await sleep(150); }
+  expect(samples8 >= 10 && wrongStart === 0, 'S8: an element ran while the required seek was impossible (audible wrong start)', { wrongStart, samples8 });
+  await waitUntil(async () => (await statusOf(LT)) === 'ERROR', 6000, 'S8: ERROR after the bounded wait');
+  const errText8 = await LT.locator('section').innerText();
+  expect(/nicht geladen werden/.test(errText8) && !/http|harness-media|tok=|seek/i.test(errText8), 'S8: neutral error text', errText8);
+  expect(live(await probe(LT)).every(e => e.paused), 'S8: the failed element must be silent');
+  await cmd({ type: 'media', mode: 'normal' }); // the access is fixed (a range-capable response)
+  if ((await statusOf(LT)) === 'ERROR') {
+    await LT.getByRole('button', { name: 'Erneut laden' }).click({ timeout: 3000 });
+    await waitUntil(async () => (await statusOf(LT)) === 'PLAYING', 8000, 'S8: PLAYING after the retry');
+    const retried8 = checkOnPlan('S8 after retry', await measure(LT), { signal: false });
+    if (retried8) expect(retried8.currentTimeMs > 6000, 'S8: the retry must join the plan position, not the stale join position or 0', retried8.currentTimeMs);
+  }
+  expect(LT.errors.length === 0, 'S8 page errors', LT.errors);
+  await LT.context().close();
+
   // ── S5: layout in the blocked state and the error state: desktop and 320 px, dark and light, long German text, keyboard ────────
   const label = 'Ein sehr langer Titel für das Audio zur aktuellen Runde ohne jede Leerstelle: Donaudampfschifffahrtsgesellschaftskapitänsmützenabzeichen';
   let combos = 0;

@@ -81,6 +81,8 @@ export interface ControllerOptions {
   scheduler?: Scheduler;
   /** Monotonic ms, only used for the re-seek cooldown. */
   monoNow?: () => number;
+  /** How long the INITIAL seek may stay impossible before the local state becomes ERROR (default START_POSITION_TIMEOUT_MS). */
+  startPositionTimeoutMs?: number;
 }
 
 export interface ControllerSnapshot {
@@ -127,6 +129,7 @@ export class AudioPlaybackController {
   private readonly createAudio: () => AudioLike;
   private readonly scheduler: Scheduler;
   private readonly monoNow: () => number;
+  private readonly startPositionTimeoutMs: number;
   private readonly listeners = new Set<() => void>();
   private snapshot: ControllerSnapshot = IDLE;
   private active = false;
@@ -144,6 +147,7 @@ export class AudioPlaybackController {
     this.createAudio = options.createAudio ?? (() => new Audio() as unknown as AudioLike);
     this.scheduler = options.scheduler ?? browserScheduler;
     this.monoNow = options.monoNow ?? (() => performance.now());
+    this.startPositionTimeoutMs = options.startPositionTimeoutMs ?? START_POSITION_TIMEOUT_MS;
   }
 
   // ── Public surface ─────────────────────────────────────────
@@ -337,7 +341,7 @@ export class AudioPlaybackController {
     if (!this.position(res, target)) {
       const mono = this.monoNow();
       res.positionWaitSince ??= mono;
-      if (mono - res.positionWaitSince >= START_POSITION_TIMEOUT_MS) { res.errored = true; res.positionWaitSince = null; this.reconcile(); return; }
+      if (mono - res.positionWaitSince >= this.startPositionTimeoutMs) { res.errored = true; res.positionWaitSince = null; this.reconcile(); return; }
       this.setStatus('LOADING', 'PLAYING', durationMs, target);
       return;
     }
