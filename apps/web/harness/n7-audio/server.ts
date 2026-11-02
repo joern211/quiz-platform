@@ -116,5 +116,6 @@ prepare().then(() => {
       }
       res.writeHead(404); res.end();
     } catch (error) { send(res, 400, { error: String((error as Error).message) }); }
+  // eslint-disable-next-line no-console -- test-only harness: the check script waits for this port
   }).listen(port, '127.0.0.1', () => console.log(`n7 harness backend on ${port}`));
 });
