@@ -12,6 +12,7 @@
 // ============================================================
 
 import { PrismaClient } from '@prisma/client';
+import { singleConnectionSqliteUrl } from './sqliteUrl.js';
 
 // Declare global so TypeScript knows about it
 declare global {
@@ -21,7 +22,9 @@ declare global {
 
 function getPrismaClient(): PrismaClient {
   if (!globalThis.__prisma) {
-    globalThis.__prisma = new PrismaClient();
+    // The URL always comes from the environment (the Prisma schema reads env("DATABASE_URL")); see sqliteUrl.ts for the single connection.
+    const url = process.env.DATABASE_URL;
+    globalThis.__prisma = url ? new PrismaClient({ datasourceUrl: singleConnectionSqliteUrl(url) }) : new PrismaClient();
   }
   return globalThis.__prisma;
 }
