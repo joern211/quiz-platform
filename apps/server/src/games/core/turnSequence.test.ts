@@ -680,6 +680,100 @@ describe('N8 D: actions, stale intents, held turns, override and close', () => {
   });
 });
 
+// ── D2. The transition table: every operation × every phase × valid / stale / foreign (the table of design.md §4, executed) ────
+
+describe('N8 D2: transition table', () => {
+  type Phase = 'READY' | 'ACTIVE' | 'HELD' | 'NO_ELIGIBLE' | 'CLOSED';
+  const ALL = pel(['a', 'b', 'c'], 1);
+  const make = (phase: Phase): TurnSequenceState => {
+    const ready = playerSequence();
+    if (phase === 'READY') return ready;
+    const live = start(ready, ALL);
+    if (phase === 'ACTIVE') return live;
+    if (phase === 'HELD') return withholdCurrentHolder(live, { scope: sc(live), expectedVersion: live.version, expectedTurnNumber: live.turnNumber, eligibility: pel(['b', 'c'], 2) }).state;
+    if (phase === 'NO_ELIGIBLE') return adv(live, pel([], 2)).state;
+    return closeTurnSequence(live, { scope: sc(live), expectedVersion: live.version }).state;
+  };
+  /** the eligibility each state was built with (its stored basis), so that valid calls pass the stale guard */
+  const eligFor = (phase: Phase): TurnEligibility => (phase === 'READY' ? ALL : phase === 'ACTIVE' ? ALL : phase === 'HELD' ? pel(['b', 'c'], 2) : phase === 'NO_ELIGIBLE' ? pel(['b'], 3) : pel(['a', 'b', 'c'], 1));
+  const heldEligibility = pel(['b', 'c'], 2); // 'a' (the holder in ACTIVE) is out
+  type Bind = { scope: ReturnType<typeof sc>; expectedVersion: number; expectedTurnNumber: number; extra?: Record<string, unknown> };
+  const ops: Record<string, (s: TurnSequenceState, b: Bind, phase: Phase) => unknown> = {
+    start: (s, { scope, expectedVersion, extra = {} }, phase) => startTurnSequence(s, { scope, expectedVersion, eligibility: eligFor(phase), ...extra }),
+    complete: (s, { extra = {}, ...b }, phase) => advanceTurn(s, { ...b, outcome: 'COMPLETE', eligibility: eligFor(phase), ...extra }),
+    skip: (s, { extra = {}, ...b }, phase) => advanceTurn(s, { ...b, outcome: 'SKIP', eligibility: eligFor(phase), ...extra }),
+    withhold: (s, { extra = {}, ...b }, phase) => withholdCurrentHolder(s, { ...b, eligibility: phase === 'ACTIVE' ? heldEligibility : eligFor(phase), ...extra }),
+    override: (s, { extra = {}, ...b }, phase) => overrideTurn(s, { ...b, target: { playerId: 'b' }, eligibility: eligFor(phase).actors.activeIds.includes('b') ? eligFor(phase) : pel(['b'], 9), now: 1, ...extra }),
+    close: (s, { scope, expectedVersion, extra = {} }) => closeTurnSequence(s, { scope, expectedVersion, ...extra }),
+    authorize: (s, { extra = {}, ...b }, phase) => authorizeTurnAction(s, { ...b, caller: { role: 'PLAYER', participantId: 'a', teamId: null }, gate: { admitted: true, phaseOpen: true, paused: false }, eligibility: eligFor(phase), ...extra }),
+  };
+  /** valid call, by operation and phase: 'changed' | 'unchanged' | 'allowed' | an error code */
+  const VALID: Record<string, Record<Phase, string>> = {
+    start:     { READY: 'changed', ACTIVE: 'TURN_SEQ_ALREADY_STARTED', HELD: 'TURN_SEQ_ALREADY_STARTED', NO_ELIGIBLE: 'TURN_SEQ_ALREADY_STARTED', CLOSED: 'TURN_SEQ_CLOSED' },
+    complete:  { READY: 'TURN_SEQ_NOT_STARTED', ACTIVE: 'changed', HELD: 'TURN_SEQ_HELD', NO_ELIGIBLE: 'TURN_SEQ_NO_CURRENT', CLOSED: 'TURN_SEQ_CLOSED' },
+    skip:      { READY: 'TURN_SEQ_NOT_STARTED', ACTIVE: 'changed', HELD: 'changed', NO_ELIGIBLE: 'changed', CLOSED: 'TURN_SEQ_CLOSED' },
+    withhold:  { READY: 'TURN_SEQ_NOT_STARTED', ACTIVE: 'changed', HELD: 'unchanged', NO_ELIGIBLE: 'TURN_SEQ_NO_CURRENT', CLOSED: 'TURN_SEQ_CLOSED' },
+    override:  { READY: 'TURN_SEQ_NOT_STARTED', ACTIVE: 'changed', HELD: 'changed', NO_ELIGIBLE: 'changed', CLOSED: 'TURN_SEQ_CLOSED' },
+    close:     { READY: 'changed', ACTIVE: 'changed', HELD: 'changed', NO_ELIGIBLE: 'changed', CLOSED: 'unchanged' },
+    authorize: { READY: 'TURN_SEQ_NOT_STARTED', ACTIVE: 'allowed', HELD: 'TURN_SEQ_HELD', NO_ELIGIBLE: 'TURN_SEQ_NO_CURRENT', CLOSED: 'TURN_SEQ_CLOSED' },
+  };
+  const phases: Phase[] = ['READY', 'ACTIVE', 'HELD', 'NO_ELIGIBLE', 'CLOSED'];
+  const describeResult = (fn: () => unknown): string => {
+    try {
+      const r = fn() as { changed?: boolean; allowed?: boolean };
+      return r.allowed === true ? 'allowed' : r.changed === true ? 'changed' : 'unchanged';
+    } catch (error) { return error instanceof TurnSequenceError ? error.code : `OTHER:${String(error)}`; }
+  };
+  it('behaves exactly as the table says for a VALID call in every phase', () => {
+    for (const [op, row] of Object.entries(VALID)) for (const phase of phases) {
+      const state = make(phase);
+      const bind: Bind = { scope: sc(state), expectedVersion: state.version, expectedTurnNumber: state.turnNumber };
+      expect(describeResult(() => ops[op](state, bind, phase)), `${op} in ${phase}`).toBe(row[phase]);
+    }
+  });
+  it('rejects a STALE version (checked before the phase, except after the close) and a STALE turn in every phase', () => {
+    for (const op of Object.keys(VALID)) for (const phase of phases) {
+      const state = make(phase);
+      const stale = describeResult(() => ops[op](state, { scope: sc(state), expectedVersion: state.version + 7, expectedTurnNumber: state.turnNumber }, phase));
+      // a closed sequence answers CLOSED to everything but its own repeated close (which checks the version first)
+      const expectedStale = phase === 'CLOSED' && op !== 'close' ? 'TURN_SEQ_CLOSED' : 'TURN_SEQ_VERSION_STALE';
+      expect(stale, `${op} in ${phase} with a wrong version`).toBe(expectedStale);
+      if (op === 'start' || op === 'close') continue; // these two carry no turn number
+      const wrongTurn = describeResult(() => ops[op](state, { scope: sc(state), expectedVersion: state.version, expectedTurnNumber: state.turnNumber + 1 }, phase));
+      expect(wrongTurn, `${op} in ${phase} with a wrong turn`).toBe(phase === 'CLOSED' ? 'TURN_SEQ_CLOSED' : 'TURN_SEQ_TURN_STALE');
+    }
+  });
+  it('rejects a FOREIGN context first, in every operation and phase (nothing is answered "empty")', () => {
+    for (const op of Object.keys(VALID)) for (const phase of phases) {
+      const state = make(phase);
+      for (const [name, scope, code] of [['run', { ...sc(state), runIndex: 2 }, 'TURN_SEQ_RUN_STALE'], ['sequence', { ...sc(state), sequenceId: 'other' }, 'TURN_SEQ_SEQUENCE_STALE'],
+        ['roster', { ...sc(state), rosterRevision: 'other' }, 'TURN_SEQ_ROSTER_STALE'], ['unit', { ...sc(state), unit: 'TEAM' }, 'TURN_SEQ_UNIT_MISMATCH']] as const) {
+        expect(describeResult(() => ops[op](state, { scope: scope as never, expectedVersion: state.version, expectedTurnNumber: state.turnNumber }, phase)), `${op} in ${phase} with a foreign ${name}`).toBe(code);
+      }
+    }
+  });
+  it('rejects malformed arguments (missing key, extra key, wrong type) with ARGS_INVALID in every operation, before any change', () => {
+    for (const op of Object.keys(VALID)) {
+      const state = make('ACTIVE');
+      const good: Bind = { scope: sc(state), expectedVersion: state.version, expectedTurnNumber: state.turnNumber };
+      const withExtra = () => ops[op](state, { ...good, extra: { surprise: true } }, 'ACTIVE');
+      expect(describeResult(withExtra), `${op} with an extra key`).toMatch(/^TURN_SEQ_ARGS_INVALID$/);
+    }
+    for (const fn of [startTurnSequence, advanceTurn, withholdCurrentHolder, overrideTurn, closeTurnSequence, authorizeTurnAction] as Array<(state: unknown, args: unknown) => unknown>) {
+      const state = make('ACTIVE');
+      for (const bad of [undefined, null, 'x', 3, [], {}]) expect(describeResult(() => fn(state, bad)), `${fn.name}(${JSON.stringify(bad)})`).toBe('TURN_SEQ_ARGS_INVALID');
+    }
+  });
+  it('never changes the state it was given: every operation returns a new state and leaves the input untouched', () => {
+    for (const op of Object.keys(VALID)) for (const phase of phases) {
+      const state = make(phase);
+      const snapshot = JSON.stringify(state);
+      describeResult(() => ops[op](state, { scope: sc(state), expectedVersion: state.version, expectedTurnNumber: state.turnNumber }, phase));
+      expect(JSON.stringify(state), `${op} in ${phase}`).toBe(snapshot);
+    }
+  });
+});
+
 // ── E. Projection ────────────────────────────────────────────
 
 describe('N8 E: projection through an explicit release', () => {
