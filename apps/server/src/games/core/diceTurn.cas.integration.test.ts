@@ -38,11 +38,13 @@ import {
 import {
   advanceTurnSequence, parseTurnSequenceState, prepareTurnSequence, refreshEligibilityBasis, startTurnSequence, turnSequenceScopeOf, type TurnEligibility, type TurnSequenceState,
 } from './turnSequence.js';
-import { DICE_CONFIG_FIVE_D6_HOLD } from '@quiz/shared/dice';
+import { DICE_CONFIG_FIVE_D6_HOLD, type DiceHoldIntent } from '@quiz/shared/dice';
 
 const run = promisify(execFile);
 const serverRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
 const SLUG = 'n9-stand-in';
+/** A STAND-IN action name: `CRITICAL_COMMAND_ACTIONS` is a closed whitelist and N9 introduces no new command kind. The real consumer adds its own dice actions there (handoff). */
+const STAND_IN_ACTION = 'ROUND_ADVANCE' as const;
 const PLAYERS = ['a', 'b', 'c'];
 let db: PrismaClient, dir: string, url: string, previousGlobal: PrismaClient | undefined, sequence = 0, hostId: string, definitionId: string;
 
@@ -121,7 +123,7 @@ async function handle(loaded: Stored, roomId: string, who: string, intent: Inten
     scope: turnSequenceScopeOf(seq), diceId: dice.diceId, sequence: seq, expectedTurnNumber: parsed.turnNumber, expectedSequenceVersion: parsed.sequenceVersion,
     expectedVersion: parsed.diceVersion, expectedRollCount: parsed.rollCount, caller: CALLER(who), gate: OPEN, eligibility: stand,
   };
-  const result = intent.kind === 'ROLL' ? rollDice(dice, { ...common, source: rng }) : setDiceHeld(dice, { ...common, held: (parsed as { held: number[] }).held });
+  const result = intent.kind === 'ROLL' ? rollDice(dice, { ...common, source: rng }) : setDiceHeld(dice, { ...common, held: (parsed as DiceHoldIntent).held });
   // N8-02: a newer N6 stand that the action saw is persisted in the SAME commit (version +1 of the sequence, no new turn)
   const nextSeq = result.sequenceBasisAdvanced ? refreshEligibilityBasis(seq, { scope: turnSequenceScopeOf(seq), expectedVersion: seq.version, eligibility: stand }).state : seq;
   if (result.changed || nextSeq !== seq) {
@@ -183,7 +185,7 @@ describe('N9 integration: dice rolls and holds on the real CAS / receipt / state
     const draws = counted([3, 1, 4, 1, 5]);
     let effects = 0;
     const send = () => runReceipted(db, {
-      roomId, commandId, actor: { actorId: 'a', actorRole: 'PLAYER' }, action: 'DICE_ROLL', payload: intent,
+      roomId, commandId, actor: { actorId: 'a', actorRole: 'PLAYER' }, action: STAND_IN_ACTION, payload: intent,
       mutate: async () => { effects++; return handle(await load(roomId), roomId, 'a', intent, draws.source); },
       toResponse: data => ({ success: true, ...data }),
     });
@@ -232,7 +234,7 @@ describe('N9 integration: dice rolls and holds on the real CAS / receipt / state
     const intent = roll(bindingOf(stored0));
     const draws = counted();
     const send = () => runReceipted(db, {
-      roomId, commandId: `cmd-${randomUUID()}`, actor: { actorId: 'a', actorRole: 'PLAYER' }, action: 'DICE_ROLL', payload: intent,
+      roomId, commandId: `cmd-${randomUUID()}`, actor: { actorId: 'a', actorRole: 'PLAYER' }, action: STAND_IN_ACTION, payload: intent,
       mutate: async () => handle(await load(roomId), roomId, 'a', intent, draws.source), toResponse: data => ({ success: true, ...data }),
     });
     const results = await Promise.allSettled([send(), send(), send()]);
@@ -354,7 +356,7 @@ describe('N9 integration: dice rolls and holds on the real CAS / receipt / state
     const draws = counted([2, 4, 6, 1, 3]);
     let effects = 0;
     const send = (id: string, i: Intent, source: DiceIntSource) => runReceipted(db, {
-      roomId, commandId: id, actor: { actorId: 'a', actorRole: 'PLAYER' }, action: 'DICE_ROLL', payload: i,
+      roomId, commandId: id, actor: { actorId: 'a', actorRole: 'PLAYER' }, action: STAND_IN_ACTION, payload: i,
       mutate: async () => { effects++; return handle(await load(roomId), roomId, 'a', i, source); }, toResponse: data => ({ success: true, ...data }),
     });
     expect((await send(commandId, intent, draws.source)).success).toBe(true); // committed; the answer is "lost" on the way
@@ -384,7 +386,7 @@ describe('N9 integration: dice rolls and holds on the real CAS / receipt / state
     const draws = counted([2, 4, 6, 1, 3]);
     let effects = 0, crash = true;
     const send = () => runReceipted(db, {
-      roomId, commandId, actor: { actorId: 'a', actorRole: 'PLAYER' }, action: 'DICE_ROLL', payload: intent,
+      roomId, commandId, actor: { actorId: 'a', actorRole: 'PLAYER' }, action: STAND_IN_ACTION, payload: intent,
       mutate: async () => { effects++; return handle(await load(roomId), roomId, 'a', intent, draws.source); },
       toResponse: data => { if (crash) throw new Error('PROCESS_DIED_BEFORE_THE_RECEIPT'); return { success: true, ...data }; },
     });
@@ -413,7 +415,7 @@ describe('N9 integration: dice rolls and holds on the real CAS / receipt / state
     const draws = counted([6, 6, 6, 6, 6]);
     let effects = 0;
     const send = () => runReceipted(db, {
-      roomId, commandId, actor: { actorId: 'a', actorRole: 'PLAYER' }, action: 'DICE_ROLL', payload: stale,
+      roomId, commandId, actor: { actorId: 'a', actorRole: 'PLAYER' }, action: STAND_IN_ACTION, payload: stale,
       mutate: async () => { effects++; return handle(await load(roomId), roomId, 'a', stale, draws.source); }, toResponse: data => ({ success: true, ...data }),
     });
     await expect(send()).rejects.toThrow('DICE_VERSION_STALE');

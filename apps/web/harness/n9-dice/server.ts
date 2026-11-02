@@ -104,7 +104,7 @@ async function intent(body: { kind: 'ROLL' | 'HOLD'; recipient: string; commandI
   const label = body.kind.toLowerCase();
   try {
     const result = await runReceipted(db, {
-      roomId, commandId: String(body.commandId), actor: { actorId: body.recipient, actorRole: audience.role }, action: body.kind === 'ROLL' ? 'DICE_ROLL' : 'DICE_HOLD', payload: body.intent,
+      roomId, commandId: String(body.commandId), actor: { actorId: body.recipient, actorRole: audience.role }, action: 'ROUND_ADVANCE', // a STAND-IN action name (CRITICAL_COMMAND_ACTIONS is a closed whitelist; the real consumer adds its own dice actions) payload: body.intent,
       mutate: async () => {
         const loaded = await load();
         const seq = parseTurnSequenceState(loaded.state.turnSequence), dice = parseDiceTurnState(loaded.state.dice);
