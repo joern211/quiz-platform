@@ -192,8 +192,9 @@ const AUDIENCE_ROLES = new Set(['HOST', 'PLAYER', 'VIEWER', 'DISPLAY']);
  * audience. `resolveUrl` is called LAZILY and ONLY for LOAD_ONLY / PLAY — never to sign something and hide it afterwards.
  *
  * NONE carries scope and versions only (no source, duration or plan) so that a withdrawal stays orderable. LOAD_ONLY carries the
- * source and duration but no plan: preloading is an information release (the receiver can play the bytes itself). The projection
- * shows the end correctly even if no job has rewritten the stored status.
+ * source and duration but no plan: preloading is an information release (the receiver can play the bytes itself). PLAY carries the
+ * source and the plan — except for a TERMINAL plan (STOPPED / ENDED), which carries the plan and the duration but no source: nothing
+ * is left to play, so no URL is resolved. The projection shows the end correctly even if no job has rewritten the stored status.
  */
 export function projectAudioPlayback(
   audience: ProjectionAudience,
@@ -213,16 +214,20 @@ export function projectAudioPlayback(
     return projected.success ? projected.data : fail('AUDIO_PLAYBACK_PROJECTION_INVALID');
   };
   if (effective === 'NONE') return build({ durationMs: null, source: null, plan: null });
+  const plan = audioPlaybackPlanOf(state);
+  const ended = state.status === 'RUNNING' && args.now >= audioPlaybackEndsAtMs(plan, state.durationMs)!;
+  const terminal = ended || state.status === 'STOPPED' || state.status === 'ENDED';
+  // Nothing is left to play for a terminal plan: report it without a source, so no URL is resolved/signed and no clip is fetched for it.
+  if (effective === 'PLAY' && terminal) {
+    return build({ durationMs: state.durationMs, source: null, plan: ended ? { status: 'ENDED', positionMs: state.durationMs, anchorServerMs: null } : plan });
+  }
   let resolved: unknown;
   try { resolved = args.resolveUrl(state.assetId); } catch { return fail('AUDIO_PLAYBACK_SOURCE_INVALID'); }
   const url = AudioPlaybackUrlSchema.safeParse(resolved);
   if (!url.success) return fail('AUDIO_PLAYBACK_SOURCE_INVALID');
   const source = { url: url.data };
   if (effective === 'LOAD_ONLY') return build({ durationMs: state.durationMs, source, plan: null });
-  const plan = audioPlaybackPlanOf(state);
-  const ended = state.status === 'RUNNING' && args.now >= audioPlaybackEndsAtMs(plan, state.durationMs)!;
-  const out: AudioPlaybackPlan = ended ? { status: 'ENDED', positionMs: state.durationMs, anchorServerMs: null } : plan;
-  return build({ durationMs: state.durationMs, source, plan: out });
+  return build({ durationMs: state.durationMs, source, plan });
 }
 
 export type { AudioPlaybackProjection, AudioPlaybackScope, AudioPlaybackPlan, AudioPlaybackRelease } from '@quiz/shared/audioPlayback';

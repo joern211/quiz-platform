@@ -19,7 +19,7 @@ import type { ProjectionAudience, VisibilityRule } from './visibility.js';
 const scope: AudioPlaybackScope = { runIndex: 2, roundId: 'round-1', playbackId: 'pb-1', contentRevision: 'rev-1' };
 const DUR = 10_000;
 const fresh = (now = 1000): AudioPlaybackState => createAudioPlayback({ scope, assetId: 'asset-opaque-1', durationMs: DUR, now });
-const args = (state: AudioPlaybackState, now: number, extra: object = {}) => ({ scope, expectedVersion: state.version, now, ...extra });
+const args = <T extends object = object>(state: AudioPlaybackState, now: number, extra: T = {} as T) => ({ scope, expectedVersion: state.version, now, ...extra });
 const code = (fn: () => unknown): string => { try { fn(); } catch (e) { return e instanceof AudioPlaybackError ? e.code : `OTHER:${String(e)}`; } return 'NO_ERROR'; };
 /** START at `startAt` (READY at 1000, command at 1000). */
 const running = (startAt = 5000): AudioPlaybackState => startAudioPlayback(fresh(), args(fresh(), 1000, { startAtMs: startAt })).state;
@@ -279,6 +279,22 @@ describe('B. Release policy and lazy URL resolution', () => {
     expect(p).toMatchObject({ release: 'PLAY', stateVersion: 9, playbackVersion: 1, durationMs: DUR, plan: { status: 'RUNNING', positionMs: 0, anchorServerMs: 5000 } });
     expect(project({ role: 'VIEWER' }, 'PLAY', running(), { stateVersion: 123 })).toMatchObject({ stateVersion: 123, playbackVersion: 1 });
   });
+  it('a TERMINAL plan (stored STOPPED / ENDED, or ended by time) carries the plan and duration but NO source — and no URL is resolved for it', () => {
+    const stopped = stopAudioPlayback(running(), args(running(), 8000)).state;
+    const settled = settleAudioPlayback(running(), args(running(), 20_000)).state;
+    for (const [name, state, now, status] of [['stopped', stopped, 9000, 'STOPPED'], ['settled', settled, 21_000, 'ENDED'], ['ended by time only', running(), 15_000, 'ENDED']] as const) {
+      const resolveUrl = vi.fn(url);
+      const p = projectAudioPlayback({ role: 'VIEWER' }, state, { release: 'PLAY', sourceVisibility: PUBLIC, stateVersion: 9, now, resolveUrl });
+      expect(resolveUrl, name).not.toHaveBeenCalled();
+      expect(p, name).toMatchObject({ release: 'PLAY', durationMs: DUR, source: null, plan: { status } });
+      expect(parseAudioPlaybackProjection(p).ok, name).toBe(true);
+    }
+    // the schema holds the same rule in both directions
+    const play = project({ role: 'VIEWER' }, 'PLAY');
+    expect(parseAudioPlaybackProjection({ ...play, plan: { status: 'STOPPED', positionMs: 1, anchorServerMs: null } }).ok).toBe(false); // terminal WITH a source
+    expect(parseAudioPlaybackProjection({ ...play, source: null }).ok).toBe(false); // non-terminal WITHOUT a source
+    expect(parseAudioPlaybackProjection({ ...project({ role: 'VIEWER' }, 'LOAD_ONLY'), source: null }).ok).toBe(false);
+  });
   it('shows a correct END without any job having rewritten the stored status, and a scheduled start as RUNNING with a future anchor', () => {
     expect(project({ role: 'PLAYER', participantId: 'p' }, 'PLAY', running(), { now: 15_000 })).toMatchObject({ plan: { status: 'ENDED', positionMs: DUR, anchorServerMs: null } });
     expect(project({ role: 'PLAYER', participantId: 'p' }, 'PLAY', running(), { now: 14_999 }).plan).toMatchObject({ status: 'RUNNING' });
@@ -305,7 +321,7 @@ describe('B. Release policy and lazy URL resolution', () => {
     expect(code(() => project({ role: 'VIEWER' }, 'PLAY', s, { now: 1.5 }))).toBe('AUDIO_PLAYBACK_TIME_INVALID');
     expect(code(() => project({ role: 'VIEWER' }, 'PLAY', s, { resolveUrl: () => 'https://x/y' }))).toBe('AUDIO_PLAYBACK_SOURCE_INVALID');
     expect(code(() => project({ role: 'VIEWER' }, 'PLAY', s, { resolveUrl: () => { throw new Error('/secret/storage/path.mp3'); } }))).toBe('AUDIO_PLAYBACK_SOURCE_INVALID');
-    expect(code(() => project({ role: 'VIEWER' }, 'PLAY', { ...s, title: 'x' }))).toBe('AUDIO_PLAYBACK_STATE_INVALID');
+    expect(code(() => project({ role: 'VIEWER' }, 'PLAY', { ...s, title: 'x' } as never))).toBe('AUDIO_PLAYBACK_STATE_INVALID');
   });
 });
 

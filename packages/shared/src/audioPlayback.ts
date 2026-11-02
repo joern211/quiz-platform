@@ -176,9 +176,12 @@ export const AudioPlaybackProjectionSchema = z.object({
     if (p.durationMs !== null || p.source !== null || p.plan !== null) bad('NONE_CARRIES_DATA');
     return;
   }
-  if (p.durationMs === null || p.source === null) { bad('RELEASE_WITHOUT_SOURCE'); return; }
-  if (p.release === 'LOAD_ONLY') { if (p.plan !== null) bad('LOAD_ONLY_CARRIES_PLAN'); return; }
+  if (p.durationMs === null) { bad('RELEASE_WITHOUT_DURATION'); return; }
+  if (p.release === 'LOAD_ONLY') { if (p.source === null) bad('RELEASE_WITHOUT_SOURCE'); if (p.plan !== null) bad('LOAD_ONLY_CARRIES_PLAN'); return; }
   if (p.plan === null) { bad('PLAY_WITHOUT_PLAN'); return; }
+  // A terminal plan (STOPPED / ENDED) has nothing left to play: it carries NO source, so no URL is signed and no clip is fetched for it.
+  const terminal = p.plan.status === 'STOPPED' || p.plan.status === 'ENDED';
+  if (terminal === (p.source !== null)) bad(terminal ? 'TERMINAL_PLAN_CARRIES_SOURCE' : 'RELEASE_WITHOUT_SOURCE');
   try { checkPlan(p.plan, p.durationMs); } catch { bad('PLAN_OUT_OF_RANGE'); }
 });
 export type AudioPlaybackProjection = z.infer<typeof AudioPlaybackProjectionSchema>;

@@ -161,9 +161,17 @@ export class AudioPlaybackController {
     if (key === this.appliedKey) return;
     this.appliedKey = key;
     if (next === null) { this.withdraw(); return; }
-    const sourceChanged = this.res === null || this.res.url !== next.source!.url || !sameScope(this.res.scope, next.scope);
+    // A terminal plan carries no source (nothing left to play): hold no element, load nothing, show the end. Version knowledge is the intake's job.
+    if (next.source === null) {
+      this.teardownResource(); this.clearTimers(); this.generation++;
+      this.planKey = JSON.stringify([next.scope, next.playbackVersion, next.plan]);
+      this.reconcile();
+      return;
+    }
+    const sourceChanged = this.res === null || this.res.url !== next.source.url || !sameScope(this.res.scope, next.scope);
     const planKey = JSON.stringify([next.scope, next.playbackVersion, next.plan]);
-    if (planKey !== this.planKey) { this.planKey = planKey; if (this.res) this.res.driftSeeks = 0; }
+    // A new plan is a new decision: counters restart and a former autoplay refusal is retried (the user may have interacted since).
+    if (planKey !== this.planKey) { this.planKey = planKey; if (this.res) { this.res.driftSeeks = 0; this.res.blocked = false; } }
     if (sourceChanged) { this.replaceResource(next); }
     if (next.release === 'LOAD_ONLY') { this.silence(); this.clearTimers(); this.setStatus('PRELOADED', null, null); return; }
     this.reconcile();
@@ -184,7 +192,7 @@ export class AudioPlaybackController {
   /** "Erneut laden": reload the SAME authorised source (and ask the application for a fresh URL). Plan and identity stay; no new round, no new clip. */
   retry(onRenewUrl?: () => void): void {
     const held = this.held;
-    if (!this.active || !held || held.release === 'NONE') return;
+    if (!this.active || !held || held.release === 'NONE' || held.source === null) return;
     if (this.snapshot.status === 'AUTOPLAY_BLOCKED') { this.activate(); return; }
     this.replaceResource(held);
     onRenewUrl?.();
@@ -257,7 +265,14 @@ export class AudioPlaybackController {
     const held = this.held, res = this.res;
     if (!this.active || !held) return;
     if (held.release === 'LOAD_ONLY') { this.setStatus('PRELOADED', null, null); return; }
-    if (!res || !held.plan || held.durationMs === null) return;
+    if (!held.plan || held.durationMs === null) return;
+    if (held.source === null) { // terminal plan: no element exists
+      this.clearTimers();
+      const status = held.plan.status === 'STOPPED' ? 'STOPPED' : 'ENDED';
+      this.setStatus(status, status, held.durationMs, status === 'ENDED' ? held.durationMs : held.plan.positionMs);
+      return;
+    }
+    if (!res) return;
     const { plan, durationMs } = held;
     this.clearTimers();
     if (res.errored) { this.silence(); this.setStatus('ERROR', null, durationMs); return; }

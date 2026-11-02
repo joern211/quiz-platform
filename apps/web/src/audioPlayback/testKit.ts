@@ -106,5 +106,6 @@ export function playProjection(over: Partial<AudioPlaybackProjection> & { anchor
   const { anchorMono = 5000, positionMs = 0, status = 'RUNNING', url = '/api/v1/media/clip-a?exp=1&sig=a', ...rest } = over;
   const plan = status === 'RUNNING' ? { status, positionMs, anchorServerMs: SERVER_BASE + anchorMono }
     : { status, positionMs: status === 'ENDED' ? 10_000 : positionMs, anchorServerMs: null };
-  return { contract: AUDIO_PLAYBACK_CONTRACT, scope: { ...SCOPE }, stateVersion: 5, playbackVersion: 1, release: 'PLAY', serverNowMs: SERVER_BASE, durationMs: 10_000, source: { url }, plan, ...rest } as AudioPlaybackProjection;
+  const terminal = status === 'STOPPED' || status === 'ENDED'; // a terminal plan carries no source (nothing left to play)
+  return { contract: AUDIO_PLAYBACK_CONTRACT, scope: { ...SCOPE }, stateVersion: 5, playbackVersion: 1, release: 'PLAY', serverNowMs: SERVER_BASE, durationMs: 10_000, source: terminal ? null : { url }, plan, ...rest } as AudioPlaybackProjection;
 }

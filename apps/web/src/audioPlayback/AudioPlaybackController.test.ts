@@ -394,6 +394,43 @@ describe('E. Access URL, errors, autoplay', () => {
     expect(m.el()).toBe(pre); // same source → no second element, no second load
     expect(pre.playCalls).toBe(1);
   });
+  it('a TERMINAL plan (no source) releases the element at once and loads nothing: stop / end leave no element, listener or timer behind', async () => {
+    for (const status of ['STOPPED', 'ENDED'] as const) {
+      const m = mount();
+      await playing(m, 0);
+      const el = m.el();
+      m.controller.apply(playProjection({ status, positionMs: 3000, playbackVersion: 2, stateVersion: 6 }));
+      expect(el.paused).toBe(true);
+      expect(el.srcRemoved).toBe(true);
+      expect(el.listenerCount).toBe(0);
+      expect(m.world.timersPending()).toBe(0);
+      expect(m.status()).toBe(status);
+      expect(m.world.elements).toHaveLength(1); // no replacement element
+    }
+  });
+  it('a late joiner whose first projection is already terminal creates no element at all and fetches nothing', async () => {
+    for (const status of ['STOPPED', 'ENDED'] as const) {
+      const m = mount();
+      m.controller.apply(playProjection({ status, positionMs: 3000 }));
+      expect(m.world.elements).toHaveLength(0);
+      expect(m.status()).toBe(status);
+      m.controller.activate(); m.controller.retry(); m.controller.resync();
+      expect(m.world.elements).toHaveLength(0);
+    }
+  });
+  it('after an autoplay refusal a NEW plan is a new decision: play() is tried again (the user may have interacted meanwhile)', async () => {
+    const m = mount();
+    m.controller.apply(playProjection({ anchorMono: 0 }));
+    await loaded(m);
+    m.el().failPlay('NotAllowedError'); await flush();
+    expect(m.status()).toBe('AUTOPLAY_BLOCKED');
+    const el = m.el();
+    m.controller.apply(playProjection({ status: 'PAUSED', positionMs: 0, playbackVersion: 2, stateVersion: 6 }));
+    m.controller.apply(playProjection({ anchorMono: 0, playbackVersion: 3, stateVersion: 7 }));
+    expect(el.playCalls).toBe(2);
+    el.startPlayback(); await flush();
+    expect(m.status()).toBe('PLAYING');
+  });
   it('a scheduled start can be cancelled by a pause before it fires: no timer survives, nothing is played', async () => {
     const m = mount();
     m.controller.apply(playProjection({ anchorMono: 5000 }));

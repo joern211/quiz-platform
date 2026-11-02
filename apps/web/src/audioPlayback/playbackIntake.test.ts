@@ -73,6 +73,12 @@ describe('N7 intake: version knowledge is kept apart from what is playable (anal
     expect(r[3].held).toBeNull();
     expect(run([play(9), loadOnly(9), play(9)]).map(x => x.outcome)).toEqual(['ACCEPTED', 'ACCEPTED', 'STALE']);
   });
+  it('a terminal projection (STOPPED / ENDED, no source) is held as such; a late older PLAY with a source cannot bring the source back', () => {
+    const r = run([play(9), playProjection({ status: 'STOPPED', positionMs: 2000, stateVersion: 10, playbackVersion: 2 }), play(9), play(9, 1)]);
+    expect(r.map(x => x.outcome)).toEqual(['ACCEPTED', 'ACCEPTED', 'STALE', 'STALE']);
+    expect(r[1].held?.source).toBeNull();
+    expect(r[3].held?.plan?.status).toBe('STOPPED'); // the newer terminal view stays
+  });
   it('a real context change (other clip, run, round, revision) starts with EMPTY knowledge; no archive of the old context', () => {
     const a = intakeAudioPlayback(null, EXPECTED, play(50));
     const other = { ...EXPECTED, playbackId: 'pb-2' };
