@@ -2,14 +2,14 @@ import { describe, expect, it } from 'vitest';
 import type { AudioPlaybackExpectedContext, AudioPlaybackProjection } from '@quiz/shared/audioPlayback';
 import { AUDIO_PLAYBACK_CONTRACT } from '@quiz/shared/audioPlayback';
 import { intakeAudioPlayback, type IntakeMemo, type IntakeResult } from './playbackIntake';
-import { SCOPE, playProjection } from './testKit';
+import { SCOPE, SERVER_BASE, playProjection } from './testKit';
 
 const EXPECTED: AudioPlaybackExpectedContext = { ...SCOPE, minStateVersion: 3 };
 const play = (stateVersion: number, playbackVersion = 1, url = '/api/v1/media/a?sig=1'): AudioPlaybackProjection => playProjection({ stateVersion, playbackVersion, url });
 const none = (stateVersion: number, playbackVersion = 1): AudioPlaybackProjection =>
   ({ contract: AUDIO_PLAYBACK_CONTRACT, scope: { ...SCOPE }, stateVersion, playbackVersion, release: 'NONE', serverNowMs: 1, durationMs: null, source: null, plan: null });
 const loadOnly = (stateVersion: number, playbackVersion = 1): AudioPlaybackProjection =>
-  ({ contract: AUDIO_PLAYBACK_CONTRACT, scope: { ...SCOPE }, stateVersion, playbackVersion, release: 'LOAD_ONLY', serverNowMs: 1, durationMs: 10_000, source: { url: '/api/v1/media/a?sig=1' }, plan: null });
+  ({ contract: AUDIO_PLAYBACK_CONTRACT, scope: { ...SCOPE }, stateVersion, playbackVersion, release: 'LOAD_ONLY', serverNowMs: 1, durationMs: 10_000, source: { url: '/api/v1/media/a?sig=1', renewal: 1 }, plan: null });
 /** Feed a sequence; returns every result. */
 function run(inputs: unknown[], expected = EXPECTED): IntakeResult[] {
   const out: IntakeResult[] = []; let memo: IntakeMemo | null = null;
@@ -125,5 +125,75 @@ describe('N7 intake: version knowledge is kept apart from what is playable (anal
     };
     walk([]);
     expect(checked).toBe(6 ** 5);
+  });
+
+});
+
+describe('N7-01. Access-URL renewals are ordered by the issuer\'s renewal number', () => {
+  const U1 = '/api/v1/media/clip-a?exp=100&sig=zzz', U2 = '/api/v1/media/clip-a?exp=200&sig=aaa', U3 = '/api/v1/media/clip-a?exp=300&sig=mmm';
+  const withUrl = (url: string, renewal: number, over: Parameters<typeof playProjection>[0] = {}) => playProjection({ anchorMono: 0, url, renewal, ...over });
+  const urls = (r: IntakeResult[]) => r.map(x => x.held?.source?.url ?? null);
+
+  it('R1 begins, R2 begins, R2 returns, R1 returns: U2 stays (same snapshot version and same plan version)', () => {
+    const r = run([withUrl(U2, 2), withUrl(U1, 1)]);
+    expect(urls(r)).toEqual([U2, U2]);
+    expect(r[1].memo.held?.source?.renewal).toBe(2);
+  });
+  it('the normal order R1 then R2 moves to the newer URL; the same URL is simply re-accepted', () => {
+    expect(urls(run([withUrl(U1, 1), withUrl(U2, 2), withUrl(U2, 2)]))).toEqual([U1, U2, U2]);
+  });
+  it('the order is NOT taken from the URL text, the signature text, the server stamp or the arrival: a lexicographically larger URL with a lower number loses', () => {
+    const big = withUrl('/api/v1/media/clip-a?exp=999&sig=zzzzzz', 1, { serverNowMs: SERVER_BASE + 9_999 });
+    const small = withUrl('/api/v1/media/clip-a?exp=1&sig=aa', 2, { serverNowMs: SERVER_BASE + 1 });
+    expect(urls(run([big, small]))[1]).toBe(small.source!.url);
+    expect(urls(run([small, big]))[1]).toBe(small.source!.url);
+  });
+  it('a late older URL at a NEWER snapshot/plan version still brings its plan (a pause must not be lost) but never the older source', () => {
+    const r = run([withUrl(U2, 2), withUrl(U1, 1, { status: 'PAUSED', positionMs: 3000, stateVersion: 10, playbackVersion: 2 })]);
+    expect(r[1].outcome).toBe('ACCEPTED');
+    expect(r[1].held?.plan).toEqual({ status: 'PAUSED', positionMs: 3000, anchorServerMs: null });
+    expect(r[1].held?.source?.url).toBe(U2);
+    expect(r[1].held?.stateVersion).toBe(10);
+  });
+  it('a LOAD_ONLY view with an older number does not displace the held newer source either', () => {
+    const lo = { ...loadOnly(6), source: { url: U1, renewal: 1 } };
+    const r = run([withUrl(U2, 2, { stateVersion: 5 }), lo]);
+    expect(r[1].held?.source?.url).toBe(U2);
+    expect(r[1].held?.plan).toBeNull();
+  });
+  it('a renewal needs neither a new snapshot version nor a new plan version nor a new playback id: only the number grows', () => {
+    const r = run([withUrl(U1, 1), withUrl(U3, 3), withUrl(U2, 2)]);
+    expect(urls(r)).toEqual([U1, U3, U3]);
+    expect(new Set(r.map(x => `${x.held?.stateVersion}/${x.held?.playbackVersion}`))).toEqual(new Set(['5/1']));
+    expect(r.map(x => x.held?.plan?.anchorServerMs)).toEqual([SERVER_BASE, SERVER_BASE, SERVER_BASE]); // the anchor never moved
+  });
+  it('a withdrawal during a renewal stays effective: a late renewal answer of an older snapshot, or of the same snapshot, is not accepted', () => {
+    const r = run([withUrl(U1, 1, { stateVersion: 9 }), none(10), withUrl(U2, 2, { stateVersion: 9 }), withUrl(U3, 3, { stateVersion: 10 })]);
+    expect(r.map(x => x.outcome)).toEqual(['ACCEPTED', 'RELEASE_NONE', 'STALE', 'STALE']);
+    expect(urls(r)).toEqual([U1, null, null, null]);
+  });
+  it('a clip change during a renewal: the old clip\'s late answer is foreign and the new clip starts with empty knowledge', () => {
+    const next = { ...EXPECTED, playbackId: 'pb-2' };
+    let r = intakeAudioPlayback(null, EXPECTED, withUrl(U1, 1));
+    r = intakeAudioPlayback(r.memo, next, { ...withUrl(U2, 2, { stateVersion: 99 }) }); // answer of the OLD clip under the NEW expectation
+    expect(r).toMatchObject({ outcome: 'WITHDRAWN', held: null });
+    r = intakeAudioPlayback(r.memo, next, { ...withUrl(U3, 1), scope: { ...SCOPE, playbackId: 'pb-2' } });
+    expect(r.held?.source?.url).toBe(U3); // number 1 is fine in a new context
+  });
+  it('a terminal plan (no source) and a later older renewal: the terminal view stays, nothing comes back', () => {
+    const r = run([withUrl(U2, 2), playProjection({ status: 'STOPPED', positionMs: 2000, stateVersion: 6, playbackVersion: 2 }), withUrl(U1, 1)]);
+    expect(r.map(x => x.outcome)).toEqual(['ACCEPTED', 'ACCEPTED', 'STALE']);
+    expect(r[2].held?.source).toBeNull();
+  });
+  it('EXHAUSTIVE: over all orders of three renewals the held source is always the highest number seen', () => {
+    const all = [withUrl(U1, 1), withUrl(U2, 2), withUrl(U3, 3)];
+    const perms: number[][] = [[0, 1, 2], [0, 2, 1], [1, 0, 2], [1, 2, 0], [2, 0, 1], [2, 1, 0]];
+    for (const perm of perms) {
+      let memo: IntakeMemo | null = null; let best = 0;
+      for (const i of perm) {
+        const r = intakeAudioPlayback(memo, EXPECTED, all[i]); memo = r.memo; best = Math.max(best, all[i].source!.renewal);
+        expect(r.held?.source?.renewal).toBe(best);
+      }
+    }
   });
 });

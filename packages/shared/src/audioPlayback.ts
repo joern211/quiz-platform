@@ -157,6 +157,15 @@ export const AudioPlaybackUrlSchema = z.string().min(2).max(AUDIO_PLAYBACK_MAX_U
   .regex(/^\/(?!\/)\S*$/)
   .refine(url => !url.includes('\\') && ![...url].some(ch => ch.charCodeAt(0) < 32 || ch.charCodeAt(0) === 127));
 
+/**
+ * The access to ONE clip: a same-origin URL and its RENEWAL number — the order in which the server side ISSUED access URLs for this
+ * playback instance. It is strictly increasing per issued URL, independent of the plan, of the game snapshot version and of arrival order,
+ * so a delayed older answer can be recognised as older WITHOUT looking at the URL text, a signature or a time stamp. Renewing an URL does
+ * not touch the plan (anchor, position, plan version) and needs neither a new snapshot version nor a new playback id.
+ */
+export const AudioPlaybackSourceSchema = z.object({ url: AudioPlaybackUrlSchema, renewal: AudioPlaybackMsSchema }).strict();
+export type AudioPlaybackSource = z.infer<typeof AudioPlaybackSourceSchema>;
+
 export const AudioPlaybackProjectionSchema = z.object({
   contract: z.literal(AUDIO_PLAYBACK_CONTRACT),
   scope: AudioPlaybackScopeSchema,
@@ -168,7 +177,7 @@ export const AudioPlaybackProjectionSchema = z.object({
   /** Server clock when this projection was built — metadata for diagnostics; NOT a clock offset (no round trip). */
   serverNowMs: AudioPlaybackMsSchema,
   durationMs: AudioPlaybackDurationMsSchema.nullable(),
-  source: z.object({ url: AudioPlaybackUrlSchema }).strict().nullable(),
+  source: AudioPlaybackSourceSchema.nullable(),
   plan: AudioPlaybackPlanSchema.nullable(),
 }).strict().superRefine((p, ctx) => {
   const bad = (message: string) => ctx.addIssue({ code: z.ZodIssueCode.custom, message });

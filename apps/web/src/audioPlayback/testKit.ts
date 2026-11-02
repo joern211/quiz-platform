@@ -121,10 +121,10 @@ export function createWorld(options: { rejectOnPause?: boolean; withClock?: bool
 export const flush = async (): Promise<void> => { for (let i = 0; i < 6; i++) await Promise.resolve(); };
 
 /** A PLAY projection whose plan anchor is at mono `anchorMono` (server time SERVER_BASE + anchorMono). */
-export function playProjection(over: Partial<AudioPlaybackProjection> & { anchorMono?: number; positionMs?: number; status?: 'RUNNING' | 'PAUSED' | 'STOPPED' | 'ENDED' | 'READY'; url?: string } = {}): AudioPlaybackProjection {
-  const { anchorMono = 5000, positionMs = 0, status = 'RUNNING', url = '/api/v1/media/clip-a?exp=1&sig=a', ...rest } = over;
+export function playProjection(over: Partial<AudioPlaybackProjection> & { anchorMono?: number; positionMs?: number; status?: 'RUNNING' | 'PAUSED' | 'STOPPED' | 'ENDED' | 'READY'; url?: string; renewal?: number } = {}): AudioPlaybackProjection {
+  const { anchorMono = 5000, positionMs = 0, status = 'RUNNING', url = '/api/v1/media/clip-a?exp=1&sig=a', renewal = 1, ...rest } = over;
   const plan = status === 'RUNNING' ? { status, positionMs, anchorServerMs: SERVER_BASE + anchorMono }
     : { status, positionMs: status === 'ENDED' ? 10_000 : positionMs, anchorServerMs: null };
   const terminal = status === 'STOPPED' || status === 'ENDED'; // a terminal plan carries no source (nothing left to play)
-  return { contract: AUDIO_PLAYBACK_CONTRACT, scope: { ...SCOPE }, stateVersion: 5, playbackVersion: 1, release: 'PLAY', serverNowMs: SERVER_BASE, durationMs: 10_000, source: terminal ? null : { url }, plan, ...rest } as AudioPlaybackProjection;
+  return { contract: AUDIO_PLAYBACK_CONTRACT, scope: { ...SCOPE }, stateVersion: 5, playbackVersion: 1, release: 'PLAY', serverNowMs: SERVER_BASE, durationMs: 10_000, source: terminal ? null : { url, renewal }, plan, ...rest } as AudioPlaybackProjection;
 }

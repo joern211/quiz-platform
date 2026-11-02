@@ -25,7 +25,7 @@ import { z } from 'zod';
 import {
   AUDIO_PLAYBACK_CONTRACT, AUDIO_PLAYBACK_RELEASES, AUDIO_PLAYBACK_SCHEMA_VERSION, AUDIO_PLAYBACK_MAX_ID_LENGTH,
   AudioPlaybackDurationMsSchema, AudioPlaybackError, AudioPlaybackMsSchema, AudioPlaybackProjectionSchema, AudioPlaybackScopeSchema,
-  AudioPlaybackStatusSchema, AudioPlaybackUrlSchema, AudioPlaybackVersionSchema,
+  AudioPlaybackSourceSchema, AudioPlaybackStatusSchema, AudioPlaybackVersionSchema,
   audioPlaybackEndsAtMs, audioPlaybackPhaseAt, audioPlaybackTargetMs,
   type AudioPlaybackPhase, type AudioPlaybackPlan, type AudioPlaybackProjection, type AudioPlaybackRelease, type AudioPlaybackScope,
 } from '@quiz/shared/audioPlayback';
@@ -189,7 +189,7 @@ const AUDIENCE_ROLES = new Set(['HOST', 'PLAYER', 'VIEWER', 'DISPLAY']);
  * What ONE caller may receive. `release` is decided by the consumer per recipient (auth, role, phase); `sourceVisibility` states WHO
  * may hear the clip at all and is checked with the existing canView rule: a blind host is not a recipient of host-private audio, and
  * administrative rights open neither player- nor team-private audio. The effective release is NONE unless the rule allows the
- * audience. `resolveUrl` is called LAZILY and ONLY for LOAD_ONLY / PLAY — never to sign something and hide it afterwards.
+ * audience. `resolveSource` is called LAZILY and ONLY for LOAD_ONLY / PLAY — never to sign something and hide it afterwards.
  *
  * NONE carries scope and versions only (no source, duration or plan) so that a withdrawal stays orderable. LOAD_ONLY carries the
  * source and duration but no plan: preloading is an information release (the receiver can play the bytes itself). PLAY carries the
@@ -199,7 +199,7 @@ const AUDIENCE_ROLES = new Set(['HOST', 'PLAYER', 'VIEWER', 'DISPLAY']);
 export function projectAudioPlayback(
   audience: ProjectionAudience,
   rawState: unknown,
-  args: { release: AudioPlaybackRelease; sourceVisibility: VisibilityRule; stateVersion: number; now: number; resolveUrl: (assetId: string) => string },
+  args: { release: AudioPlaybackRelease; sourceVisibility: VisibilityRule; stateVersion: number; now: number; resolveSource: (assetId: string) => { url: string; renewal: number } },
 ): AudioPlaybackProjection {
   if (!audience || typeof audience !== 'object' || !AUDIENCE_ROLES.has(audience.role)) return fail('AUDIO_PLAYBACK_AUDIENCE_INVALID');
   if (!(AUDIO_PLAYBACK_RELEASES as readonly string[]).includes(args.release)) return fail('AUDIO_PLAYBACK_RELEASE_INVALID');
@@ -222,12 +222,23 @@ export function projectAudioPlayback(
     return build({ durationMs: state.durationMs, source: null, plan: ended ? { status: 'ENDED', positionMs: state.durationMs, anchorServerMs: null } : plan });
   }
   let resolved: unknown;
-  try { resolved = args.resolveUrl(state.assetId); } catch { return fail('AUDIO_PLAYBACK_SOURCE_INVALID'); }
-  const url = AudioPlaybackUrlSchema.safeParse(resolved);
-  if (!url.success) return fail('AUDIO_PLAYBACK_SOURCE_INVALID');
-  const source = { url: url.data };
+  try { resolved = args.resolveSource(state.assetId); } catch { return fail('AUDIO_PLAYBACK_SOURCE_INVALID'); }
+  const checked = AudioPlaybackSourceSchema.safeParse(resolved);
+  if (!checked.success) return fail('AUDIO_PLAYBACK_SOURCE_INVALID');
+  const source = checked.data;
   if (effective === 'LOAD_ONLY') return build({ durationMs: state.durationMs, source, plan: null });
   return build({ durationMs: state.durationMs, source, plan });
+}
+
+/**
+ * The server side's ISSUER of renewal numbers for ONE playback instance (the adapter that signs access URLs keeps one). `issue(now)` is
+ * strictly increasing — max(previous + 1, now) — and derived from the server clock, so it also keeps growing across a restart. A new
+ * number is issued ONLY when a new URL is really issued; while the URL handed out earlier is still valid the adapter reuses it together
+ * with its number (a re-signed URL for every projection would make every browser reload the clip).
+ */
+export function createRenewalIssuer(): (now: number) => number {
+  let last = -1;
+  return now => { clockMs(now); last = Math.max(last + 1, now); return last; };
 }
 
 export type { AudioPlaybackProjection, AudioPlaybackScope, AudioPlaybackPlan, AudioPlaybackRelease } from '@quiz/shared/audioPlayback';

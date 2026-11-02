@@ -446,6 +446,16 @@ describe('E. Access URL, errors, autoplay', () => {
     el.startPlayback(); await flush();
     expect(m.status()).toBe('PLAYING');
   });
+  it('a new renewal number for the SAME url string changes nothing at the media element (no reload, no seek)', async () => {
+    const m = mount();
+    await playing(m, 0);
+    const el = m.el(), loads = el.loadCalls, seeks = el.seeks.length, made = m.world.elements.length;
+    m.controller.apply(playProjection({ anchorMono: 0, renewal: 5, stateVersion: 6 }));
+    await m.world.advance(500);
+    expect(el.loadCalls).toBe(loads);
+    expect(el.seeks.length).toBe(seeks);
+    expect(m.world.elements).toHaveLength(made);
+  });
   it('a scheduled start can be cancelled by a pause before it fires: no timer survives, nothing is played', async () => {
     const m = mount();
     m.controller.apply(playProjection({ anchorMono: 5000 }));

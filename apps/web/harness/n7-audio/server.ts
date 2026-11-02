@@ -9,7 +9,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { normalizeAudio } from '../../../server/src/media/audio.js';
 import {
-  createAudioPlayback, pauseAudioPlayback, projectAudioPlayback, readAudioPlayback, resumeAudioPlayback, settleAudioPlayback, startAudioPlayback,
+  createAudioPlayback, createRenewalIssuer, pauseAudioPlayback, projectAudioPlayback, readAudioPlayback, resumeAudioPlayback, settleAudioPlayback, startAudioPlayback,
   stopAudioPlayback, type AudioPlaybackState,
 } from '../../../server/src/games/core/audioPlaybackPlan.js';
 import type { ProjectionAudience, VisibilityRule } from '../../../server/src/games/core/visibility.js';
@@ -42,13 +42,15 @@ let state: AudioPlaybackState;
 let clipId = 'clip-a';
 let stateVersion = 1;
 let urlToken = 1;
+let issueRenewal = createRenewalIssuer();
+let renewal = issueRenewal(Date.now());
 let broken = false;
 let visibility: VisibilityRule = { scope: 'PUBLIC' };
 const releases: Record<string, 'NONE' | 'LOAD_ONLY' | 'PLAY'> = {};
 const resolverCalls: Record<string, number> = {};
 const scopeOf = () => state.scope;
 function reset(clip = 'clip-a'): void {
-  counter++; clipId = clip; stateVersion++; urlToken = 1; broken = false; visibility = { scope: 'PUBLIC' };
+  counter++; clipId = clip; stateVersion++; urlToken = 1; issueRenewal = createRenewalIssuer(); renewal = issueRenewal(Date.now()); broken = false; visibility = { scope: 'PUBLIC' };
   for (const k of Object.keys(releases)) delete releases[k];
   for (const k of Object.keys(resolverCalls)) delete resolverCalls[k];
   state = createAudioPlayback({ scope: { runIndex: 1, roundId: 'harness-round', playbackId: `pb-${counter}`, contentRevision: 'rev-1' }, assetId: clip, durationMs: clips[clip].durationMs, now: Date.now() });
@@ -70,7 +72,7 @@ function command(body: { type: string; leadMs?: number; role?: string; release?:
     case 'settle': ({ state, changed } = settleAudioPlayback(state, base)); break;
     case 'release': releases[body.role!] = body.release!; stateVersion++; return { ok: true };
     case 'visibility': visibility = { scope: body.scope! }; stateVersion++; return { ok: true };
-    case 'renew': urlToken++; broken = false; return { ok: true, urlToken };
+    case 'renew': urlToken++; renewal = issueRenewal(Date.now()); broken = false; return { ok: true, urlToken, renewal };
     case 'break': broken = true; return { ok: true };
     default: throw new Error('unknown command');
   }
@@ -96,12 +98,12 @@ prepare().then(() => {
       const url = new URL(req.url ?? '/', 'http://x');
       if (url.pathname === '/api/time') return send(res, 200, { serverMs: Date.now() });
       if (url.pathname === '/api/context') return send(res, 200, { scope: scopeOf(), minStateVersion: 0 });
-      if (url.pathname === '/api/stats') return send(res, 200, { resolverCalls, clips: Object.fromEntries(Object.entries(clips).map(([k, v]) => [k, { durationMs: v.durationMs, freq: v.freq, bytes: v.mp3.length }])), clipId, state, stateVersion, urlToken });
+      if (url.pathname === '/api/stats') return send(res, 200, { resolverCalls, clips: Object.fromEntries(Object.entries(clips).map(([k, v]) => [k, { durationMs: v.durationMs, freq: v.freq, bytes: v.mp3.length }])), clipId, state, stateVersion, urlToken, renewal });
       if (url.pathname === '/api/projection') {
         const role = url.searchParams.get('role') ?? 'VIEWER';
         const projection = projectAudioPlayback(AUDIENCES[role], state, {
           release: releases[role] ?? 'PLAY', sourceVisibility: visibility, stateVersion, now: Date.now(),
-          resolveUrl: assetId => { resolverCalls[role] = (resolverCalls[role] ?? 0) + 1; return `/harness-media/${assetId}.mp3?tok=${urlToken}`; },
+          resolveSource: assetId => { resolverCalls[role] = (resolverCalls[role] ?? 0) + 1; return { url: `/harness-media/${assetId}.mp3?tok=${urlToken}`, renewal }; },
         });
         return send(res, 200, projection);
       }

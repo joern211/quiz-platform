@@ -184,3 +184,81 @@ describe('N7 ServerAudioPlayer: autoplay, error and retry in the UI', () => {
     expect(section.className).toMatch(/card/);
   });
 });
+
+describe('N7-01. URL renewal through the component: ordered by number, plan untouched, withdrawal and clip change stay effective', () => {
+  const U1 = '/api/v1/media/clip-a?sig=u1', U2 = '/api/v1/media/clip-a?sig=u2', U3 = '/api/v1/media/clip-a?sig=u3';
+  const src = (el: { src: string }) => el.src;
+  const liveSrc = (world: World) => liveElements(world).map(src);
+
+  it('R1 begins, R2 begins, R2 returns, R1 returns: U3 stays the live resource, the plan and the playback are not interrupted', async () => {
+    const onRenewUrl = vi.fn();
+    const m = mount({ projection: playProjection({ anchorMono: 0, url: U1, renewal: 1 }), onRenewUrl });
+    await act(async () => { await flush(); const el = liveElements(m.world)[0]; el.loadMetadata(); await flush(); el.fire('error'); await flush(); });
+    await userEvent.click(screen.getByRole('button', { name: 'Erneut laden' })); // R1 begins
+    await act(async () => { liveElements(m.world)[0].fire('error'); await flush(); });
+    await userEvent.click(screen.getByRole('button', { name: 'Erneut laden' })); // R2 begins
+    expect(onRenewUrl).toHaveBeenCalledTimes(2);
+    m.set(playProjection({ anchorMono: 0, url: U3, renewal: 3 })); // R2 returns first
+    await act(async () => { await flush(); const el = liveElements(m.world)[0]; el.loadMetadata(); await flush(); el.startPlayback(); await flush(); });
+    expect(liveSrc(m.world)).toEqual([U3]);
+    const live = liveElements(m.world)[0];
+    const made = m.world.elements.length, plays = live.playCalls, loads = live.loadCalls;
+    m.set(playProjection({ anchorMono: 0, url: U2, renewal: 2 })); // R1 returns late — same snapshot version, same plan version
+    await act(async () => { await flush(); });
+    expect(liveSrc(m.world)).toEqual([U3]);
+    expect(m.world.elements.length).toBe(made); // nothing was torn down or created
+    expect(live.playCalls).toBe(plays);
+    expect(live.loadCalls).toBe(loads);
+    expect(live.running).toBe(true);
+    expect(text()).toContain('Das Audio läuft.');
+  });
+  it('an overtaken ERROR of the replaced element does not touch the current resource or the status', async () => {
+    const m = mount({ projection: playProjection({ anchorMono: 0, url: U1, renewal: 1 }) });
+    await act(async () => { await flush(); const el = liveElements(m.world)[0]; el.loadMetadata(); await flush(); el.startPlayback(); await flush(); });
+    const old = liveElements(m.world)[0];
+    m.set(playProjection({ anchorMono: 0, url: U2, renewal: 2 }));
+    await act(async () => { await flush(); const el = liveElements(m.world)[0]; el.loadMetadata(); await flush(); el.startPlayback(); await flush(); });
+    expect(liveSrc(m.world)).toEqual([U2]);
+    await act(async () => { old.fire('error'); old.fire('ended'); old.failPlay('NotAllowedError'); await flush(); });
+    expect(text()).toContain('Das Audio läuft.');
+    expect(text()).not.toContain('nicht geladen werden');
+    expect(liveSrc(m.world)).toEqual([U2]);
+  });
+  it('a normal current renewal continues at the position valid NOW with the SAME anchor (not from the start)', async () => {
+    const m = mount({ projection: playProjection({ anchorMono: 0, url: U1, renewal: 1 }) });
+    await act(async () => { await flush(); const el = liveElements(m.world)[0]; el.loadMetadata(); await flush(); el.startPlayback(); await flush(); });
+    await act(async () => { await m.world.advance(3000); });
+    m.set(playProjection({ anchorMono: 0, url: U2, renewal: 2 }));
+    await act(async () => { await flush(); const el = liveElements(m.world)[0]; el.loadMetadata(); await flush(); });
+    const fresh = liveElements(m.world)[0];
+    expect(fresh.src).toBe(U2);
+    expect(fresh.seeks.at(-1)).toBeGreaterThan(2.95);
+    expect(fresh.seeks.at(-1)).toBeLessThan(3.6);
+    expect(fresh.playCalls).toBe(1);
+  });
+  it('withdrawal during a renewal stays effective: the late answer (older snapshot, higher number) brings no source back', async () => {
+    const m = mount({ projection: playProjection({ anchorMono: 0, url: U1, renewal: 1, stateVersion: 9 }) });
+    await act(async () => { await flush(); const el = liveElements(m.world)[0]; el.loadMetadata(); await flush(); el.startPlayback(); await flush(); });
+    m.set(none(10));
+    expect(liveSrc(m.world)).toEqual([]);
+    const made = m.world.elements.length;
+    m.set(playProjection({ anchorMono: 0, url: U2, renewal: 2, stateVersion: 9 }));
+    await act(async () => { await flush(); });
+    expect(liveSrc(m.world)).toEqual([]);
+    expect(m.world.elements.length).toBe(made);
+    expect(text()).toContain('nicht verfügbar');
+  });
+  it('a clip change during a renewal: the old clip\'s late renewal neither shows, loads nor displaces the new clip', async () => {
+    const m = mount({ projection: playProjection({ anchorMono: 0, url: U1, renewal: 1 }) });
+    await act(async () => { await flush(); const el = liveElements(m.world)[0]; el.loadMetadata(); await flush(); });
+    const next = { ...EXPECTED, playbackId: 'pb-2' };
+    const clipB = { ...playProjection({ anchorMono: 0, url: '/api/v1/media/clip-b?sig=b', renewal: 1 }), scope: { ...SCOPE, playbackId: 'pb-2' } };
+    m.set(clipB, next);
+    await act(async () => { await flush(); });
+    expect(liveSrc(m.world)).toEqual(['/api/v1/media/clip-b?sig=b']);
+    m.set(playProjection({ anchorMono: 0, url: U3, renewal: 9, stateVersion: 99 }), next); // the OLD clip's answer, newer in every number
+    await act(async () => { await flush(); });
+    expect(text()).toContain('nicht verfügbar'); // foreign for the new context: nothing is shown
+    expect(liveSrc(m.world)).toEqual([]);
+  });
+});

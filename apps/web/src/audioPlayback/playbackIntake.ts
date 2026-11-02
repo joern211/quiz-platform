@@ -47,7 +47,12 @@ export function intakeAudioPlayback(prev: IntakeMemo | null, expected: AudioPlay
   const samePair = observed.stateVersion === base.seenStateVersion && observed.playbackVersion === base.seenPlaybackVersion;
   const wider = samePair && base.seenRelease !== null && RANK[observed.release] > RANK[base.seenRelease];
   if (older || wider) return { memo: base, held: base.held, outcome: 'STALE' };
-  const held = observed.release === 'NONE' ? null : observed;
+  // URL ordering inside an otherwise acceptable projection: an access URL ISSUED earlier (lower renewal number) never replaces the one already
+  // held. The projection is still taken for everything else (plan, versions): a delayed older renewal answer must neither displace the
+  // current source nor make the current playback be torn down because of its late arrival.
+  const heldSource = base.held?.source ?? null;
+  const projection = observed.source !== null && heldSource !== null && observed.source.renewal < heldSource.renewal ? { ...observed, source: heldSource } : observed;
+  const held = observed.release === 'NONE' ? null : projection;
   return {
     memo: { key, seenStateVersion: observed.stateVersion, seenPlaybackVersion: observed.playbackVersion, seenRelease: observed.release, held },
     held,

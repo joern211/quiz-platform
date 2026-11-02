@@ -9,7 +9,7 @@ import {
   mediaSecondsToMs, msToMediaSeconds, parseAudioPlaybackProjection, type AudioPlaybackScope,
 } from '@quiz/shared/audioPlayback';
 import {
-  audioPlaybackPlanOf, createAudioPlayback, parseAudioPlaybackState, pauseAudioPlayback, projectAudioPlayback, readAudioPlayback,
+  audioPlaybackPlanOf, createAudioPlayback, createRenewalIssuer, parseAudioPlaybackState, pauseAudioPlayback, projectAudioPlayback, readAudioPlayback,
   resumeAudioPlayback, settleAudioPlayback, startAudioPlayback, stopAudioPlayback, type AudioPlaybackState,
 } from './audioPlaybackPlan.js';
 import { gameErrorCode } from './errors.js';
@@ -240,7 +240,7 @@ describe('A. Determinism, serialisation, recovery', () => {
     const dateNow = vi.spyOn(Date, 'now'), random = vi.spyOn(Math, 'random');
     const s = running();
     readAudioPlayback(s, 6000); pauseAudioPlayback(s, args(s, 6000)); stopAudioPlayback(s, args(s, 6000)); settleAudioPlayback(s, args(s, 20_000));
-    projectAudioPlayback({ role: 'PLAYER', participantId: 'p1' }, s, { release: 'PLAY', sourceVisibility: { scope: 'PUBLIC' }, stateVersion: 3, now: 6000, resolveUrl: () => '/api/v1/media/x' });
+    projectAudioPlayback({ role: 'PLAYER', participantId: 'p1' }, s, { release: 'PLAY', sourceVisibility: { scope: 'PUBLIC' }, stateVersion: 3, now: 6000, resolveSource: () => ({ url: '/api/v1/media/x', renewal: 1 }) });
     expect(dateNow).not.toHaveBeenCalled();
     expect(random).not.toHaveBeenCalled();
     vi.restoreAllMocks();
@@ -256,23 +256,24 @@ describe('A. Determinism, serialisation, recovery', () => {
 
 const PUBLIC: VisibilityRule = { scope: 'PUBLIC' };
 const url = (assetId: string) => `/api/v1/media/${assetId}?exp=1&sig=s`;
+const src = (assetId: string) => ({ url: url(assetId), renewal: 7 });
 const project = (audience: ProjectionAudience, release: 'NONE' | 'LOAD_ONLY' | 'PLAY', state = running(), over: Record<string, unknown> = {}) =>
-  projectAudioPlayback(audience, state, { release, sourceVisibility: PUBLIC, stateVersion: 9, now: 6000, resolveUrl: url, ...over } as Parameters<typeof projectAudioPlayback>[2]);
+  projectAudioPlayback(audience, state, { release, sourceVisibility: PUBLIC, stateVersion: 9, now: 6000, resolveSource: src, ...over } as Parameters<typeof projectAudioPlayback>[2]);
 
 describe('B. Release policy and lazy URL resolution', () => {
   it('NONE: no source, no duration, no plan — and the resolver is never called', () => {
-    const resolveUrl = vi.fn(url);
-    const p = projectAudioPlayback({ role: 'PLAYER', participantId: 'p1' }, running(), { release: 'NONE', sourceVisibility: PUBLIC, stateVersion: 9, now: 6000, resolveUrl });
+    const resolveUrl = vi.fn(src);
+    const p = projectAudioPlayback({ role: 'PLAYER', participantId: 'p1' }, running(), { release: 'NONE', sourceVisibility: PUBLIC, stateVersion: 9, now: 6000, resolveSource: resolveUrl });
     expect(resolveUrl).not.toHaveBeenCalled();
     expect(p).toEqual({ contract: AUDIO_PLAYBACK_CONTRACT, scope, stateVersion: 9, playbackVersion: 1, release: 'NONE', serverNowMs: 6000, durationMs: null, source: null, plan: null });
     expect(JSON.stringify(p)).not.toMatch(/asset-opaque|api|url|exp=|sig=/i);
   });
   it('LOAD_ONLY: source + duration only — no plan, so nothing can be played from it', () => {
-    const resolveUrl = vi.fn(url);
-    const p = projectAudioPlayback({ role: 'PLAYER', participantId: 'p1' }, running(), { release: 'LOAD_ONLY', sourceVisibility: PUBLIC, stateVersion: 9, now: 6000, resolveUrl });
+    const resolveUrl = vi.fn(src);
+    const p = projectAudioPlayback({ role: 'PLAYER', participantId: 'p1' }, running(), { release: 'LOAD_ONLY', sourceVisibility: PUBLIC, stateVersion: 9, now: 6000, resolveSource: resolveUrl });
     expect(resolveUrl).toHaveBeenCalledTimes(1);
     expect(resolveUrl).toHaveBeenCalledWith('asset-opaque-1');
-    expect(p).toMatchObject({ release: 'LOAD_ONLY', durationMs: DUR, source: { url: url('asset-opaque-1') }, plan: null });
+    expect(p).toMatchObject({ release: 'LOAD_ONLY', durationMs: DUR, source: { url: url('asset-opaque-1'), renewal: 7 }, plan: null });
   });
   it('PLAY: source, duration and the current plan; stateVersion and playbackVersion are separate numbers', () => {
     const p = project({ role: 'VIEWER' }, 'PLAY');
@@ -283,8 +284,8 @@ describe('B. Release policy and lazy URL resolution', () => {
     const stopped = stopAudioPlayback(running(), args(running(), 8000)).state;
     const settled = settleAudioPlayback(running(), args(running(), 20_000)).state;
     for (const [name, state, now, status] of [['stopped', stopped, 9000, 'STOPPED'], ['settled', settled, 21_000, 'ENDED'], ['ended by time only', running(), 15_000, 'ENDED']] as const) {
-      const resolveUrl = vi.fn(url);
-      const p = projectAudioPlayback({ role: 'VIEWER' }, state, { release: 'PLAY', sourceVisibility: PUBLIC, stateVersion: 9, now, resolveUrl });
+      const resolveUrl = vi.fn(src);
+      const p = projectAudioPlayback({ role: 'VIEWER' }, state, { release: 'PLAY', sourceVisibility: PUBLIC, stateVersion: 9, now, resolveSource: resolveUrl });
       expect(resolveUrl, name).not.toHaveBeenCalled();
       expect(p, name).toMatchObject({ release: 'PLAY', durationMs: DUR, source: null, plan: { status } });
       expect(parseAudioPlaybackProjection(p).ok, name).toBe(true);
@@ -304,24 +305,52 @@ describe('B. Release policy and lazy URL resolution', () => {
     const p = project({ role: 'DISPLAY' }, 'PLAY');
     expect(parseAudioPlaybackProjection(p)).toEqual({ ok: true, projection: p });
     for (const bad of [
-      { ...p, title: 'Song' }, { ...p, source: { url: p.source!.url, title: 'x' } }, { ...p, assetId: 'asset-opaque-1' }, { ...p, plan: { ...p.plan, extra: 1 } },
+      { ...p, title: 'Song' }, { ...p, source: { url: p.source!.url, renewal: 1, title: 'x' } }, { ...p, assetId: 'asset-opaque-1' }, { ...p, plan: { ...p.plan, extra: 1 } },
       { ...p, release: 'NONE' }, { ...p, source: null }, { ...p, plan: null }, { ...p, durationMs: null },
       { ...p, release: 'LOAD_ONLY' }, { ...p, plan: { ...p.plan, positionMs: DUR + 1 } }, { ...p, plan: { status: 'PAUSED', positionMs: 0, anchorServerMs: 5 } },
       { ...p, stateVersion: -1 }, { ...p, playbackVersion: 1.5 }, { ...p, durationMs: 12.5 }, { ...p, contract: 'OTHER' },
-      { ...p, source: { url: 'https://evil.example/x.mp3' } }, { ...p, source: { url: '//evil.example/x.mp3' } }, { ...p, source: { url: 'javascript:alert(1)' } },
-      { ...p, source: { url: '/ok path' } }, null, undefined, 'x',
+      { ...p, source: { url: 'https://evil.example/x.mp3', renewal: 1 } }, { ...p, source: { url: '//evil.example/x.mp3', renewal: 1 } }, { ...p, source: { url: 'javascript:alert(1)', renewal: 1 } },
+      { ...p, source: { url: '/ok path', renewal: 1 } }, null, undefined, 'x',
     ]) expect(parseAudioPlaybackProjection(bad)).toEqual({ ok: false, code: 'AUDIO_PLAYBACK_PROJECTION_INVALID' });
   });
   it('fails closed on a bad audience, a bad release, a bad version, a bad resolver result and a throwing resolver (code only)', () => {
     const s = running();
-    expect(code(() => projectAudioPlayback({ role: 'ADMIN' } as never, s, { release: 'PLAY', sourceVisibility: PUBLIC, stateVersion: 1, now: 1, resolveUrl: url }))).toBe('AUDIO_PLAYBACK_AUDIENCE_INVALID');
-    expect(code(() => projectAudioPlayback(null as never, s, { release: 'PLAY', sourceVisibility: PUBLIC, stateVersion: 1, now: 1, resolveUrl: url }))).toBe('AUDIO_PLAYBACK_AUDIENCE_INVALID');
+    expect(code(() => projectAudioPlayback({ role: 'ADMIN' } as never, s, { release: 'PLAY', sourceVisibility: PUBLIC, stateVersion: 1, now: 1, resolveSource: src }))).toBe('AUDIO_PLAYBACK_AUDIENCE_INVALID');
+    expect(code(() => projectAudioPlayback(null as never, s, { release: 'PLAY', sourceVisibility: PUBLIC, stateVersion: 1, now: 1, resolveSource: src }))).toBe('AUDIO_PLAYBACK_AUDIENCE_INVALID');
     expect(code(() => project({ role: 'VIEWER' }, 'ALL' as never))).toBe('AUDIO_PLAYBACK_RELEASE_INVALID');
     expect(code(() => project({ role: 'VIEWER' }, 'PLAY', s, { stateVersion: -1 }))).toBe('AUDIO_PLAYBACK_ARGS_INVALID');
     expect(code(() => project({ role: 'VIEWER' }, 'PLAY', s, { now: 1.5 }))).toBe('AUDIO_PLAYBACK_TIME_INVALID');
-    expect(code(() => project({ role: 'VIEWER' }, 'PLAY', s, { resolveUrl: () => 'https://x/y' }))).toBe('AUDIO_PLAYBACK_SOURCE_INVALID');
-    expect(code(() => project({ role: 'VIEWER' }, 'PLAY', s, { resolveUrl: () => { throw new Error('/secret/storage/path.mp3'); } }))).toBe('AUDIO_PLAYBACK_SOURCE_INVALID');
+    expect(code(() => project({ role: 'VIEWER' }, 'PLAY', s, { resolveSource: () => ({ url: 'https://x/y', renewal: 1 }) }))).toBe('AUDIO_PLAYBACK_SOURCE_INVALID');
+    expect(code(() => project({ role: 'VIEWER' }, 'PLAY', s, { resolveSource: () => { throw new Error('/secret/storage/path.mp3'); } }))).toBe('AUDIO_PLAYBACK_SOURCE_INVALID');
     expect(code(() => project({ role: 'VIEWER' }, 'PLAY', { ...s, title: 'x' } as never))).toBe('AUDIO_PLAYBACK_STATE_INVALID');
+  });
+});
+
+describe('N7-01 (server side). Renewal numbers order the ISSUED access URLs, independently of plan, snapshot and arrival', () => {
+  it('the projection carries the renewal number of the URL it carries; the plan and both versions are untouched by a renewal', () => {
+    const s = running();
+    const a = projectAudioPlayback({ role: 'VIEWER' }, s, { release: 'PLAY', sourceVisibility: PUBLIC, stateVersion: 9, now: 6000, resolveSource: () => ({ url: '/api/v1/media/x?sig=1', renewal: 11 }) });
+    const b = projectAudioPlayback({ role: 'VIEWER' }, s, { release: 'PLAY', sourceVisibility: PUBLIC, stateVersion: 9, now: 6000, resolveSource: () => ({ url: '/api/v1/media/x?sig=2', renewal: 12 }) });
+    expect(a.source).toEqual({ url: '/api/v1/media/x?sig=1', renewal: 11 });
+    expect(b.source).toEqual({ url: '/api/v1/media/x?sig=2', renewal: 12 });
+    expect({ ...a, source: null }).toEqual({ ...b, source: null }); // same plan, same stateVersion, same playbackVersion, same anchor
+  });
+  it('rejects a source without, with a fractional, negative, unsafe or string renewal number (code only)', () => {
+    for (const renewal of [undefined, 1.5, -1, 2 ** 53, '3', NaN, null]) {
+      expect(code(() => project({ role: 'VIEWER' }, 'PLAY', running(), { resolveSource: () => ({ url: '/api/v1/media/x', renewal }) }))).toBe('AUDIO_PLAYBACK_SOURCE_INVALID');
+    }
+    expect(parseAudioPlaybackProjection({ ...project({ role: 'VIEWER' }, 'PLAY'), source: { url: '/api/v1/media/x' } }).ok).toBe(false);
+  });
+  it('the issuer is strictly increasing, follows the server clock, and keeps growing when the clock stands still or a restart reuses the same time', () => {
+    const issue = createRenewalIssuer();
+    expect(issue(1000)).toBe(1000);
+    expect(issue(1000)).toBe(1001); // same millisecond: still strictly increasing
+    expect(issue(900)).toBe(1002); // a clock that stepped back never reuses a number
+    expect(issue(5000)).toBe(5000);
+    const afterRestart = createRenewalIssuer(); // in-memory state is gone; the clock still carries the order
+    expect(afterRestart(5001)).toBeGreaterThan(5000);
+    expect(code(() => issue(-1))).toBe('AUDIO_PLAYBACK_TIME_INVALID');
+    expect(code(() => issue(1.5))).toBe('AUDIO_PLAYBACK_TIME_INVALID');
   });
 });
 
@@ -352,8 +381,8 @@ describe('B. Roles and phases: who may receive the clip at all (existing canView
   for (const [ruleName, rule] of rules) {
     it(`source visibility ${ruleName}: exactly ${allowed[ruleName].length} of ${audiences.length} audiences receive it`, () => {
       for (const [name, audience] of audiences) {
-        const resolveUrl = vi.fn(url);
-        const p = projectAudioPlayback(audience, running(), { release: 'PLAY', sourceVisibility: rule, stateVersion: 4, now: 6000, resolveUrl });
+        const resolveUrl = vi.fn(src);
+        const p = projectAudioPlayback(audience, running(), { release: 'PLAY', sourceVisibility: rule, stateVersion: 4, now: 6000, resolveSource: resolveUrl });
         const should = allowed[ruleName].includes(name);
         expect(p.release, `${ruleName} → ${name}`).toBe(should ? 'PLAY' : 'NONE');
         expect(resolveUrl).toHaveBeenCalledTimes(should ? 1 : 0); // a refused audience never costs a signature
@@ -364,7 +393,7 @@ describe('B. Roles and phases: who may receive the clip at all (existing canView
     });
   }
   it('a blind host receives no host-private audio even though the host may administer the room', () => {
-    const blind = projectAudioPlayback({ role: 'HOST', blindHost: true }, running(), { release: 'PLAY', sourceVisibility: { scope: 'HOST_PRIVATE' }, stateVersion: 1, now: 6000, resolveUrl: url });
+    const blind = projectAudioPlayback({ role: 'HOST', blindHost: true }, running(), { release: 'PLAY', sourceVisibility: { scope: 'HOST_PRIVATE' }, stateVersion: 1, now: 6000, resolveSource: src });
     expect(blind).toMatchObject({ release: 'NONE', source: null, plan: null, durationMs: null });
   });
   it('a requested release never EXTENDS what the rule allows, and the consumer may narrow it (LOAD_ONLY / NONE) per phase', () => {
