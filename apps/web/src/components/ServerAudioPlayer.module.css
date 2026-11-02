@@ -1,0 +1,12 @@
+/* N7 ServerAudioPlayer — Midnight tokens only: theme and accent families switch via the root attributes. No animation, no progress bar. */
+.card {
+  display: flex; flex-direction: column; gap: var(--space-2); min-width: 0; max-width: 100%; box-sizing: border-box;
+  padding: var(--space-3); background: var(--surface); border: 1px solid var(--border-strong); border-radius: var(--radius-md);
+}
+.title { margin: 0; font-size: 1.05rem; font-weight: 700; color: var(--fg); overflow-wrap: anywhere; }
+.status { margin: 0; font-size: 0.95rem; color: var(--fg); overflow-wrap: anywhere; }
+.position { margin: 0; font-size: 0.85rem; color: var(--muted); overflow-wrap: anywhere; font-variant-numeric: tabular-nums; }
+.actions { display: flex; flex-wrap: wrap; gap: var(--space-2); min-width: 0; }
+.action { min-width: 44px; min-height: 44px; max-width: 100%; }
+/* a problem is also written as text; the colour is only a second cue */
+.problem { color: var(--danger); }

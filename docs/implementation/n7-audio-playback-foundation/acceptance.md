@@ -1,0 +1,91 @@
+# N7 — Abnahme
+
+Base: `main` @ `1ac064f4933df90067bccd8dfb2c20115501c44e` (N1–N6 und PR #36 gemergt; main-CI-Lauf 41411675476 grün). Branch `claude/n7-audio-playback-foundation`. Der Head dieses Branches und der zugehörige CI-Lauf stehen in der PR-Beschreibung (ein Commit kann seinen eigenen Hash nicht enthalten); frühere grüne Läufe gelten nach einer weiteren Änderung nicht.
+
+## 1. Akzeptanzstand (ehrlich)
+
+* **Grundlage/Helfer vorhanden. 0 neue echte Engine-Verbraucher.** Kein Spiel, keine Seite, kein Socket-Ereignis, kein HTTP-Endpunkt, keine Migration, keine neue Pipeline.
+* **Das vollständige Core-DoD nach Master §13.2 bleibt offen**, solange die dort verlangten unterschiedlichen echten Engine-Nutzungen fehlen. Das Song-Spiel ist **nicht** fertig; Punkte, Buzzer, Bewertung, Wiederöffnung, Ersatzclips und automatische Wiederholungen sind nicht entschieden und nicht umgesetzt (DEC-SNG-01 bleibt offen).
+* Im zugesagten N7-Umfang wird die Grundlage als fertig gemeldet, weil: (1) der Serververtrag deterministisch geprüft ist, (2) der Browser den aktuellen autorisierten Plan einschließlich Autoplay-Sperre, Laden, Pause, Fortsetzung und spätem Wiedereinstieg umsetzt (Unit **und** echter Chromium), (3) alte Daten, Ereignisse, Timer, URLs und Promise-Rückmeldungen weder einen überholten Clip wiederbeleben noch einen neuen beschädigen können (Tests beider Modelle, Mutationen), (4) der Informationsschutz an der Auslieferungsgrenze der Projektion gilt (kein Resolver-Aufruf, keine Metadaten), (5) reale Browser-/Mediennachweise und die Eigenprüfung durchgeführt und in `review.md` dokumentiert sind, (6) die Checks des Endstands bestanden sind. Offene Voraussetzungen stehen in `handoff.md`; sie verhindern eine Fertigmeldung der **Engine-Anbindung**, nicht der Grundlage.
+
+## 2. Ausgeführte Checks (Endstand, ruhige Maschine, nacheinander)
+
+| Check | Ergebnis |
+|---|---|
+| `pnpm typecheck` | grün (shared, game-sdk, web, server) |
+| `pnpm lint` | 0 Fehler (Warnungen unverändert zum Bestand) |
+| `pnpm build` | grün |
+| `pnpm --filter @quiz/server test` (Skript legt frische Testdatenbank an) | **89 Dateien, 1173 Tests grün** (davor 87 / 1086; +87 = `audioPlayback.test.ts` 85, Gegenprobe zum Issuer 2) |
+| `pnpm --filter @quiz/web test` | **49 Dateien, 584 Tests grün** (davor 439; +145 = Uhr 14, Intake 38, Controller 65, Komponente 20, Gegenproben der beiden Prüfungen 5 + 3) |
+| Chromium-E2E wie in der CI (frische DB, `playwright test --project=chromium`) | **45 von 45 grün** |
+| N7-Chromium-Harness `node apps/web/harness/n7-audio/check.cjs` (S1–S8 + Layout) | am Endstand: 5 Läufe an der ruhigen Maschine und 3 unter 6 CPU-Dauerschleifen mit **je 0 Probleme**; ein früherer Lauf unter Last scheiterte an einer zu optimistischen Probe-Vorbedingung (siehe review.md §10, R9), die Probe wartet jetzt auf das tatsächlich gemeldete Elementende |
+
+Stand dieser Tabelle: nach der Nachprüfung 2 (§8). Zum ersten Head `1cc8cb3` war es Server 88/1166, Web 47/526, Harness S1–S5; zu `84821b2` Server 88/1169, Web 48/565.
+
+Nicht ausgeführt: Safari/WebKit, Firefox, mobile Hardware, Produktionsnetz, echte Lautsprecherausgabe.
+
+## 3. Gemessene Browserwerte (Playwright 1.63.0, Chromium 153.0.8010.12 Headless, Linux, 4 CPUs)
+
+Gemessen wird der Abstand der `currentTime` des echten Elements zur Zielposition des Serverplans **zum selben Serverzeitpunkt** (Mittelpunkt des Probe-Roundtrips) und der Abstand zweier Kontexte.
+
+| Lauf | max. Abweichung zum Plan | max. Abweichung zwischen zwei Kontexten | Proben |
+|---|---|---|---|
+| ruhig (5 Läufe) | 67–233 ms | 9–22 ms | 25 |
+| unter Last (6 Dauerschleifen, 3 gültige Läufe) | 62–155 ms | 15–19 ms | 25 |
+| (erster Head `1cc8cb3`: ruhig / unter Last) | 11–67 ms / 17 ms | ≤ 9 ms / 14 ms | 21 |
+
+**CI-Toleranz 500 ms** (`N7_TOL_MS`): bewusst großzügig gegenüber den gemessenen ≤ 233 ms, weil CI-Runner langsamer sind und die Messung (Roundtrip der Probe, Timerjitter) selbst Millisekunden-Rauschen enthält; sie liegt oberhalb der Driftkorrektur-Toleranz (250 ms), damit eine korrekt arbeitende Korrektur nicht als Fehler zählt, und weit unter der Größenordnung „falsche Position“ (Sekunden). Es wird **keine** samplegenaue oder geräteübergreifend garantierte Synchronität behauptet.
+
+Zusätzlich gemessen/assertiert: Pegel am Analyser (RMS > 0,02; gemessen ≈ 0,116) und Frequenz (440 ± 40 Hz; gemessen ≈ 430–441 Hz); vor dem Anker kein laufendes Element und kein Pegel (mindestens 10 Proben, assertiert); Spät-Zuschaltung landet bei > 2 s statt bei 0; Pause friert die Position (< 60 ms Bewegung in 1,5 s); Fortsetzen ab gespeicherter Position; Entzug gibt Element und Quelle frei (kein `src` im DOM); BLIND_HOST: **kein Audioobjekt**, **0 URL-Auflösungen**, Wiedergabe erst nach Öffentlichwerden.
+
+Echtes Browser-Autoplay: Chromium lehnt `play()` ohne Nutzeraktivierung mit `NotAllowedError` ab (vorab in einem Minimalversuch bestätigt: Playwrights `page.evaluate` trägt selbst eine Nutzeraktivierung — daher beobachtet der Autoplay-Kontext nur mit Locator-Lesezugriffen und Wartezeit in Node). Die UI zeigt den verständlichen Text und die Aktion, **Tab + Enter** (echter Tastendruck) startet die Wiedergabe an der aktuellen Planposition (> 1,5 s), nicht am Clipanfang. Ein gemocktes `play()` bleibt ein Unit-Test; ein stummgeschaltetes Autoplay wurde nicht als Beleg verwendet (das Audio ist nicht stumm; der Pegel wird gemessen). **Safari/iOS ist ungeprüft.**
+
+Layout: 320 / 390 / 1280 px × dunkel/hell mit langem deutschem Titel (überlanges Wort) im Autoplay-Zustand, zusätzlich der Fehlerzustand bei 320 px hell: kein horizontaler Überlauf, keine gekappten Elemente, Aktion vollständig sichtbar und ≥ 44 px, keine Popovers. Screenshots entstehen mit `check.cjs <Ausgabeordner>`.
+
+## 3b. Reproduktion
+
+```bash
+pnpm install --frozen-lockfile
+pnpm typecheck && pnpm lint && pnpm build
+pnpm --filter @quiz/server test
+pnpm --filter @quiz/web test
+# E2E wie in der CI: frische DB, dann playwright
+node apps/web/harness/n7-audio/check.cjs [Ausgabeordner]   # startet Backend (Port 5196) und Vite (5197) selbst; benötigt ffmpeg
+```
+
+## 4. Ergebnis der separat behandelten main-CI-/ACK-Timeout-Untersuchung (Vorarbeit)
+
+**Status: behoben und gemergt (PR #36, Squash `1ac064f`); die Ursache war *nicht* „CPU-Last“. Eine verbleibende Unsicherheit ist benannt.**
+
+* **Test:** `g4Restart.integration.test.ts` › „Limits: the in-memory budget …“. Run 41366905419, Job 125028872219, `main` @ 21eb3a9.
+* **Eingrenzung:** Der Timeout tritt im **60er-Burst** auf: die ca. 20 vom Ratenlimit angenommenen `geo:answer` erhalten >6 s keine Antwort (Test-ACK-Limit). Verbindungsaufbau, Restart, Resubscribe und der anschließende ACK waren nicht betroffen. Im Kindprozess-Log erscheinen die angenommenen Handler nach ≈5 s mit `PrismaClientKnownRequestError P1008` (SQLite-Sperre) → `INTERNAL_ERROR`.
+* **Ursache (belegt):** Prismas Query-Engine führt SQLite-Aufrufe synchron auf ihren Worker-Threads (einer pro CPU) aus. Ein Schreibzugriff, der auf die SQLite-Schreibsperre wartet, blockiert einen Thread bis zum 5-s-Busy-Timeout. Hält eine interaktive Transaktion (`BEGIN IMMEDIATE`, Engine-Schreibpfad einer receipted Aktion) die Sperre und warten mindestens so viele Autocommit-Writer (Command-Receipt-INSERTs des Bursts) wie Threads, bleibt kein Thread für das nächste Statement der Transaktion. Sie läuft erst nach 5 s weiter. Der Fehler ist ein echter Produktfehler des Receipt-Burst-Pfads, kein reines Testproblem.
+* **Reproduktion:** (a) im Suite-Kontext nur unter Last (drei getrennte Schleifen à 30 Iterationen je Lauf trafen den Fehler im 3., 4. bzw. 5. Lauf; mit Transaktions-Tracing: `BEGIN IMMEDIATE` ohne `COMMIT`, vier `INSERT … command_receipts` mit je 5 018–5 035 ms); (b) **deterministisch ohne Last** in einem eigenständigen Skript: ab so vielen gleichzeitigen Writern wie CPUs (4 CPUs: 4 Writer → Stall, 3 Writer → kein Stall); `connection_limit=40` hilft nicht, `connection_limit=1` behebt es.
+* **Behebung (PR #36, getrennter Commit):** SQLite-URLs erhalten `connection_limit=1` (`persistence/sqliteUrl.ts`, Singleton in `persistence/prisma.ts`); die Writer warten im Pool statt Threads zu blockieren. Der Test selbst blieb **unverändert** (keine Lockerung, kein skip, kein höherer Timeout, kein Retry, keine Worker-Reduktion). Neuer Test: Burst mit mehr Writern als Threads gegen eine offene Transaktion — ohne Fix rot (P2028/P1008, 15 s), mit Fix grün (< 1 s).
+* **Nachweise:** Originalszenario unter Last nach dem Fix: 6 Läufe = 180 Iterationen ohne Fehler/P1008 (vorher 3 Treffer in 12 Läufen); volle Server-Suite 87/1086 grün, E2E 45/45; main-CI-Lauf 41411675476 auf `1ac064f` grün.
+* **Verbleibende Unsicherheit:** (1) Der CI-Log des fehlgeschlagenen Laufs enthält die Kindprozess-Meldung (P1008) nicht; die Zuordnung der CI-Ausfälle zu dieser Ursache stützt sich auf die identische Signatur (derselbe Test, dieselbe Phase, derselbe ACK-Timeout) und die lokale Reproduktion, nicht auf ein CI-Log. (2) Ein einzelner grüner main-Lauf nach dem Fix beweist die Behebung nicht; der Mechanismus ist es, der sie stützt. (3) Tests, die `globalThis.__prisma` mit eigenem `PrismaClient` überschreiben, behalten den Standard-Pool; sie fahren keinen Receipt-Burst gegen eine offene Transaktion.
+* **Folge für N7:** keine; N7 berührt Datenbank und Receipt-Pfad nicht. Dieser Befund wird **nicht** als N7-Leistung ausgegeben.
+
+## 5. Was N7 ausdrücklich nicht behauptet
+
+* keine Safari-/Mobil-/Netzwerkaussage; keine Lautsprecherausgabe; keine samplegenaue Synchronität;
+* kein Geheimnisschutz durch URL oder UI (ausgelieferte Bytes bleiben beim Empfänger);
+* keine Aussage zu Punkten, Buzzer, Bewertung, Wiederöffnung, Ersatzclips, automatischen Wiederholungen;
+* keine Änderung von `ContentMedia`, der Audio-Pipeline, des Medienpfads oder der G4-Engines.
+
+## 7. Nachbesserung zu PR #37 (unabhängiger Prüfbericht, Befunde N7-01 bis N7-03)
+
+Der Bericht fand am Head `1cc8cb3` drei P2-Befunde (URL-Erneuerung ohne Ordnung, lokales `ended` blockiert gültige Fortsetzung, Wiedergabe trotz fehlgeschlagener Positionierung) und fünf rote Gegenproben; die CI war grün, weil diese Gegenfälle nicht abgedeckt waren. Alle drei Befunde sind behoben; die fünf Gegenproben liegen als `n7IndependentReview.test.ts` im Repository und laufen grün (Probe 1 mit der nun verlangten Ordnungszahl). Details: `design.md` §11, `review.md` §9, `matrix.md` G.
+
+* **Vertragsänderung (präzisiert, nicht abgeschwächt):** `source` trägt jetzt `renewal` (Ordnungszahl der Ausstellung); `projectAudioPlayback` nimmt `resolveSource` statt `resolveUrl`; neuer `createRenewalIssuer`. Weiterhin 0 Verbraucher, keine Migration, kein Endpunkt.
+* **Browser (S6–S8, echtes Chromium):** Die Erneuerungsreihenfolge bleibt für die laufende Ressource wirkungslos; nachlaufendes `ended` nach Pause bei real am Ende stehendem Element und echtes lokales Ende vor dem autoritativen Ende; später Einstieg auf einem nicht seekbaren Stream: 20 Proben ohne laufendes Element, neutraler Fehler, Retry an der Planposition. Rot-Nachweise im Browser: N01, N02c, N03; **nicht** gefangen: N02d (nur Schicht 2 entfernt; Schicht 1 schützt).
+* **Aussagen, die ich nicht mache:** keine Aussage zu Safari/iOS; keine Aussage, dass der produktive Medienpfad Range unterstützt, über das Lesen von `res.sendFile` hinaus (nicht durch N7 getestet); Erneuerungsfehler des Adapters sind nicht modelliert.
+* **Verbleibende Unsicherheit der Nachbesserung selbst:** Die Schicht „Merker an die Plan-Entscheidung“ (N7-02) ist im echten Browser nicht isoliert prüfbar; sie ist nur durch Unit-Tests und die Unit-Mutation M25 belegt.
+
+## 8. Nachprüfung 2 (Head 84821b2): N7-01-Rest [P2] und N7-04 [P3]
+
+Die Nachprüfung bestätigte die Korrekturen zu N7-02 und N7-03 und fand zwei Reste: (1) die Ordnungskenntnis der Erneuerung ging über eine leere/ungültige Zwischenansicht verloren (U20 → null/undefined/ungültig → U10 lud die ältere URL wieder) und (2) die Behauptung „neustartfest“ des Nummerngebers war ohne gespeicherten Zähler nicht haltbar. Beides ist behoben; Details `design.md` §11 (Nachprüfung 2), `review.md` §10.
+
+* **N7-01-Rest:** `seenRenewal` als Zahl im Memo, getrennt von `held` (überlebt leere, ungültige, fremde Sichten und Entzug, nie eine URL, neuer Kontext beginnt leer); eine ältere Quelle wird nie gehalten, Plan und Versionen (Pause/Stop) werden trotzdem übernommen; ohne gehaltene Quelle hält der Controller **kein** Element und zeigt neutral die Wiederbeschaffung. Nachweise: die 3 Proben des Prüfers (rot → grün), Intake-Tests inkl. erschöpfender Prüfung über 5^5 Folgen, Controller-, Komponenten- und Browser-Nachweis (S6: nach leerer Ansicht entsteht **kein** Audioobjekt mit der alten URL, danach die aktuelle URL an der Planposition). Mutationen M36–M41 (Unit) und N01r (echter Browser) werden gefangen.
+* **N7-04:** `createRenewalIssuer(lastIssued?)` / `issuer.last()` als Wiederherstellungsanschluss für den Persistenz-/Recoverypfad des späteren Adapters. Garantiert: streng wachsend innerhalb einer Instanz; über einen Neustart nur mit wiederhergestelltem Wert oder bei nicht rückwärts laufender Uhr. Die unbedingte Form ist als **dokumentierte Grenze** getestet (ohne Wiederherstellung und mit rückwärts korrigierter Uhr kann eine niedrigere Nummer entstehen). Kein Zeitdienst, keine Persistenz in N7.
+* **Verbleibende Grenzen:** Der Ausgang der Wiederbeschaffungsanfrage (`onRenewUrl`) ist Sache der Anwendung und nicht modelliert; der Issuer-Neustart ohne gespeicherten Wert ist Pflicht des Adapters (`handoff.md`); Browserbelege nur Chromium. 0 Verbraucher, Core-DoD offen.
