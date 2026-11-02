@@ -214,8 +214,8 @@ async function startChildren() {
 
   // ── S7: close is terminal for every context ───────────────────────────────────────────────────────────────────────────────────────────
   await host({ type: 'close' });
-  await waitUntil(async () => (await statusText(V)).includes('Beendet'), 6000, 'S7: the viewer sees the end');
-  expect((await buttonOf(A).count()) + (await buttonOf(B).count()) + (await buttonOf(C).count()) === 0, 'S7: no action anywhere after the close');
+  for (const [page, name] of [[V, 'viewer'], [A, 'A'], [B, 'B'], [C, 'C'], [E, 'E']]) await waitUntil(async () => (await statusText(page)).includes('Beendet'), 6000, `S7: ${name} has RECEIVED and rendered the end`); // per recipient, not only the first
+  expect((await buttonOf(A).count()) + (await buttonOf(B).count()) + (await buttonOf(C).count()) + (await buttonOf(E).count()) === 0, 'S7: no action in any context after the close');
   const afterClose = await api('/api/advance', { recipient: 'B', turnNumber: (await state()).turnNumber, sequenceVersion: (await state()).version });
   expect(afterClose.ok === false && afterClose.code === 'TURN_SEQ_CLOSED', 'S7: the server refuses everything after the close', afterClose);
 

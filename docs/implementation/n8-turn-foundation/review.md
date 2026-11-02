@@ -8,7 +8,7 @@ Das ist eine **Eigenprüfung, keine unabhängige Prüfung**. Methode: der fertig
 |---|---|---|---|---|---|
 | F1 | **Echte Lücke.** Ein Akteur der Folge, der im N6-Track gar nicht vorkommt, galt stillschweigend als „nicht geeignet“. Ein falsch zugeordneter Track (falsche Spieler, anderer Roster mit gleicher Run-/Track-ID-Form) hätte nur ein irreführendes `NO_ELIGIBLE` erzeugt statt einer Ablehnung. Auftrag §5.3: „Ein Statusfilter muss an den richtigen Track-/Roster-/Versionsbezug gebunden sein.“ | Beim erneuten Lesen von `readEligibility`: Prüfung nur auf `trackId`/`rosterRevision`/`version`, nicht auf **Abdeckung** der Folge durch den Track. | Jede Eligibility-Ebene trägt zusätzlich `knownIds`; `activeIds ⊆ knownIds`; jede ID der Folge (äußere Ebene; im Teammodus zusätzlich alle Mitglieder) muss dem Track bekannt sein, sonst `TURN_SEQ_ELIGIBILITY_MISMATCH`. Der N6-Adapter liefert `knownIds` aus dem Track. | Test „requires the track of each level to KNOW every actor …“ (Spieler-, Team- und Mitgliederebene, N6-Adapter mit unvollständigem Track); Harness/Integrationstest auf `knownIds` umgestellt, alle grün | Die Abdeckung beweist nicht, dass es **der richtige** Track ist (gleiche IDs, anderer Spielverlauf): Track-ID/Roster-Revision/Versionsmonotonie des Verbrauchers bleiben Pflicht. |
 | F2 | **Namenskollision, zwei konkurrierende Turn-Wahrheiten im Sprachgebrauch.** `turnSequence.ts` exportierte `advanceTurn`, ebenso `roundFlow.ts` (anderer Vertrag, anderer Typ). Ein Verbraucher, der beide importiert, würde sie verwechseln oder umbenennen müssen; das Auftragsziel „keine zwei konkurrierenden Turn-Wahrheiten“ wäre nur im Zustand, nicht im Namen eingehalten. | Beim Lesen der Importzeilen meiner eigenen Tests (Alias `advanceCoreTurn`) aufgefallen. | `advanceTurn` → `advanceTurnSequence`, `overrideTurn` → `overrideTurnSequence` (Präfix wie `startTurnSequence`, `closeTurnSequence`). | Alle Tests, Integrationstest, Harness und Doku auf die neuen Namen; `roundFlow.ts` unberührt. | — |
-| T1–T5 | **Testfehler, kein Produktfehler** (jeweils zuerst als Vertrags- oder Testfehler geklärt, keine Erwartung „an die Implementierung angepasst“): (T1) Team-Fixture mit `teamId:null` für die Einheit TEAM — der Vertrag lehnt das zu Recht ab; (T2) `walk(…,5)` liefert sechs Halter, ich zählte fünf; (T3) Regex der Exportprüfung traf das öffentliche `StateVersion`-Schema; (T4) Harness: `dt:has-text("Zug")` traf auch „Team am Zug“, Erwartung „Ada darf bei C nicht stehen“ war falsch (die freigegebene Zugzuständigkeit **ist** sichtbar, nur andere Mitglieder dürfen es nicht sein), `completedTurns` falsch gezählt (5 statt 4); (T5) Tabellentest reichte den Extra-Schlüssel nicht an die Funktion durch. | Jeweils roter Lauf, dann Ursache am Vertrag geprüft. | im Test korrigiert; Begründung jeweils im Commit/hier | grüne Läufe | — |
+| T1–T6 | **Testfehler, kein Produktfehler** (jeweils zuerst als Vertrags- oder Testfehler geklärt, keine Erwartung „an die Implementierung angepasst“): (T1) Team-Fixture mit `teamId:null` für die Einheit TEAM — der Vertrag lehnt das zu Recht ab; (T2) `walk(…,5)` liefert sechs Halter, ich zählte fünf; (T3) Regex der Exportprüfung traf das öffentliche `StateVersion`-Schema; (T4) Harness: `dt:has-text("Zug")` traf auch „Team am Zug“, Erwartung „Ada darf bei C nicht stehen“ war falsch (die freigegebene Zugzuständigkeit **ist** sichtbar, nur andere Mitglieder dürfen es nicht sein), `completedTurns` falsch gezählt (5 statt 4); (T5) Tabellentest reichte den Extra-Schlüssel nicht an die Funktion durch; (T6) Harness S7 prüfte nach dem Schließen die Buttons aller Empfänger, nachdem nur der **Viewer** „Beendet“ zeigte — ein Zustellungsrennen im Skript (3 von 3 Läufen rot, danach 5 von 5 grün nach Warten **je Empfänger**; der Produktcode blieb unverändert). | Jeweils roter Lauf, dann Ursache am Vertrag geprüft. | im Test korrigiert; Begründung jeweils im Commit/hier | grüne Läufe | — |
 
 Keine weiteren Zustandsfehler gefunden. Ehrlich: die Eigenprüfung fand **zwei** Produktbefunde (F1, F2); beide vor dem Abschluss behoben. Eine unabhängige Prüfung kann mehr finden.
 
@@ -57,7 +57,34 @@ Ausgeführt in `turnSequence.test.ts` „N8 D2: transition table“ (jede Operat
 
 ## F. Mutationsprüfung (lokal reversibel, tatsächlich ausgeführt)
 
-Jede Mutation wurde einzeln eingebaut, die betroffenen Testdateien liefen, die Mutation wurde zurückgenommen (`MUTATIONEN_PLACEHOLDER`).
+Jede Mutation wurde einzeln eingebaut, die betroffenen Testdateien liefen (Server: `turnSequence.test.ts` + `turnSequence.cas.integration.test.ts`; Web: `turnIntake.test.ts` + `TurnStatusCard.test.tsx`), die Mutation wurde zurückgenommen. Ergebnis am Endstand: **21 von 21 gefangen**, `git status` danach leer.
+
+| # | Eingebauter Fehler | rote Tests |
+|---|---|---|
+| P1 | fehlender Zugbezug (`assertTurn` wirkungslos) | 4 |
+| P2 | vergessene Versionsprüfung | 10 |
+| P3 | Teamzeiger bewegt sich doppelt je Abschluss | 13 |
+| P4 | Zeiger des **falschen** Teams bewegt sich | 14 |
+| P5 | `SKIP` verbraucht Zeiger und zählt als Abschluss | 5 |
+| P6 | veralteter Eligibility-Stand wird akzeptiert | 3 |
+| P7 | Override zählt als Abschluss | 2 |
+| P8 | Override auf identisches Ziel erzeugt neuen Zug | 1 |
+| P9 | `withhold` ohne Grund (Halter noch geeignet) | 1 |
+| P10 | `you.holdsTurn` nur aus Spieler-ID (Team ignoriert) | 1 |
+| P11 | Halter-Eligibility in `authorize` nicht geprüft | 2 |
+| P12 | beschädigter Zustand wird repariert statt abgelehnt (Zeiger) | 1 |
+| P13 | CAS im Stand-in-Handler entfernt (unbedingtes Schreiben) | 3 |
+| P14 | Intake vergisst die Zugidentität | 2 |
+| P15 | Entzug löscht auch die Versionskenntnis | 7 |
+| P16 | breitere Freigabe am gleichen Stand akzeptiert | 1 |
+| P17 | Intake vergisst die Folgeversion | 2 |
+| P18 | keine Scope-/Mindestbindung im Intake | 4 |
+| P19 | Sendesperre wird bei neuem Projektionsobjekt gelöscht (N1-Muster) | 3 |
+| P20 | Karte ruft den Callback von selbst nach dem Mount | 7 |
+| P21 | Sperre nur nach Zugnummer (kein Kontext) | 1 |
+| H1 | Harness-Gegenprobe: Intake nie veraltet (`older` wirkungslos) | Harness: 5 Meldungen (S3, S4, S5) |
+
+Ehrliche Lesart: P19/P20 wurden zunächst mit einem fehlenden `useEffect`-Import gebaut und färbten dadurch **alle** Karten-Tests rot (18) — kein Nachweis; nach Korrektur des Mutanten 3 bzw. 7 gezielte Treffer. Eine Mutation „Projektion leakt Mitgliederliste“ ist **nicht** sinnvoll testbar, weil das strikte Clientschema die Ausgabe schon vorher ablehnt (`TURN_SEQ_STATE_INVALID`); der Schutz ist dort die Schema-Strenge (Tests „strict at every level“, „never serialises …“).
 
 ## G. Verbleibende, ehrlich benannte Grenzen
 
