@@ -32,7 +32,7 @@ const serverRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..', 
 let db: PrismaClient, dir: string, url: string, previousGlobal: PrismaClient | undefined, sequence = 0, hostId: string, definitionId: string;
 
 const TEAMS = [{ teamId: 'T1', members: ['A', 'B'] }, { teamId: 'T2', members: ['C', 'D', 'E'] }];
-const level = (ids: string[], trackId: string) => ({ trackId, rosterRevision: 'track-roster-1', version: 1, activeIds: ids });
+const level = (ids: string[], trackId: string) => ({ trackId, rosterRevision: 'track-roster-1', version: 1, knownIds: ids, activeIds: ids });
 const everyone: TurnEligibility = { actors: level(['T1', 'T2'], 'teams-track'), members: level(['A', 'B', 'C', 'D', 'E'], 'members-track') };
 
 beforeAll(async () => {
@@ -210,7 +210,7 @@ describe('N8 integration: concurrent turn changes on the real CAS / receipt stac
         const client = new PrismaClient({ datasourceUrl: process.env.CHILD_DB });
         const row = await client.roomGameState.findUniqueOrThrow({ where: { roomId: process.env.CHILD_ROOM } });
         const state = parseTurnSequenceState(JSON.parse(row.stateJson).turnSequence);
-        const level = (ids, trackId) => ({ trackId, rosterRevision: 'track-roster-1', version: 1, activeIds: ids });
+        const level = (ids, trackId) => ({ trackId, rosterRevision: 'track-roster-1', version: 1, knownIds: ids, activeIds: ids });
         const everyone = { actors: level(['T1', 'T2'], 'teams-track'), members: level(['A', 'B', 'C', 'D', 'E'], 'members-track') };
         const next = advanceTurn(state, { scope: turnSequenceScopeOf(state), expectedVersion: state.version, expectedTurnNumber: state.turnNumber, outcome: 'COMPLETE', eligibility: everyone });
         console.log(JSON.stringify({ revision: row.revision, state, holder: currentTurnHolder(state), nextHolder: currentTurnHolder(next.state), next: next.state }));

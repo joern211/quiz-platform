@@ -29,8 +29,8 @@ let paused = false;
 let log: Array<{ kind: string; ok: boolean; code?: string; turnNumber?: number; version?: number }> = [];
 
 const elig = (): TurnEligibility => ({
-  actors: { trackId: 'teams-track', rosterRevision: 'track-roster-1', version: eligibility.version, activeIds: eligibility.teams },
-  members: { trackId: 'members-track', rosterRevision: 'track-roster-1', version: eligibility.version, activeIds: eligibility.members },
+  actors: { trackId: 'teams-track', rosterRevision: 'track-roster-1', version: eligibility.version, knownIds: ['T1', 'T2'], activeIds: eligibility.teams },
+  members: { trackId: 'members-track', rosterRevision: 'track-roster-1', version: eligibility.version, knownIds: ['A', 'B', 'C', 'D', 'E'], activeIds: eligibility.members },
 });
 function reset(): void {
   counter++;

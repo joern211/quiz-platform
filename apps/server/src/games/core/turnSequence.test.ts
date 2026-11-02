@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it, vi } from 'vitest';
@@ -25,10 +26,14 @@ type Draft = any;
 
 const BASE = { runIndex: 1, sequenceId: 'seq-1', rosterRevision: 'roster-1' };
 const clone = <T>(value: T): T => JSON.parse(JSON.stringify(value)) as T;
-const level = (activeIds: string[], version: number, trackId: string) => ({ trackId, rosterRevision: 'track-roster-1', version, activeIds });
+/** The ids the fixture tracks KNOW (every id any test sequence uses); `activeIds` is the subset that is currently active. */
+const KNOWN_PLAYERS = ['a', 'b', 'c', 'd', 'solo', 'x', 'p1', 'p2', 'p3', 'p4', 'p5', 'PLAYER_RED', 'PLAYER_BLUE', 'PLAYER_GREEN'];
+const KNOWN_TEAMS = ['T1', 'T2', 'S', 'M', 'X', 'Y', 'Z', 'TEAM_RED', 'TEAM_BLUE', 'MARK_TEAM', 'MARK_TEAM2'];
+const KNOWN_MEMBERS = ['A', 'B', 'C', 'D', 'E', 'solo', 'm1', 'm2', 'x1', 'y1', 'y2', 'y3', 'y4', 'z1', 'z2', 'MBR_ONE', 'MBR_TWO', 'MBR_THREE', 'MBR_FOUR', 'MBR_FIVE', 'MARK_MEMBER', 'MARK_MEMBER2'];
+const level = (activeIds: string[], version: number, trackId: string, knownIds: string[]) => ({ trackId, rosterRevision: 'track-roster-1', version, knownIds, activeIds });
 /** Plain eligibility snapshots. `version` is the (N6-like) track version: it only ever grows within one test story. */
-const pel = (actors: string[], version = 1): TurnEligibility => ({ actors: level(actors, version, 'players-track'), members: null });
-const tel = (teams: string[], members: string[], version = 1): TurnEligibility => ({ actors: level(teams, version, 'teams-track'), members: level(members, version, 'members-track') });
+const pel = (actors: string[], version = 1): TurnEligibility => ({ actors: level(actors, version, 'players-track', KNOWN_PLAYERS), members: null });
+const tel = (teams: string[], members: string[], version = 1): TurnEligibility => ({ actors: level(teams, version, 'teams-track', KNOWN_TEAMS), members: level(members, version, 'members-track', KNOWN_MEMBERS) });
 
 const PLAYERS = ['a', 'b', 'c'];
 const TEAMS = [{ teamId: 'T1', members: ['A', 'B'] }, { teamId: 'T2', members: ['C', 'D', 'E'] }];
@@ -648,11 +653,30 @@ describe('N8 D: actions, stale intents, held turns, override and close', () => {
     expect(codeOf(() => adv(s, { ...base, actors: { ...base.actors, version: 2 } }))).toBe('TURN_SEQ_ELIGIBILITY_STALE');
     expect(adv(s, { ...base, actors: { ...base.actors, version: 3 } }).changed).toBe(true); // equal version = same stand
     for (const bad of [null, {}, { actors: base.actors }, { ...base, members: base.actors }, { ...base, extra: 1 }, { ...base, actors: { ...base.actors, activeIds: ['a', 'a'] } },
-      { ...base, actors: { ...base.actors, activeIds: [1] } }, { ...base, actors: { ...base.actors, version: -1 } }, { ...base, actors: { ...base.actors, activeIds: new Array(101).fill('x').map((_, i) => `p${i}`) } }]) {
+      { ...base, actors: { ...base.actors, activeIds: [1] } }, { ...base, actors: { ...base.actors, version: -1 } }, { ...base, actors: { ...base.actors, activeIds: new Array(101).fill('x').map((_, i) => `p${i}`) } },
+      { ...base, actors: { ...base.actors, activeIds: ['a', 'not-known'] } }, { ...base, actors: { ...base.actors, knownIds: ['a', 'a'] } }, { ...base, actors: { ...base.actors, knownIds: undefined } }]) {
       expect(codeOf(() => adv(s, bad as never)), JSON.stringify(bad)?.slice(0, 40)).toBe('TURN_SEQ_ELIGIBILITY_INVALID');
     }
     const t = started(teamSequence());
     expect(codeOf(() => adv(t, pel(['T1', 'T2'], 2)))).toBe('TURN_SEQ_ELIGIBILITY_INVALID'); // a team sequence needs the member level too
+  });
+  it('requires the track of each level to KNOW every actor of the sequence: an unknown actor is a wrong pairing, never silently "inactive"', () => {
+    const s = started(playerSequence(['a', 'b', 'c']), pel(['a', 'b', 'c'], 1));
+    const known = (ids: string[], active: string[]): TurnEligibility => ({ actors: level(active, 2, 'players-track', ids), members: null });
+    expect(codeOf(() => adv(s, known(['a', 'b'], ['a', 'b'])))).toBe('TURN_SEQ_ELIGIBILITY_MISMATCH'); // c is unknown to the track
+    expect(adv(s, known(['a', 'b', 'c', 'zz'], ['a', 'b'])).changed).toBe(true); // c known but inactive: skipped; extra track ids are fine
+    expect(label(adv(s, known(['a', 'b', 'c'], ['a', 'c'])).state)).toBe('c');
+    const t = started(teamSequence(), tel(['T1', 'T2'], ALL_TEAM_MEMBERS, 1));
+    const teamKnown = (teams: string[], members: string[]): TurnEligibility => ({ actors: level(['T1', 'T2'], 2, 'teams-track', teams), members: level(ALL_TEAM_MEMBERS, 2, 'members-track', members) });
+    expect(codeOf(() => adv(t, teamKnown(['T1'], ALL_TEAM_MEMBERS)))).toBe('TURN_SEQ_ELIGIBILITY_INVALID'); // active ids must be a subset of the known ids
+    expect(codeOf(() => adv(t, { actors: level(['T1'], 2, 'teams-track', ['T1']), members: level(ALL_TEAM_MEMBERS, 2, 'members-track', ALL_TEAM_MEMBERS) }))).toBe('TURN_SEQ_ELIGIBILITY_MISMATCH'); // team T2 unknown
+    expect(codeOf(() => adv(t, { actors: level(['T1', 'T2'], 2, 'teams-track', ['T1', 'T2']), members: level(['A', 'B', 'C', 'D'], 2, 'members-track', ['A', 'B', 'C', 'D']) }))).toBe('TURN_SEQ_ELIGIBILITY_MISMATCH'); // member E unknown
+    expect(adv(t, teamKnown(['T1', 'T2'], ALL_TEAM_MEMBERS)).changed).toBe(true);
+    // the N6 adapter lists every actor of the track, so a track that does not contain the sequence's players is rejected at the first use
+    const wrong = createParticipationTrack({ runIndex: 1, trackId: 'trk', rosterRevision: 'r1', actorKind: 'PARTICIPANT', config: { livesMode: 'OFF' }, actors: [{ actorId: 'a', lives: null }, { actorId: 'b', lives: null }] });
+    const eligibility = eligibilityFromParticipation({ unit: 'PLAYER', actors: { track: wrong, scope: participationScopeOf(wrong) } });
+    expect(eligibility.actors.knownIds).toEqual(['a', 'b']);
+    expect(codeOf(() => startTurnSequence(playerSequence(['a', 'b', 'c']), { scope: sc(playerSequence(['a', 'b', 'c'])), expectedVersion: 0, eligibility }))).toBe('TURN_SEQ_ELIGIBILITY_MISMATCH');
   });
 });
 
@@ -870,6 +894,27 @@ describe('N8 contract surface', () => {
         expect(`${e.message}${JSON.stringify(e.issues)}${e.stack?.split('\n')[0]}`).not.toContain('MARK_');
       }
     }
+  });
+  it('exports no server-private schema, no sequence state and no mutation to the browser; imports nothing but zod; is a registered subpath', () => {
+    const names = Object.keys(contract);
+    expect(names.filter(name => !/^TURN_(SEQUENCE_|ORDER_MODES)/.test(name) && /Sequence(State(?!Version)|Private)|Cursor|Eligib|Override|Mutation|advance|withhold|prepare|decide/i.test(name))).toEqual([]);
+    for (const forbidden of ['prepareTurnSequence', 'decideTurnOrder', 'advanceTurn', 'overrideTurn', 'TurnSequenceStateSchema', 'authorizeTurnAction']) expect(names).not.toContain(forbidden);
+    const file = fileURLToPath(new URL('../../../../../packages/shared/src/turnSequence.ts', import.meta.url));
+    const imports = readFileSync(file, 'utf8').split('\n').filter(line => /^\s*(import|export)\b.*\bfrom\b/.test(line));
+    expect(imports).toEqual(["import { z } from 'zod';"]);
+    const manifest = JSON.parse(readFileSync(fileURLToPath(new URL('../../../../../packages/shared/package.json', import.meta.url)), 'utf8')) as { exports: Record<string, string> };
+    expect(manifest.exports['./turnSequence']).toBe('./src/turnSequence.ts');
+  });
+  it('loads as plain TypeScript in Node strip-only mode, as dist/app.js does with @quiz/shared', () => {
+    const file = fileURLToPath(new URL('../../../../../packages/shared/src/turnSequence.ts', import.meta.url));
+    const out = execFileSync(process.execPath, ['--experimental-strip-types', '--no-warnings', '--input-type=module', '-e',
+      `const m = await import(${JSON.stringify(file)}); const e = new m.TurnSequenceError('TURN_SEQ_STATE_INVALID', ['SHAPE_INVALID']);
+       const scope = { runIndex: 1, sequenceId: 's', rosterRevision: 'r', unit: 'TEAM' };
+       const base = { contract: 'TURN_SEQUENCE_STATUS_V1', scope, stateVersion: 3, sequenceVersion: 2, turnNumber: 2, entitlementRevision: 1 };
+       const ok = m.parseTurnSequenceProjection({ ...base, release: 'CURRENT', status: 'ACTIVE', current: { teamId: 'T', playerId: 'p' }, you: { holdsTurn: true, teamHoldsTurn: true, canAct: true } });
+       const leak = m.parseTurnSequenceProjection({ ...base, release: 'NONE', members: ['x'] });
+       console.log(JSON.stringify([e.code, e.message, e.issues.length, ok.ok, leak.ok, m.turnSequenceContextKey({ ...scope, recipientId: 'p', minStateVersion: 0 }), m.turnActionBindingKey({ turnNumber: 2, sequenceVersion: 2 })]));`], { encoding: 'utf8' });
+    expect(JSON.parse(out.trim())).toEqual(['TURN_SEQ_STATE_INVALID', 'TURN_SEQ_STATE_INVALID', 1, true, false, '["TURN_SEQUENCE",1,"s","r","TEAM","p"]', '["TURN_BINDING",2,2]']);
   });
   it('introduces no winner, revive, elimination, scoring or game-end API', () => {
     const names = [...Object.keys(domain), ...Object.keys(contract)];

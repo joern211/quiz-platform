@@ -282,7 +282,9 @@ function assertTime(now: unknown): number {
 
 const EligibilityLevelSchema = z.object({
   trackId: TurnSequenceRefSchema, rosterRevision: TurnSequenceRefSchema, version: TurnSequenceCounterSchema,
-  /** ids that are currently ACTIVE on this level (a sequence only ever uses the ids it contains; others are ignored) */
+  /** every id the track KNOWS on this level (active or not). The sequence must be fully covered: an actor the track does not know is a wrong pairing, never "inactive". */
+  knownIds: z.array(TurnSequenceActorIdSchema).max(TURN_SEQUENCE_MAX_ACTORS),
+  /** ids that are currently ACTIVE on this level; a subset of `knownIds` (ids of the track that the sequence does not contain are ignored) */
   activeIds: z.array(TurnSequenceActorIdSchema).max(TURN_SEQUENCE_MAX_ACTORS),
 }).strict();
 export type TurnEligibilityLevel = z.infer<typeof EligibilityLevelSchema>;
@@ -305,7 +307,15 @@ function readEligibility(state: TurnSequenceState, raw: unknown): Eligible {
   if ((state.unit === 'TEAM') !== (members !== null)) throw invalid();
   const memberLevel = members !== null && members.success ? members.data : null;
   const levels = [actors.data, ...(memberLevel !== null ? [memberLevel] : [])];
-  if (levels.some(level => new Set(level.activeIds).size !== level.activeIds.length)) throw invalid();
+  if (levels.some(level => new Set(level.activeIds).size !== level.activeIds.length || new Set(level.knownIds).size !== level.knownIds.length)) throw invalid();
+  if (levels.some(level => { const known = new Set(level.knownIds); return level.activeIds.some(id => !known.has(id)); })) throw invalid();
+  // Coverage: the track of a level must know EVERY id the sequence uses on that level. Otherwise an unknown actor would silently count as "not active".
+  const actorKnown = new Set(actors.data.knownIds);
+  if (state.order.some(id => !actorKnown.has(id))) throw new TurnSequenceError('TURN_SEQ_ELIGIBILITY_MISMATCH');
+  if (state.teams !== null && memberLevel !== null) {
+    const memberKnown = new Set(memberLevel.knownIds);
+    if (state.teams.some(team => team.members.some(id => !memberKnown.has(id)))) throw new TurnSequenceError('TURN_SEQ_ELIGIBILITY_MISMATCH');
+  }
   const stored = state.eligibility;
   if (stored !== null) {
     const pairs: Array<[z.infer<typeof BasisSchema>, TurnEligibilityLevel]> = [[stored.actors, actors.data]];
@@ -323,7 +333,8 @@ function readEligibility(state: TurnSequenceState, raw: unknown): Eligible {
 /**
  * The eligibility of a sequence from N6 participation tracks (the ONLY status source; no second life logic here). PLAYER: `actors` is a
  * PARTICIPANT track. TEAM: `actors` is the TEAM track and `members` the PARTICIPANT track (N6 forbids mixed actor kinds in one track).
- * Each track is read with its own scope, so a track of another run, track id or roster revision is rejected by N6 itself.
+ * Each track is read with its own scope, so a track of another run, track id or roster revision is rejected by N6 itself. The output also lists
+ * every id the track knows, so that a sequence that is not fully covered by its track is rejected instead of silently skipping the unknown actors.
  */
 export function eligibilityFromParticipation(args: { unit: TurnSequenceUnit; actors: { track: unknown; scope: ParticipationScope }; members?: { track: unknown; scope: ParticipationScope } }): TurnEligibility {
   args_(isPlain(args) && keysWithin(args, ['unit', 'actors'], ['members']) && (args.unit === 'PLAYER' || args.unit === 'TEAM'));
@@ -334,7 +345,7 @@ export function eligibilityFromParticipation(args: { unit: TurnSequenceUnit; act
     const track = parseParticipationTrackState(source.track);
     if (track.actorKind !== kind) throw invalid();
     const scope = participationScopeOf(track);
-    return { trackId: scope.trackId, rosterRevision: scope.rosterRevision, version: track.version, activeIds: activeActorIds(track, source.scope) };
+    return { trackId: scope.trackId, rosterRevision: scope.rosterRevision, version: track.version, knownIds: track.actors.map(actor => actor.actorId), activeIds: activeActorIds(track, source.scope) };
   };
   return { actors: level(args.actors, args.unit === 'TEAM' ? 'TEAM' : 'PARTICIPANT'), members: args.members === undefined ? null : level(args.members, 'PARTICIPANT') };
 }
