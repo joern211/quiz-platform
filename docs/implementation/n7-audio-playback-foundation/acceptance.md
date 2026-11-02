@@ -15,10 +15,12 @@ Base: `main` @ `1ac064f4933df90067bccd8dfb2c20115501c44e` (N1–N6 und PR #36 ge
 | `pnpm typecheck` | grün (shared, game-sdk, web, server) |
 | `pnpm lint` | 0 Fehler (Warnungen unverändert zum Bestand) |
 | `pnpm build` | grün |
-| `pnpm --filter @quiz/server test` (Skript legt frische Testdatenbank an) | **88 Dateien, 1166 Tests grün** (davor 87 / 1086; +80 = `audioPlayback.test.ts`) |
-| `pnpm --filter @quiz/web test` | **47 Dateien, 526 Tests grün** (davor 439; +87 = Uhr 14, Intake 15, Controller 45, Komponente 13) |
+| `pnpm --filter @quiz/server test` (Skript legt frische Testdatenbank an) | **88 Dateien, 1169 Tests grün** (davor 87 / 1086; +83 = `audioPlayback.test.ts`) |
+| `pnpm --filter @quiz/web test` | **48 Dateien, 565 Tests grün** (davor 439; +126 = Uhr 14, Intake 26, Controller 63, Komponente 18, unabhängige Gegenproben 5) |
 | Chromium-E2E wie in der CI (frische DB, `playwright test --project=chromium`) | **45 von 45 grün** |
-| N7-Chromium-Harness `node apps/web/harness/n7-audio/check.cjs` | 3 Läufe an der ruhigen Maschine und 1 Lauf unter 6 CPU-Dauerschleifen: **je 0 Probleme** |
+| N7-Chromium-Harness `node apps/web/harness/n7-audio/check.cjs` (S1–S8 + Layout) | 3 Läufe an der ruhigen Maschine und 1 Lauf unter 6 CPU-Dauerschleifen: **je 0 Probleme** |
+
+Stand dieser Tabelle: nach der Nachbesserung zu PR #37 (§7). Zum ersten Head `1cc8cb3` war es Server 88/1166, Web 47/526, Harness S1–S5.
 
 Nicht ausgeführt: Safari/WebKit, Firefox, mobile Hardware, Produktionsnetz, echte Lautsprecherausgabe.
 
@@ -28,13 +30,13 @@ Gemessen wird der Abstand der `currentTime` des echten Elements zur Zielposition
 
 | Lauf | max. Abweichung zum Plan | max. Abweichung zwischen zwei Kontexten | Proben |
 |---|---|---|---|
-| ruhig 1 | 17 ms | 6 ms | 21 |
-| ruhig 2 | 11 ms | 9 ms | 21 |
-| ruhig 3 | 67 ms | 2 ms | 21 |
-| unter Last (6 Dauerschleifen) | 17 ms | 14 ms | 21 |
-| (frühere Zwischenstände, vor R1/R2) | 44–115 ms | ≤ 12 ms | 21 |
+| ruhig 1 | 70 ms | 3 ms | 24 |
+| ruhig 2 | 95 ms | 9 ms | 24 |
+| ruhig 3 | 66 ms | 5 ms | 24 |
+| unter Last (6 Dauerschleifen) | 132 ms | 21 ms | 24 |
+| (erster Head `1cc8cb3`: ruhig / unter Last) | 11–67 ms / 17 ms | ≤ 9 ms / 14 ms | 21 |
 
-**CI-Toleranz 500 ms** (`N7_TOL_MS`): bewusst großzügig gegenüber den gemessenen ≤ 115 ms, weil CI-Runner langsamer sind und die Messung (Roundtrip der Probe, Timerjitter) selbst Millisekunden-Rauschen enthält; sie liegt oberhalb der Driftkorrektur-Toleranz (250 ms), damit eine korrekt arbeitende Korrektur nicht als Fehler zählt, und weit unter der Größenordnung „falsche Position“ (Sekunden). Es wird **keine** samplegenaue oder geräteübergreifend garantierte Synchronität behauptet.
+**CI-Toleranz 500 ms** (`N7_TOL_MS`): bewusst großzügig gegenüber den gemessenen ≤ 132 ms, weil CI-Runner langsamer sind und die Messung (Roundtrip der Probe, Timerjitter) selbst Millisekunden-Rauschen enthält; sie liegt oberhalb der Driftkorrektur-Toleranz (250 ms), damit eine korrekt arbeitende Korrektur nicht als Fehler zählt, und weit unter der Größenordnung „falsche Position“ (Sekunden). Es wird **keine** samplegenaue oder geräteübergreifend garantierte Synchronität behauptet.
 
 Zusätzlich gemessen/assertiert: Pegel am Analyser (RMS > 0,02; gemessen ≈ 0,116) und Frequenz (440 ± 40 Hz; gemessen ≈ 430–441 Hz); vor dem Anker kein laufendes Element und kein Pegel (mindestens 10 Proben, assertiert); Spät-Zuschaltung landet bei > 2 s statt bei 0; Pause friert die Position (< 60 ms Bewegung in 1,5 s); Fortsetzen ab gespeicherter Position; Entzug gibt Element und Quelle frei (kein `src` im DOM); BLIND_HOST: **kein Audioobjekt**, **0 URL-Auflösungen**, Wiedergabe erst nach Öffentlichwerden.
 
@@ -72,3 +74,12 @@ node apps/web/harness/n7-audio/check.cjs [Ausgabeordner]   # startet Backend (Po
 * kein Geheimnisschutz durch URL oder UI (ausgelieferte Bytes bleiben beim Empfänger);
 * keine Aussage zu Punkten, Buzzer, Bewertung, Wiederöffnung, Ersatzclips, automatischen Wiederholungen;
 * keine Änderung von `ContentMedia`, der Audio-Pipeline, des Medienpfads oder der G4-Engines.
+
+## 7. Nachbesserung zu PR #37 (unabhängiger Prüfbericht, Befunde N7-01 bis N7-03)
+
+Der Bericht fand am Head `1cc8cb3` drei P2-Befunde (URL-Erneuerung ohne Ordnung, lokales `ended` blockiert gültige Fortsetzung, Wiedergabe trotz fehlgeschlagener Positionierung) und fünf rote Gegenproben; die CI war grün, weil diese Gegenfälle nicht abgedeckt waren. Alle drei Befunde sind behoben; die fünf Gegenproben liegen als `n7IndependentReview.test.ts` im Repository und laufen grün (Probe 1 mit der nun verlangten Ordnungszahl). Details: `design.md` §11, `review.md` §9, `matrix.md` G.
+
+* **Vertragsänderung (präzisiert, nicht abgeschwächt):** `source` trägt jetzt `renewal` (Ordnungszahl der Ausstellung); `projectAudioPlayback` nimmt `resolveSource` statt `resolveUrl`; neuer `createRenewalIssuer`. Weiterhin 0 Verbraucher, keine Migration, kein Endpunkt.
+* **Browser (S6–S8, echtes Chromium):** Die Erneuerungsreihenfolge bleibt für die laufende Ressource wirkungslos; nachlaufendes `ended` nach Pause bei real am Ende stehendem Element und echtes lokales Ende vor dem autoritativen Ende; später Einstieg auf einem nicht seekbaren Stream: 20 Proben ohne laufendes Element, neutraler Fehler, Retry an der Planposition. Rot-Nachweise im Browser: N01, N02c, N03; **nicht** gefangen: N02d (nur Schicht 2 entfernt; Schicht 1 schützt).
+* **Aussagen, die ich nicht mache:** keine Aussage zu Safari/iOS; keine Aussage, dass der produktive Medienpfad Range unterstützt, über das Lesen von `res.sendFile` hinaus (nicht durch N7 getestet); Erneuerungsfehler des Adapters sind nicht modelliert.
+* **Verbleibende Unsicherheit der Nachbesserung selbst:** Die Schicht „Merker an die Plan-Entscheidung“ (N7-02) ist im echten Browser nicht isoliert prüfbar; sie ist nur durch Unit-Tests und die Unit-Mutation M25 belegt.

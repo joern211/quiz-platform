@@ -53,6 +53,7 @@ Grenzen: Ein **Unit-Test mit Audio-Double** kann Rennen deterministisch auslöse
 | Risiko | Nachweis | Grenze |
 |---|---|---|
 | URL-Erneuerung desselben Clips bewahrt den Plan | C „renewed URL … same clip“; H S3 (Version unverändert, Position > vorher) | – |
+| Ältere Erneuerung ersetzt eine neuere nie (R1 beginnt, R2 beginnt, R2 kommt, R1 kommt; auch bei gleichem Snapshot-/Planstand); Plan/Pause bleibt erhalten; Entzug/Clipwechsel während der Erneuerung bleibt wirksam | I „N7-01“ (u. a. erschöpfend über alle Reihenfolgen), U „N7-01 through the component“, S „N7-01 (server side)“, n7IndependentReview Probe 1; H S6 (echtes Chromium, Reihenfolge durch das Skript erzwungen) | Ordnung durch die vom Aussteller vergebene Zahl; Fehlschläge der Erneuerungsanfrage sind Sache des Adapters |
 | Altes Erneuerungsergebnis nach Kontext-/Clipwechsel verworfen | U „context change …late renewal“ | – |
 | Alter Medienfehler markiert neuen Clip nicht | C „an old error cannot mark a new clip broken“ | – |
 | Autoplay blockiert / Aktivierung rechtzeitig / nach Ende, Pause, Stop, Entzug nichts | C „autoplay blocked …“, „activation after … starts nothing“, „time-expired clip not restarted“; U Button; H S2 (echte Chromium-Ablehnung + Tastatur-Enter) | Chromium; Safari nicht geprüft |
@@ -67,3 +68,11 @@ Grenzen: Ein **Unit-Test mit Audio-Double** kann Rennen deterministisch auslöse
 | Pause/Fortsetzen/Entzug/Stop wirken am Medium; Positionstoleranz | H S1 (Toleranz 500 ms; gemessen siehe acceptance) |
 | 320 px und Desktop, hell/dunkel, lange Texte, Tastatur | H S5 (6 Kombinationen + Fehlerzustand 320 px hell), S2 (Tab + Enter) |
 | Metadatenbereinigung und Medienauth bleiben wirksam | unverändert: `audio.integration.test.ts` (ffmpeg/ffprobe, Metadaten-Marker), `media.integration.test.ts`; H verwendet `normalizeAudio` und liest dessen `duration` |
+
+## G. Nachbesserung nach der unabhängigen Prüfung (PR #37)
+
+| Befund | Nachweis | Grenze |
+|---|---|---|
+| N7-02: nachlaufendes `ended` nach Pause; früher lokaler EOF; neuer Fortsetzungsplan überwindet das lokale Ende | C „N7-02“ (6 Tests: Ereignis vor und nach Übernahme des neuen Plans, Element meldet `ended === false`, echtes Ende bleibt final ohne Schleife/Neustart bei 0, Stop/Ende/Entzug bleiben still, ended bei nicht erwartetem Playback wird nie gemerkt), n7IndependentReview Proben 2–3; H S7 (Pause + real am Ende stehendes Element + nachlaufendes ended, danach Fortsetzen mit Pegelmessung; echtes Ende einer 8-s-Datei unter 12-s-Plan: final, kein Neustart, kein neues Element) | Schicht „an die Plan-Entscheidung gebunden“ nur auf Unit-Ebene belegt: ein Fortsetzen hinter dem Medienende ist im echten Browser nicht abspielbar |
+| N7-03: kein hörbarer Start, solange die Positionierung nicht verifiziert ist | C „N7-03“ (u. a. werfender Setter, wirkungsloser Seek, gespacte Setterversuche, begrenzter Timeout → Error/Retry, `seekable`-Bereiche, asynchroner Seek und geklemmtes Ergebnis, Clip endet während des Wartens, Entzug/Pause/Clipwechsel, neuer Plan/Erneuerung/Aktivierung während des Wartens, unmittelbarer Start unverändert), n7IndependentReview Proben 4–5; H S8 (Stream ohne Range: 20 Proben, nie ein laufendes Element; neutraler Fehler; Retry an der Planposition) und S1/S2 (bestehender Start, Tastaturaktivierung) | Doubles bilden asynchrone Seeks und Klemmen nach; reales Seek-Verhalten nur in Chromium gemessen |
+| Gegenversuche | review.md §9.3 (M24–M35 Unit; N01/N02c/N02d/N03 im echten Browser) | – |

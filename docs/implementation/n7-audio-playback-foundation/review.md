@@ -8,7 +8,7 @@ Das ist eine **Eigenprüfung** durch den Implementierer, keine unabhängige Prü
 2. Zustands-/Übergangstabellen geschrieben (§2, §3) und über Zwischenzustände geprüft.
 3. Die Fehler aus Kapitel 9 des Arbeitsauftrags einzeln durchgegangen (§4).
 4. Aktiv versucht, den Vertrag zu brechen (§5): Promise-Reihenfolgen, verspätetes Laden, Entzug, Kontextwechsel, hohe fremde Versionen, neue gleiche Objekte, erschöpfende Reihenfolgeprüfung.
-5. Gezielte lokal reversible Gegenversuche (§6): 23 Fehler eingebaut, Testlauf, Datei zurückgesetzt (`git status` danach sauber).
+5. Gezielte lokal reversible Gegenversuche (§6; nach dem Bericht zu PR #37 ergänzt in §9.3): 23 Fehler eingebaut, Testlauf, Datei zurückgesetzt (`git status` danach sauber).
 6. Gefundene Fehler behoben, Test ergänzt, benachbarte Übergänge erneut geprüft (§7).
 
 ## 2. Übergangstabelle Serverplan (Zustand × Aktion; „kein-Op“ = `changed:false`, gleiche Version)
@@ -124,3 +124,37 @@ Nach den Korrekturen wurden benachbarte Übergänge erneut geprüft (alle Test-D
 * Der Harness ersetzt den geschützten Medienpfad durch einen Stand-in-Pfad; Signatur und Inhaltsfreigabe bleiben im vorhandenen `media.integration.test.ts` und werden hier nicht erneut belegt.
 * Der Mediennachweis misst ein MP3 aus der vorhandenen Pipeline. Hörbarkeit am Lautsprecher ist nicht geprüft (Pegel/Frequenz am AnalyserNode).
 * Wiedergabeposition ist Chromium-/Decoder-abhängig; die Driftkorrektur ist eine Toleranz, kein Beweis samplegenauer Synchronität.
+
+## 9. Nachprüfung nach dem unabhängigen Bericht zu PR #37 (Befunde N7-01 bis N7-03)
+
+Auch das ist Eigenprüfung. Die externe Prüfung hat drei Funktionsfehler gefunden, die meine erste Eigenprüfung (§1–§8) **nicht** gefunden hat und die die grüne CI nicht abdeckte. Die Ursachen lagen in Annahmen, die ich nicht gegengeprüft hatte: (N7-01) Generation = Ordnung, (N7-02) ein Ereignis gehört der Ressource statt der Plan-Entscheidung, (N7-03) ein Setter ohne Ausnahme = Position erreicht.
+
+### 9.1 Befunde, Korrekturen, Nachweise
+
+| Befund | Ursache | Korrektur | Rot → Grün | Verbleibende Grenze |
+|---|---|---|---|---|
+| N7-01 [P2] ältere Erneuerung überschrieb eine neuere URL | keine Ordnung der Ausstellung; Intake nahm bei gleichem Paar jede Quelle an | Ordnungszahl `renewal` im Vertrag, `createRenewalIssuer`, `resolveSource`, Intake behält die Quelle mit der höheren Zahl und nimmt den Rest der Projektion trotzdem an | Probe 1 rot (`sig=old` statt `sig=new`) → grün; Komponenten-Test mit echtem R1/R2-Ablauf; Browser S6 (rot ohne Ordnung: 2 Probleme) | Fehlschläge der Erneuerungsanfrage gehören dem Adapter (nicht modelliert) |
+| N7-02 [P2] lokales `ended` blockierte Fortsetzung | `localEnded` für die ganze Ressource | zwei Schichten: Ereignis zählt nur bei erwartetem Playback und `el.ended !== false`; Merker an den Plan-Schlüssel gebunden | Proben 2–3 rot (`playCalls` 1 statt 2) → grün; Browser S7 (rot mit dem Verhalten vor der Korrektur: Fortsetzen unterdrückt, Elementposition 12 s statt ≈ 5,8 s) | Schicht 2 nur auf Unit-Ebene (Browser kann hinter dem Medienende nicht fortsetzen) |
+| N7-03 [P2] hörbarer Start trotz fehlgeschlagenem/wirkungslosem Seek | `seek()` verschluckte die Ausnahme, `play()` unbedingt | Protokoll `position()` (design.md §11), stiller Wartezustand, begrenzter ereignisgerechter Retry mit aktuellem Ziel, Timeout → neutraler Fehler | Proben 4–5 rot (`playCalls` 1 statt 0) → grün; Browser S8 (rot ohne Verifikation: 17 von 20 Proben mit laufendem Element) | Chromium-Verhalten für Range-lose Streams ist gemessen (`seekable = [0,0]`), andere Browser nicht |
+
+Alle fünf Gegenproben des Berichts laufen grün (`n7IndependentReview.test.ts`). Eine Änderung am Test: Probe 1 trug keine Ordnungszahl; sie bekam `renewal: 1/2`, weil der präzisierte Vertrag sie verlangt. Die Aussage der Probe (älter darf nicht ersetzen) ist unverändert und ohne die Durchsetzung rot (M24).
+
+### 9.2 Zusätzliche Übergangs- und Reihenfolgeprüfungen
+
+* N7-01: alle 6 Reihenfolgen dreier Erneuerungen (die höchste Zahl bleibt); URL-Text, Signaturtext, `serverNowMs` und Ankunft ohne Einfluss; eine neuere Pause trägt eine ältere URL und wird trotzdem angenommen; LOAD_ONLY mit älterer Zahl; Entzug/Clipwechsel/terminal nach einer Erneuerung; gleiche Zahl mit anderer URL.
+* N7-02: Ereignis vor und nach Übernahme des neuen Plans; `ended === false`; wiederholte gleiche Pläne mit neuen Snapshotversionen, Ticks und `resync()` löschen den Schutz nicht; Stop/Ende/Entzug nach lokalem Ende bleiben still.
+* N7-03: werfender Setter, ignorierter Seek, asynchroner Seek mit geklemmtem Ergebnis, Ziel nicht in `seekable`, Clipende während des Wartens, Entzug/Pause/Clipwechsel (alte `seeked`/`progress`-Ereignisse wirkungslos), neuer Plan mit anderem Offset während des Wartens (neues Ziel), Erneuerung während des Wartens (frischer Warte-Timer), Aktivierung während des Wartens, Setterversuche gespaced.
+
+### 9.3 Gegenversuche (tatsächlich ausgeführt, lokal rückgängig gemacht)
+
+Unit (Web-Testdateien, je ein eingefügter Fehler): M24 Intake ohne Erneuerungsordnung (gefangen, 9) · M25 lokales Ende bleibt für die Ressource (Schicht 2, gefangen, 2) · M26 jedes ended wird gemerkt (gefangen, 2) · M27 ohne Planprüfung (gefangen, 1) · M28 ohne Elementprüfung (gefangen, 1) · M29 Start ohne verifizierte Positionierung (gefangen, 10) · **M30 laufender Seek wird ignoriert (zuerst NICHT gefangen** — mein Test-Double meldete `currentTime` während des Seeks noch den alten Wert, das echte Element meldet die angeforderte Position; Double korrigiert → gefangen, 2) · M31 Setterergebnis nicht zurückgelesen (gefangen, 4) · M32 `seekable` nicht geprüft (gefangen, 1) · M33 keine Abstände zwischen Setterversuchen (gefangen, 2) · M34 kein Timeout (gefangen, 1) · M35 gleiche Zahl ersetzt die Quelle (gefangen, 1).
+
+Echter Browser (Harness): N01 ohne Erneuerungsordnung → rot (S6) · N02c Verhalten vor der Korrektur → rot (S7: Fortsetzen unterdrückt) · **N02d nur Schicht 2 entfernt → NICHT gefangen** (Schicht 1 schützt; im Browser nicht trennbar) · N03 ohne verifizierte Positionierung → rot (S8: 17 von 20 Proben mit laufendem Element).
+
+### 9.4 Weitere Befunde der Nachprüfung
+
+| # | Befund | Folge |
+|---|---|---|
+| R6 | Mein Test-Double bildete asynchrones Seeking falsch ab (M30 ungefangen). | Double korrigiert (`currentTime` = angeforderte Position, solange `seeking`); der Test fängt M30. |
+| R7 | Die Harness-Probe für N7-02 verlangte „Element am Ende“, das Element meldete während des Seeks noch `ended === false`. | Probe wartet auf `seeked`, dann Ereignis; die Vorbedingung wird als Behauptung geprüft. |
+| R8 | Eine Mutation (N02d) blieb im Browser ungefangen, weil zwei Schichten dasselbe schützen. | als Grenze dokumentiert (matrix G, design §11), nicht als Abdeckung ausgegeben. |
