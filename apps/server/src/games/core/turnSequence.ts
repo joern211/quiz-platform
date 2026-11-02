@@ -619,6 +619,19 @@ export function refreshEligibilityBasis(rawState: unknown, args: { scope: TurnSe
   return keepOrAdvance(state, readEligibility(state, args.eligibility));
 }
 
+/**
+ * Read-only: would this eligibility stand ADVANCE the committed basis of the sequence (a newer N6 version on either level)? Pure — it persists nothing.
+ * A consumer whose action path returns without a new turn (a dice roll, a repeated hold) uses it to learn that it must ALSO persist
+ * `refreshEligibilityBasis` in the same commit, so that no successful path swallows newer knowledge about who may no longer act (N8-02).
+ * Errors as for every other use of an eligibility (scope, run, track, roster revision, stale, invalid).
+ */
+export function turnEligibilityAdvancesBasis(rawState: unknown, args: { scope: TurnSequenceScope; eligibility: TurnEligibility }): boolean {
+  const state = parseTurnSequenceState(rawState);
+  args_(isPlain(args) && keysWithin(args, ['scope', 'eligibility']));
+  assertScope(state, args.scope);
+  return basisAdvanced(state, readEligibility(state, args.eligibility));
+}
+
 /** Terminal close. A closed sequence never restarts; a new pass needs a new instance. Repeating it at the current version is `changed:false`. */
 export function closeTurnSequence(rawState: unknown, args: { scope: TurnSequenceScope; expectedVersion: number }): TurnSequenceChange {
   const state = parseTurnSequenceState(rawState);

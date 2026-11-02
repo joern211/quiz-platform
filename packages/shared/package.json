@@ -15,6 +15,7 @@
     "./participation": "./src/participation.ts",
     "./audioPlayback": "./src/audioPlayback.ts",
     "./turnSequence": "./src/turnSequence.ts",
+    "./dice": "./src/dice.ts",
     "./schemas": "./src/schemas/index.ts",
     "./types": "./src/types/index.ts"
   },
