@@ -91,6 +91,20 @@ async function startChildren() {
   expect(!(await C.locator('body').innerText()).match(/\bBo\b/) && (await C.getByText('Ada', { exact: true }).count()) === 1, 'S1: the other team sees the RELEASED current holder (Ada) but no other member of team 1', (await C.locator('body').innerText()).slice(0, 300));
   expect(!(await C.locator('body').innerText()).match(/\b(Di|Eli)\b/), 'S1: and not even its own team mates (nobody lists members)');
 
+  // ── S1b (PR #38 N8-01): a packet made for ANOTHER recipient is no packet for this context — delivered for real into separate browser contexts ──
+  await B.evaluate(() => window.__harness.freeze(true));
+  await B.evaluate(raw => window.__harness.deliver(raw), pA1); // A's packet (you.holdsTurn / canAct) arrives at teammate B
+  await V.evaluate(() => window.__harness.freeze(true));
+  await V.evaluate(raw => window.__harness.deliver(raw), pA1); // and at the viewer
+  await sleep(250);
+  expect((await buttonOf(B).count()) === 0 && (await B.getByText('Du bist am Zug.').count()) === 0 && (await B.getByText('Dein Team ist am Zug. Du kannst beraten.').count()) === 0
+    && (await B.getByRole('region').innerText()).includes('nicht verfügbar'), 'S1b: B shows neither A\'s "you" nor an action for A\'s packet', (await B.locator('body').innerText()).slice(0, 200));
+  expect((await buttonOf(V).count()) === 0 && (await V.getByRole('region').innerText()).includes('nicht verfügbar'), 'S1b: the viewer shows nothing of A\'s packet');
+  await B.evaluate(() => window.__harness.freeze(false)); await V.evaluate(() => window.__harness.freeze(false));
+  await B.getByText('Dein Team ist am Zug. Du kannst beraten.').waitFor({ timeout: 5000 }); // B's OWN packet is accepted at once again: no reset needed
+  expect((await buttonOf(B).count()) === 0, 'S1b: B advises, still no action');
+  await waitUntil(async () => (await V.getByRole('listitem').count()) === 2, 5000, 'S1b: the viewer\'s own packet is shown again');
+
   await buttonOf(A).click();
   await waitUntil(async () => (await state()).turnNumber === 2, 6000, 'S1: server advanced to turn 2');
   const s2 = await state();

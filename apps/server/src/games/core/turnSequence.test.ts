@@ -14,7 +14,7 @@ import type { ProjectionAudience } from './visibility.js';
 import * as domain from './turnSequence.js';
 import {
   advanceTurnSequence, authorizeTurnAction, closeTurnSequence, currentTurnHolder, decideTurnOrder, eligibilityFromParticipation, overrideTurnSequence, parseTurnSequenceState,
-  prepareTurnSequence, projectTurnSequence, startTurnSequence, turnSequenceScopeOf, turnSequenceToCoreTurn, withholdCurrentHolder,
+  prepareTurnSequence, projectTurnSequence, refreshEligibilityBasis, startTurnSequence, turnSequenceScopeOf, turnSequenceToCoreTurn, withholdCurrentHolder,
   type TurnEligibility, type TurnOutcome, type TurnSequenceState,
 } from './turnSequence.js';
 
@@ -30,7 +30,7 @@ const clone = <T>(value: T): T => JSON.parse(JSON.stringify(value)) as T;
 const KNOWN_PLAYERS = ['a', 'b', 'c', 'd', 'solo', 'x', 'p1', 'p2', 'p3', 'p4', 'p5', 'PLAYER_RED', 'PLAYER_BLUE', 'PLAYER_GREEN'];
 const KNOWN_TEAMS = ['T1', 'T2', 'S', 'M', 'X', 'Y', 'Z', 'TEAM_RED', 'TEAM_BLUE', 'MARK_TEAM', 'MARK_TEAM2'];
 const KNOWN_MEMBERS = ['A', 'B', 'C', 'D', 'E', 'solo', 'm1', 'm2', 'x1', 'y1', 'y2', 'y3', 'y4', 'z1', 'z2', 'MBR_ONE', 'MBR_TWO', 'MBR_THREE', 'MBR_FOUR', 'MBR_FIVE', 'MARK_MEMBER', 'MARK_MEMBER2'];
-const level = (activeIds: string[], version: number, trackId: string, knownIds: string[]) => ({ trackId, rosterRevision: 'track-roster-1', version, knownIds, activeIds });
+const level = (activeIds: string[], version: number, trackId: string, knownIds: string[], runIndex = BASE.runIndex) => ({ runIndex, trackId, rosterRevision: 'track-roster-1', version, knownIds, activeIds });
 /** Plain eligibility snapshots. `version` is the (N6-like) track version: it only ever grows within one test story. */
 const pel = (actors: string[], version = 1): TurnEligibility => ({ actors: level(actors, version, 'players-track', KNOWN_PLAYERS), members: null });
 const tel = (teams: string[], members: string[], version = 1): TurnEligibility => ({ actors: level(teams, version, 'teams-track', KNOWN_TEAMS), members: level(members, version, 'members-track', KNOWN_MEMBERS) });
@@ -579,9 +579,13 @@ describe('N8 D: actions, stale intents, held turns, override and close', () => {
     });
     it('an identical target is a controlled no-op (no turn, no version) — but only at the CURRENT version; an old version is not rescued by being harmless', () => {
       const s = base();
-      const same = over(s, { teamId: 'T2', playerId: 'C' });
+      const same = over(s, { teamId: 'T2', playerId: 'C' }, { eligibility: everyone(s, 1) }); // the SAME basis the sequence already holds
       expect(same).toMatchObject({ changed: false, transition: null });
       expect(same.state).toEqual(s);
+      // a NEWER basis with the same holder is no new turn — but it is relevant knowledge and becomes its own change (N8-02, see D3)
+      const newer = over(s, { teamId: 'T2', playerId: 'C' });
+      expect(newer.changed).toBe(true);
+      expect(newer.transition).toMatchObject({ kind: 'BASIS', turnNumberBefore: s.turnNumber, turnNumberAfter: s.turnNumber, versionAfter: s.version + 1 });
       expect(codeOf(() => over(s, { teamId: 'T2', playerId: 'C' }, { expectedVersion: s.version - 1 }))).toBe('TURN_SEQ_VERSION_STALE');
       expect(codeOf(() => over(s, { teamId: 'T2', playerId: 'C' }, { expectedTurnNumber: s.turnNumber - 1 }))).toBe('TURN_SEQ_TURN_STALE');
       // replaying the first override's intent after it was applied is not an identical-target no-op
@@ -774,6 +778,179 @@ describe('N8 D2: transition table', () => {
   });
 });
 
+// ── D3. PR #38 review N8-02 / N8-03: a newer eligibility basis is state; the N6 data are bound to the RUN of the sequence ──────
+
+describe('N8 D3: eligibility basis in the no-op paths (N8-02)', () => {
+  const two = (active: string[], version: number): TurnEligibility => ({ actors: level(active, version, 'players-track', ['a', 'b']), members: null });
+  const twoSeq = () => playerSequence(['a', 'b']);
+  const bind = (s: TurnSequenceState) => ({ scope: sc(s), expectedVersion: s.version, expectedTurnNumber: s.turnNumber });
+  const base = (s: TurnSequenceState) => ({ turn: s.turnNumber, completed: s.completedTurns, cycle: s.cycle, pos: s.position, member: s.memberIndex, cursors: s.teams?.map(t => t.cursor) ?? null, phase: s.phase, entitlement: s.entitlementRevision });
+
+  it('identical override with a NEWER basis keeps it: only the version and the basis move; an older stand in between is stale afterwards', () => {
+    const s0 = start(twoSeq(), two(['a', 'b'], 1));
+    const r = overrideTurnSequence(s0, { ...bind(s0), target: { playerId: 'a' }, eligibility: two(['a'], 10), now: 5 });
+    expect(r.changed).toBe(true);
+    expect(r.transition).toMatchObject({ kind: 'BASIS', versionBefore: s0.version, versionAfter: s0.version + 1, turnNumberBefore: 1, turnNumberAfter: 1, holderBefore: { playerId: 'a' }, holderAfter: { playerId: 'a' } });
+    expect(base(r.state)).toEqual(base(s0)); // no turn, no completion, no cycle, no position, no entitlement change
+    expect(r.state.version).toBe(s0.version + 1);
+    expect(r.state.eligibility!.actors.version).toBe(10);
+    expect(r.state.lastOverride).toBeNull(); // not an override: nobody was displaced
+    expect(codeOf(() => adv(r.state, two(['a', 'b'], 2)))).toBe('TURN_SEQ_ELIGIBILITY_STALE');
+    expect(label(adv(r.state, two(['a'], 10)).state)).toBe('a'); // the current basis still works (a is alone)
+  });
+  it('already HELD: a repeated hold with a newer basis keeps it, an equal basis stays a true no-op', () => {
+    let s = start(twoSeq(), two(['a', 'b'], 1));
+    s = withholdCurrentHolder(s, { ...bind(s), eligibility: two(['b'], 2) }).state;
+    const same = withholdCurrentHolder(s, { ...bind(s), eligibility: two(['b'], 2) });
+    expect(same).toMatchObject({ changed: false, transition: null });
+    expect(same.state).toEqual(s);
+    const newer = withholdCurrentHolder(s, { ...bind(s), eligibility: two([], 10) });
+    expect(newer.changed).toBe(true);
+    expect(newer.transition).toMatchObject({ kind: 'BASIS' });
+    expect(base(newer.state)).toEqual(base(s));
+    expect(newer.state.phase).toBe('HELD');
+    expect(codeOf(() => overrideTurnSequence(newer.state, { ...bind(newer.state), target: { playerId: 'b' }, eligibility: two(['b'], 3), now: 1 }))).toBe('TURN_SEQ_ELIGIBILITY_STALE');
+    expect(codeOf(() => overrideTurnSequence(newer.state, { ...bind(newer.state), target: { playerId: 'b' }, eligibility: two([], 10), now: 1 }))).toBe('TURN_SEQ_ACTOR_NOT_ELIGIBLE'); // and the new stand says b is out
+  });
+  it('still NO_ELIGIBLE: a repeated search with a newer (empty) basis keeps it, an equal one is a no-op, an older one is stale', () => {
+    const p = twoSeq();
+    const s = startTurnSequence(p, { scope: sc(p), expectedVersion: 0, eligibility: two([], 1) }).state;
+    const same = advanceTurnSequence(s, { ...bind(s), outcome: 'SKIP', eligibility: two([], 1) });
+    expect(same).toMatchObject({ changed: false, transition: null });
+    const newer = advanceTurnSequence(s, { ...bind(s), outcome: 'SKIP', eligibility: two([], 10) });
+    expect(newer.changed).toBe(true);
+    expect(newer.transition).toMatchObject({ kind: 'BASIS', phaseBefore: 'NO_ELIGIBLE', phaseAfter: 'NO_ELIGIBLE' });
+    expect(base(newer.state)).toEqual(base(s));
+    expect(codeOf(() => advanceTurnSequence(newer.state, { ...bind(newer.state), outcome: 'SKIP', eligibility: two([], 2) }))).toBe('TURN_SEQ_ELIGIBILITY_STALE');
+    expect(codeOf(() => advanceTurnSequence(newer.state, { ...bind(newer.state), outcome: 'SKIP', eligibility: two(['b'], 5) }))).toBe('TURN_SEQ_ELIGIBILITY_STALE');
+  });
+  it('team mode: the actor (team) basis and the member basis are carried forward INDEPENDENTLY, each fencing its own old stands', () => {
+    const t = (teamsV: number, membersV: number, teams = ['T1', 'T2'], members = ALL_TEAM_MEMBERS): TurnEligibility => ({
+      actors: level(teams, teamsV, 'teams-track', KNOWN_TEAMS), members: level(members, membersV, 'members-track', KNOWN_MEMBERS) });
+    const s0 = start(teamSequence(), t(1, 1)); // T1/A
+    const target = { teamId: 'T1', playerId: 'A' };
+    const onlyMembers = overrideTurnSequence(s0, { ...bind(s0), target, eligibility: t(1, 9, ['T1', 'T2'], ['A', 'B', 'C']), now: 1 });
+    expect(onlyMembers.changed).toBe(true);
+    expect(onlyMembers.state.eligibility).toMatchObject({ actors: { version: 1 }, members: { version: 9 } });
+    expect(codeOf(() => adv(onlyMembers.state, t(1, 4)))).toBe('TURN_SEQ_ELIGIBILITY_STALE'); // an old MEMBER stand is fenced although the team stand is current
+    expect(adv(onlyMembers.state, t(1, 9)).changed).toBe(true); // the team stand alone being equal is fine
+    const onlyTeams = overrideTurnSequence(s0, { ...bind(s0), target, eligibility: t(7, 1), now: 1 });
+    expect(onlyTeams.state.eligibility).toMatchObject({ actors: { version: 7 }, members: { version: 1 } });
+    expect(codeOf(() => adv(onlyTeams.state, t(3, 1)))).toBe('TURN_SEQ_ELIGIBILITY_STALE'); // an old TEAM stand is fenced although the member stand is current
+    // equal on both levels → a true no-op, no artificial extra change
+    expect(overrideTurnSequence(s0, { ...bind(s0), target, eligibility: t(1, 1), now: 1 })).toMatchObject({ changed: false, transition: null });
+    // both levels newer at once
+    const both = overrideTurnSequence(s0, { ...bind(s0), target, eligibility: t(5, 6), now: 1 });
+    expect(both.state.eligibility).toMatchObject({ actors: { version: 5 }, members: { version: 6 } });
+    expect(base(both.state)).toEqual(base(s0)); // no cursor moved, no completion, no cycle
+  });
+  it('refreshEligibilityBasis is the explicit connector: newer → BASIS change, equal → no-op, older → stale; nothing else moves, in every open phase', () => {
+    const ref = (s: TurnSequenceState, eligibility: TurnEligibility, over: Record<string, unknown> = {}) => refreshEligibilityBasis(s, { scope: sc(s), expectedVersion: s.version, eligibility, ...over });
+    const live = start(twoSeq(), two(['a', 'b'], 1));
+    const held = withholdCurrentHolder(live, { ...bind(live), eligibility: two(['b'], 2) }).state;
+    const none = advanceTurnSequence(live, { ...bind(live), outcome: 'COMPLETE', eligibility: two([], 3) }).state;
+    for (const [name, s, v] of [['ACTIVE', live, 1], ['HELD', held, 2], ['NO_ELIGIBLE', none, 3]] as const) {
+      expect(ref(s, two(s.phase === 'HELD' ? ['b'] : s.phase === 'NO_ELIGIBLE' ? [] : ['a', 'b'], v)), `${name} equal`).toMatchObject({ changed: false, transition: null });
+      const newer = ref(s, two([], v + 10));
+      expect(newer.changed, `${name} newer`).toBe(true);
+      expect(newer.transition).toMatchObject({ kind: 'BASIS', phaseBefore: s.phase, phaseAfter: s.phase });
+      expect(base(newer.state), name).toEqual(base(s));
+      expect(newer.state.version).toBe(s.version + 1);
+      expect(codeOf(() => ref(s, two(['a'], v - 1))), `${name} older`).toBe('TURN_SEQ_ELIGIBILITY_STALE');
+      expect(codeOf(() => ref(s, two([], v + 1), { expectedVersion: s.version + 1 })), name).toBe('TURN_SEQ_VERSION_STALE');
+    }
+    expect(codeOf(() => ref(twoSeq(), two([], 1)))).toBe('TURN_SEQ_NOT_STARTED');
+    const closed = closeTurnSequence(live, { scope: sc(live), expectedVersion: live.version }).state;
+    expect(codeOf(() => ref(closed, two([], 9)))).toBe('TURN_SEQ_CLOSED');
+    expect(codeOf(() => ref(live, two(['a', 'b'], 1), { surprise: 1 }))).toBe('TURN_SEQ_ARGS_INVALID');
+    // it decides nobody's responsibility: a holder who lost eligibility stays the (unheld) holder until the explicit hold / skip / override
+    const lost = ref(live, two(['b'], 5)).state;
+    expect(lost.phase).toBe('ACTIVE');
+    expect(label(lost)).toBe('a');
+    expect(codeOf(() => authorizeTurnAction(lost, { ...bind(lost), caller: { role: 'PLAYER', participantId: 'a', teamId: null }, gate: { admitted: true, phaseOpen: true, paused: false }, eligibility: two(['b'], 5) }))).toBe('TURN_SEQ_ACTOR_NOT_ELIGIBLE'); // and he cannot act (authorize reads the supplied stand)
+  });
+  it('the carried-forward basis survives JSON / SDK persistence and a new "process": the fence holds after recovery', () => {
+    let s = start(twoSeq(), two(['a', 'b'], 1));
+    s = overrideTurnSequence(s, { ...bind(s), target: { playerId: 'a' }, eligibility: two(['a'], 10), now: 1 }).state;
+    const restored = parseTurnSequenceState(clone(s));
+    expect(restored.eligibility!.actors.version).toBe(10);
+    expect(codeOf(() => adv(restored, two(['a', 'b'], 2)))).toBe('TURN_SEQ_ELIGIBILITY_STALE');
+    const snap = (state: TurnSequenceState, stateVersion: number): EngineStateSnapshot => ({ roomId: 'r', runIndex: 1, gameSlug: 'future-turns', engineVersion: 1, stateVersion, state: { turnSequence: state } });
+    const before = start(twoSeq(), two(['a', 'b'], 1));
+    const event = createStateEvent(snap(before, 3), { turnSequence: s }, { eventId: randomUUID(), type: 'TURN_BASIS', commandId: 'c1', actorId: 'host', occurredAtMs: 1 });
+    const replayed = applyStateEvent(snap(before, 3), JSON.parse(JSON.stringify(event)));
+    expect(parseTurnSequenceState(replayed.state.turnSequence).eligibility!.actors.version).toBe(10);
+  });
+  it('read-only functions never carry the basis forward (authorize and project stay pure)', () => {
+    const s = start(twoSeq(), two(['a', 'b'], 1));
+    const snapshot = JSON.stringify(s);
+    authorizeTurnAction(s, { ...bind(s), caller: { role: 'PLAYER', participantId: 'a', teamId: null }, gate: { admitted: true, phaseOpen: true, paused: false }, eligibility: two(['a', 'b'], 50) });
+    projectTurnSequence({ role: 'VIEWER' }, s, { scope: sc(s), release: 'CURRENT', stateVersion: 1 });
+    expect(JSON.stringify(s)).toBe(snapshot);
+    expect(codeOf(() => adv(s, two(['a', 'b'], 1)))).toBe('NO_THROW'); // version 50 was never recorded: no hidden fence
+  });
+  it('a failed call records nothing (a newer basis seen only in a rejected call is not kept)', () => {
+    const s = start(twoSeq(), two(['a', 'b'], 1));
+    expect(codeOf(() => withholdCurrentHolder(s, { ...bind(s), eligibility: two(['a', 'b'], 20) }))).toBe('TURN_SEQ_HOLDER_STILL_ELIGIBLE');
+    expect(s.eligibility!.actors.version).toBe(1);
+  });
+});
+
+describe('N8 D3: the N6 data are bound to the run of the sequence (N8-03)', () => {
+  const track = (runIndex: number, kind: 'PARTICIPANT' | 'TEAM', ids: string[], trackId = 'trk') =>
+    createParticipationTrack({ runIndex, trackId, rosterRevision: 'r1', actorKind: kind, config: { livesMode: 'OFF' }, actors: ids.map(actorId => ({ actorId, lives: null })) });
+  const fromTracks = (teamRun: number, memberRun: number) => {
+    const teams = track(teamRun, 'TEAM', ['T1', 'T2'], 'teams'); const members = track(memberRun, 'PARTICIPANT', ALL_TEAM_MEMBERS, 'members');
+    return eligibilityFromParticipation({ unit: 'TEAM', actors: { track: teams, scope: participationScopeOf(teams) }, members: { track: members, scope: participationScopeOf(members) } });
+  };
+  const player = (run: number) => { const t = track(run, 'PARTICIPANT', ['a', 'b', 'c']); return eligibilityFromParticipation({ unit: 'PLAYER', actors: { track: t, scope: participationScopeOf(t) } }); };
+  const seq = (runIndex: number) => prepareTurnSequence({ runIndex, sequenceId: 'seq-1', rosterRevision: 'roster-1', unit: 'PLAYER', mode: 'FIXED', order: ['a', 'b', 'c'] });
+  const teamSeq = (runIndex: number) => prepareTurnSequence({ runIndex, sequenceId: 'seq-1', rosterRevision: 'roster-1', unit: 'TEAM', mode: 'FIXED', order: ['T1', 'T2'], teams: TEAMS });
+
+  it('the adapter keeps the N6 run of every level', () => {
+    expect(player(3).actors.runIndex).toBe(3);
+    expect(fromTracks(4, 5)).toMatchObject({ actors: { runIndex: 4 }, members: { runIndex: 5 } });
+  });
+  it('a valid track of run 1 is rejected by a sequence of run 2 already at the START, with the same IDs; the right run is fine', () => {
+    const e = player(1);
+    expect(codeOf(() => startTurnSequence(seq(2), { scope: sc(seq(2)), expectedVersion: 0, eligibility: e }))).toBe('TURN_SEQ_ELIGIBILITY_MISMATCH');
+    const ok = startTurnSequence(seq(1), { scope: sc(seq(1)), expectedVersion: 0, eligibility: e }).state; // positive control: identities MAY persist across runs, the data may not
+    expect(label(ok)).toBe('a');
+    expect(startTurnSequence(seq(2), { scope: sc(seq(2)), expectedVersion: 0, eligibility: player(2) }).state.phase).toBe('ACTIVE');
+  });
+  it('every operation that reads eligibility checks the run: advance, withhold, override, authorize (also after JSON recovery)', () => {
+    const s1 = start(seq(2), player(2));
+    const restored = parseTurnSequenceState(clone(s1)); // "recovery": the run lives in the stored state
+    const b = { scope: sc(restored), expectedVersion: restored.version, expectedTurnNumber: restored.turnNumber };
+    const foreign = player(1);
+    expect(codeOf(() => advanceTurnSequence(restored, { ...b, outcome: 'COMPLETE', eligibility: foreign }))).toBe('TURN_SEQ_ELIGIBILITY_MISMATCH');
+    expect(codeOf(() => advanceTurnSequence(restored, { ...b, outcome: 'SKIP', eligibility: foreign }))).toBe('TURN_SEQ_ELIGIBILITY_MISMATCH');
+    expect(codeOf(() => withholdCurrentHolder(restored, { ...b, eligibility: foreign }))).toBe('TURN_SEQ_ELIGIBILITY_MISMATCH');
+    expect(codeOf(() => overrideTurnSequence(restored, { ...b, target: { playerId: 'b' }, eligibility: foreign, now: 1 }))).toBe('TURN_SEQ_ELIGIBILITY_MISMATCH');
+    expect(codeOf(() => authorizeTurnAction(restored, { ...b, caller: { role: 'PLAYER', participantId: 'a', teamId: null }, gate: { admitted: true, phaseOpen: true, paused: false }, eligibility: foreign }))).toBe('TURN_SEQ_ELIGIBILITY_MISMATCH');
+    expect(authorizeTurnAction(restored, { ...b, caller: { role: 'PLAYER', participantId: 'a', teamId: null }, gate: { admitted: true, phaseOpen: true, paused: false }, eligibility: player(2) }).allowed).toBe(true);
+  });
+  it('team mode: team data and member data must BOTH belong to the run (and so to each other) — either one foreign is rejected', () => {
+    const s = teamSeq(2);
+    expect(startTurnSequence(s, { scope: sc(s), expectedVersion: 0, eligibility: fromTracks(2, 2) }).state.phase).toBe('ACTIVE');
+    for (const [name, e] of [['team track foreign', fromTracks(1, 2)], ['member track foreign', fromTracks(2, 1)], ['both foreign', fromTracks(1, 1)], ['different runs', fromTracks(2, 3)]] as const) {
+      expect(codeOf(() => startTurnSequence(s, { scope: sc(s), expectedVersion: 0, eligibility: e })), name).toBe('TURN_SEQ_ELIGIBILITY_MISMATCH');
+    }
+  });
+  it('a plain snapshot without the run (or with a malformed one) is invalid — the run is never invented from the sequence', () => {
+    const s = seq(1);
+    const good = player(1);
+    for (const bad of [undefined, 0, -1, 1.5, '1', null]) {
+      expect(codeOf(() => startTurnSequence(s, { scope: sc(s), expectedVersion: 0, eligibility: { ...good, actors: { ...good.actors, runIndex: bad as never } } })), String(bad)).toBe('TURN_SEQ_ELIGIBILITY_INVALID');
+    }
+  });
+  it('a basis of another run cannot hide behind a stored basis: the run is compared with the sequence, not with the last committed basis', () => {
+    const s = start(seq(2), player(2));
+    const later = { ...player(2), actors: { ...player(2).actors, runIndex: 1, version: 99 } }; // newer version, wrong run
+    expect(codeOf(() => advanceTurnSequence(s, { scope: sc(s), expectedVersion: s.version, expectedTurnNumber: s.turnNumber, outcome: 'COMPLETE', eligibility: later }))).toBe('TURN_SEQ_ELIGIBILITY_MISMATCH');
+  });
+});
+
 // ── E. Projection ────────────────────────────────────────────
 
 describe('N8 E: projection through an explicit release', () => {
@@ -792,14 +969,14 @@ describe('N8 E: projection through an explicit release', () => {
   it('NONE carries only the ordering counters; CURRENT adds state, holder and the caller\'s own view; ORDER adds the outer order — nothing else, per allowlist', () => {
     const s = mid();
     const key = (release: TurnSequenceRelease, audience: ProjectionAudience) => Object.keys(projectTurnSequence(audience, s, { scope: sc(s), release, stateVersion: 9 })).sort();
-    const counters = ['contract', 'scope', 'stateVersion', 'sequenceVersion', 'turnNumber', 'entitlementRevision', 'release'];
+    const counters = ['contract', 'scope', 'recipientId', 'stateVersion', 'sequenceVersion', 'turnNumber', 'entitlementRevision', 'release'];
     for (const [, audience] of audiences) {
       expect(key('NONE', audience)).toEqual([...counters].sort());
       expect(key('CURRENT', audience)).toEqual([...counters, 'status', 'current', 'you'].sort());
       expect(key('ORDER', audience)).toEqual([...counters, 'status', 'current', 'you', 'order'].sort());
     }
     expect(projectTurnSequence({ role: 'VIEWER' }, s, { scope: sc(s), release: 'ORDER', stateVersion: 9 })).toEqual({
-      contract: 'TURN_SEQUENCE_STATUS_V1', scope: sc(s), stateVersion: 9, sequenceVersion: s.version, turnNumber: s.turnNumber, entitlementRevision: 1, release: 'ORDER',
+      contract: 'TURN_SEQUENCE_STATUS_V1', scope: sc(s), recipientId: null, stateVersion: 9, sequenceVersion: s.version, turnNumber: s.turnNumber, entitlementRevision: 1, release: 'ORDER',
       status: 'ACTIVE', current: { teamId: 'TEAM_RED', playerId: 'MBR_TWO' }, you: null, order: { actorIds: ['TEAM_RED', 'TEAM_BLUE'], position: 0, cycle: 0 },
     });
   });
@@ -823,7 +1000,9 @@ describe('N8 E: projection through an explicit release', () => {
     const forbidden = ['PRIVATE_REASON_MARKER', 'players-track', 'teams-track', 'members-track', 'track-roster-1', 'lastOverride', 'cursor', 'members', 'eligibility', 'completedTurns', 'memberIndex', 'atMs', 'teams"', 'reason'];
     for (const s of sequences) {
       for (const [name, audience] of audiences) for (const release of contract.TURN_SEQUENCE_RELEASES) {
-        const text = JSON.stringify(projectTurnSequence(audience, s, { scope: sc(s), release, stateVersion: 1 }));
+        const projected = projectTurnSequence(audience, s, { scope: sc(s), release, stateVersion: 1 });
+        const own = projected.recipientId; // the recipient's OWN id is part of its packet by design; nobody else's id is
+        const text = JSON.stringify(projected).replace(own === null ? /$^/ : `"recipientId":"${own}"`, '"recipientId":null');
         for (const word of forbidden) expect(text, `${name}/${release}/${word}`).not.toContain(word);
         if (release !== 'ORDER' && s.unit === 'PLAYER') expect(text, `${name}/${release}`).not.toContain('PLAYER_GREEN'); // an unreleased order is not listed
         if (release === 'NONE') for (const id of ['MBR_', 'PLAYER_', 'TEAM_']) expect(text, `${name}/NONE/${id}`).not.toContain(id);
@@ -832,6 +1011,28 @@ describe('N8 E: projection through an explicit release', () => {
     }
     const orderText = JSON.stringify(projectTurnSequence({ role: 'VIEWER' }, sequences[0], { scope: sc(sequences[0]), release: 'ORDER', stateVersion: 1 }));
     expect(orderText).toContain('TEAM_BLUE'); // the outer order is released at ORDER and holds teams only
+  });
+  it('names the recipient in EVERY packet (also NONE): the participant id of a PLAYER audience, null for host / viewer / display; "you" exists exactly for a named recipient', () => {
+    const s = mid();
+    const rec = (audience: ProjectionAudience, release: TurnSequenceRelease) => projectTurnSequence(audience, s, { scope: sc(s), release, stateVersion: 3 });
+    for (const release of contract.TURN_SEQUENCE_RELEASES) {
+      expect(rec({ role: 'PLAYER', participantId: 'MBR_ONE', teamId: 'TEAM_RED' }, release).recipientId, release).toBe('MBR_ONE');
+      expect(rec({ role: 'PLAYER', participantId: 'MBR_TWO', teamId: 'TEAM_RED' }, release).recipientId, release).toBe('MBR_TWO'); // two members of one team: two recipients
+      for (const audience of [{ role: 'HOST' as const }, { role: 'HOST' as const, blindHost: true }, { role: 'HOST' as const, participantId: 'MBR_ONE', teamId: 'TEAM_RED' },
+        { role: 'VIEWER' as const }, { role: 'DISPLAY' as const }, { role: 'PLAYER' as const }, { role: 'PLAYER' as const, participantId: null }]) {
+        expect(rec(audience, release).recipientId, `${release}/${JSON.stringify(audience)}`).toBeNull();
+      }
+    }
+    for (const [audience, named] of [[{ role: 'PLAYER' as const, participantId: 'MBR_ONE', teamId: 'TEAM_RED' }, true], [{ role: 'VIEWER' as const }, false], [{ role: 'HOST' as const, participantId: 'MBR_ONE' }, false]] as const) {
+      const p = rec(audience, 'CURRENT') as { you: unknown; recipientId: string | null };
+      expect(p.you !== null, JSON.stringify(audience)).toBe(named);
+      expect(p.recipientId !== null).toBe(named);
+    }
+    // a packet made for MBR_ONE is no packet for MBR_TWO
+    const expected = (recipientId: string | null) => ({ ...sc(s), recipientId, minStateVersion: 0 });
+    const forOne = rec({ role: 'PLAYER', participantId: 'MBR_ONE', teamId: 'TEAM_RED' }, 'CURRENT');
+    expect(contract.turnSequenceProjectionMatches(forOne, expected('MBR_ONE'))).toBe(true);
+    for (const other of ['MBR_TWO', null]) expect(contract.turnSequenceProjectionMatches(forOne, expected(other))).toBe(false);
   });
   it('rejects a wrong release, audience, stateVersion and extra arguments with codes only; a foreign scope is stale, never "empty"', () => {
     const s = mid(); const scope = sc(s);
@@ -869,12 +1070,13 @@ describe('N8 E: projection through an explicit release', () => {
   });
   it('builds the context key from labels only and compares scope and the independent minimum', () => {
     const s = mid(); const scope = sc(s);
-    const expected = { ...scope, recipientId: 'MBR_TWO', minStateVersion: 5 };
+    const expected = { ...scope, recipientId: null, minStateVersion: 5 };
     const p = projectTurnSequence({ role: 'VIEWER' }, s, { scope, release: 'NONE', stateVersion: 5 });
     expect(contract.turnSequenceProjectionMatches(p, expected)).toBe(true);
+    expect(contract.turnSequenceProjectionMatches(p, { ...expected, recipientId: 'MBR_TWO' })).toBe(false); // a packet made for a viewer is no packet for a player
     expect(contract.turnSequenceProjectionMatches(p, { ...expected, minStateVersion: 6 })).toBe(false);
     for (const change of [{ runIndex: 2 }, { sequenceId: 'x' }, { rosterRevision: 'x' }, { unit: 'PLAYER' as const }]) expect(contract.turnSequenceProjectionMatches(p, { ...expected, ...change })).toBe(false);
-    expect(contract.turnSequenceContextKey(expected)).not.toBe(contract.turnSequenceContextKey({ ...expected, recipientId: null }));
+    expect(contract.turnSequenceContextKey(expected)).not.toBe(contract.turnSequenceContextKey({ ...expected, recipientId: 'MBR_TWO' }));
     expect(contract.turnActionBindingKey({ turnNumber: 4, sequenceVersion: 9 })).not.toBe(contract.turnActionBindingKey({ turnNumber: 4, sequenceVersion: 10 }));
   });
 });
@@ -1005,8 +1207,8 @@ describe('N8 contract surface', () => {
       `const m = await import(${JSON.stringify(file)}); const e = new m.TurnSequenceError('TURN_SEQ_STATE_INVALID', ['SHAPE_INVALID']);
        const scope = { runIndex: 1, sequenceId: 's', rosterRevision: 'r', unit: 'TEAM' };
        const base = { contract: 'TURN_SEQUENCE_STATUS_V1', scope, stateVersion: 3, sequenceVersion: 2, turnNumber: 2, entitlementRevision: 1 };
-       const ok = m.parseTurnSequenceProjection({ ...base, release: 'CURRENT', status: 'ACTIVE', current: { teamId: 'T', playerId: 'p' }, you: { holdsTurn: true, teamHoldsTurn: true, canAct: true } });
-       const leak = m.parseTurnSequenceProjection({ ...base, release: 'NONE', members: ['x'] });
+       const ok = m.parseTurnSequenceProjection({ ...base, recipientId: 'p', release: 'CURRENT', status: 'ACTIVE', current: { teamId: 'T', playerId: 'p' }, you: { holdsTurn: true, teamHoldsTurn: true, canAct: true } });
+       const leak = m.parseTurnSequenceProjection({ ...base, recipientId: null, release: 'NONE', members: ['x'] });
        console.log(JSON.stringify([e.code, e.message, e.issues.length, ok.ok, leak.ok, m.turnSequenceContextKey({ ...scope, recipientId: 'p', minStateVersion: 0 }), m.turnActionBindingKey({ turnNumber: 2, sequenceVersion: 2 })]));`], { encoding: 'utf8' });
     expect(JSON.parse(out.trim())).toEqual(['TURN_SEQ_STATE_INVALID', 'TURN_SEQ_STATE_INVALID', 1, true, false, '["TURN_SEQUENCE",1,"s","r","TEAM","p"]', '["TURN_BINDING",2,2]']);
   });

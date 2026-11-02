@@ -1,20 +1,21 @@
 import { describe, expect, it } from 'vitest';
-import { TURN_SEQUENCE_CONTRACT, type TurnSequenceExpectedContext, type TurnSequenceProjection, type TurnSequenceRelease } from '@quiz/shared/turnSequence';
+import { TURN_SEQUENCE_CONTRACT, parseTurnSequenceProjection, type TurnSequenceExpectedContext, type TurnSequenceProjection, type TurnSequenceRelease } from '@quiz/shared/turnSequence';
 import { emptyTurnMemo, intakeTurnSequence, type TurnIntakeMemo, type TurnIntakeResult } from './turnIntake';
 
 // Synthetic fixtures: ids are markers, not names. Counters are chosen so that every ordering level can be older ON ITS OWN.
 const SCOPE = { runIndex: 1, sequenceId: 'seq-1', rosterRevision: 'roster-1', unit: 'PLAYER' as const };
 const EXPECTED: TurnSequenceExpectedContext = { ...SCOPE, recipientId: 'p1', minStateVersion: 1 };
 interface Stand { state: number; seq: number; turn: number; ent: number }
-const projection = (stand: Stand, over: { release?: TurnSequenceRelease; holder?: string | null; status?: 'READY' | 'ACTIVE' | 'HELD' | 'NO_ELIGIBLE' | 'CLOSED'; scope?: typeof SCOPE; canAct?: boolean } = {}): TurnSequenceProjection => {
+const projection = (stand: Stand, over: { release?: TurnSequenceRelease; holder?: string | null; status?: 'READY' | 'ACTIVE' | 'HELD' | 'NO_ELIGIBLE' | 'CLOSED'; scope?: typeof SCOPE; canAct?: boolean; recipient?: string | null } = {}): TurnSequenceProjection => {
+  const recipient = over.recipient === undefined ? 'p1' : over.recipient; // who the packet was made for (null = host / viewer / display)
   const release = over.release ?? 'CURRENT';
-  const base = { contract: TURN_SEQUENCE_CONTRACT, scope: { ...(over.scope ?? SCOPE) }, stateVersion: stand.state, sequenceVersion: stand.seq, turnNumber: stand.turn, entitlementRevision: stand.ent };
+  const base = { contract: TURN_SEQUENCE_CONTRACT, scope: { ...(over.scope ?? SCOPE) }, recipientId: recipient, stateVersion: stand.state, sequenceVersion: stand.seq, turnNumber: stand.turn, entitlementRevision: stand.ent };
   if (release === 'NONE') return { ...base, release };
   const holder = over.holder === undefined ? 'p1' : over.holder;
   const status = over.status ?? (holder === null ? 'NO_ELIGIBLE' : 'ACTIVE');
   const team = ((over.scope ?? SCOPE).unit as string) === 'TEAM'; // a team-unit projection names the team of the holder and says whether the recipient's team holds the turn
   const current = holder === null ? null : { teamId: team ? 'T1' : null, playerId: holder };
-  const you = { holdsTurn: holder === 'p1', teamHoldsTurn: team ? holder === 'p1' : null, canAct: (over.canAct ?? true) && holder === 'p1' && status === 'ACTIVE' };
+  const you = recipient === null ? null : { holdsTurn: holder === recipient, teamHoldsTurn: team ? holder === recipient : null, canAct: (over.canAct ?? true) && holder === recipient && status === 'ACTIVE' };
   const shape = { ...base, release, status, current, you };
   return release === 'ORDER' ? { ...shape, release, order: { actorIds: ['p1', 'p2'], position: holder === null ? null : 0, cycle: 0 } } as TurnSequenceProjection : shape as TurnSequenceProjection;
 };
@@ -143,7 +144,7 @@ describe('N8 turn intake: contexts', () => {
   it('another run, sequence, roster revision, unit or recipient starts with empty knowledge (one slot, no archive)', () => {
     const high = projection({ state: 50, seq: 50, turn: 30, ent: 4 });
     for (const next of [{ ...EXPECTED, runIndex: 2 }, { ...EXPECTED, sequenceId: 'seq-2' }, { ...EXPECTED, rosterRevision: 'roster-2' }, { ...EXPECTED, unit: 'TEAM' as const }, { ...EXPECTED, recipientId: 'p2' }, { ...EXPECTED, recipientId: null }]) {
-      const low = projection({ state: 2, seq: 1, turn: 1, ent: 1 }, { scope: { runIndex: next.runIndex, sequenceId: next.sequenceId, rosterRevision: next.rosterRevision, unit: next.unit } as never });
+      const low = projection({ state: 2, seq: 1, turn: 1, ent: 1 }, { scope: { runIndex: next.runIndex, sequenceId: next.sequenceId, rosterRevision: next.rosterRevision, unit: next.unit } as never, recipient: next.recipientId });
       const { results, memo } = feed([{ expected: EXPECTED, raw: high }, { expected: next, raw: low }, { expected: EXPECTED, raw: projection({ state: 2, seq: 1, turn: 1, ent: 1 }) }]);
       expect(results[1].outcome, JSON.stringify(next)).toBe('ACCEPTED'); // low version in a NEW context is fine
       expect(results[1].memo.seenStateVersion).toBe(2);
@@ -159,5 +160,76 @@ describe('N8 turn intake: contexts', () => {
   it('starts empty and never throws on arbitrary input', () => {
     expect(emptyTurnMemo('k')).toEqual({ key: 'k', seenStateVersion: -1, seenSequenceVersion: -1, seenTurnNumber: -1, seenEntitlement: -1, seenRelease: null, held: null });
     for (const raw of [undefined, null, 0, '', [], {}, { release: 'CURRENT' }, Symbol.iterator.toString(), () => 1]) expect(() => intakeTurnSequence(null, EXPECTED, raw)).not.toThrow();
+  });
+});
+
+// ── PR #38 review N8-01: the recipient-specific part is bound to the recipient the UI expects ────────────────────────────
+
+describe('N8 turn intake: recipient binding (N8-01)', () => {
+  const as = (recipient: string | null, minStateVersion = 1): TurnSequenceExpectedContext => ({ ...EXPECTED, recipientId: recipient, minStateVersion });
+  const stand = { state: 5, seq: 3, turn: 2, ent: 1 };
+  it('Alice → Bob while Alice\'s packet is still there: Bob gets neither Alice\'s "you" nor her action; his knowledge starts empty', () => {
+    const alice = projection(stand, { holder: 'alice', recipient: 'alice' });
+    const { results } = feed([{ expected: as('alice'), raw: alice }, { expected: as('bob'), raw: alice }]);
+    expect(results[0]).toMatchObject({ outcome: 'ACCEPTED' });
+    expect(results[0].held).toMatchObject({ you: { holdsTurn: true, canAct: true } });
+    expect(results[1].outcome).toBe('WITHDRAWN');
+    expect(results[1].held).toBeNull();
+    expect(results[1].memo).toMatchObject({ seenStateVersion: -1, seenSequenceVersion: -1, seenTurnNumber: -1, seenEntitlement: -1 }); // a foreign packet raises no knowledge for Bob
+  });
+  it('a late Alice packet after Bob\'s own valid projection never becomes Bob\'s state: his knowledge is unchanged and his own next packet is shown again', () => {
+    const bob = projection({ ...stand, state: 6, seq: 4, turn: 3 }, { holder: 'bob', recipient: 'bob' });
+    const lateAlice = projection({ state: 99, seq: 99, turn: 99, ent: 9 }, { holder: 'alice', recipient: 'alice' }); // even a huge version poisons nothing
+    const { results } = feed([{ expected: as('bob'), raw: bob }, { expected: as('bob'), raw: lateAlice }, { expected: as('bob'), raw: bob }]);
+    expect(results[0].held).toMatchObject({ you: { holdsTurn: true, canAct: true }, turnNumber: 3 });
+    expect(results[1].held).toBeNull(); // fail-closed: no foreign eigenzuständigkeit shown
+    expect(results[1].memo).toMatchObject({ seenStateVersion: 6, seenSequenceVersion: 4, seenTurnNumber: 3 }); // Bob's knowledge was not touched (not lowered, not raised)
+    expect(results[2].outcome).toBe('ACCEPTED'); // the same valid Bob packet is usable again, without a reset
+    expect(results[2].held).toMatchObject({ you: { holdsTurn: true }, turnNumber: 3 });
+  });
+  it('two members of the SAME team stay separate recipients: advising is not responsibility, and neither accepts the other\'s packet', () => {
+    const team = (recipient: string, holdsTurn: boolean): TurnSequenceProjection => ({
+      contract: TURN_SEQUENCE_CONTRACT, scope: { ...SCOPE, unit: 'TEAM' }, recipientId: recipient, stateVersion: 7, sequenceVersion: 4, turnNumber: 3, entitlementRevision: 1, release: 'CURRENT', status: 'ACTIVE',
+      current: { teamId: 'T1', playerId: 'carol' }, you: { holdsTurn, teamHoldsTurn: true, canAct: holdsTurn },
+    });
+    const teamCtx = (recipient: string): TurnSequenceExpectedContext => ({ ...EXPECTED, unit: 'TEAM', recipientId: recipient });
+    const carol = team('carol', true), dan = team('dan', false);
+    expect(intakeTurnSequence(null, teamCtx('carol'), carol).held).toMatchObject({ you: { holdsTurn: true, canAct: true } });
+    expect(intakeTurnSequence(null, teamCtx('dan'), dan).held).toMatchObject({ you: { holdsTurn: false, teamHoldsTurn: true, canAct: false } });
+    expect(intakeTurnSequence(null, teamCtx('dan'), carol).held).toBeNull(); // Dan never sees Carol's "you may act"
+    expect(intakeTurnSequence(null, teamCtx('carol'), dan).held).toBeNull();
+  });
+  it('viewer / display / host (recipient null) never receive a packet that carries somebody\'s "you"; a playing host is a PLAYER with his own id', () => {
+    const alice = projection(stand, { holder: 'alice', recipient: 'alice' });
+    const viewerPacket = projection(stand, { holder: 'alice', recipient: null });
+    expect(intakeTurnSequence(null, as(null), alice).held).toBeNull();
+    const own = intakeTurnSequence(null, as(null), viewerPacket).held;
+    expect(own).toMatchObject({ recipientId: null, you: null });
+    expect(intakeTurnSequence(null, as('alice'), viewerPacket).held).toBeNull(); // and a viewer packet is no packet for Alice
+    const host = projection(stand, { holder: 'host-1', recipient: 'host-1' });
+    expect(intakeTurnSequence(null, as('host-1'), host).held).toMatchObject({ you: { holdsTurn: true } });
+    expect(intakeTurnSequence(null, as(null), host).held).toBeNull();
+  });
+  it('a NONE (withdrawal) packet is bound to its recipient too: another recipient\'s withdrawal raises no knowledge and hides nothing of ours', () => {
+    const mine = projection(stand, { recipient: 'bob', holder: 'bob' });
+    const hers = projection({ ...stand, state: 20, seq: 20 }, { recipient: 'alice', release: 'NONE' });
+    const { results } = feed([{ expected: as('bob'), raw: mine }, { expected: as('bob'), raw: hers }]);
+    expect(results[1].memo).toMatchObject({ seenStateVersion: 5 }); // Alice's version 20 did not move Bob's knowledge
+  });
+  it('the same valid projection of the same recipient is kept without any reset (equal packet, new object)', () => {
+    const p = projection(stand, { holder: 'bob', recipient: 'bob' });
+    const { results } = feed([{ expected: as('bob'), raw: p }, { expected: as('bob'), raw: JSON.parse(JSON.stringify(p)) }, { expected: as('bob'), raw: p }]);
+    expect(results.map(r => r.outcome)).toEqual(['ACCEPTED', 'ACCEPTED', 'ACCEPTED']);
+    expect(results[2].memo).toMatchObject({ seenStateVersion: 5, seenTurnNumber: 2 });
+  });
+  it('the contract: recipientId is required, null is allowed, and a "you" without a recipient is invalid', () => {
+    const p = projection(stand, { holder: 'bob', recipient: 'bob' });
+    const parse = (mutate: (d: Record<string, unknown>) => void) => { const d = JSON.parse(JSON.stringify(p)) as Record<string, unknown>; mutate(d); return parseTurnSequenceProjection(d).ok; };
+    expect(parse(() => undefined)).toBe(true);
+    expect(parse(d => { delete d.recipientId; })).toBe(false);
+    expect(parse(d => { d.recipientId = ''; })).toBe(false);
+    expect(parse(d => { d.recipientId = 7; })).toBe(false);
+    expect(parse(d => { d.recipientId = null; })).toBe(false); // "you" present but nobody is the recipient
+    expect(parse(d => { d.recipientId = null; d.you = null; })).toBe(true);
   });
 });

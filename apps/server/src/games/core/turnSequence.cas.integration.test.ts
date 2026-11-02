@@ -24,7 +24,7 @@ import { singleConnectionSqliteUrl } from '../../persistence/sqliteUrl.js';
 import { runReceipted } from './commands.js';
 import { GameStateConflictError, saveGameStateIfRevision } from './state.js';
 import {
-  advanceTurnSequence, currentTurnHolder, parseTurnSequenceState, prepareTurnSequence, startTurnSequence, turnSequenceScopeOf, type TurnEligibility, type TurnSequenceState,
+  advanceTurnSequence, currentTurnHolder, overrideTurnSequence, parseTurnSequenceState, prepareTurnSequence, startTurnSequence, turnSequenceScopeOf, type TurnEligibility, type TurnSequenceState,
 } from './turnSequence.js';
 
 const run = promisify(execFile);
@@ -32,7 +32,7 @@ const serverRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..', 
 let db: PrismaClient, dir: string, url: string, previousGlobal: PrismaClient | undefined, sequence = 0, hostId: string, definitionId: string;
 
 const TEAMS = [{ teamId: 'T1', members: ['A', 'B'] }, { teamId: 'T2', members: ['C', 'D', 'E'] }];
-const level = (ids: string[], trackId: string) => ({ trackId, rosterRevision: 'track-roster-1', version: 1, knownIds: ids, activeIds: ids });
+const level = (ids: string[], trackId: string) => ({ runIndex: 1, trackId, rosterRevision: 'track-roster-1', version: 1, knownIds: ids, activeIds: ids });
 const everyone: TurnEligibility = { actors: level(['T1', 'T2'], 'teams-track'), members: level(['A', 'B', 'C', 'D', 'E'], 'members-track') };
 
 beforeAll(async () => {
@@ -194,6 +194,26 @@ describe('N8 integration: concurrent turn changes on the real CAS / receipt stac
     expect(sequenceOf(stored).teams!.map(t => t.cursor)).toEqual([1, 0]);
   });
 
+  it('a newer eligibility basis in a no-op path (identical override) is persisted through the CAS like any change: one revision step, no turn, and the old stand stays fenced after reading it back (PR #38 N8-02)', async () => {
+    const { roomId, initial } = await fixture();
+    const newer = { ...everyone, actors: { ...level(['T1', 'T2'], 'teams-track'), version: 10 }, members: { ...level(['A', 'B', 'C', 'D', 'E'], 'members-track'), version: 10 } };
+    const loaded = await load(roomId);
+    const current = sequenceOf(loaded);
+    const change = overrideTurnSequence(current, { scope: turnSequenceScopeOf(current), expectedVersion: current.version, expectedTurnNumber: current.turnNumber, target: { teamId: 'T1', playerId: 'A' }, eligibility: newer, now: 1 });
+    expect(change.changed).toBe(true);
+    expect(change.transition?.kind).toBe('BASIS');
+    await db.$transaction(tx => saveGameStateIfRevision(tx, { roomId, expectedRevision: loaded.revision, phase: loaded.phase, state: { ...loaded.state, turnSequence: change.state } }));
+    const stored = await load(roomId);
+    expect(stored.revision).toBe(loaded.revision + 1);
+    const seq = sequenceOf(stored);
+    expect(seq).toMatchObject({ turnNumber: initial.turnNumber, completedTurns: 0, cycle: 0, version: initial.version + 1 });
+    expect(seq.teams!.map(t => t.cursor)).toEqual([0, 0]); // no rotation moved
+    expect(seq.eligibility!.actors.version).toBe(10);
+    // read back from the database: the OLD stand (version 1) is fenced, the new one is not
+    expect(() => advanceTurnSequence(seq, { scope: turnSequenceScopeOf(seq), expectedVersion: seq.version, expectedTurnNumber: seq.turnNumber, outcome: 'COMPLETE', eligibility: everyone })).toThrow('TURN_SEQ_ELIGIBILITY_STALE');
+    expect(advanceTurnSequence(seq, { scope: turnSequenceScopeOf(seq), expectedVersion: seq.version, expectedTurnNumber: seq.turnNumber, outcome: 'COMPLETE', eligibility: newer }).changed).toBe(true);
+  });
+
   it('recovery in a SECOND process: the stored state is read back with the same holder, cursors and counters, and the next step continues from them (no re-draw, no reset, no extra step)', async () => {
     const { roomId, initial } = await fixture();
     let binding = { expectedVersion: initial.version, expectedTurnNumber: initial.turnNumber };
@@ -210,7 +230,7 @@ describe('N8 integration: concurrent turn changes on the real CAS / receipt stac
         const client = new PrismaClient({ datasourceUrl: process.env.CHILD_DB });
         const row = await client.roomGameState.findUniqueOrThrow({ where: { roomId: process.env.CHILD_ROOM } });
         const state = parseTurnSequenceState(JSON.parse(row.stateJson).turnSequence);
-        const level = (ids, trackId) => ({ trackId, rosterRevision: 'track-roster-1', version: 1, knownIds: ids, activeIds: ids });
+        const level = (ids, trackId) => ({ runIndex: 1, trackId, rosterRevision: 'track-roster-1', version: 1, knownIds: ids, activeIds: ids });
         const everyone = { actors: level(['T1', 'T2'], 'teams-track'), members: level(['A', 'B', 'C', 'D', 'E'], 'members-track') };
         const next = advanceTurnSequence(state, { scope: turnSequenceScopeOf(state), expectedVersion: state.version, expectedTurnNumber: state.turnNumber, outcome: 'COMPLETE', eligibility: everyone });
         console.log(JSON.stringify({ revision: row.revision, state, holder: currentTurnHolder(state), nextHolder: currentTurnHolder(next.state), next: next.state }));

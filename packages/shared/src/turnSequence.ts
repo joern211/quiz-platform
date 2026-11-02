@@ -136,6 +136,12 @@ export type TurnOrderView = z.infer<typeof TurnOrderViewSchema>;
 const baseShape = {
   contract: z.literal(TURN_SEQUENCE_CONTRACT),
   scope: TurnSequenceScopeSchema,
+  /**
+   * WHO this projection was made for: the participant id of a PLAYER audience, null for every other audience (host, viewer, display). The
+   * recipient-specific part (`you`) is only valid for exactly this recipient. A UI compares it with the recipient it expects from its OWN
+   * authenticated session; a packet made for somebody else is no packet for this UI — at every release level, also NONE.
+   */
+  recipientId: TurnSequenceActorIdSchema.nullable(),
   /** Version of the authoritative snapshot this projection belongs to (NOT the private local counter). */
   stateVersion: TurnSequenceStateVersionSchema,
   /** local sequence version */
@@ -164,6 +170,7 @@ export const TurnSequenceProjectionSchema = z.discriminatedUnion('release', [
   if (projection.status === 'READY' && projection.turnNumber !== 0) bad('READY_TURN_CONFLICT');
   if (holder && projection.turnNumber < 1) bad('HOLDER_TURN_CONFLICT');
   if (projection.you !== null) {
+    if (projection.recipientId === null) bad('YOU_RECIPIENT_MISSING');
     if ((projection.you.teamHoldsTurn !== null) !== (projection.scope.unit === 'TEAM')) bad('YOU_UNIT_CONFLICT');
     if (projection.you.canAct && !(projection.status === 'ACTIVE' && projection.you.holdsTurn)) bad('YOU_CANACT_CONFLICT');
     if (projection.you.holdsTurn && (projection.current === null || projection.you.teamHoldsTurn === false)) bad('YOU_HOLDS_CONFLICT');
@@ -192,10 +199,14 @@ export function parseTurnSequenceProjection(raw: unknown): TurnSequenceProjectio
  */
 export interface TurnSequenceExpectedContext extends TurnSequenceScope { recipientId: string | null; minStateVersion: number }
 
-/** True iff the scope of a (valid) projection equals the expected run, sequence, roster revision and unit, and its snapshot is not older than expected. */
+/**
+ * True iff the scope of a (valid) projection equals the expected run, sequence, roster revision and unit, it was made for exactly the expected RECIPIENT
+ * (a participant id, or null for host / viewer / display), and its snapshot is not older than expected.
+ */
 export function turnSequenceProjectionMatches(projection: TurnSequenceProjection, expected: TurnSequenceExpectedContext): boolean {
   return projection.scope.runIndex === expected.runIndex && projection.scope.sequenceId === expected.sequenceId
     && projection.scope.rosterRevision === expected.rosterRevision && projection.scope.unit === expected.unit
+    && projection.recipientId === expected.recipientId
     && Number.isSafeInteger(expected.minStateVersion) && projection.stateVersion >= expected.minStateVersion;
 }
 

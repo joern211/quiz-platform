@@ -19,15 +19,15 @@ const player = (stand: Stand, over: { holder?: string | null; status?: Status; r
   const status = over.status ?? (holder === null ? 'NO_ELIGIBLE' : 'ACTIVE');
   const release = over.release ?? 'CURRENT';
   const shape = {
-    contract: TURN_SEQUENCE_CONTRACT, scope: { ...SCOPE }, stateVersion: stand.state, sequenceVersion: stand.seq, turnNumber: stand.turn, entitlementRevision: stand.ent ?? 1,
+    contract: TURN_SEQUENCE_CONTRACT, scope: { ...SCOPE }, recipientId: over.you === false ? null : 'p1', stateVersion: stand.state, sequenceVersion: stand.seq, turnNumber: stand.turn, entitlementRevision: stand.ent ?? 1,
     release, status, current: holder === null ? null : { teamId: null, playerId: holder },
     you: over.you === false ? null : { holdsTurn: holder === 'p1', teamHoldsTurn: null, canAct: holder === 'p1' && status === 'ACTIVE' },
   };
   return (release === 'ORDER' ? { ...shape, order: { actorIds: ['p1', 'p2', 'p3'], position: holder === null ? null : ['p1', 'p2', 'p3'].indexOf(holder), cycle: 1 } } : shape) as TurnSequenceProjection;
 };
-const none = (stand: Stand): TurnSequenceProjection => ({ contract: TURN_SEQUENCE_CONTRACT, scope: { ...SCOPE }, stateVersion: stand.state, sequenceVersion: stand.seq, turnNumber: stand.turn, entitlementRevision: stand.ent ?? 1, release: 'NONE' });
+const none = (stand: Stand): TurnSequenceProjection => ({ contract: TURN_SEQUENCE_CONTRACT, scope: { ...SCOPE }, recipientId: 'p1', stateVersion: stand.state, sequenceVersion: stand.seq, turnNumber: stand.turn, entitlementRevision: stand.ent ?? 1, release: 'NONE' });
 const team = (over: { holdsTurn: boolean; teamHolds: boolean }): TurnSequenceProjection => ({
-  contract: TURN_SEQUENCE_CONTRACT, scope: { ...SCOPE, unit: 'TEAM' }, stateVersion: 6, sequenceVersion: 4, turnNumber: 3, entitlementRevision: 1, release: 'CURRENT', status: 'ACTIVE',
+  contract: TURN_SEQUENCE_CONTRACT, scope: { ...SCOPE, unit: 'TEAM' }, recipientId: 'm9', stateVersion: 6, sequenceVersion: 4, turnNumber: 3, entitlementRevision: 1, release: 'CURRENT', status: 'ACTIVE',
   current: { teamId: 'T2', playerId: 'm9' }, you: { holdsTurn: over.holdsTurn, teamHoldsTurn: over.teamHolds, canAct: over.holdsTurn },
 });
 const TEAM_EXPECTED: TurnSequenceExpectedContext = { ...EXPECTED, unit: 'TEAM', recipientId: 'm9' };
@@ -35,6 +35,8 @@ const text = () => document.body.textContent ?? '';
 
 function mount(over: { expected?: TurnSequenceExpectedContext; projection?: TurnSequenceProjection | null; names?: Record<string, string>; onAdvance?: (b: { turnNumber: number; sequenceVersion: number }) => void | Promise<unknown>; label?: string } = {}) {
   const base = { expected: EXPECTED, projection: player({ state: 5, seq: 3, turn: 2 }) as TurnSequenceProjection | null, ...over };
+  // by default the card expects the recipient the fixture was made for (a packet without `you` belongs to a viewer-like recipient)
+  if (over.expected === undefined && base.projection !== null && base.projection !== undefined && typeof base.projection === 'object') base.expected = { ...EXPECTED, recipientId: base.projection.recipientId };
   const view = render(<TurnStatusCard {...base} />);
   return { view, set: (next: typeof over) => view.rerender(<TurnStatusCard {...base} {...next} />) };
 }
@@ -289,5 +291,79 @@ describe('N8 TurnStatusCard: the action is bound to the shown turn', () => {
     set({ expected: { ...EXPECTED, sequenceId: 'seq-2' }, projection: { ...player({ state: 5, seq: 3, turn: 2 }), scope: { ...SCOPE, sequenceId: 'seq-2' } }, onAdvance });
     expect(screen.getByRole('button', { name: 'Zug beenden' })).toBeEnabled(); // another sequence: another binding space
     expect(onAdvance).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('N8 TurnStatusCard: recipient binding (PR #38 review N8-01)', () => {
+  const forRecipient = (recipient: string | null, holder: string, stand: Stand = { state: 5, seq: 3, turn: 2 }): TurnSequenceProjection => {
+    const base = player(stand, { holder, you: recipient !== null });
+    return recipient === null ? base : { ...base, recipientId: recipient, you: { holdsTurn: holder === recipient, teamHoldsTurn: null, canAct: holder === recipient } } as TurnSequenceProjection;
+  };
+  const as = (recipient: string | null): TurnSequenceExpectedContext => ({ ...EXPECTED, recipientId: recipient });
+  const show = (expected: TurnSequenceExpectedContext, projection: TurnSequenceProjection | null, onAdvance = vi.fn()) => ({ onAdvance, ...render(<TurnStatusCard expected={expected} projection={projection} onAdvance={onAdvance} />) });
+
+  it('Alice → Bob with Alice\'s packet still present: no foreign "you", no action, neutral text — and no frame of it (static first render)', () => {
+    const alice = forRecipient('alice', 'alice');
+    const { onAdvance, rerender } = show(as('alice'), alice);
+    expect(screen.getByRole('button', { name: 'Zug beenden' })).toBeInTheDocument();
+    rerender(<TurnStatusCard expected={as('bob')} projection={alice} onAdvance={onAdvance} />);
+    expect(screen.queryByRole('button')).not.toBeInTheDocument();
+    expect(text()).not.toContain('Du bist am Zug.');
+    expect(text()).toContain('nicht verfügbar');
+    expect(renderToStaticMarkup(<TurnStatusCard expected={as('bob')} projection={alice} onAdvance={onAdvance} />)).not.toContain('Zug beenden');
+    expect(onAdvance).not.toHaveBeenCalled();
+  });
+  it('a late Alice packet after Bob\'s own valid view neither hands Bob an action nor keeps Alice\'s; Bob\'s own packet is shown again at once', () => {
+    const bob = forRecipient('bob', 'bob');
+    const { rerender, onAdvance } = show(as('bob'), bob);
+    expect(screen.getByRole('button', { name: 'Zug beenden' })).toBeEnabled();
+    rerender(<TurnStatusCard expected={as('bob')} projection={forRecipient('alice', 'alice', { state: 9, seq: 9, turn: 9 })} onAdvance={onAdvance} />);
+    expect(screen.queryByRole('button')).not.toBeInTheDocument();
+    expect(text()).not.toMatch(/Du bist am Zug|Zug\s*9/);
+    rerender(<TurnStatusCard expected={as('bob')} projection={bob} onAdvance={onAdvance} />); // not poisoned by version 9
+    expect(screen.getByRole('button', { name: 'Zug beenden' })).toBeEnabled();
+  });
+  it('the send lock of Alice does not carry over to Bob, even for the SAME turn binding; Bob\'s own press is his own', async () => {
+    const onAdvance = vi.fn();
+    const { rerender } = show(as('alice'), forRecipient('alice', 'alice'), onAdvance);
+    await userEvent.click(screen.getByRole('button', { name: 'Zug beenden' }));
+    expect(onAdvance).toHaveBeenCalledTimes(1);
+    rerender(<TurnStatusCard expected={as('bob')} projection={forRecipient('bob', 'bob')} onAdvance={onAdvance} />);
+    const bobs = screen.getByRole('button', { name: 'Zug beenden' });
+    expect(bobs).toBeEnabled(); // another recipient: another context, another lock
+    await userEvent.click(bobs);
+    expect(onAdvance).toHaveBeenCalledTimes(2);
+  });
+  it('two members of one team stay apart: the advising teammate never gets the holder\'s action', () => {
+    const teamPacket = (recipient: string, holds: boolean): TurnSequenceProjection => ({ ...team({ holdsTurn: holds, teamHolds: true }), recipientId: recipient });
+    const expected = (recipient: string): TurnSequenceExpectedContext => ({ ...TEAM_EXPECTED, recipientId: recipient });
+    const onAdvance = vi.fn();
+    const { rerender } = show(expected('m9'), teamPacket('m9', true), onAdvance);
+    expect(screen.getByRole('button', { name: 'Zug beenden' })).toBeInTheDocument();
+    rerender(<TurnStatusCard expected={expected('m8')} projection={teamPacket('m9', true)} onAdvance={onAdvance} />); // teammate m8 receives m9's packet
+    expect(screen.queryByRole('button')).not.toBeInTheDocument();
+    rerender(<TurnStatusCard expected={expected('m8')} projection={teamPacket('m8', false)} onAdvance={onAdvance} />);
+    expect(screen.getByText('Dein Team ist am Zug. Du kannst beraten.')).toBeInTheDocument(); // advising is shown, but it is not responsibility
+    expect(screen.queryByRole('button')).not.toBeInTheDocument();
+  });
+  it('viewer / display (recipient null) get no action from a packet that carries somebody\'s "you"; a playing host acts only for his own id', () => {
+    const { onAdvance, rerender } = show(as(null), forRecipient('alice', 'alice'));
+    expect(screen.queryByRole('button')).not.toBeInTheDocument();
+    expect(text()).toContain('nicht verfügbar');
+    rerender(<TurnStatusCard expected={as(null)} projection={forRecipient(null, 'alice')} onAdvance={onAdvance} />);
+    expect(screen.queryByRole('button')).not.toBeInTheDocument();
+    expect(screen.getByRole('status')).toHaveTextContent('Ein Zug läuft.'); // its own, released view
+    rerender(<TurnStatusCard expected={as('host-1')} projection={forRecipient('host-1', 'host-1')} onAdvance={onAdvance} />);
+    expect(screen.getByRole('button', { name: 'Zug beenden' })).toBeInTheDocument();
+    rerender(<TurnStatusCard expected={as('host-1')} projection={forRecipient(null, 'host-1')} onAdvance={onAdvance} />); // the host's non-player packet is no player packet
+    expect(screen.queryByRole('button')).not.toBeInTheDocument();
+  });
+  it('the same valid projection of the same recipient keeps its view and DOM nodes without a reset (equal packet in a new object)', () => {
+    const bob = forRecipient('bob', 'bob');
+    const { rerender, onAdvance } = show(as('bob'), bob);
+    const node = screen.getByRole('status');
+    rerender(<TurnStatusCard expected={{ ...as('bob') }} projection={JSON.parse(JSON.stringify(bob)) as TurnSequenceProjection} onAdvance={onAdvance} />);
+    expect(screen.getByRole('status')).toBe(node);
+    expect(screen.getByRole('button', { name: 'Zug beenden' })).toBeEnabled();
   });
 });

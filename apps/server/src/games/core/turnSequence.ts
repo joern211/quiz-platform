@@ -281,6 +281,8 @@ function assertTime(now: unknown): number {
 // ── Eligibility (layer C), bound to the right track, roster and version ──
 
 const EligibilityLevelSchema = z.object({
+  /** the run the track belongs to (N6 scope). REQUIRED and checked against the sequence's own run at every use: a valid track of another run is no track of this sequence. */
+  runIndex: TurnSequenceRunIndexSchema,
   trackId: TurnSequenceRefSchema, rosterRevision: TurnSequenceRefSchema, version: TurnSequenceCounterSchema,
   /** every id the track KNOWS on this level (active or not). The sequence must be fully covered: an actor the track does not know is a wrong pairing, never "inactive". */
   knownIds: z.array(TurnSequenceActorIdSchema).max(TURN_SEQUENCE_MAX_ACTORS),
@@ -294,7 +296,7 @@ export interface TurnEligibility { actors: TurnEligibilityLevel; members: TurnEl
 interface Eligible { actors: ReadonlySet<string>; members: ReadonlySet<string> | null; basis: { actors: z.infer<typeof BasisSchema>; members: z.infer<typeof BasisSchema> | null } }
 
 /**
- * Validates the caller-supplied eligibility against the unit and against the LAST COMMITTED basis of this sequence: another track or
+ * Validates the caller-supplied eligibility against the unit, the run of the sequence and the LAST COMMITTED basis of this sequence: another run, track or
  * roster revision → ELIGIBILITY_MISMATCH; an older N6 track version → ELIGIBILITY_STALE (a stale stand can never make an actor who was
  * eliminated meanwhile eligible again). Equal version = the same track stand (N6 versions are strictly monotonic per track).
  */
@@ -307,6 +309,9 @@ function readEligibility(state: TurnSequenceState, raw: unknown): Eligible {
   if ((state.unit === 'TEAM') !== (members !== null)) throw invalid();
   const memberLevel = members !== null && members.success ? members.data : null;
   const levels = [actors.data, ...(memberLevel !== null ? [memberLevel] : [])];
+  // Run binding FIRST and against the sequence's own run (never against a stored basis, never invented from the data): every level, so that in team
+  // mode the outer team data and the inner member data both belong to this run and therefore to each other. Identities may persist across runs.
+  if (levels.some(level => level.runIndex !== state.runIndex)) throw new TurnSequenceError('TURN_SEQ_ELIGIBILITY_MISMATCH');
   if (levels.some(level => new Set(level.activeIds).size !== level.activeIds.length || new Set(level.knownIds).size !== level.knownIds.length)) throw invalid();
   if (levels.some(level => { const known = new Set(level.knownIds); return level.activeIds.some(id => !known.has(id)); })) throw invalid();
   // Coverage: the track of a level must know EVERY id the sequence uses on that level. Otherwise an unknown actor would silently count as "not active".
@@ -333,7 +338,9 @@ function readEligibility(state: TurnSequenceState, raw: unknown): Eligible {
 /**
  * The eligibility of a sequence from N6 participation tracks (the ONLY status source; no second life logic here). PLAYER: `actors` is a
  * PARTICIPANT track. TEAM: `actors` is the TEAM track and `members` the PARTICIPANT track (N6 forbids mixed actor kinds in one track).
- * Each track is read with its own scope, so a track of another run, track id or roster revision is rejected by N6 itself. The output also lists
+ * Each track is read with its own scope, so a track of another run, track id or roster revision is rejected by N6 itself. The output keeps the
+ * N6 RUN of each track, which the sequence compares with its own run at the first use (a track with its own valid scope is not yet a track of THIS
+ * run). The output also lists
  * every id the track knows, so that a sequence that is not fully covered by its track is rejected instead of silently skipping the unknown actors.
  */
 export function eligibilityFromParticipation(args: { unit: TurnSequenceUnit; actors: { track: unknown; scope: ParticipationScope }; members?: { track: unknown; scope: ParticipationScope } }): TurnEligibility {
@@ -345,7 +352,7 @@ export function eligibilityFromParticipation(args: { unit: TurnSequenceUnit; act
     const track = parseParticipationTrackState(source.track);
     if (track.actorKind !== kind) throw invalid();
     const scope = participationScopeOf(track);
-    return { trackId: scope.trackId, rosterRevision: scope.rosterRevision, version: track.version, knownIds: track.actors.map(actor => actor.actorId), activeIds: activeActorIds(track, source.scope) };
+    return { runIndex: scope.runIndex, trackId: scope.trackId, rosterRevision: scope.rosterRevision, version: track.version, knownIds: track.actors.map(actor => actor.actorId), activeIds: activeActorIds(track, source.scope) };
   };
   return { actors: level(args.actors, args.unit === 'TEAM' ? 'TEAM' : 'PARTICIPANT'), members: args.members === undefined ? null : level(args.members, 'PARTICIPANT') };
 }
@@ -405,7 +412,7 @@ export function turnSequenceToCoreTurn(rawState: unknown): CoreTurn | null {
 
 // ── Transitions ──────────────────────────────────────────────
 
-export type TurnTransitionKind = 'START' | 'COMPLETE' | 'SKIP' | 'WITHHOLD' | 'OVERRIDE' | 'CLOSE';
+export type TurnTransitionKind = 'START' | 'COMPLETE' | 'SKIP' | 'WITHHOLD' | 'OVERRIDE' | 'CLOSE' | 'BASIS';
 /**
  * The small SERVER-PRIVATE before/after record of one real change, so the later consumer can build its existing SDK state event and audit.
  * `reason` is only the (trimmed) free text an override was given. Never send it to a client, a log or a public history.
@@ -422,6 +429,26 @@ export interface TurnTransition {
 export interface TurnSequenceChange { state: TurnSequenceState; changed: boolean; transition: TurnTransition | null }
 
 const unchanged = (state: TurnSequenceState): TurnSequenceChange => ({ state, changed: false, transition: null });
+
+/**
+ * Is a level of the supplied eligibility NEWER than the last committed basis? (Each level on its own: team/actor level and member level.)
+ * A newer valid basis is relevant knowledge about WHO may no longer act, even when nobody's responsibility changes.
+ */
+function basisAdvanced(state: TurnSequenceState, eligible: Eligible): boolean {
+  const stored = state.eligibility;
+  if (stored === null) return false;
+  return eligible.basis.actors.version > stored.actors.version
+    || (eligible.basis.members !== null && stored.members !== null && eligible.basis.members.version > stored.members.version);
+}
+/**
+ * The "nothing else changes" exit of an operation that was valid but needs no new holder (repeated hold, identical override, a repeated search that
+ * still finds nobody). If the supplied basis is NEWER it is committed as its own change (`BASIS`: local version +1, new basis, NOTHING else — no turn,
+ * no completion, no cursor, no cycle, no entitlement change), so that an older stand in between can never pass the guard later; the consumer
+ * persists it like every other change (state event + CAS). An equal basis is a true no-op. Read-only functions never go through here.
+ */
+function keepOrAdvance(state: TurnSequenceState, eligible: Eligible): TurnSequenceChange {
+  return basisAdvanced(state, eligible) ? commit(state, 'BASIS', {}, eligible) : unchanged(state);
+}
 
 /** Commits a change: one local version step, the entitlement counter only if "may anybody act" flipped, the eligibility basis moved forward. */
 function commit(before: TurnSequenceState, kind: TurnTransitionKind, patch: Partial<TurnSequenceState>, eligible: Eligible | null, reason: string | null = null): TurnSequenceChange {
@@ -498,8 +525,8 @@ export function advanceTurnSequence(rawState: unknown, args: { scope: TurnSequen
   }
   const from = state.position === null ? 'START' : 'AFTER';
   const result = beginTurn(state, args.outcome, base, eligible, from);
-  // a repeated search that again finds nobody is no change (and moves neither the version nor the stored eligibility basis)
-  if (state.phase === 'NO_ELIGIBLE' && result.state.phase === 'NO_ELIGIBLE') return unchanged(state);
+  // a repeated search that again finds nobody changes nobody's responsibility: a true no-op with an equal basis, a BASIS change with a newer one
+  if (state.phase === 'NO_ELIGIBLE' && result.state.phase === 'NO_ELIGIBLE') return keepOrAdvance(state, eligible);
   return result;
 }
 
@@ -507,7 +534,8 @@ export function advanceTurnSequence(rawState: unknown, args: { scope: TurnSequen
  * Makes the intermediate state explicit: the holder is no longer eligible (N6 elimination, layer-B loss …) → HELD. Nobody acts; the turn and
  * its holder stay for the evidence; version and entitlement revision step, so every open action of the holder is void. Allowed only if the
  * supplied eligibility really shows the holder as NOT eligible (TURN_SEQ_HOLDER_STILL_ELIGIBLE otherwise — no lock without cause).
- * Already HELD at the expected version/turn → `changed:false`. The next actor is chosen only by an explicit advance(SKIP) or override.
+ * Already HELD at the expected version/turn → `changed:false` with an equal basis, or a `BASIS` change (no turn, no completion, no cursor) when the
+ * supplied basis is newer. The next actor is chosen only by an explicit advance(SKIP) or override.
  */
 export function withholdCurrentHolder(rawState: unknown, args: { scope: TurnSequenceScope; expectedVersion: number; expectedTurnNumber: number; eligibility: TurnEligibility }): TurnSequenceChange {
   const state = parseTurnSequenceState(rawState);
@@ -519,7 +547,7 @@ export function withholdCurrentHolder(rawState: unknown, args: { scope: TurnSequ
   requireOpen(state);
   if (state.phase === 'NO_ELIGIBLE') throw new TurnSequenceError('TURN_SEQ_NO_CURRENT');
   const eligible = readEligibility(state, args.eligibility);
-  if (state.phase === 'HELD') return unchanged(state);
+  if (state.phase === 'HELD') return keepOrAdvance(state, eligible);
   if (holderEligible(state, eligible)) throw new TurnSequenceError('TURN_SEQ_HOLDER_STILL_ELIGIBLE');
   return commit(state, 'WITHHOLD', { phase: 'HELD' }, eligible);
 }
@@ -530,7 +558,7 @@ export function withholdCurrentHolder(rawState: unknown, args: { scope: TurnSequ
  * evidence. Changes NOT: `completedTurns`, any cursor (the displaced holder completed nothing and stays next in line in his team), `cycle`.
  * The sequence continues after the TARGET's position. Targets are checked: unknown → ACTOR_UNKNOWN, a player of another team →
  * TEAM_MEMBER_MISMATCH, not eligible (actor/team or member) → ACTOR_NOT_ELIGIBLE. A target equal to the current holder in ACTIVE is a
- * controlled no-op (`changed:false`, no turn, no version) — AFTER scope, version and turn were checked. `reason` and `now` go to the
+ * controlled no-op (`changed:false`, no turn; with a NEWER eligibility basis a `BASIS` change that only advances the version and the basis) — AFTER scope, version and turn were checked. `reason` and `now` go to the
  * server-private transition; the state keeps only the time and the turn numbers.
  */
 export function overrideTurnSequence(rawState: unknown, args: {
@@ -569,9 +597,26 @@ export function overrideTurnSequence(rawState: unknown, args: {
     if (memberIndex < 0) throw new TurnSequenceError(teams.some(team => team.members.includes(playerId)) ? 'TURN_SEQ_TEAM_MEMBER_MISMATCH' : 'TURN_SEQ_ACTOR_UNKNOWN');
     if (!eligible.actors.has(target.teamId as string) || !(eligible.members as ReadonlySet<string>).has(playerId)) throw new TurnSequenceError('TURN_SEQ_ACTOR_NOT_ELIGIBLE');
   }
-  if (state.phase === 'ACTIVE' && state.position === position && state.memberIndex === memberIndex) return unchanged(state);
+  if (state.phase === 'ACTIVE' && state.position === position && state.memberIndex === memberIndex) return keepOrAdvance(state, eligible);
   const toTurnNumber = state.turnNumber + 1;
   return commit(state, 'OVERRIDE', { phase: 'ACTIVE', turnNumber: toTurnNumber, position, memberIndex, lastOverride: { atMs: now, fromTurnNumber: state.turnNumber, toTurnNumber } }, eligible, reason);
+}
+
+/**
+ * Records a NEWER eligibility basis without any other change — the explicit connector for "somebody who does not hold the turn was eliminated / left".
+ * A newer basis (either level) is committed as a `BASIS` change: local version +1 and the new basis, nothing else (no turn, no completion, no cursor, no
+ * cycle, no entitlement change), to be persisted like every other change (state event + CAS). An equal basis is a true no-op (`changed:false`); an older
+ * one is `TURN_SEQ_ELIGIBILITY_STALE`. It never selects or withholds anybody: if the HOLDER lost eligibility the consumer calls `withholdCurrentHolder`
+ * (or `advanceTurnSequence(SKIP)` / `overrideTurnSequence`) — this function does not decide that. Allowed in every phase except READY and CLOSED.
+ */
+export function refreshEligibilityBasis(rawState: unknown, args: { scope: TurnSequenceScope; expectedVersion: number; eligibility: TurnEligibility }): TurnSequenceChange {
+  const state = parseTurnSequenceState(rawState);
+  args_(isPlain(args) && keysWithin(args, ['scope', 'expectedVersion', 'eligibility']));
+  assertScope(state, args.scope);
+  if (state.phase === 'CLOSED') throw new TurnSequenceError('TURN_SEQ_CLOSED');
+  assertVersion(state, args.expectedVersion);
+  if (state.phase === 'READY') throw new TurnSequenceError('TURN_SEQ_NOT_STARTED');
+  return keepOrAdvance(state, readEligibility(state, args.eligibility));
 }
 
 /** Terminal close. A closed sequence never restarts; a new pass needs a new instance. Repeating it at the current version is `changed:false`. */
@@ -634,6 +679,8 @@ const INFORMATION_ROLES = ['HOST', 'PLAYER', 'VIEWER', 'DISPLAY'];
  * - `release` is REQUIRED (no default): NONE → only the ordering counters; CURRENT → state, current holder, the caller's own `you`;
  *   ORDER → additionally the outer order, position and cycle. Team member lists, cursors, eligibility, override evidence are never projected.
  * - `you` exists only for a PLAYER audience (own id via PLAYER_PRIVATE, own team via TEAM_PRIVATE). HOST / VIEWER / DISPLAY get none.
+ * - `recipientId` (every release, also NONE) names the recipient the packet was made for: the participant id of a PLAYER audience, null otherwise.
+ *   A UI accepts the packet only for exactly the recipient it expects from its own session (turnSequenceProjectionMatches).
  * - `stateVersion` is the authoritative game snapshot version the caller binds this to; it is NOT the private local `version`.
  */
 export function projectTurnSequence(audience: ProjectionAudience, rawState: unknown, args: { scope: TurnSequenceScope; release: TurnSequenceRelease; stateVersion: number }): TurnSequenceProjection {
@@ -647,8 +694,9 @@ export function projectTurnSequence(audience: ProjectionAudience, rawState: unkn
   for (const id of [audience.participantId, audience.teamId] as unknown[]) {
     if (id !== undefined && id !== null && !TurnSequenceActorIdSchema.safeParse(id).success) throw bad();
   }
+  const recipientId = audience.role === 'PLAYER' && typeof audience.participantId === 'string' && audience.participantId !== '' ? audience.participantId : null;
   const base = {
-    contract: TURN_SEQUENCE_CONTRACT, scope: turnSequenceScopeOf(state), stateVersion: args.stateVersion, sequenceVersion: state.version,
+    contract: TURN_SEQUENCE_CONTRACT, scope: turnSequenceScopeOf(state), recipientId, stateVersion: args.stateVersion, sequenceVersion: state.version,
     turnNumber: state.turnNumber, entitlementRevision: state.entitlementRevision,
   };
   let projection: Record<string, unknown>;
@@ -656,7 +704,7 @@ export function projectTurnSequence(audience: ProjectionAudience, rawState: unkn
   else {
     const holder = currentTurnHolder(state);
     let you: { holdsTurn: boolean; teamHoldsTurn: boolean | null; canAct: boolean } | null = null;
-    if (audience.role === 'PLAYER' && typeof audience.participantId === 'string' && audience.participantId !== '') {
+    if (recipientId !== null) {
       const playerMatch = holder !== null && canView(audience, { scope: 'PLAYER_PRIVATE', ownerParticipantId: holder.playerId });
       const teamMatch = holder !== null && holder.teamId !== null && canView(audience, { scope: 'TEAM_PRIVATE', ownerTeamId: holder.teamId });
       const holdsTurn = state.unit === 'TEAM' ? playerMatch && teamMatch : playerMatch;
