@@ -456,6 +456,31 @@ describe('E. Access URL, errors, autoplay', () => {
     expect(el.seeks.length).toBe(seeks);
     expect(m.world.elements).toHaveLength(made);
   });
+  it('a plan whose source was dropped as OLDER holds NO element and loads nothing: RUNNING shows the neutral error with the retrieval action, PAUSED shows the plan', async () => {
+    const m = mount();
+    m.controller.apply({ ...playProjection({ anchorMono: 0 }), source: null }); // RUNNING, source dropped by the intake
+    expect(m.world.elements).toHaveLength(0);
+    expect(m.status()).toBe('ERROR');
+    expect(m.controller.getSnapshot().canRetry).toBe(true);
+    const renew = vi.fn();
+    m.controller.retry(renew);
+    expect(renew).toHaveBeenCalledTimes(1);
+    expect(m.world.elements).toHaveLength(0); // nothing old is reloaded
+    m.controller.apply({ ...playProjection({ status: 'PAUSED', positionMs: 3000, playbackVersion: 2, stateVersion: 6 }), source: null });
+    expect(m.status()).toBe('PAUSED');
+    expect(m.world.elements).toHaveLength(0);
+    // a genuinely current source arrives: the clip loads and plays at the position valid now
+    m.controller.apply(playProjection({ anchorMono: 0, playbackVersion: 3, stateVersion: 7, renewal: 21 }));
+    expect(m.world.elements).toHaveLength(1);
+    await loaded(m);
+    expect(m.el().playCalls).toBe(1);
+  });
+  it('a dropped preload (LOAD_ONLY without a source) also holds no element and offers the retrieval action', async () => {
+    const m = mount();
+    m.controller.apply({ ...playProjection(), release: 'LOAD_ONLY', plan: null, source: null });
+    expect(m.world.elements).toHaveLength(0);
+    expect(m.status()).toBe('ERROR');
+  });
   it('a scheduled start can be cancelled by a pause before it fires: no timer survives, nothing is played', async () => {
     const m = mount();
     m.controller.apply(playProjection({ anchorMono: 5000 }));

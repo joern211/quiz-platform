@@ -158,3 +158,14 @@ Echter Browser (Harness): N01 ohne Erneuerungsordnung → rot (S6) · N02c Verha
 | R6 | Mein Test-Double bildete asynchrones Seeking falsch ab (M30 ungefangen). | Double korrigiert (`currentTime` = angeforderte Position, solange `seeking`); der Test fängt M30. |
 | R7 | Die Harness-Probe für N7-02 verlangte „Element am Ende“, das Element meldete während des Seeks noch `ended === false`. | Probe wartet auf `seeked`, dann Ereignis; die Vorbedingung wird als Behauptung geprüft. |
 | R8 | Eine Mutation (N02d) blieb im Browser ungefangen, weil zwei Schichten dasselbe schützen. | als Grenze dokumentiert (matrix G, design §11), nicht als Abdeckung ausgegeben. |
+
+## 10. Nachprüfung 2 (Head 84821b2): N7-01-Rest [P2] und N7-04 [P3]
+
+Auch das ist Eigenprüfung. Die externe Nachprüfung fand an meiner N7-01-Korrektur den Fehler, den ich aus N6 kannte und hier wieder gemacht hatte: die Ordnungskenntnis stand im gleichen Zustand wie die Nutzdaten (`held.source`) und ging mit deren Löschen verloren. Meine erste Gegenprüfung hatte nur Reihenfolgen **ohne** leere Zwischenansicht getestet.
+
+| Befund | Ursache | Korrektur | Rot → Grün | Grenze |
+|---|---|---|---|---|
+| N7-01-Rest [P2] U20 → null/undefined/ungültig → U10 lud die ältere URL wieder | höchste Nummer nur in `memo.held.source` | `seenRenewal` als Zahl im Memo (überlebt leere/ungültige/fremde Sichten, keine URL, neuer Kontext beginnt leer); Quelle `< seenRenewal` wird nie gehalten, Plan/Versionen werden trotzdem übernommen; Controller hält ohne Quelle kein Element und zeigt neutral die Wiederbeschaffung (`retry` ruft `onRenewUrl`) | 3 Proben des Prüfers rot → grün (`n7RecheckIndependent.test.ts`); Intake: 4 Zwischenzustände, aktuelle/neuere Quelle danach, Pause/Stop nach leerer Sicht, fremde hohe Nummer, neuer Kontext, Entzug, **erschöpfend 5^5 Folgen** mit null/ungültig; Controller (RUNNING/PAUSED/LOAD_ONLY ohne Quelle); Komponente (kein Audioobjekt mit der alten URL, Retry, danach U21 an der gültigen Position) | Wiederbeschaffung ist die Anfrage an die Anwendung (`onRenewUrl`); deren Ausgang ist nicht modelliert |
+| N7-04 [P3] Issuer „neustartfest“ | eine neue Instanz kennt frühere Nummern nicht; die Wanduhr ist kein persistierter Zähler | Anschluss `last()` / `createRenewalIssuer(last)`; Behauptung auf das Garantierte reduziert (Instanz streng wachsend; über Neustart nur mit wiederhergestelltem Wert oder nicht rückwärts laufender Uhr) | Probe des Prüfers rot (99 000 < 100 000) → Wiederherstellungsfall grün; die unbedingte Form bleibt als **dokumentierte Grenze** (Test erwartet den niedrigeren Wert) | keine Persistenz und kein Zeitdienst in N7; Pflicht des späteren Adapters |
+
+Die Probe des Prüfers für den Issuer ist angepasst: sie prüft jetzt den Fall **mit** wiederhergestelltem Wert (grün) und hält die unbedingte Form als dokumentierte Grenze fest, statt eine Garantie zu behaupten, die ohne gespeicherten Zähler nicht gegeben werden kann.

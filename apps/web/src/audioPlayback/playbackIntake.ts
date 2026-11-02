@@ -27,12 +27,17 @@ export interface IntakeMemo {
   seenPlaybackVersion: number;
   /** Release of the last accepted projection (-1 rank = none yet). */
   seenRelease: AudioPlaybackRelease | null;
+  /**
+   * Highest access-URL renewal number accepted in this context (-1 = none). A NUMBER only, kept apart from `held` like the two versions: it survives
+   * a withdrawal, null, undefined and an invalid view, so a delayed older renewal can never come back through an empty intermediate state.
+   */
+  seenRenewal: number;
   held: AudioPlaybackProjection | null;
 }
 export type IntakeOutcome = 'ACCEPTED' | 'RELEASE_NONE' | 'WITHDRAWN' | 'STALE';
 export interface IntakeResult { memo: IntakeMemo; held: AudioPlaybackProjection | null; outcome: IntakeOutcome }
 
-export const emptyMemo = (key: string): IntakeMemo => ({ key, seenStateVersion: -1, seenPlaybackVersion: -1, seenRelease: null, held: null });
+export const emptyMemo = (key: string): IntakeMemo => ({ key, seenStateVersion: -1, seenPlaybackVersion: -1, seenRelease: null, seenRenewal: -1, held: null });
 
 export function intakeAudioPlayback(prev: IntakeMemo | null, expected: AudioPlaybackExpectedContext, raw: unknown): IntakeResult {
   const key = audioPlaybackContextKey(expected);
@@ -47,14 +52,23 @@ export function intakeAudioPlayback(prev: IntakeMemo | null, expected: AudioPlay
   const samePair = observed.stateVersion === base.seenStateVersion && observed.playbackVersion === base.seenPlaybackVersion;
   const wider = samePair && base.seenRelease !== null && RANK[observed.release] > RANK[base.seenRelease];
   if (older || wider) return { memo: base, held: base.held, outcome: 'STALE' };
-  // URL ordering inside an otherwise acceptable projection: an access URL ISSUED earlier (lower renewal number — or the same number with another URL, which would be a
-  // contradiction of the issuer) never replaces the one already held. The projection is still taken for everything else (plan, versions): a delayed older renewal answer must neither displace the
-  // current source nor make the current playback be torn down because of its late arrival.
-  const heldSource = base.held?.source ?? null;
-  const projection = observed.source !== null && heldSource !== null && observed.source.renewal <= heldSource.renewal ? { ...observed, source: heldSource } : observed;
+  // URL ordering inside an otherwise acceptable projection. A source ISSUED earlier than one already known (lower renewal number — or the same number with
+  // another URL, which would contradict the issuer) never replaces the held source, whatever the arrival order. The projection is still taken for everything
+  // else (plan, versions): a late older renewal must neither displace the current source nor make a newer pause/stop get lost. When the older source arrives
+  // while NO source is held (after a withdrawal, null, undefined or an invalid view) there is nothing newer to keep: the projection is held WITHOUT a source
+  // (the older URL is dropped, not loaded) and the controller shows the neutral state with the retrieval action. Only the number is remembered, never a URL.
+  let projection = observed;
+  let seenRenewal = base.seenRenewal;
+  if (observed.source !== null) {
+    const heldSource = base.held?.source ?? null;
+    const behind = observed.source.renewal < base.seenRenewal;
+    const contradicts = observed.source.renewal === base.seenRenewal && heldSource !== null && heldSource.url !== observed.source.url;
+    if (behind || contradicts) projection = { ...observed, source: heldSource };
+    else seenRenewal = observed.source.renewal;
+  }
   const held = observed.release === 'NONE' ? null : projection;
   return {
-    memo: { key, seenStateVersion: observed.stateVersion, seenPlaybackVersion: observed.playbackVersion, seenRelease: observed.release, held },
+    memo: { key, seenStateVersion: observed.stateVersion, seenPlaybackVersion: observed.playbackVersion, seenRelease: observed.release, seenRenewal, held },
     held,
     outcome: held === null ? 'RELEASE_NONE' : 'ACCEPTED',
   };

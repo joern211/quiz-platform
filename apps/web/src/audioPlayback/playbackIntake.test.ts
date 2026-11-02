@@ -88,7 +88,7 @@ describe('N7 intake: version knowledge is kept apart from what is playable (anal
     // going back to the first context does not remember it either
     const back = intakeAudioPlayback(b.memo, EXPECTED, play(4));
     expect(back.outcome).toBe('ACCEPTED');
-    expect(Object.keys(b.memo).sort()).toEqual(['held', 'key', 'seenPlaybackVersion', 'seenRelease', 'seenStateVersion']);
+    expect(Object.keys(b.memo).sort()).toEqual(['held', 'key', 'seenPlaybackVersion', 'seenRelease', 'seenRenewal', 'seenStateVersion']);
   });
   it('holds nothing but the validated projection and numbers: the memo has no URL for withdrawn or released-NONE views', () => {
     const r = run([play(9), none(10)]);
@@ -199,5 +199,70 @@ describe('N7-01. Access-URL renewals are ordered by the issuer\'s renewal number
         expect(r.held?.source?.renewal).toBe(best);
       }
     }
+  });
+});
+
+describe('N7-01 (recheck). The renewal order survives an empty, undefined or invalid intermediate view', () => {
+  const U10 = '/api/v1/media/a?sig=ten', U20 = '/api/v1/media/a?sig=twenty', U21 = '/api/v1/media/a?sig=twentyone';
+  const at = (url: string, renewal: number, over: Parameters<typeof playProjection>[0] = {}) => playProjection({ anchorMono: 0, url, renewal, ...over });
+  const urls = (r: IntakeResult[]) => r.map(x => x.held?.source?.url ?? null);
+  const empties: Array<[string, unknown]> = [['null', null], ['undefined', undefined], ['invalid object', { malformed: true }], ['foreign context', { ...at(U21, 99, { stateVersion: 99 }), scope: { ...SCOPE, playbackId: 'other' } }]];
+
+  it.each(empties)('U20 → %s → U10: the older source is NOT restored; the memo keeps the number and no URL', (_name, empty) => {
+    const r = run([at(U20, 20), empty, at(U10, 10)]);
+    expect(r[1].held).toBeNull();
+    expect(JSON.stringify(r[1].memo)).not.toMatch(/api\/v1|sig=/);
+    expect(r[1].memo.seenRenewal).toBe(20);
+    expect(r[2].held?.source).toBeNull(); // taken for the plan, but WITHOUT the older source
+    expect(JSON.stringify(r[2].memo)).not.toContain(U10);
+    expect(r[2].memo.seenRenewal).toBe(20);
+  });
+  it.each(empties)('after %s the CURRENT source (U20 again) and a genuinely newer one (U21) are accepted normally', (_name, empty) => {
+    expect(urls(run([at(U20, 20), empty, at(U10, 10), at(U20, 20)]))).toEqual([U20, null, null, U20]);
+    expect(urls(run([at(U20, 20), empty, at(U10, 10), at(U21, 21)]))).toEqual([U20, null, null, U21]);
+    expect(urls(run([at(U20, 20), empty, at(U21, 21), at(U10, 10)]))).toEqual([U20, null, U21, U21]); // the held newer one is kept again
+  });
+  it('plan and version decisions are not lost just because the accompanying source is old: a pause / stop after an empty view is taken', () => {
+    const r = run([at(U20, 20), null, at(U10, 10, { status: 'PAUSED', positionMs: 3000, stateVersion: 10, playbackVersion: 2 }), playProjection({ status: 'STOPPED', positionMs: 4000, stateVersion: 11, playbackVersion: 3 })]);
+    expect(r[2].held?.plan).toEqual({ status: 'PAUSED', positionMs: 3000, anchorServerMs: null });
+    expect(r[2].held?.source).toBeNull();
+    expect(r[3].held?.plan?.status).toBe('STOPPED');
+    expect(r[3].memo.seenStateVersion).toBe(11);
+  });
+  it('a foreign / invalid input with a huge number does not poison the current context; a NEW playback context may start with a smaller number', () => {
+    const r = run([at(U10, 10), { ...at(U21, 2 ** 40), scope: { ...SCOPE, playbackId: 'other' } }, { ...at(U21, 2 ** 40), title: 'x' }, at(U20, 20)]);
+    expect(urls(r)).toEqual([U10, null, null, U20]);
+    expect(r[3].memo.seenRenewal).toBe(20);
+    const a = intakeAudioPlayback(null, EXPECTED, at(U20, 20));
+    const next = { ...EXPECTED, playbackId: 'pb-2' };
+    const b = intakeAudioPlayback(a.memo, next, { ...at(U10, 1), scope: { ...SCOPE, playbackId: 'pb-2' } });
+    expect(b.held?.source?.url).toBe(U10);
+    expect(b.memo.seenRenewal).toBe(1); // nothing is carried over, no archive
+  });
+  it('a withdrawal (NONE) keeps the number too: re-release at a newer snapshot with an older source is held without it', () => {
+    const r = run([at(U20, 20, { stateVersion: 9 }), none(10), at(U10, 10, { stateVersion: 11 })]);
+    expect(r[1].memo.seenRenewal).toBe(20);
+    expect(r[2].held?.source).toBeNull();
+  });
+  it('EXHAUSTIVE over {U10, U20, U21, null, invalid} with length 5: a held source is never older than any number accepted before', () => {
+    const alphabet: Array<[number | null, unknown]> = [[10, at(U10, 10)], [20, at(U20, 20)], [21, at(U21, 21)], [null, null], [null, { malformed: true }]];
+    let checked = 0;
+    const walk = (prefix: number[]) => {
+      if (prefix.length === 5) {
+        let memo: IntakeMemo | null = null; let known = -1;
+        for (const i of prefix) {
+          const r = intakeAudioPlayback(memo, EXPECTED, alphabet[i][1]); memo = r.memo;
+          const renewal = alphabet[i][0];
+          if (r.held?.source) expect(r.held.source.renewal).toBeGreaterThanOrEqual(known);
+          if (renewal !== null && r.held?.source) known = Math.max(known, r.held.source.renewal);
+          expect(r.memo.seenRenewal).toBe(known);
+          expect(JSON.stringify(r.memo.held === null ? r.memo : { ...r.memo, held: null })).not.toMatch(/sig=/); // the knowledge itself holds no URL
+        }
+        checked++; return;
+      }
+      for (let i = 0; i < alphabet.length; i++) walk([...prefix, i]);
+    };
+    walk([]);
+    expect(checked).toBe(5 ** 5);
   });
 });

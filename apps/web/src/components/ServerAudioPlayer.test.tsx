@@ -261,4 +261,38 @@ describe('N7-01. URL renewal through the component: ordered by number, plan unto
     expect(text()).toContain('nicht verfügbar'); // foreign for the new context: nothing is shown
     expect(liveSrc(m.world)).toEqual([]);
   });
+
+  it('after an EMPTY view a late older renewal loads NO audio object; the neutral state offers the retrieval action; a current URL then plays at the valid position', async () => {
+    const onRenewUrl = vi.fn();
+    const m = mount({ projection: playProjection({ anchorMono: 0, url: U3, renewal: 20 }), onRenewUrl });
+    await act(async () => { await flush(); const el = liveElements(m.world)[0]; el.loadMetadata(); await flush(); el.startPlayback(); await flush(); });
+    expect(liveSrc(m.world)).toEqual([U3]);
+    m.set(null); // vorübergehend fehlende Ansicht
+    expect(liveSrc(m.world)).toEqual([]);
+    const made = m.world.elements.length;
+    m.set(playProjection({ anchorMono: 0, url: U1, renewal: 10 })); // the delayed OLDER answer, same snapshot and plan version
+    await act(async () => { await flush(); });
+    expect(m.world.elements.length).toBe(made); // no audio object was created for the old URL
+    expect(liveSrc(m.world)).toEqual([]);
+    expect(document.body.innerHTML).not.toMatch(/sig=u1/);
+    expect(text()).toContain('nicht geladen werden');
+    await userEvent.click(screen.getByRole('button', { name: 'Erneut laden' }));
+    expect(onRenewUrl).toHaveBeenCalledTimes(1);
+    expect(m.world.elements.length).toBe(made); // the retrieval asks the application; it does not reload the old URL
+    await act(async () => { await m.world.advance(2000); });
+    m.set(playProjection({ anchorMono: 0, url: '/api/v1/media/clip-a?sig=u21', renewal: 21 })); // a genuinely newer source
+    await act(async () => { await flush(); const el = liveElements(m.world)[0]; el.loadMetadata(); await flush(); });
+    const fresh = liveElements(m.world)[0];
+    expect(fresh.src).toBe('/api/v1/media/clip-a?sig=u21');
+    expect(fresh.seeks.at(-1)).toBeGreaterThan(1.9); // the plan position valid now, not 0
+    expect(fresh.playCalls).toBe(1);
+  });
+  it('after an empty view the CURRENT source (the same number again) is simply taken: the normal re-delivery path keeps working', async () => {
+    const m = mount({ projection: playProjection({ anchorMono: 0, url: U3, renewal: 20 }) });
+    await act(async () => { await flush(); const el = liveElements(m.world)[0]; el.loadMetadata(); await flush(); });
+    m.set(null);
+    m.set(playProjection({ anchorMono: 0, url: U3, renewal: 20 }));
+    await act(async () => { await flush(); const el = liveElements(m.world)[0]; el.loadMetadata(); await flush(); });
+    expect(liveSrc(m.world)).toEqual([U3]);
+  });
 });

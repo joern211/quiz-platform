@@ -230,15 +230,27 @@ export function projectAudioPlayback(
   return build({ durationMs: state.durationMs, source, plan });
 }
 
+/** Issues renewal numbers; `last()` is the value to persist for a restart (null until something was issued). */
+export type RenewalIssuer = ((now: number) => number) & { readonly last: () => number | null };
+
 /**
- * The server side's ISSUER of renewal numbers for ONE playback instance (the adapter that signs access URLs keeps one). `issue(now)` is
- * strictly increasing — max(previous + 1, now) — and derived from the server clock, so it also keeps growing across a restart. A new
- * number is issued ONLY when a new URL is really issued; while the URL handed out earlier is still valid the adapter reuses it together
- * with its number (a re-signed URL for every projection would make every browser reload the clip).
+ * The server side's ISSUER of renewal numbers for ONE playback instance (the adapter that signs access URLs keeps one). `issue(now)` returns
+ * max(previous + 1, now): strictly increasing INSIDE this instance, also while the server clock stands still or steps back.
+ *
+ * What is guaranteed across a RESTART — and what is not: an instance cannot know what an earlier instance issued. The order survives a restart in
+ * exactly two ways: (a) the adapter persists `issuer.last()` together with its own playback state (the existing persistence/recovery path of the
+ * consumer) and recreates the issuer with `createRenewalIssuer(lastPersisted)`; or (b) it relies on the wall clock, which only holds while the clock
+ * did not run backwards between the restart and the last issued number. A clock stepped back WITHOUT restoring `last` can issue a lower number than
+ * before; a browser that already knows the higher number then treats the fresh URL as older. N7 provides no storage and no time service.
+ *
+ * A new number is issued ONLY when a new URL is really issued; while the URL handed out earlier is still valid the adapter reuses it together with
+ * its number (a re-signed URL for every projection would make every browser reload the clip).
  */
-export function createRenewalIssuer(): (now: number) => number {
-  let last = -1;
-  return now => { clockMs(now); last = Math.max(last + 1, now); return last; };
+export function createRenewalIssuer(lastIssued?: number): RenewalIssuer {
+  if (lastIssued !== undefined && (!Number.isSafeInteger(lastIssued) || lastIssued < 0)) fail('AUDIO_PLAYBACK_ARGS_INVALID');
+  let last = lastIssued ?? -1;
+  const issue = (now: number): number => { clockMs(now); last = Math.max(last + 1, now); return last; };
+  return Object.assign(issue, { last: (): number | null => (last < 0 ? null : last) });
 }
 
 export type { AudioPlaybackProjection, AudioPlaybackScope, AudioPlaybackPlan, AudioPlaybackRelease } from '@quiz/shared/audioPlayback';

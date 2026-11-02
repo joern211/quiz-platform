@@ -341,16 +341,31 @@ describe('N7-01 (server side). Renewal numbers order the ISSUED access URLs, ind
     }
     expect(parseAudioPlaybackProjection({ ...project({ role: 'VIEWER' }, 'PLAY'), source: { url: '/api/v1/media/x' } }).ok).toBe(false);
   });
-  it('the issuer is strictly increasing, follows the server clock, and keeps growing when the clock stands still or a restart reuses the same time', () => {
+  it('the issuer is strictly increasing INSIDE an instance: while the clock stands still or steps back', () => {
     const issue = createRenewalIssuer();
+    expect(issue.last()).toBeNull();
     expect(issue(1000)).toBe(1000);
     expect(issue(1000)).toBe(1001); // same millisecond: still strictly increasing
-    expect(issue(900)).toBe(1002); // a clock that stepped back never reuses a number
+    expect(issue(900)).toBe(1002); // a clock that stepped back never reuses a number inside the instance
     expect(issue(5000)).toBe(5000);
-    const afterRestart = createRenewalIssuer(); // in-memory state is gone; the clock still carries the order
-    expect(afterRestart(5001)).toBeGreaterThan(5000);
+    expect(issue.last()).toBe(5000);
     expect(code(() => issue(-1))).toBe('AUDIO_PLAYBACK_TIME_INVALID');
     expect(code(() => issue(1.5))).toBe('AUDIO_PLAYBACK_TIME_INVALID');
+  });
+  it('a RESTART with the persisted last value keeps the order, also when the clock was corrected backwards before the restart', () => {
+    const before = createRenewalIssuer();
+    const old = before(100_000);
+    const restarted = createRenewalIssuer(before.last()!); // the adapter restored the last issued number from its persisted state
+    expect(restarted(99_000)).toBeGreaterThan(old);
+    expect(restarted(99_000)).toBeGreaterThan(restarted.last()! - 1);
+    for (const bad of [-1, 1.5, NaN, Infinity, 2 ** 53]) expect(code(() => createRenewalIssuer(bad))).toBe('AUDIO_PLAYBACK_ARGS_INVALID');
+  });
+  it('DOCUMENTED LIMIT: a restart WITHOUT the persisted value and with a clock stepped back can issue a LOWER number — only the clock carries the order then', () => {
+    const before = createRenewalIssuer();
+    const old = before(100_000);
+    const restartedWithoutState = createRenewalIssuer();
+    expect(restartedWithoutState(99_000)).toBeLessThan(old); // not guaranteed; the adapter must restore `last()` (see handoff.md)
+    expect(createRenewalIssuer()(100_001)).toBeGreaterThan(old); // with a clock that did not run backwards the order holds
   });
 });
 

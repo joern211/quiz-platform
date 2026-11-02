@@ -218,7 +218,8 @@ export class AudioPlaybackController {
   /** "Erneut laden": reload the SAME authorised source (and ask the application for a fresh URL). Plan and identity stay; no new round, no new clip. */
   retry(onRenewUrl?: () => void): void {
     const held = this.held;
-    if (!this.active || !held || held.release === 'NONE' || held.source === null) return;
+    if (!this.active || !held || held.release === 'NONE') return;
+    if (held.source === null) { if (this.snapshot.status === 'ERROR') onRenewUrl?.(); return; } // nothing to reload: only ask for a current URL
     if (this.snapshot.status === 'AUTOPLAY_BLOCKED') { this.activate(); return; }
     this.replaceResource(held);
     onRenewUrl?.();
@@ -294,14 +295,9 @@ export class AudioPlaybackController {
   private reconcile(): void {
     const held = this.held, res = this.res;
     if (!this.active || !held) return;
+    if (held.source === null) { this.reconcileWithoutSource(held); return; }
     if (held.release === 'LOAD_ONLY') { this.setStatus('PRELOADED', null, null); return; }
     if (!held.plan || held.durationMs === null) return;
-    if (held.source === null) { // terminal plan: no element exists
-      this.clearTimers();
-      const status = held.plan.status === 'STOPPED' ? 'STOPPED' : 'ENDED';
-      this.setStatus(status, status, held.durationMs, status === 'ENDED' ? held.durationMs : held.plan.positionMs);
-      return;
-    }
     if (!res) return;
     const { plan, durationMs } = held;
     this.clearTimers();
@@ -332,6 +328,19 @@ export class AudioPlaybackController {
     if (res.blocked) { this.setStatus('AUTOPLAY_BLOCKED', phase, durationMs, target); return; }
     if (res.element.paused && !res.playPending) { this.startPlay(res, plan, durationMs, nowS); return; }
     this.followPlan(res, durationMs, target);
+  }
+
+  /**
+   * No element exists. Either the plan is terminal (nothing left to play), or the source was dropped because it is OLDER than one already known (the intake
+   * never lets an older renewal back in, also not after an empty intermediate view): then only the plan is shown and, if playback is expected or a preload
+   * was released, the neutral error state offers the retrieval action (`retry` asks the application for a current URL). Nothing old is loaded.
+   */
+  private reconcileWithoutSource(held: AudioPlaybackProjection): void {
+    this.clearTimers();
+    const { plan, durationMs } = held;
+    if (plan === null || durationMs === null || plan.status === 'RUNNING') { this.setStatus('ERROR', null, durationMs); return; }
+    const status = plan.status === 'STOPPED' ? 'STOPPED' : plan.status === 'ENDED' ? 'ENDED' : plan.status === 'PAUSED' ? 'PAUSED' : 'NOT_STARTED';
+    this.setStatus(status, status === 'NOT_STARTED' ? 'READY' : status, durationMs, status === 'ENDED' ? durationMs : plan.positionMs);
   }
 
   private startPlay(res: Resource, plan: AudioPlaybackPlan, durationMs: number, nowS: number): void {
