@@ -98,3 +98,6 @@ Release (**ohne Default**, vom Server je Zielgruppe gewählt): `NONE` (nur Bindu
 | Browser (mehrere Kontexte, echte Serverprojektion, DB-Nachlesen) | `harness/n9-dice/check.cjs` |
 
 Grenzen (werden im Review/Abnahme ehrlich wiederholt): Der DB-Nachweis nutzt einen **Stand-in-Zustand** und einen Test-Handler, keine Engine. Das Browserharness ersetzt die Session durch eine Empfängertabelle. Chromium ist kein Safari-/iPhone-Nachweis, die schmale Ansicht ist Emulation. Ein lesender zweiter Prozess ist kein produktiver Wiederanlauf aller Routen. **0 neue echte Engine-Verbraucher; Core-DoD (Master §13.2) bleibt offen.**
+
+---
+Abgleich mit dem Endstand (Abweichungen, Befunde der zweiten Prüfung, Mutationen): `review.md`. Anforderungen → Nachweis und Prüfläufe: `acceptance.md`. Übergabepflichten: `handoff.md`.
