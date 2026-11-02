@@ -22,6 +22,10 @@
 // callback unlocks exactly that binding (the application must reject on a refusal; it must NOT swap the commandId behind the user's back — that is the
 // existing intent/receipt contract). Nothing here sends on mount, rejoin, theme change or a new props object.
 //
+// The lock is shown with `aria-disabled`, NOT with the `disabled` attribute: a focused button that becomes `disabled` loses keyboard focus (measured in
+// Chromium: focus falls back to <body> after every applied hold), and a keyboard user would have to start over. Presses on a locked control do nothing — the
+// guard above, not the attribute, is what blocks a second send.
+//
 // Hold: a click sends the COMPLETE target assignment (the shown assignment with that die flipped), never a toggle the server would have to guess.
 //
 // Presentation: values are shown only after a first roll (before it: text, no placeholder digits). Every die is a position with a visible caption
@@ -175,7 +179,7 @@ export function DiceTray({ expected, projection, label = 'Würfel', names, rollL
             return (
               <li key={`${held.turnNumber}:${held.rollCount}:${index}`}>
                 {canHold
-                  ? <button type="button" className={className} aria-pressed={isHeld} data-tumble={tumbles ? 'true' : undefined} onClick={() => toggle(index)} disabled={locked}>{content}</button>
+                  ? <button type="button" className={className} aria-pressed={isHeld} aria-disabled={locked || undefined} data-tumble={tumbles ? 'true' : undefined} onClick={() => toggle(index)}>{content}</button>
                   : <div className={className} data-tumble={tumbles ? 'true' : undefined}>{content}</div>}
               </li>
             );
@@ -184,7 +188,7 @@ export function DiceTray({ expected, projection, label = 'Würfel', names, rollL
       )}
       {canRoll && (
         <div className={styles.actions}>
-          <Button type="button" variant="primary" onClick={roll} disabled={locked}>{locked ? 'Gesendet' : rollLabel}</Button>
+          <Button type="button" variant="primary" className={locked ? styles.locked : undefined} aria-disabled={locked || undefined} onClick={roll}>{locked ? 'Gesendet' : rollLabel}</Button>
         </div>
       )}
     </section>

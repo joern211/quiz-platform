@@ -218,10 +218,11 @@ describe('N9 DiceTray: sending', () => {
     await user.click(screen.getByRole('button', { name: 'wechsel' }));
     expect(document.documentElement.dataset.accent).toBe(ACCENTS[2].id);
     const locked = screen.getByRole('button', { name: 'Gesendet' });
-    expect(locked).toBeDisabled();
+    expect(locked).toHaveAttribute('aria-disabled', 'true');
+    expect(locked).not.toBeDisabled(); // the lock must NOT use `disabled`: a focused control that becomes disabled loses keyboard focus (measured in Chromium, N9 review)
     await user.click(locked);
     expect(onRoll).toHaveBeenCalledTimes(1);
-    expect(dieButtons().every(b => (b as HTMLButtonElement).disabled)).toBe(true); // the holds of THIS binding are locked as well
+    expect(dieButtons().every(b => b.getAttribute('aria-disabled') === 'true')).toBe(true); // the holds of THIS binding are locked as well
   });
 
   it('roll and hold share ONE intent per binding: a roll right after a hold click, and a hold right after a roll click, send nothing second', async () => {
@@ -229,6 +230,8 @@ describe('N9 DiceTray: sending', () => {
     const onRoll = vi.fn(), onHold = vi.fn();
     mount({ onRoll, onHold });
     await user.click(dieButtons()[0]);
+    expect(dieButtons()[0]).toHaveFocus(); // the pressed die keeps keyboard focus while its binding is locked
+    expect(dieButtons().some(b => (b as HTMLButtonElement).disabled)).toBe(false);
     await user.click(screen.getByRole('button', { name: 'Gesendet' }));
     expect(onHold).toHaveBeenCalledTimes(1);
     expect(onRoll).not.toHaveBeenCalled();
@@ -252,17 +255,17 @@ describe('N9 DiceTray: sending', () => {
     await user.click(screen.getByRole('button', { name: 'Würfeln' })); // binding B1 (turn 1, dice version 0, roll 0)
     expect(onRoll).toHaveBeenCalledTimes(1);
     set({ projection: view(ROLL1) }); // the server's answer arrived: binding B2
-    expect(dieButtons().every(b => !(b as HTMLButtonElement).disabled)).toBe(true); // B2 is free
+    expect(dieButtons().every(b => b.getAttribute('aria-disabled') === null)).toBe(true); // B2 is free
     await user.click(dieButtons()[2]); // locks B2
     expect(onHold).toHaveBeenCalledTimes(1);
     // the late failure of B1 must not unlock B2
     await act(async () => { oldRoll.reject(new Error('late')); await Promise.resolve(); });
-    expect(dieButtons().every(b => (b as HTMLButtonElement).disabled)).toBe(true);
+    expect(dieButtons().every(b => b.getAttribute('aria-disabled') === 'true')).toBe(true);
     await user.click(dieButtons()[0]);
     expect(onHold).toHaveBeenCalledTimes(1);
     // a refusal of the CURRENT binding frees exactly this binding for a retry
     await act(async () => { newHold.reject(new Error('refused')); await Promise.resolve(); });
-    expect(dieButtons().every(b => !(b as HTMLButtonElement).disabled)).toBe(true);
+    expect(dieButtons().every(b => b.getAttribute('aria-disabled') === null)).toBe(true);
     await user.click(dieButtons()[0]);
     expect(onHold).toHaveBeenCalledTimes(2);
   });
@@ -273,7 +276,7 @@ describe('N9 DiceTray: sending', () => {
     mount({ onRoll });
     await user.click(screen.getByRole('button', { name: 'Würfeln' }));
     await act(async () => { await Promise.resolve(); });
-    expect(screen.getByRole('button', { name: 'Gesendet' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Gesendet' })).toHaveAttribute('aria-disabled', 'true');
     cleanup();
     const boom = vi.fn(() => { throw new Error('sync'); });
     mount({ onRoll: boom });
@@ -282,7 +285,7 @@ describe('N9 DiceTray: sending', () => {
     const errors = vi.spyOn(console, 'error').mockImplementation(() => undefined);
     try { await act(async () => { screen.getByRole('button', { name: 'Würfeln' }).click(); }); } finally { errors.mockRestore(); window.removeEventListener('error', swallow); }
     expect(boom).toHaveBeenCalledTimes(1);
-    expect(screen.getByRole('button', { name: 'Würfeln' })).toBeEnabled();
+    expect(screen.getByRole('button', { name: 'Würfeln' })).not.toHaveAttribute('aria-disabled');
   });
 
   it('never calls a callback by itself: mount, StrictMode, re-renders, new props objects, timers, theme changes, an arriving projection and a reload', async () => {

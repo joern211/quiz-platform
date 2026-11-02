@@ -355,6 +355,53 @@ describe('N9 integration: dice rolls and holds on the real CAS / receipt / state
     expect(diceOf(await load(roomId))).toMatchObject({ values: [5, 5, 5, 5, 5], rollCount: 2, version: 2 });
   });
 
+  it('the process dies AFTER the commit but BEFORE the receipt is completed: the retry with the SAME commandId is told to resync — the handler and the random source do not run again, nothing is rolled twice', async () => {
+    const { roomId } = await fixture();
+    const first = await load(roomId);
+    const intent = roll(bindingOf(first));
+    const commandId = `cmd-${randomUUID()}`;
+    const draws = counted([2, 4, 6, 1, 3]);
+    let effects = 0, crash = true;
+    const send = () => runReceipted(db, {
+      roomId, commandId, actor: { actorId: 'a', actorRole: 'PLAYER' }, action: 'DICE_ROLL', payload: intent,
+      mutate: async () => { effects++; return handle(await load(roomId), roomId, 'a', intent, draws.source); },
+      toResponse: data => { if (crash) throw new Error('PROCESS_DIED_BEFORE_THE_RECEIPT'); return { success: true, ...data }; },
+    });
+    await expect(send()).rejects.toThrow('PROCESS_DIED_BEFORE_THE_RECEIPT');
+    const stored = await load(roomId); // the roll IS committed, only its receipt is not
+    expect(diceOf(stored)).toMatchObject({ values: [2, 4, 6, 1, 3], rollCount: 1, version: 1 });
+    expect((await db.commandReceipt.findUniqueOrThrow({ where: { roomId_commandId: { roomId, commandId } } })).mutationStartedAt).not.toBeNull(); // the mutation marker is what forbids a rerun
+    crash = false;
+    const retry = await send();
+    expect(retry).toMatchObject({ success: false, error: 'COMMAND_STATE_ADVANCED', resyncRequired: true });
+    expect(effects).toBe(1);
+    expect(draws.state.draws).toBe(5); // no second draw "to confirm" the committed command
+    expect(await load(roomId)).toEqual(stored);
+    // after the resync the client's next intent carries the stored numbers and continues from them
+    await handle(await load(roomId), roomId, 'a', roll(bindingOf(stored)), counted([5, 5, 5, 5, 5]).source);
+    expect(diceOf(await load(roomId))).toMatchObject({ values: [5, 5, 5, 5, 5], rollCount: 2 });
+  });
+
+  it('a roll that fails BEFORE any commit (stale binding) draws nothing, leaves the state alone and, retried with the same commandId, fails the same way — it is never turned into a roll by the retry', async () => {
+    const { roomId } = await fixture();
+    const stored0 = await load(roomId);
+    await handle(stored0, roomId, 'a', roll(bindingOf(stored0)), counted([1, 2, 3, 4, 5]).source);
+    const stored = await load(roomId);
+    const stale = roll(bindingOf(stored0)); // the numbers from BEFORE the roll
+    const commandId = `cmd-${randomUUID()}`;
+    const draws = counted([6, 6, 6, 6, 6]);
+    let effects = 0;
+    const send = () => runReceipted(db, {
+      roomId, commandId, actor: { actorId: 'a', actorRole: 'PLAYER' }, action: 'DICE_ROLL', payload: stale,
+      mutate: async () => { effects++; return handle(await load(roomId), roomId, 'a', stale, draws.source); }, toResponse: data => ({ success: true, ...data }),
+    });
+    await expect(send()).rejects.toThrow('DICE_VERSION_STALE');
+    await expect(send()).rejects.toThrow('DICE_VERSION_STALE'); // the handler may run again (nothing was mutated) — and fails again
+    expect(draws.state.draws).toBe(0);
+    expect(await load(roomId)).toEqual(stored);
+    expect(diceOf(stored).values).toEqual([1, 2, 3, 4, 5]);
+  });
+
   it('a newer N6 stand seen by a roll is persisted in the SAME commit (N8-02): one revision step, sequence version +1, no new turn, dice untouched by it — and the old stand and the old binding are fenced afterwards', async () => {
     const { roomId } = await fixture();
     const stored0 = await load(roomId);
