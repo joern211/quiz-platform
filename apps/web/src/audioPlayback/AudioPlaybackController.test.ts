@@ -649,6 +649,42 @@ describe('N7-03. The first audible start verifiably stands at the current target
       m.controller.stop();
     }
   });
+  it('while waiting for the position a NEW plan (resume at another offset) is taken: the start uses the new target', async () => {
+    const m = await lateJoin(el => { el.seekMode = 'ignore'; }, 30_000);
+    const el = m.el();
+    await m.world.advance(1000);
+    m.controller.apply(playProjection({ status: 'PAUSED', positionMs: 5000, playbackVersion: 2, stateVersion: 6, durationMs: 30_000 }));
+    expect(m.status()).toBe('PAUSED');
+    m.controller.apply(playProjection({ anchorMono: 5000 + 500, positionMs: 20_000, playbackVersion: 3, stateVersion: 7, durationMs: 30_000 }));
+    el.seekMode = 'immediate';
+    await m.world.advance(1500);
+    expect(el.playCalls).toBe(1);
+    expect(el.seeks.at(-1)).toBeGreaterThanOrEqual(20); // the stored 20 s offset (+ time since the new anchor), not the stale 4 s / 5 s targets
+    expect(el.seeks.at(-1)).toBeLessThan(21.5);
+  });
+  it('a renewal during the wait starts the new resource with a fresh wait (the old waiting time is not inherited)', async () => {
+    const m = await lateJoin(el => { el.seekMode = 'ignore'; }, 30_000);
+    await m.world.advance(START_POSITION_TIMEOUT_MS - 1000);
+    expect(m.status()).toBe('LOADING');
+    m.controller.apply(playProjection({ anchorMono: 0, url: '/api/v1/media/clip-a?sig=renewed', renewal: 2, durationMs: 30_000 }));
+    const fresh = m.el();
+    fresh.seekMode = 'ignore';
+    fresh.loadMetadata(); await flush();
+    await m.world.advance(3000);
+    expect(m.status()).toBe('LOADING'); // would be ERROR if the 9 s already waited had been carried over
+    expect(fresh.playCalls).toBe(0);
+  });
+  it('the user activation while the position is impossible neither throws nor plays; once possible the CURRENT position is used', async () => {
+    const m = await lateJoin(el => { el.seekMode = 'throw'; }, 30_000);
+    const el = m.el();
+    expect(() => m.controller.activate()).not.toThrow();
+    expect(el.playCalls).toBe(0);
+    await m.world.advance(2000);
+    el.seekMode = 'immediate';
+    await m.world.advance(600);
+    expect(el.playCalls).toBe(1);
+    expect(el.seeks.at(-1)).toBeGreaterThan(6.4);
+  });
   it('an immediate start at a position already reached needs no seek, and the user activation still plays synchronously', async () => {
     const m = mount();
     m.controller.apply(playProjection({ anchorMono: 0 }));
