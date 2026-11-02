@@ -59,7 +59,7 @@ const bodyText = page => page.locator('body').innerText();
 /** Waits until THIS recipient's page has RECEIVED the stored stand (all counters) AND has RENDERED it (status line); `effect` adds a recipient-specific rendered check. */
 async function delivered(page, label, effect) {
   const s = await state();
-  await waitUntil(() => received(page).then(r => r && r.turnNumber === s.turnNumber && r.sequenceVersion === s.sequenceVersion && r.diceVersion === s.dice.version && r.rollCount === s.dice.rollCount), 8000, `${label}: page received turn ${s.turnNumber} / seq ${s.sequenceVersion} / dice v${s.dice.version} / roll ${s.dice.rollCount}`);
+  await waitUntil(() => received(page).then(r => r && r.turnNumber === s.dice.binding.turnNumber && r.sequenceVersion === s.sequenceVersion && r.diceVersion === s.dice.version && r.rollCount === s.dice.rollCount), 8000, `${label}: page received turn ${s.dice.binding.turnNumber} / seq ${s.sequenceVersion} / dice v${s.dice.version} / roll ${s.dice.rollCount}`);
   await waitUntil(async () => (await statusText(page)) === statusFor(s.dice), 8000, `${label}: page rendered "${statusFor(s.dice)}"`);
   if (effect) await waitUntil(async () => effect(page, s), 8000, `${label}: rendered effect`);
   return s;
@@ -476,6 +476,26 @@ const contrast = (a, b) => { const [l1, l2] = [lum(a), lum(b)].sort((x, y) => y 
     await A.evaluate(() => { window.__harness.ackDelayMs = 0; });
     const end = await state();
     expect(end.dice.rollCount === 0 && end.dice.binding.turnNumber === 13, 'S14: the refused turn-13 roll left the process untouched', end.dice);
+  });
+
+  // ── S10b: a consumer that moves the turn on but forgets the dice: the stored process of the OLD turn is still refused, by the UI and by the server ──
+  await scenario('S10b old process after a turn change without dice handling', async () => {
+    await host({ type: 'reset' });
+    await host({ type: 'script', values: [1, 2, 3, 4, 5] });
+    const r = await sendIntent('A', 'ROLL', FRESH(), { turnNumber: 1, sequenceVersion: 1, diceVersion: 0, rollCount: 0 });
+    expect(r.ok === true, 'S10b: roll 1 stored in turn 1', r);
+    for (let i = 0; i < 4; i++) await host({ type: 'endTurnN8Only' }); // turn 5: A is the holder again, but the stored process still belongs to turn 1
+    const s = await state();
+    expect(s.turnNumber === 5 && s.holder === 'T1/A' && s.dice.binding.turnNumber === 1 && s.dice.rollCount === 1, 'S10b: the sequence is at turn 5 (A), the stored dice process still belongs to turn 1', { turn: s.turnNumber, holder: s.holder, bound: s.dice.binding.turnNumber });
+    await delivered(A, 'S10b A');
+    expect((await rollButton(A).count()) === 0 && (await dieButtons(A).count()) === 0 && (await A.getByText('Im Moment ist keine Aktion möglich.').count()) === 1, 'S10b: A is offered NOTHING for the old process although A holds the turn again');
+    const draws = s.draws;
+    const direct = await sendIntent('A', 'ROLL', FRESH(), { turnNumber: 5, sequenceVersion: s.sequenceVersion, diceVersion: s.dice.version, rollCount: s.dice.rollCount }); // even with the CURRENT numbers of the sequence
+    expect(direct.ok === false && direct.code === 'DICE_TURN_STALE', 'S10b: the server refuses a roll on the turn-1 process even with the current sequence numbers', direct);
+    const held = await sendIntent('A', 'HOLD', FRESH(), { turnNumber: 5, sequenceVersion: s.sequenceVersion, diceVersion: s.dice.version, rollCount: s.dice.rollCount, held: [0] });
+    expect(held.ok === false && held.code === 'DICE_TURN_STALE', 'S10b: and a hold as well', held);
+    const after = await state();
+    expect(after.draws === draws && after.revision === s.revision && JSON.stringify(after.dice) === JSON.stringify(s.dice), 'S10b: nothing was drawn or changed', after);
   });
 
   // ── S17: layout, themes, accent, reduced motion, long names, touch targets ───────────────────────────────────────────────────────────────

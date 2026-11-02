@@ -313,6 +313,27 @@ describe('N9 integration: dice rolls and holds on the real CAS / receipt / state
     expect(diceOf(await load(roomId))).toMatchObject({ rollCount: 1, values: [6, 6, 6, 6, 6], diceId: 'dice-t4' });
   });
 
+  it('a consumer that moves the N8 turn on but forgets the dice: the stored process of the OLD turn is refused from the database state, even for the SAME player and with the current sequence numbers', async () => {
+    const { roomId } = await fixture();
+    let stored = await load(roomId);
+    await handle(stored, roomId, 'a', roll(bindingOf(stored)), counted([1, 2, 3, 4, 5]).source);
+    for (let i = 0; i < 3; i++) { // a → b → c → a, the sequence only: the dice process is neither closed nor replaced (a consumer bug on purpose)
+      const loaded = await load(roomId);
+      const seq = seqOf(loaded);
+      const next = advanceTurnSequence(seq, { scope: turnSequenceScopeOf(seq), expectedVersion: seq.version, expectedTurnNumber: seq.turnNumber, outcome: 'COMPLETE', eligibility: eligibility() }).state;
+      await persist(roomId, loaded, { ...loaded.state, turnSequence: next }, 'TURN_CHANGED_WITHOUT_DICE');
+    }
+    stored = await load(roomId);
+    expect(seqOf(stored).turnNumber).toBe(4);
+    expect(diceOf(stored).binding.turnNumber).toBe(1);
+    const late = counted([6, 6, 6, 6, 6]);
+    const current = { turnNumber: 4, sequenceVersion: seqOf(stored).version, diceVersion: diceOf(stored).version, rollCount: diceOf(stored).rollCount }; // the numbers the client WOULD have seen for the current sequence
+    await expect(handle(stored, roomId, 'a', roll(current), late.source)).rejects.toThrow('DICE_TURN_STALE');
+    await expect(handle(stored, roomId, 'a', holdIntent(current, [0]), late.source)).rejects.toThrow('DICE_TURN_STALE');
+    expect(late.state.draws).toBe(0);
+    expect(await load(roomId)).toEqual(stored);
+  });
+
   it('two competing turn changes from the same stand: one commit; the stored sequence and the stored dice process always belong to the same turn', async () => {
     const { roomId } = await fixture();
     const [l1, l2] = await Promise.all([load(roomId), load(roomId)]);

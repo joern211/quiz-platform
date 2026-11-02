@@ -144,6 +144,11 @@ async function host(body: Record<string, unknown>): Promise<Record<string, unkno
       await persist(loaded, { ...loaded.state, turnSequence: next, dice: nextProcess(next) }, 'TURN_CHANGED');
       return { ok: true, ...(await view()) };
     }
+    case 'endTurnN8Only': { // a CONSUMER BUG on purpose: the sequence moves on, the stored dice process is NOT closed or replaced — the dice module must still refuse the old process
+      const next = advanceTurnSequence(seq, { scope, expectedVersion: seq.version, expectedTurnNumber: seq.turnNumber, outcome: 'COMPLETE', eligibility: elig() }).state;
+      await persist(loaded, { ...loaded.state, turnSequence: next }, 'TURN_CHANGED_WITHOUT_DICE');
+      return { ok: true, ...(await view()) };
+    }
     case 'override': {
       const next = overrideTurnSequence(seq, { scope, expectedVersion: seq.version, expectedTurnNumber: seq.turnNumber, target: { teamId: String(body.teamId), playerId: String(body.playerId) }, eligibility: elig(), now: Date.now(), reason: 'harness' }).state;
       closeOld();
