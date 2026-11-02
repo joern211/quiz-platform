@@ -19,7 +19,26 @@ export class FakeAudio implements AudioLike {
   private t = 0; // playhead in seconds
   get currentTime(): number { return this.t; }
   /** Every assignment is a seek and is recorded. */
-  set currentTime(v: number) { this.t = v; this.seeks.push(v); }
+  set currentTime(v: number) {
+    if (this.seekMode === 'ignore') return; // the setter does nothing (no seekable range yet)
+    if (this.seekMode === 'throw') throw Object.assign(new Error('media not seekable yet'), { name: 'InvalidStateError' });
+    this.seeks.push(v);
+    if (this.seekMode === 'async') { this.pendingSeek = v; this.seeking = true; } else this.t = v;
+  }
+  /** How the element reacts to the currentTime setter: immediately (default), never (`ignore`), by throwing, or asynchronously (`seeking` until completeSeek). */
+  seekMode: 'immediate' | 'ignore' | 'throw' | 'async' = 'immediate';
+  seeking = false;
+  /** HTML `ended`; undefined = the double does not report it. Tests that model a REAL end set it to true. */
+  ended: boolean | undefined = undefined;
+  private pendingSeek = 0;
+  /** Seekable ranges in seconds; null = the element does not report them (minimal double). */
+  seekableRanges: Array<[number, number]> | null = null;
+  get seekable(): { length: number; start(i: number): number; end(i: number): number } | undefined {
+    const r = this.seekableRanges;
+    return r === null ? undefined : { length: r.length, start: i => r[i][0], end: i => r[i][1] };
+  }
+  /** Finish an asynchronous seek; the browser clamps to the seekable ranges (or `clampTo` seconds). */
+  completeSeek(clampTo?: number): void { this.t = clampTo ?? this.pendingSeek; this.seeking = false; this.fire('seeked'); }
   /** Move the playhead WITHOUT recording a seek (the media simply drifted). */
   drift(seconds: number): void { this.t += seconds; }
   constructor(private readonly rejectOnPause = false) {}

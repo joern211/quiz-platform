@@ -31,6 +31,15 @@ export const MIN_RESEEK_INTERVAL_MS = 1000;
 export const MAX_DRIFT_SEEKS = 5;
 /** Housekeeping tick while a clip should be audible (ms). */
 export const TICK_MS = 250;
+/**
+ * INITIAL positioning before the first audible start of a resource: the element must verifiably stand within this distance of the
+ * plan target (ms). Same bound as the drift tolerance — MP3 seeks land on frame boundaries, the target keeps moving while we wait.
+ */
+export const START_POSITION_TOLERANCE_MS = DRIFT_TOLERANCE_MS;
+/** Spacing of setter attempts while the required initial seek is not possible yet (ms): no tight seek loop. */
+export const START_SEEK_RETRY_MS = 500;
+/** How long an initial seek may stay impossible before the local state becomes ERROR (neutral text, retry action) instead of an audible wrong start. */
+export const START_POSITION_TIMEOUT_MS = 10_000;
 const HAVE_METADATA = 1;
 const HAVE_FUTURE_DATA = 3;
 
@@ -44,6 +53,12 @@ export interface AudioLike {
   preload: string;
   readonly paused: boolean;
   readonly readyState: number;
+  /** True while a seek is in flight (HTML spec: a successful setter is not a finished seek). Optional for minimal doubles. */
+  readonly seeking?: boolean;
+  /** HTML `ended`: playback has really reached the end of the media. Optional for minimal doubles (then the event alone counts). */
+  readonly ended?: boolean;
+  /** Ranges the element can currently seek into. Optional for minimal doubles (then only the read-back after the setter is checked). */
+  readonly seekable?: { readonly length: number; start(index: number): number; end(index: number): number };
   play(): Promise<void>;
   pause(): void;
   load(): void;
@@ -94,9 +109,16 @@ interface Resource {
   wantPlaying: boolean;
   blocked: boolean;
   errored: boolean;
-  localEnded: boolean;
+  /**
+   * Local end of media, bound to the plan DECISION it was reported under (planKey). It counts only while that very decision is in force,
+   * so a later pause/resume plan overcomes it, while ticks, re-renders and equal plans keep it (no replay loop at a real end).
+   */
+  endedForPlan: string | null;
   driftSeeks: number;
   lastSeekMono: number;
+  /** Initial positioning: first / latest failed attempt (monotonic ms); null when positioned or not waiting. */
+  positionWaitSince: number | null;
+  lastPositionAttemptMono: number;
   dead: boolean;
 }
 
@@ -210,7 +232,7 @@ export class AudioPlaybackController {
     const element = this.createAudio();
     const res: Resource = {
       gen, scope: { ...held.scope }, url: held.source!.url, element, cleanups: [], metadataReady: false, playOp: 0, playPending: false,
-      wantPlaying: false, blocked: false, errored: false, localEnded: false, driftSeeks: 0, lastSeekMono: -Infinity, dead: false,
+      wantPlaying: false, blocked: false, errored: false, endedForPlan: null, driftSeeks: 0, lastSeekMono: -Infinity, positionWaitSince: null, lastPositionAttemptMono: -Infinity, dead: false,
     };
     const guard = (fn: () => void) => () => { if (this.res === res && !res.dead && this.generation === gen) fn(); };
     const on = (type: string, fn: () => void) => { const h = guard(fn); element.addEventListener(type, h); res.cleanups.push(() => element.removeEventListener(type, h)); };
@@ -219,7 +241,11 @@ export class AudioPlaybackController {
     on('playing', () => this.reconcile());
     on('waiting', () => this.reconcile());
     on('stalled', () => this.reconcile());
-    on('ended', () => { res.localEnded = true; res.wantPlaying = false; this.reconcile(); });
+    // Seek / data events re-enter the one decision function: the required initial position may be possible now (with the CURRENT target).
+    for (const type of ['seeked', 'loadeddata', 'progress', 'durationchange']) on(type, () => this.reconcile());
+    // A local end counts only if the plan in force EXPECTS playback right now; an event that trails a pause/stop is meaningless.
+    // It must also be TRUE of the element: an event that was queued earlier and arrives after the element was moved on is no end.
+    on('ended', () => { res.wantPlaying = false; if (element.ended !== false && this.planExpectsPlayback()) res.endedForPlan = this.planKey; this.reconcile(); });
     on('error', () => { res.errored = true; res.wantPlaying = false; res.playOp++; try { element.pause(); } catch { /* element already unusable */ } this.reconcile(); });
     this.res = res;
     element.preload = 'auto';
@@ -250,7 +276,7 @@ export class AudioPlaybackController {
   private silence(): void {
     const res = this.res;
     if (!res) return;
-    res.wantPlaying = false; res.playOp++; res.playPending = false;
+    res.wantPlaying = false; res.playOp++; res.playPending = false; res.positionWaitSince = null;
     if (!res.element.paused) { try { res.element.pause(); } catch { /* ignore */ } }
   }
 
@@ -296,7 +322,7 @@ export class AudioPlaybackController {
     }
     // PLAYING by plan: what happens locally depends on the media state. The tick re-evaluates against the clock, so the end of the clip
     // is noticed even while loading, blocked or buffering (it is cleared at the top of every evaluation).
-    if (res.localEnded) { this.setStatus('ENDED', phase, durationMs, target); return; }
+    if (res.endedForPlan === this.planKey) { this.setStatus('ENDED', phase, durationMs, target); return; }
     this.cancelTick = this.scheduler.every(TICK_MS, () => this.reconcile());
     if (!res.metadataReady) { this.setStatus('LOADING', phase, durationMs, target); return; } // no seek before metadata; the event re-enters here
     if (res.blocked) { this.setStatus('AUTOPLAY_BLOCKED', phase, durationMs, target); return; }
@@ -306,7 +332,16 @@ export class AudioPlaybackController {
 
   private startPlay(res: Resource, plan: AudioPlaybackPlan, durationMs: number, nowS: number): void {
     const target = audioPlaybackTargetMs(plan, durationMs, nowS);
-    this.seek(res, target);
+    // Nothing becomes audible before the element verifiably stands at the CURRENT target. While the required seek is impossible or not finished
+    // the element stays silent and the local state is LOADING; every re-entry (seek/data events, the tick) recomputes the target.
+    if (!this.position(res, target)) {
+      const mono = this.monoNow();
+      res.positionWaitSince ??= mono;
+      if (mono - res.positionWaitSince >= START_POSITION_TIMEOUT_MS) { res.errored = true; res.positionWaitSince = null; this.reconcile(); return; }
+      this.setStatus('LOADING', 'PLAYING', durationMs, target);
+      return;
+    }
+    res.positionWaitSince = null;
     const op = ++res.playOp;
     res.playPending = true; res.wantPlaying = true;
     let attempt: Promise<void>;
@@ -344,6 +379,32 @@ export class AudioPlaybackController {
     this.setStatus('PLAYING', 'PLAYING', durationMs, target);
   }
 
+  /** True iff the plan in force currently asks for audible playback (derived from the plan and the clock, never from a media event). */
+  private planExpectsPlayback(): boolean {
+    const held = this.held, nowS = this.clock.nowServerMs();
+    return held !== null && held.plan !== null && held.durationMs !== null && nowS !== null && audioPlaybackPhaseAt(held.plan, held.durationMs, nowS) === 'PLAYING';
+  }
+
+  /**
+   * Is the element at the target, verifiably and settled? A setter that did not throw is NOT a finished seek (HTML: seeking is asynchronous
+   * and the position is clamped to the seekable ranges), so: no seek in flight, the target inside the seekable ranges (when the element
+   * reports them), the setter accepted, nothing in flight afterwards and the read-back within START_POSITION_TOLERANCE_MS.
+   */
+  private position(res: Resource, targetMs: number): boolean {
+    const el = res.element;
+    const inFlight = (): boolean => el.seeking === true;
+    if (inFlight()) return false; // 'seeked' re-enters
+    const near = (value: number) => { const ms = mediaSecondsToMs(value); return ms !== null && Math.abs(ms - targetMs) <= START_POSITION_TOLERANCE_MS; };
+    if (near(el.currentTime)) return true;
+    if (el.seekable !== undefined && !seekableContains(el.seekable, targetMs)) return false; // 'progress' / 'durationchange' re-enter
+    const mono = this.monoNow();
+    if (mono - res.lastPositionAttemptMono < START_SEEK_RETRY_MS) return false;
+    res.lastPositionAttemptMono = mono;
+    try { el.currentTime = msToMediaSeconds(Math.max(0, Math.round(targetMs))); } catch { return false; }
+    if (inFlight()) return false;
+    return near(el.currentTime);
+  }
+
   private seek(res: Resource, ms: number): void {
     if (!res.metadataReady) return;
     try { res.element.currentTime = msToMediaSeconds(Math.max(0, Math.round(ms))); } catch { /* not seekable yet: the next evaluation retries within the seek limits */ }
@@ -364,6 +425,12 @@ export class AudioPlaybackController {
     this.snapshot = next;
     for (const listener of [...this.listeners]) listener();
   }
+}
+
+function seekableContains(ranges: { readonly length: number; start(index: number): number; end(index: number): number }, ms: number): boolean {
+  const seconds = ms / 1000;
+  for (let i = 0; i < ranges.length; i++) if (seconds >= ranges.start(i) - 0.001 && seconds <= ranges.end(i) + 0.001) return true;
+  return false;
 }
 
 function sameScope(a: AudioPlaybackScope, b: AudioPlaybackScope): boolean {

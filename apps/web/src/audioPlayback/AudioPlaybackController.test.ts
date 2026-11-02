@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { AudioPlaybackController, DRIFT_TOLERANCE_MS, MAX_DRIFT_SEEKS, MIN_RESEEK_INTERVAL_MS } from './AudioPlaybackController';
+import { AudioPlaybackController, DRIFT_TOLERANCE_MS, MAX_DRIFT_SEEKS, MIN_RESEEK_INTERVAL_MS, START_POSITION_TIMEOUT_MS, START_SEEK_RETRY_MS } from './AudioPlaybackController';
 import { SCOPE, SERVER_BASE, createWorld, flush, playProjection } from './testKit';
 
 afterEach(() => { vi.restoreAllMocks(); });
@@ -187,7 +187,7 @@ describe('D. Time and loading', () => {
     expect(m.el().playCalls).toBe(0);
     await m.world.advance(1);
     expect(m.el().playCalls).toBe(1);
-    expect(m.el().seeks.at(-1)).toBe(0);
+    expect(m.el().currentTime).toBe(0); // the element stood at the target already: no seek was needed
   });
   it('a LATE first delivery plays the position valid now, not 0', async () => {
     const m = mount();
@@ -275,12 +275,10 @@ describe('D. Time and loading', () => {
     it('a medium that ignores seeks cannot cause a seek loop: at most MAX_DRIFT_SEEKS, never closer than the cooldown', async () => {
       const m = mount();
       await playing(m, 0);
-      const base = m.el().seeks.length;
       const stamps: number[] = [];
       Object.defineProperty(m.el(), 'currentTime', { get: () => 0.0, set: () => { stamps.push(m.world.mono); }, configurable: true }); // always 5+ s off, ignores seeks
       await m.world.advance(9000);
       const corrections = stamps.length;
-      expect(base).toBeGreaterThan(0);
       expect(corrections).toBeLessThanOrEqual(MAX_DRIFT_SEEKS);
       expect(corrections).toBeGreaterThanOrEqual(1);
       for (let i = 1; i < stamps.length; i++) expect(stamps[i] - stamps[i - 1]).toBeGreaterThanOrEqual(MIN_RESEEK_INTERVAL_MS);
@@ -468,7 +466,189 @@ describe('E. Access URL, errors, autoplay', () => {
     m.controller.apply(playProjection({ status: 'RUNNING', positionMs: 3000, anchorMono: 123_000 + 500, playbackVersion: 3, stateVersion: 7 }));
     await m.world.advance(500);
     m.el().startPlayback(); await flush();
-    expect(m.el().seeks.at(-1)).toBeCloseTo(3, 2);
+    expect(m.el().currentTime).toBeCloseTo(3, 1); // stored offset (the element already stood there: a verified position needs no seek)
     expect(m.status()).toBe('PLAYING');
+  });
+});
+
+describe('N7-02. A local end belongs to the plan decision it was reported under', () => {
+  it('a trailing ended after a pause is ignored; a later authoritative resume plays again (same element, same URL)', async () => {
+    const m = mount();
+    await playing(m, 0);
+    const el = m.el();
+    await m.world.advance(3000);
+    m.controller.apply(playProjection({ status: 'PAUSED', positionMs: 3000, playbackVersion: 2, stateVersion: 6 }));
+    el.fire('ended'); await flush(); // queued before the pause, dispatched after it
+    expect(m.status()).toBe('PAUSED');
+    m.controller.apply(playProjection({ anchorMono: 3000, positionMs: 3000, playbackVersion: 3, stateVersion: 7 }));
+    expect(el.playCalls).toBe(2);
+    el.startPlayback(); await flush();
+    expect(m.status()).toBe('PLAYING');
+    expect(m.world.elements).toHaveLength(1);
+  });
+  it('a trailing ended that arrives AFTER the resume plan was taken (the element is not at its end any more) does not suppress it', async () => {
+    const m = mount();
+    await playing(m, 0);
+    const el = m.el();
+    await m.world.advance(3000);
+    m.controller.apply(playProjection({ status: 'PAUSED', positionMs: 3000, playbackVersion: 2, stateVersion: 6 }));
+    m.controller.apply(playProjection({ anchorMono: 3000, positionMs: 3000, playbackVersion: 3, stateVersion: 7 }));
+    el.ended = false; el.fire('ended'); await flush(); // stale: the element is playing / pending, `ended` is false
+    el.startPlayback(); await flush();
+    expect(m.status()).toBe('PLAYING');
+    expect(el.running).toBe(true);
+  });
+  it('an early local end followed by a valid pause and resume does not override the server plan', async () => {
+    const m = mount();
+    await playing(m, 0);
+    const el = m.el();
+    await m.world.advance(9800);
+    el.pause(); el.ended = true; el.fire('ended'); await flush(); // media ended slightly before the authoritative end
+    expect(m.status()).toBe('ENDED');
+    m.controller.apply(playProjection({ status: 'PAUSED', positionMs: 9800, playbackVersion: 2, stateVersion: 6 }));
+    expect(m.status()).toBe('PAUSED');
+    await m.world.advance(1000);
+    el.ended = false;
+    m.controller.apply(playProjection({ anchorMono: 10_800, positionMs: 9800, playbackVersion: 3, stateVersion: 7 }));
+    expect(el.playCalls).toBe(2);
+    el.startPlayback(); await flush();
+    expect(m.status()).toBe('PLAYING');
+  });
+  it('a REAL local end under an unchanged plan is final: no loop, no restart at 0, ticks / equal plans / new wrapper objects do not clear it', async () => {
+    const m = mount();
+    await playing(m, 0);
+    const el = m.el();
+    await m.world.advance(9000);
+    el.pause(); el.ended = true; el.fire('ended'); await flush();
+    expect(m.status()).toBe('ENDED');
+    const plays = el.playCalls, seeks = el.seeks.length;
+    for (let i = 0; i < 12; i++) { m.controller.apply(playProjection({ anchorMono: 0, stateVersion: 6 + i, serverNowMs: SERVER_BASE + i })); await m.world.advance(100); }
+    m.controller.resync(); await m.world.advance(500);
+    expect(m.status()).toBe('ENDED');
+    expect(el.playCalls).toBe(plays);
+    expect(el.seeks.length).toBe(seeks);
+    expect(el.paused).toBe(true);
+  });
+  it('server stop / end / withdrawal after a local end stay silent', async () => {
+    for (const next of [() => playProjection({ status: 'STOPPED', positionMs: 9000, playbackVersion: 2, stateVersion: 6 }), () => playProjection({ status: 'ENDED', playbackVersion: 2, stateVersion: 6 }), () => null]) {
+      const m = mount();
+      await playing(m, 0);
+      const el = m.el();
+      await m.world.advance(9000);
+      el.pause(); el.ended = true; el.fire('ended'); await flush();
+      m.controller.apply(next());
+      await m.world.advance(5000);
+      expect(m.world.elements.every(e => e.paused && !e.running)).toBe(true);
+      expect(el.playCalls).toBe(1);
+    }
+  });
+  it('an ended event while the plan does NOT expect playback (paused, scheduled, ready) is never recorded', async () => {
+    const m = mount();
+    m.controller.apply(playProjection({ anchorMono: 5000 })); // scheduled
+    await loaded(m);
+    m.el().ended = true; m.el().fire('ended'); await flush();
+    expect(m.status()).toBe('WAITING_FOR_START');
+    await m.world.advance(5000);
+    expect(m.el().playCalls).toBe(1); // the scheduled start still happens
+  });
+});
+
+describe('N7-03. The first audible start verifiably stands at the current target', () => {
+  /** A late joiner (4 s after the anchor) on an element whose setter / seekable state we control. */
+  async function lateJoin(setup: (el: ReturnType<typeof createWorld>['elements'][number]) => void, durationMs = 10_000) {
+    const m = mount();
+    await m.world.advance(4000);
+    m.controller.apply(playProjection({ anchorMono: 0, durationMs }));
+    setup(m.el());
+    await loaded(m);
+    return m;
+  }
+  it('a throwing setter: silent and LOADING; when seeking works again it starts at the CURRENT position, not at the stale 4 s target', async () => {
+    const m = await lateJoin(el => { el.seekMode = 'throw'; });
+    const el = m.el();
+    expect(el.playCalls).toBe(0);
+    expect(el.paused).toBe(true);
+    expect(m.status()).toBe('LOADING');
+    await m.world.advance(2000);
+    expect(el.playCalls).toBe(0);
+    el.seekMode = 'immediate';
+    await m.world.advance(500);
+    expect(el.playCalls).toBe(1);
+    expect(el.seeks.at(-1)).toBeGreaterThan(6.0);
+    expect(el.seeks.at(-1)).toBeLessThan(6.8);
+  });
+  it('a silently ignored seek (no range yet): silent until it takes effect; setter attempts are spaced, not a tight loop', async () => {
+    const m = await lateJoin(el => { el.seekMode = 'ignore'; }, 30_000);
+    const el = m.el();
+    let attempts = 0;
+    Object.defineProperty(el, 'currentTime', { get: () => 0, set: () => { attempts++; }, configurable: true });
+    await m.world.advance(9000);
+    expect(el.playCalls).toBe(0);
+    expect(m.status()).toBe('LOADING');
+    expect(attempts).toBeLessThanOrEqual(Math.ceil(9000 / START_SEEK_RETRY_MS) + 1);
+    expect(attempts).toBeGreaterThanOrEqual(5);
+  });
+  it('a seek that stays impossible ends in a NEUTRAL error with a retry action, never in an audible wrong start', async () => {
+    const m = await lateJoin(el => { el.seekMode = 'ignore'; }, 30_000);
+    await m.world.advance(START_POSITION_TIMEOUT_MS + 1000);
+    expect(m.status()).toBe('ERROR');
+    expect(m.controller.getSnapshot().canRetry).toBe(true);
+    expect(m.world.elements.every(e => e.playCalls === 0)).toBe(true);
+    JSON.stringify(m.controller.getSnapshot()); // no URL / path in the snapshot
+    expect(JSON.stringify(m.controller.getSnapshot())).not.toMatch(/api\/v1|sig=/);
+  });
+  it('the target is not seekable yet (ranges): no setter call and no play; when the range arrives the CURRENT target is used', async () => {
+    const m = await lateJoin(el => { el.seekableRanges = [[0, 2]]; });
+    const el = m.el();
+    await m.world.advance(1500);
+    expect(el.seeks).toEqual([]); // never a blind setter call
+    expect(el.playCalls).toBe(0);
+    el.seekableRanges = [[0, 12]]; el.fire('progress'); await flush();
+    expect(el.playCalls).toBe(1);
+    expect(el.seeks.at(-1)).toBeGreaterThan(5.4);
+  });
+  it('an asynchronous seek is not a finished seek: no play while `seeking`; a clamped result is verified, retried, and only a correct one starts', async () => {
+    const m = await lateJoin(el => { el.seekMode = 'async'; });
+    const el = m.el();
+    expect(el.seeking).toBe(true);
+    expect(el.playCalls).toBe(0);
+    el.completeSeek(2); await flush(); // the browser clamped 4 s down to 2 s
+    expect(el.playCalls).toBe(0);
+    await m.world.advance(600); // retry spacing
+    expect(el.seeking).toBe(true);
+    el.completeSeek(); await flush(); // now it lands where requested
+    expect(el.playCalls).toBe(1);
+    expect(el.currentTime).toBeGreaterThanOrEqual(4.5);
+  });
+  it('the clip ends while the controller is still waiting: it never starts', async () => {
+    const m = await lateJoin(el => { el.seekMode = 'ignore'; });
+    await m.world.advance(7000); // plan over at 10 s of server time since the anchor
+    expect(m.status()).toBe('ENDED');
+    expect(m.world.elements.every(e => e.playCalls === 0)).toBe(true);
+  });
+  it('withdrawal / pause / clip change while waiting: nothing starts, and late seek events of the old element are ignored', async () => {
+    for (const next of ['pause', 'withdraw', 'clip'] as const) {
+      const m = await lateJoin(el => { el.seekMode = 'async'; });
+      const old = m.el();
+      if (next === 'pause') m.controller.apply(playProjection({ status: 'PAUSED', positionMs: 4000, playbackVersion: 2, stateVersion: 6 }));
+      if (next === 'withdraw') m.controller.apply(null);
+      if (next === 'clip') m.controller.apply(playProjection({ anchorMono: 4000, scope: { ...SCOPE, playbackId: 'pb-2' }, url: '/api/v1/media/clip-b?sig=1' }));
+      old.completeSeek(); old.fire('progress'); old.fire('loadeddata'); await flush();
+      expect(old.playCalls).toBe(0);
+      expect(m.world.elements.filter(e => e !== m.el() || next === 'pause').every(e => e.playCalls === 0)).toBe(true);
+      m.controller.stop();
+    }
+  });
+  it('an immediate start at a position already reached needs no seek, and the user activation still plays synchronously', async () => {
+    const m = mount();
+    m.controller.apply(playProjection({ anchorMono: 0 }));
+    await loaded(m);
+    expect(m.el().playCalls).toBe(1);
+    expect(m.el().seeks).toEqual([]);
+    m.el().failPlay('NotAllowedError'); await flush();
+    await m.world.advance(3000);
+    const before = m.el().playCalls;
+    m.controller.activate();
+    expect(m.el().playCalls).toBe(before + 1); // inside the gesture, after a verified position
   });
 });
