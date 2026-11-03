@@ -78,6 +78,13 @@ describe('N10 BiddingPanel: what is shown', () => {
     await user.click(bidButton()!);
     expect(onBid).toHaveBeenCalledTimes(1);
   });
+  it('an open bidding in which nobody is up (HELD / schedule mismatch) says so in words and offers no control to anybody', () => {
+    mount({ projection: standing(S1, { onTurn: null }), onBid: vi.fn(), onPass: vi.fn() });
+    expect(screen.getByText('Im Moment kann niemand bieten.')).toBeInTheDocument();
+    expect(field()).not.toBeInTheDocument();
+    expect(passButton()).not.toBeInTheDocument();
+    expect(screen.queryByText('Ein anderes Team ist am Zug.')).not.toBeInTheDocument();
+  });
   it('a leader at the maximum cannot be outbid: the text says so and only the pass is offered', () => {
     mount({ projection: standing(S1, { leader: { teamId: 'T2', units: 999 } }), onBid: vi.fn(), onPass: vi.fn() });
     expect(screen.getByText('Höher bieten ist nicht möglich.')).toBeInTheDocument();
@@ -254,6 +261,38 @@ describe('N10 BiddingPanel: sending — one intent per binding', () => {
     expect(onBid2).not.toHaveBeenCalled();
     await user.dblClick(passButton()!);
     expect(onPass2).toHaveBeenCalledTimes(1);
+  });
+  it('two presses inside ONE tick (same render closure) send once: a bid and a pass fired together, and a pass pressed twice', async () => {
+    const onBid = vi.fn(), onPass = vi.fn();
+    mount({ projection: standing(S1), onBid, onPass });
+    fireEvent.change(field()!, { target: { value: '9' } });
+    const submit = bidButton()!, pass = passButton()!;
+    act(() => { fireEvent.submit(submit.closest('form')!); pass.click(); }); // nothing re-renders between the two presses
+    expect(onBid.mock.calls.length + onPass.mock.calls.length).toBe(1);
+    expect(onPass).not.toHaveBeenCalled();
+    cleanup();
+    const onPass2 = vi.fn();
+    mount({ projection: standing(S1), onBid: vi.fn(), onPass: onPass2 });
+    const p = passButton()!;
+    act(() => { p.click(); p.click(); });
+    expect(onPass2).toHaveBeenCalledTimes(1);
+  });
+  it('a REJECTED report releases the binding ONCE per report: a second identical rejection (distinguished by its id) releases the next send again, a repeated old report does not', async () => {
+    const user = userEvent.setup();
+    const onPass = vi.fn();
+    const key = biddingActionBindingKey(origin(S1));
+    const { set } = mount({ projection: standing(S1), onBid: vi.fn(), onPass });
+    await user.click(passButton()!);
+    expect(onPass).toHaveBeenCalledTimes(1);
+    set({ feedback: { bindingKey: key, status: 'REJECTED', id: 1 } });
+    await user.click(passButton()!); // the report released it: ONE new send
+    expect(onPass).toHaveBeenCalledTimes(2);
+    set({ feedback: { bindingKey: key, status: 'REJECTED', id: 1 } }); // the SAME report again (re-render with an equal object): no new release
+    await user.click(passButton()!);
+    expect(onPass).toHaveBeenCalledTimes(2);
+    set({ feedback: { bindingKey: key, status: 'REJECTED', id: 2 } }); // a NEW identical rejection
+    await user.click(passButton()!);
+    expect(onPass).toHaveBeenCalledTimes(3);
   });
   it('identical props created anew, a re-render and a theme change do not open the lock again (the command count is what counts)', async () => {
     const user = userEvent.setup();

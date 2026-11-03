@@ -28,7 +28,7 @@
 // server compares again). Its attempt context is the binding key, so a new binding starts a clean attempt. Passing leaves THIS bidding for good: the text next to the button says so.
 // ============================================================
 
-import { useId, useState } from 'react';
+import { useId, useRef, useState, type MutableRefObject } from 'react';
 import { Button } from '@quiz/ui';
 import { formatNumericCanonical, type NumericPublicInput, type NumericValue } from '@quiz/shared/numeric';
 import {
@@ -45,6 +45,8 @@ export interface BiddingFeedback {
   status: 'PENDING' | 'ACCEPTED' | 'REJECTED';
   /** REJECTED: a short, non-secret text */
   message?: string;
+  /** Optional unique id of THIS report (e.g. a counter): two identical rejections for the same binding stay distinguishable. Without it the content is the identity. */
+  id?: string | number;
 }
 
 export interface BiddingPanelProps {
@@ -82,6 +84,10 @@ export function BiddingPanel({ expected, projection, label = 'Bieten', names, on
   if (!sameMemo(memo, step.memo)) setMemo(step.memo);
 
   const [sent, setSent] = useState<SentLock | null>(null);
+  // The lock is held in a REF as well as in state: two presses inside ONE tick (measured in Chromium: a programmatic bid click and pass click in the same task) both run
+  // with the closure of the SAME render, so state alone would let both through. `consumed` remembers the rejection report that has already released a send.
+  const sentRef = useRef<string | null>(null);
+  const consumedRef = useRef<string | null>(null);
   const [lastBid, setLastBid] = useState<NumericValue | null>(null);
 
   if (held === null) {
@@ -106,17 +112,18 @@ export function BiddingPanel({ expected, projection, label = 'Bieten', names, on
 
   return <StandingView
     key={`${key}|view`} held={held} contextKey={key} titleId={titleId} label={label} names={names} onBid={onBid} onPass={onPass} feedback={feedback}
-    sent={sent} setSent={setSent} lastBid={lastBid} setLastBid={setLastBid}
+    sent={sent} setSent={setSent} sentRef={sentRef} consumedRef={consumedRef} lastBid={lastBid} setLastBid={setLastBid}
   />;
 }
 
 interface StandingViewProps {
   held: BiddingStandingProjection; contextKey: string; titleId: string; label: string; names?: Readonly<Record<string, string>>;
   onBid?: BiddingPanelProps['onBid']; onPass?: BiddingPanelProps['onPass']; feedback?: BiddingFeedback | null;
-  sent: SentLock | null; setSent: (value: SentLock | null | ((current: SentLock | null) => SentLock | null)) => void; lastBid: NumericValue | null; setLastBid: (value: NumericValue | null) => void;
+  sent: SentLock | null; setSent: (value: SentLock | null | ((current: SentLock | null) => SentLock | null)) => void;
+  sentRef: MutableRefObject<string | null>; consumedRef: MutableRefObject<string | null>; lastBid: NumericValue | null; setLastBid: (value: NumericValue | null) => void;
 }
 
-function StandingView({ held, contextKey, titleId, label, names, onBid, onPass, feedback, sent, setSent, lastBid, setLastBid }: StandingViewProps) {
+function StandingView({ held, contextKey, titleId, label, names, onBid, onPass, feedback, sent, setSent, sentRef, consumedRef, lastBid, setLastBid }: StandingViewProps) {
   const nameOf = (id: string): string => names?.[id] ?? id;
   const unit = held.numeric.unit;
   const you = held.you;
@@ -129,16 +136,20 @@ function StandingView({ held, contextKey, titleId, label, names, onBid, onPass, 
   };
   const bindingKey = binding === null ? null : biddingActionBindingKey(binding);
   const lockKey = binding === null ? null : `${contextKey}|${bindingKey}`;
-  // a rejection reported for exactly THIS binding releases exactly this binding (derived, no effect)
-  const rejected = feedback?.status === 'REJECTED' && feedback.bindingKey === bindingKey;
+  // a rejection reported for exactly THIS binding releases exactly this binding — once per report (derived while rendering, no effect)
+  const rejectionSig = feedback?.status === 'REJECTED' && feedback.bindingKey === bindingKey ? JSON.stringify([feedback.bindingKey, feedback.id ?? null, feedback.message ?? null]) : null;
+  const rejected = rejectionSig !== null && consumedRef.current !== rejectionSig;
   const locked = lockKey !== null && sent !== null && sent.key === lockKey && !rejected;
   const canBid = onBid !== undefined && bidder !== null && bidder.canBid;
   const canPass = onPass !== undefined && bidder !== null && bidder.canPass;
 
   const guard = (kind: SentLock['kind'], run: () => void | Promise<unknown>) => {
-    if (lockKey === null || locked) return; // one send per concrete binding, shared by bid and pass
+    if (lockKey === null) return;
+    if (sentRef.current === lockKey && !rejected) return; // one send per concrete binding, shared by bid and pass
+    if (rejected) consumedRef.current = rejectionSig; // this report has released ONE send
+    sentRef.current = lockKey;
     setSent({ key: lockKey, kind });
-    const unlock = () => setSent(current => (current !== null && current.key === lockKey ? null : current));
+    const unlock = () => { if (sentRef.current === lockKey) sentRef.current = null; setSent(current => (current !== null && current.key === lockKey ? null : current)); };
     try {
       const result = run();
       if (result !== undefined && result !== null && typeof (result as Promise<unknown>).then === 'function') (result as Promise<unknown>).then(undefined, unlock);
@@ -160,11 +171,12 @@ function StandingView({ held, contextKey, titleId, label, names, onBid, onPass, 
     : held.phase === 'OPEN' ? (standing === null ? 'Noch kein Gebot.' : `Höchstgebot: ${display(standing.value, unit)} von ${nameOf(standing.teamId)}.`)
       : held.phase === 'CLOSED' ? (held.outcome === null ? 'Beendet.' : `Beendet. ${nameOf(held.outcome.winnerTeamId)} gewinnt mit ${display(held.outcome.winningValue, unit)}.`)
         : 'Das Bieten wurde abgebrochen. Es gibt kein Ergebnis.';
+  const stalled = held.phase === 'OPEN' && held.onTurn === null; // nobody is up (the bidder on turn is out of play, or the sequence does not agree with the schedule): nobody can act
   const ownTeam = bidder === null ? null : held.teams.find(team => team.teamId === bidder.teamId) ?? null;
   const youText = bidder === null ? null
     : bidder.canBid && onBid !== undefined ? 'Du bist am Zug.'
       : bidder.holdsTurn ? 'Im Moment ist keine Aktion möglich.'
-        : held.phase !== 'OPEN' ? null
+        : held.phase !== 'OPEN' || stalled ? null
           : ownTeam?.status === 'PASSED' ? 'Dein Team ist ausgestiegen.'
             : ownTeam?.leading ? 'Du führst. Warte auf die anderen Teams.' : 'Ein anderes Team ist am Zug.';
 
@@ -180,6 +192,7 @@ function StandingView({ held, contextKey, titleId, label, names, onBid, onPass, 
       {held.category !== null && <p className={styles.hint}>Kategorie: {held.category}</p>}
       <p className={styles.status} role="status">{statusText}</p>
       {youText !== null && <p className={styles.hint}>{youText}</p>}
+      {stalled && <p className={styles.hint}>Im Moment kann niemand bieten.</p>}
       {held.onTurn !== null && !(bidder !== null && bidder.holdsTurn) && <p className={styles.muted}>Am Zug: {nameOf(held.onTurn.teamId)}</p>}
       <ul className={styles.teams} aria-label="Teams">
         {held.teams.map(team => (

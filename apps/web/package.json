@@ -7,7 +7,7 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p harness/n9-dice/tsconfig.json && tsc --noEmit -p harness/n9-dice/tsconfig.web.json",
+    "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p harness/n9-dice/tsconfig.json && tsc --noEmit -p harness/n9-dice/tsconfig.web.json && tsc --noEmit -p harness/n10-bidding/tsconfig.json && tsc --noEmit -p harness/n10-bidding/tsconfig.web.json",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:e2e": "playwright test --config=../../playwright.config.ts",
