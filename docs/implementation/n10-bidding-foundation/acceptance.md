@@ -8,7 +8,16 @@ Head, PR-Nummer und die CI am **finalen** Head stehen in der PR-Beschreibung und
 
 | Prüfung | Befehl | Ergebnis |
 |---|---|---|
-@@RUNS@@
+| Typecheck | `pnpm typecheck` | Exit 0 — einschließlich der Harnesses (`harness/n9-dice`, `harness/n10-bidding`, je Server- und Web-Projekt) |
+| Lint | `pnpm lint` | Exit 0 — 0 Fehler, 109 Warnungen (**identisch zum Ausgangswert**; `eslint` auf allen N10-Dateien ohne Befund) |
+| Build | `pnpm build` | Exit 0 (bekannte Chunk-Größen-Warnung); der gebaute Server lädt den Biet-Vertrag im Plain-Node-Strip-Modus (`gameErrorCode(new Error('BIDDING_VALUE_NOT_HIGHER'))` aus `dist` liefert den Code; die Selbstreferenz auf `@quiz/shared/numeric` löst Node über `exports`) |
+| Server | `pnpm --filter @quiz/server test` | Exit 0 — **97 Dateien, 1592 Tests** (Ausgangswert N9: 95 / 1432; +160: `biddingPhase.test.ts` 139, `biddingPhase.cas.integration.test.ts` 21) |
+| Web | `pnpm --filter @quiz/web test` | Exit 0 — **57 Dateien, 735 Tests** (Ausgangswert N9: 55 / 685; +50: `BiddingPanel.test.tsx` 36, `biddingIntake.test.ts` 14) |
+| E2E (Chromium) | `CI=true pnpm exec playwright test --config=playwright.config.ts --project=chromium` mit frischer SQLite-DB (`migrate deploy` + `db:seed`) | Exit 0 — **45 bestanden** (wie Ausgangswert). Die E2E-Suite enthält bewusst keine N10-Route. |
+| N10-Harness | `node apps/web/harness/n10-bidding/check.cjs` | Exit 0 — **14 Szenarien** (mehrfach am Endstand, zuletzt 48,9 s), getrennte Chromium-Kontexte (Bidder ×3, Performer ×3, Viewer, Display, Host, mitspielender Host als Performer) gegen die echte Domäne mit echter SQLite; keine Kindprozesse zurückgeblieben |
+| Mutationsprüfung | `review.md` B | 16 Mutanten + Harness-Payload-Variante, alle gefangen; Browsertreffer für M4a, M5, M7a (Harness), M12; Arbeitsbaum danach sauber |
+| Post-Merge-CI main (Start) | GitHub Actions 41549455618 | `completed/success` (beim späteren Abruf; beim Start war der E2E-Job noch `in_progress`) |
+| GitHub-CI am letzten Head | siehe PR | nach dem Push zu prüfen; Zahlen und Joblogs stehen im Abschlussbericht |
 
 ## Ehrliche Grenzen der Nachweise
 - **Echt:** SQLite aus den realen Migrationen, die gemeinsame CAS `saveGameStateIfRevision` (im Stand-in der **einzige** Wächter, M7b), echtes `runReceipted`/`CommandReceipt`, echte `GameDomainEvent`-Zeilen über `materializeGameEvent` (in derselben Transaktion direkt vor dem CAS-Schreiben, weil `saveGameStateIfRevision` das Event nur zusammen mit `persistRoundResult` für registrierte Engine-Slugs schreibt), die Einzelverbindungs-URL, ein zweiter Node-Prozess, echtes Chromium. **Nicht echt:** keine Engine (Stand-in-Zustand `{ phase, standIn, turnSequence, bidding }`), keine Route/Socket/Session/Admission (Aufrufer, Gate und N6-Stand sind Tabelleneinträge), kein Setup-Snapshot, keine Punkte.
