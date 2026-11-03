@@ -124,6 +124,7 @@ interface StandingViewProps {
 }
 
 function StandingView({ held, contextKey, titleId, label, names, onBid, onPass, feedback, sent, setSent, sentRef, consumedRef, lastBid, setLastBid }: StandingViewProps) {
+  const passHintId = `${useId()}-pass-hint`;
   const nameOf = (id: string): string => names?.[id] ?? id;
   const unit = held.numeric.unit;
   const you = held.you;
@@ -213,8 +214,8 @@ function StandingView({ held, contextKey, titleId, label, names, onBid, onPass, 
           {canBid && inputMeta === null && <p className={styles.hint}>Höher bieten ist nicht möglich.</p>}
           {canPass && (
             <div className={styles.passRow}>
-              <Button type="button" variant="secondary" className={locked ? styles.locked : undefined} aria-disabled={locked || undefined} onClick={submitPass}>{locked ? 'Gesendet' : 'Passen'}</Button>
-              <p className={styles.muted}>Passen: Du steigst aus diesem Bieten aus und kannst nicht wieder einsteigen.</p>
+              <Button type="button" variant="secondary" className={locked ? styles.locked : undefined} aria-disabled={locked || undefined} aria-describedby={passHintId} onClick={submitPass}>{locked ? 'Gesendet' : 'Passen'}</Button>
+              <p id={passHintId} className={styles.muted}>Passen: Du steigst aus diesem Bieten aus und kannst nicht wieder einsteigen.</p>
             </div>
           )}
         </div>

@@ -85,6 +85,31 @@ describe('N10 BiddingPanel: what is shown', () => {
     expect(passButton()).not.toBeInTheDocument();
     expect(screen.queryByText('Ein anderes Team ist am Zug.')).not.toBeInTheDocument();
   });
+  it('the one-decimal profile: comma and point are decimal signs only, the minimum is one unit higher (0,3 → 0,4), an incomplete or too precise value is refused locally, nothing is rounded', async () => {
+    const user = userEvent.setup();
+    const onBid = vi.fn();
+    const decimal = (stand: Stand): BiddingProjection => {
+      const base = standing(stand, { leader: { teamId: 'T2', units: 3 } }) as Extract<BiddingProjection, { release: 'STANDING' }>;
+      return { ...base, numeric: { ...base.numeric, scale: 1, bounds: { min: { units: 1, scale: 1 }, max: { units: 1000, scale: 1 } } }, standing: { teamId: 'T2', value: { units: 3, scale: 1 } } };
+    };
+    mount({ projection: decimal(S1), onBid, onPass: vi.fn() });
+    expect(screen.getByRole('status')).toHaveTextContent('Höchstgebot: 0,3 Städte von Team Zwei.');
+    await user.type(field()!, '0,3'); await user.click(bidButton()!);
+    expect(screen.getByRole('alert')).toHaveTextContent('Die Zahl muss zwischen 0,4 und 100,0 liegen.');
+    await user.clear(field()!); await user.type(field()!, '0,'); await user.click(bidButton()!);
+    expect(screen.getByRole('alert')).toHaveTextContent('Die Zahl ist noch nicht vollständig.');
+    await user.clear(field()!); await user.type(field()!, '0,45'); await user.click(bidButton()!);
+    expect(screen.getByRole('alert')).toHaveTextContent(/höchstens eine Nachkommastelle/);
+    expect(onBid).not.toHaveBeenCalled();
+    await user.clear(field()!); await user.type(field()!, '0.4'); await user.click(bidButton()!); // the point is a decimal sign too
+    expect(onBid).toHaveBeenCalledWith({ ...origin(S1), value: { units: 4, scale: 1 } }); // the canonical object on the wire, never the string
+  });
+  it('the pass explains its consequence to assistive technology (aria-describedby points at the text)', () => {
+    mount({ projection: standing(S1), onBid: vi.fn(), onPass: vi.fn() });
+    const pass = passButton()!;
+    const described = pass.getAttribute('aria-describedby');
+    expect(described && document.getElementById(described)?.textContent).toMatch(/kannst nicht wieder einsteigen/);
+  });
   it('a leader at the maximum cannot be outbid: the text says so and only the pass is offered', () => {
     mount({ projection: standing(S1, { leader: { teamId: 'T2', units: 999 } }), onBid: vi.fn(), onPass: vi.fn() });
     expect(screen.getByText('Höher bieten ist nicht möglich.')).toBeInTheDocument();

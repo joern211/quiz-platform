@@ -211,6 +211,24 @@ describe('B. Opening against the pinned N8 sequence', () => {
     // not started (READY) is not active
     expect(codeOf(open(fits))).toBe('BIDDING_SEQUENCE_MISMATCH');
   });
+  it('every operation in every phase: PREPARED / CLOSED / ABORTED refuse bid, pass, open, basis and hold with the phase codes and change nothing', () => {
+    const p = prepared();
+    const seqOf = (b: BiddingState) => startTurnSequence(prepareTurnSequence(biddingTurnSequenceInput(b)), { scope: { runIndex: 1, sequenceId: 'seq-1', rosterRevision: 'roster-1', unit: 'TEAM' }, expectedVersion: 0, eligibility: elig({ n: 3 }) }).state;
+    const closed = pass(bid(openWorld({ n: 2 }), 3));
+    const aborted = (() => { const w = bid(openWorld({ n: 3 }), 3); const out = abortBidding(w.bid, { scope: biddingScopeOf(w.bid), expectedVersion: w.bid.version, expectedSequenceVersion: w.seq.version, sequence: w.seq, reason: 'HOST_ABORTED', gate: { abortAuthorized: true } }); return { bid: out.state, seq: out.sequence, n: 3 } as World; })();
+    const cases: Array<[string, World, string]> = [['PREPARED', { bid: p, seq: seqOf(p), n: 3 }, 'BIDDING_NOT_OPEN'], ['CLOSED', closed, 'BIDDING_ENDED'], ['ABORTED', aborted, 'BIDDING_ENDED']];
+    for (const [name, w, code] of cases) {
+      const frozen = [clone(w.bid), clone(w.seq)];
+      const scope = biddingScopeOf(w.bid);
+      const base = { scope, expectedVersion: w.bid.version, expectedSequenceVersion: w.seq.version, sequence: w.seq, eligibility: elig(w, 3) };
+      expect(codeOf(() => refreshBiddingBasis(w.bid, base)), `${name}: refresh`).toBe(code);
+      expect(codeOf(() => withholdBiddingHolder(w.bid, { ...base, expectedTurnNumber: w.seq.turnNumber })), `${name}: withhold`).toBe(code);
+      expect(codeOf(() => applyBid(w.bid, { expectedVersion: w.bid.version, teamId: 'T1', turnNumber: 99, value: num(3) })), `${name}: applyBid`).toBe(code);
+      expect(codeOf(() => applyPass(w.bid, { expectedVersion: w.bid.version, teamId: 'T1', turnNumber: 99 })), `${name}: applyPass`).toBe(code);
+      if (name !== 'PREPARED') expect(codeOf(() => openBidding(w.bid, { scope, expectedVersion: w.bid.version, sequence: w.seq })), `${name}: open`).toBe('BIDDING_ENDED');
+      expect([w.bid, w.seq], `${name}: untouched`).toEqual(frozen);
+    }
+  });
   it('a malformed or foreign scope is stale / invalid, and opening needs the exact argument keys', () => {
     const p = prepared();
     const seq = startTurnSequence(prepareTurnSequence(biddingTurnSequenceInput(p)), { scope: { runIndex: 1, sequenceId: 'seq-1', rosterRevision: 'roster-1', unit: 'TEAM' }, expectedVersion: 0, eligibility: elig({ n: 3 }) }).state;
