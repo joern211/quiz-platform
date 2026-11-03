@@ -676,6 +676,19 @@ describe('D. Full path with N8: schedule, handover, no bidder rotation', () => {
     const done = pass(bid(openWorld({ n: 2 }), 3));
     expect(codeOf(() => passBidding(done.bid, { ...args, expectedVersion: done.bid.version }))).toBe('BIDDING_ENDED');
   });
+  it('terminal exits and newer knowledge (N8-02 review): the closing pass and the abort do not commit a newer N6 stand — deliberate, the closed sequence authorises nothing; every NON-terminal success path does', () => {
+    const two = bid(openWorld({ n: 2 }), 3);
+    const closing = pass(two, { eligibility: elig(two, 9) }); // a closing pass that saw a newer stand
+    expect(closing.seq.phase).toBe('CLOSED');
+    expect(closing.seq.eligibility?.actors.version).toBe(1); // the last COMMITTED basis stays (nothing acts on a closed sequence any more)
+    expect(codeOf(() => applyBid(closing.bid, { expectedVersion: closing.bid.version, teamId: 'T1', turnNumber: 99, value: num(9) }))).toBe('BIDDING_ENDED');
+    const three = openWorld({ n: 3 });
+    const handover = bid(three, 4, { eligibility: elig(three, 9) }); // a non-terminal success path commits the newer stand
+    expect(handover.seq.eligibility?.actors.version).toBe(9);
+    const mid = pass(bid(bid(openWorld({ n: 3 }), 3), 5), { eligibility: elig({ n: 3 }, 9) }); // a non-closing pass too
+    expect(mid.bid.phase).toBe('OPEN');
+    expect(mid.seq.eligibility?.members?.version).toBe(9);
+  });
   it('the full path is pure: no clock and no random source (the server time is an explicit argument)', () => {
     const random = vi.spyOn(Math, 'random'), now = vi.spyOn(Date, 'now');
     let w = openWorld({ n: 3 });
