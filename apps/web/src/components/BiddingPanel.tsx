@@ -93,7 +93,7 @@ export function BiddingPanel({ expected, projection, label = 'Bieten', names, on
   const [attempts, setAttemptsState] = useState<AttemptStore>(emptyAttemptStore);
   const commit = (next: AttemptStore) => { if (next !== attemptsRef.current) { attemptsRef.current = next; setAttemptsState(next); } };
   // An application report is applied once and to its attempt only. A layout effect (synchronous in the commit, no visible frame) keeps the ref current before any later press.
-  useLayoutEffect(() => { if (feedback) commit(applyFeedback(attemptsRef.current, feedback, key)); }, [feedback, key]); // eslint-disable-line react-hooks/exhaustive-deps -- commit only touches the ref and the state mirror
+  useLayoutEffect(() => { if (feedback) commit(applyFeedback(attemptsRef.current, feedback, key)); }, [feedback, key]);
 
   if (held === null) {
     return (
