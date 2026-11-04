@@ -12,10 +12,10 @@ Head, PR-Nummer und die CI am **finalen** Head stehen in der PR-Beschreibung und
 | Lint | `pnpm lint` | Exit 0 — 0 Fehler, 109 Warnungen (**identisch zum Ausgangswert**; `eslint` auf allen N10-Dateien ohne Befund); `git diff --check` ohne Befund |
 | Build | `pnpm build` | Exit 0 (bekannte Chunk-Größen-Warnung); der gebaute Server lädt den Biet-Vertrag im Plain-Node-Strip-Modus (`gameErrorCode(new Error('BIDDING_VALUE_NOT_HIGHER'))` aus `dist` liefert den Code; die Selbstreferenz auf `@quiz/shared/numeric` löst Node über `exports`) |
 | Server | `pnpm --filter @quiz/server test` | Exit 0 — **98 Dateien, 1608 Tests** (Ausgangswert N9: 95 / 1432; +176: `biddingPhase.test.ts` 155, `biddingPhase.cas.integration.test.ts` 21, `n10IndependentReview.test.ts` 3 — enthalten sind die neuen Abschnitte I (N5 → N10) und J (Abschlussreserve)) |
-| Web | `pnpm --filter @quiz/web test` | Exit 0 — **59 Dateien, 754 Tests** (Ausgangswert N9: 55 / 685; +69: `BiddingPanel.test.tsx` 46 inkl. Retry-Ketten, `biddingIntake.test.ts` 14, `sendAttempts.test.ts` 5, `n10IndependentReview.test.tsx` 4; 4 neue Dateien) |
+| Web | `pnpm --filter @quiz/web test` | Exit 0 — **60 Dateien, 759 Tests** (Ausgangswert N9: 55 / 685; +74: `BiddingPanel.test.tsx` 49 inkl. Retry-Ketten und verworfenem Feldversuch, `biddingIntake.test.ts` 14, `sendAttempts.test.ts` 6, `n10IndependentReview.test.tsx` 4, `n10RetryReview.test.tsx` 1; 5 neue Dateien) |
 | E2E (Chromium) | `CI=true pnpm exec playwright test --config=playwright.config.ts --project=chromium` mit frischer SQLite-DB (`migrate deploy` + `db:seed`) | Exit 0 — **45 bestanden** (wie Ausgangswert). Die E2E-Suite enthält bewusst keine N10-Route. |
-| N10-Harness | `node apps/web/harness/n10-bidding/check.cjs` | Exit 0 — **15 Szenarien** (neu S15: Ablehnung → genau eine Wiederholung; mehrfach am Endstand, zuletzt 20,4 s), getrennte Chromium-Kontexte (Bidder ×3, Performer ×3, Viewer, Display, Host, mitspielender Host als Performer) gegen die echte Domäne mit echter SQLite; keine Kindprozesse zurückgeblieben |
-| Mutationsprüfung | `review.md` B und F | 16 Mutanten + Harness-Payload-Variante (B) und 12 weitere zur Nachbesserung (F: U1–U6, S1–S6), alle gefangen; Browsertreffer für M4a, M5, M7a (Harness), M12, U2; Arbeitsbaum danach sauber |
+| N10-Harness | `node apps/web/harness/n10-bidding/check.cjs` | Exit 0 — **16 Szenarien** (neu S15: Ablehnung → genau eine Wiederholung; S16: Pass + Gebots-Submit im selben Task; zuletzt 50,4 s), getrennte Chromium-Kontexte (Bidder ×3, Performer ×3, Viewer, Display, Host, mitspielender Host als Performer) gegen die echte Domäne mit echter SQLite; keine Kindprozesse zurückgeblieben |
+| Mutationsprüfung | `review.md` B und F | 16 Mutanten + Harness-Payload-Variante (B) und 14 weitere zur Nachbesserung (F/F2: U1–U8, S1–S6), alle gefangen; Browsertreffer für M4a, M5, M7a (Harness), M12, U2, U7; Arbeitsbaum danach sauber |
 | Post-Merge-CI main (Start) | GitHub Actions 41549455618 | `completed/success` (beim späteren Abruf; beim Start war der E2E-Job noch `in_progress`) |
 | GitHub-CI am letzten Head | siehe PR | nach dem Push zu prüfen; Zahlen und Joblogs stehen im Abschlussbericht |
 
@@ -53,4 +53,6 @@ Head, PR-Nummer und die CI am **finalen** Head stehen in der PR-Beschreibung und
 | N10-03 [P2] N5-Adapter verliert die Herkunft | Prüfer-Tests (`n10IndependentReview.test.ts` 1–2, Eingang an `roles: { source: 'N5_DEAL', … }` angepasst), `biddingPhase.test.ts` I, Mutationen S1/S2 |
 | N10-04 [P3] BASIS verbraucht die Abschlussreserve | Prüfer-Test (`n10IndependentReview.test.ts` 3), `biddingPhase.test.ts` J, Mutationen S3–S6 |
 
-Finaler Commit, Head-SHA und die CI am finalen Head stehen in der **PR-Beschreibung** (ein Dokument kann den Hash seines eigenen Commits nicht enthalten); die Läufe oben liefen am Codezustand `1398694` (danach nur Dokumente).
+| Gegenprobe `n10RetryReview.test.tsx` (verworfener Gebot-Submit lässt das Feld warten) | `n10RetryReview.test.tsx`, `BiddingPanel.test.tsx` (3 Tests), `sendAttempts.test.ts`, Browser S16, Mutationen U7/U8 (`review.md` F2) |
+
+Finaler Commit, Head-SHA und die CI am finalen Head stehen in der **PR-Beschreibung** (ein Dokument kann den Hash seines eigenen Commits nicht enthalten); die Läufe oben liefen am Codezustand `091a91e` (danach nur Dokumente).
