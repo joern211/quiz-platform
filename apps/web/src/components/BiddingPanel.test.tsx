@@ -640,4 +640,54 @@ describe('N10 BiddingPanel: retry chains after a rejection (attempts)', () => {
     expect(onPass).toHaveBeenCalledTimes(1);
     expect(onBid).toHaveBeenCalledTimes(1);
   });
+  it('a bid submitted in the SAME task as a pass is refused (nothing sent) and the field is told: after the pass is rejected the SAME draft is really sent again (call count), after the pass is accepted nothing is released', async () => {
+    let rejectPass!: (error: Error) => void;
+    const pass1 = new Promise<void>((_, fail) => { rejectPass = fail; });
+    const onPass = vi.fn().mockReturnValueOnce(pass1);
+    const onBid = vi.fn();
+    mount({ projection: standing(S1), onBid, onPass });
+    fireEvent.change(field()!, { target: { value: '7' } });
+    const pass = passButton()!, submit = screen.getByRole('button', { name: 'Bieten' });
+    act(() => { pass.click(); submit.click(); });
+    expect(onPass).toHaveBeenCalledTimes(1);
+    expect(onBid).not.toHaveBeenCalled();
+    expect(screen.getByRole('alert')).toHaveTextContent('Es läuft bereits eine andere Aktion.'); // the field is answered, not left waiting
+    expect(field()).toBeDisabled(); // the pass holds the binding
+    await act(async () => { rejectPass(new Error('refused')); await pass1.catch(() => undefined); });
+    expect(field()).not.toBeDisabled();
+    expect(field()).not.toHaveAttribute('readonly');
+    expect(field()).toHaveValue('7');
+    fireEvent.click(screen.getByRole('button', { name: 'Erneut senden' }));
+    expect(onBid).toHaveBeenCalledTimes(1); // the draft really goes out now
+    expect(onBid.mock.calls[0][0]).toMatchObject({ value: { units: 7, scale: 0 } });
+  });
+  it('the same refused submit while the pass is ACCEPTED (not rejected) leaves the binding locked: no bid is ever sent for it', () => {
+    const onPass = vi.fn(), onBid = vi.fn();
+    const { set } = mount({ projection: standing(S1), onBid, onPass });
+    fireEvent.change(field()!, { target: { value: '7' } });
+    const pass = passButton()!, submit = screen.getByRole('button', { name: 'Bieten' });
+    act(() => { pass.click(); submit.click(); });
+    set({ feedback: { bindingKey: biddingActionBindingKey(origin(S1)), status: 'ACCEPTED', id: 1 } });
+    expect(onBid).not.toHaveBeenCalled();
+    expect(passButton()).toHaveAttribute('aria-disabled', 'true');
+    expect(field()).toBeDisabled();
+  });
+  it('a refused submit is answered once per binding: a new real bid attempt afterwards uses its own answers', async () => {
+    let rejectPass!: (error: Error) => void;
+    const pass1 = new Promise<void>((_, fail) => { rejectPass = fail; });
+    const onPass = vi.fn().mockReturnValueOnce(pass1);
+    const onBid = vi.fn();
+    const { set } = mount({ projection: standing(S1), onBid, onPass });
+    fireEvent.change(field()!, { target: { value: '7' } });
+    const pass = passButton()!, submit = screen.getByRole('button', { name: 'Bieten' });
+    act(() => { pass.click(); submit.click(); });
+    await act(async () => { rejectPass(new Error('refused')); await pass1.catch(() => undefined); });
+    fireEvent.click(screen.getByRole('button', { name: 'Erneut senden' }));
+    expect(onBid).toHaveBeenCalledTimes(1);
+    expect(field()).toHaveAttribute('readonly'); // now the real bid is in flight
+    set({ feedback: { bindingKey: biddingActionBindingKey(origin(S1)), status: 'REJECTED', attemptId: (onBid.mock.calls[0][1] as { attemptId: string }).attemptId, id: 5 } });
+    expect(field()).not.toHaveAttribute('readonly');
+    fireEvent.click(screen.getByRole('button', { name: 'Erneut senden' }));
+    expect(onBid).toHaveBeenCalledTimes(2);
+  });
 });

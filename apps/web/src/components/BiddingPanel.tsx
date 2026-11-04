@@ -36,7 +36,7 @@ import {
   type BiddingActionBinding, type BiddingBidIntent, type BiddingExpectedContext, type BiddingPassIntent, type BiddingProjection, type BiddingStandingProjection,
 } from '@quiz/shared/bidding';
 import { intakeBiddingProjection, type BiddingIntakeMemo } from '../bidding/biddingIntake';
-import { applyFeedback, emptyAttemptStore, holdsLock, rejectAttempt, startAttempt, type AttemptStore } from '../bidding/sendAttempts';
+import { applyFeedback, dropFieldAttempt, emptyAttemptStore, holdsLock, rejectAttempt, startAttempt, type AttemptStore } from '../bidding/sendAttempts';
 import { NumberField, type NumberFieldFeedback } from './NumberField';
 import styles from './BiddingPanel.module.css';
 
@@ -75,6 +75,7 @@ const UNAVAILABLE = 'Das Bieten ist zurzeit nicht verfügbar.';
 const display = (value: NumericValue, unit: NumericPublicInput['unit']): string => `${formatNumericCanonical(value, ',')}${unit ? ` ${unit.label}` : ''}`;
 
 const GENERIC_REJECTION = 'Das hat nicht geklappt. Bitte versuche es erneut.';
+const BUSY_REJECTION = 'Es läuft bereits eine andere Aktion. Bitte versuche es danach erneut.';
 const sameMemo = (a: BiddingIntakeMemo, b: BiddingIntakeMemo): boolean => a.key === b.key && a.seenStateVersion === b.seenStateVersion && a.seenBiddingVersion === b.seenBiddingVersion
   && a.seenSequenceVersion === b.seenSequenceVersion && a.seenTurnNumber === b.seenTurnNumber && a.seenRelease === b.seenRelease && JSON.stringify(a.held) === JSON.stringify(b.held);
 
@@ -150,7 +151,11 @@ function StandingView({ held, contextKey, titleId, label, names, onBid, onPass, 
   const send = (kind: 'BID' | 'PASS', fieldAttemptId: string | null, value: NumericValue | null, run: (attemptId: string) => void | Promise<unknown>) => {
     if (bindingKey === null) return;
     const started = startAttempt(attemptsRef.current, { contextKey, bindingKey, kind, fieldAttemptId, value });
-    if (started === null) return; // an attempt of this binding is in flight (or settled as accepted): bid and pass share the lock
+    if (started === null) { // an attempt of this binding is in flight (or settled as accepted): bid and pass share the lock
+      // the numeric field has opened an attempt of its own for this submit: answer it (retryable error) so it never waits for a send that did not happen
+      if (fieldAttemptId !== null) commit(dropFieldAttempt(attemptsRef.current, { contextKey, bindingKey, fieldAttemptId }));
+      return;
+    }
     commit(started.store);
     const attemptId = started.attempt.id;
     const release = () => commit(rejectAttempt(attemptsRef.current, attemptId, GENERIC_REJECTION));
@@ -186,12 +191,15 @@ function StandingView({ held, contextKey, titleId, label, names, onBid, onPass, 
 
   // ONE attempt state feeds the numeric field: its attempt id is the NumberField's own, so a second rejection with identical text is a NEW report for it, and a pass or an old
   // attempt can never release or confirm the number input.
-  const fieldFeedback: NumberFieldFeedback | null = current !== null && lockKey !== null && current.kind === 'BID' && current.fieldAttemptId !== null
-    ? current.outcome === 'PENDING' ? { contextKey: lockKey, attemptId: current.fieldAttemptId, status: 'PENDING' }
-      : current.outcome === 'ACCEPTED' ? { contextKey: lockKey, attemptId: current.fieldAttemptId, status: 'SUBMITTED', ...(current.value !== null ? { value: current.value } : {}) }
-        : current.outcome === 'REJECTED' ? { contextKey: lockKey, attemptId: current.fieldAttemptId, status: 'ERROR', message: current.message ?? GENERIC_REJECTION, retryable: true }
-          : null
-    : null;
+  const ownBidAttempt = current !== null && current.kind === 'BID' && current.fieldAttemptId !== null ? current : null;
+  const dropped = attempts.dropped !== null && attempts.dropped.contextKey === contextKey && attempts.dropped.bindingKey === bindingKey ? attempts.dropped : null;
+  const fieldFeedback: NumberFieldFeedback | null = lockKey === null ? null
+    : ownBidAttempt !== null && ownBidAttempt.fieldAttemptId !== null
+      ? ownBidAttempt.outcome === 'PENDING' ? { contextKey: lockKey, attemptId: ownBidAttempt.fieldAttemptId, status: 'PENDING' }
+        : ownBidAttempt.outcome === 'ACCEPTED' ? { contextKey: lockKey, attemptId: ownBidAttempt.fieldAttemptId, status: 'SUBMITTED', ...(ownBidAttempt.value !== null ? { value: ownBidAttempt.value } : {}) }
+          : ownBidAttempt.outcome === 'REJECTED' ? { contextKey: lockKey, attemptId: ownBidAttempt.fieldAttemptId, status: 'ERROR', message: ownBidAttempt.message ?? GENERIC_REJECTION, retryable: true }
+            : null
+      : dropped !== null ? { contextKey: lockKey, attemptId: dropped.fieldAttemptId, status: 'ERROR', message: BUSY_REJECTION, retryable: true } : null; // a submit that was refused because another action was in flight
 
   return (
     <section className={styles.card} aria-labelledby={titleId}>

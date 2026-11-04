@@ -28,8 +28,10 @@ export interface Attempt {
   outcome: AttemptOutcome;
   message: string | null;
 }
-export interface AttemptStore { seq: number; current: Attempt | null; consumed: readonly string[] }
-export const emptyAttemptStore: AttemptStore = { seq: 0, current: null, consumed: [] };
+/** A bid submit of the numeric field that was NOT sent because another attempt held the binding (the field believes it submitted: it must be told, or it waits forever). */
+export interface DroppedFieldAttempt { contextKey: string; bindingKey: string; fieldAttemptId: string }
+export interface AttemptStore { seq: number; current: Attempt | null; consumed: readonly string[]; dropped: DroppedFieldAttempt | null }
+export const emptyAttemptStore: AttemptStore = { seq: 0, current: null, consumed: [], dropped: null };
 
 const MAX_CONSUMED = 64;
 export interface AttemptFeedback { bindingKey: string; attemptId?: string; id?: string | number; status: 'PENDING' | 'ACCEPTED' | 'REJECTED'; message?: string }
@@ -51,7 +53,15 @@ export function startAttempt(store: AttemptStore, args: { contextKey: string; bi
   const attempt: Attempt = {
     id: `a${seq}`, contextKey: args.contextKey, bindingKey: args.bindingKey, kind: args.kind, fieldAttemptId: args.fieldAttemptId ?? null, value: args.value ?? null, outcome: 'SENT', message: null,
   };
-  return { store: { seq, current: attempt, consumed: store.consumed }, attempt };
+  return { store: { seq, current: attempt, consumed: store.consumed, dropped: null }, attempt };
+}
+
+/**
+ * The numeric field submitted, but the press was refused because an attempt of this binding is in flight (e.g. a pass in the same task). The field has opened an attempt of its own and
+ * waits for an answer to it: the refusal is remembered, so the panel can answer that attempt with a retryable error (N10-02). Nothing was sent.
+ */
+export function dropFieldAttempt(store: AttemptStore, dropped: DroppedFieldAttempt): AttemptStore {
+  return { ...store, dropped };
 }
 
 /** A rejected promise: releases the attempt that was handed to THAT callback and no other. A rejection of an older attempt changes nothing. */

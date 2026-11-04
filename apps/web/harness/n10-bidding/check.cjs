@@ -578,6 +578,29 @@ const NEUTRAL_KEYS = ['contract', 'phase', 'recipientId', 'release', 'scope', 's
     await closeAll();
   });
 
+  // ── S16: a bid submitted in the same task as a pass that is then refused (the field must never wait for a send that did not happen) ──────────────────
+  await scenario('S16 same-task pass + bid submit: the pass is refused before it leaves, the field is answered and the SAME draft is sent afterwards', async () => {
+    await host({ type: 'reset', biddingId: 'bidding-cross' });
+    const first = await state();
+    expect((await sendIntent('B1', 'BID', FRESH(), bidIntent(first, 4))).ok === true, 'T1 bids so that T2 may pass');
+    const B2 = track(await newPage(browser, 'B2'));
+    await delivered(B2, 'B2', 'standing', async page => await field(page).count() === 1 && await passButton(page).count() === 1);
+    const before = await state();
+    await B2.evaluate(() => { window.__harness.failBefore = 1; });
+    await field(B2).fill('9');
+    await B2.evaluate(() => { const pass = [...document.querySelectorAll('button')].find(x => /^Passen$/.test(x.textContent.trim())); const form = document.querySelector('form'); pass.click(); form.requestSubmit(); });
+    await waitUntil(async () => (await settled(B2)).length === 1, 5000, 'the pass attempt settled');
+    expect((await calls(B2)).length === 1 && (await calls(B2))[0].kind === 'PASS', 'only the pass left the page, the submit was refused', await calls(B2));
+    await waitUntil(async () => (await B2.getByRole('button', { name: 'Erneut senden' }).count()) === 1 && (await field(B2).getAttribute('readonly')) === null, 5000, 'the field is released and answered');
+    expect((await field(B2).inputValue()) === '9', 'the draft is kept');
+    await B2.getByRole('button', { name: 'Erneut senden' }).click();
+    await waitUntil(async () => (await state()).bidding.stepCount === before.bidding.stepCount + 1, 8000, 'the draft is stored');
+    const end = await state();
+    expect(end.bidding.leader.teamId === 'T2' && end.bidding.leader.units === 9 && end.bidding.passed.length === 0, 'the server stored the bid, never the refused pass', end.bidding);
+    expect((await calls(B2)).length === 2, 'exactly two calls: the refused pass and the real bid', (await calls(B2)).map(x => x.kind));
+    await closeAll();
+  });
+
   await browser.close();
   killAll();
   console.log(notes.join('\n'));

@@ -1,11 +1,20 @@
 import { describe, expect, it } from 'vitest';
-import { applyFeedback, emptyAttemptStore, feedbackSignature, holdsLock, rejectAttempt, startAttempt, type AttemptStore } from './sendAttempts';
+import { applyFeedback, dropFieldAttempt, emptyAttemptStore, feedbackSignature, holdsLock, rejectAttempt, startAttempt, type AttemptStore } from './sendAttempts';
 
 const CTX = 'ctx', B1 = 'binding-1', B2 = 'binding-2';
 const start = (store: AttemptStore, kind: 'BID' | 'PASS' = 'PASS', bindingKey = B1) => startAttempt(store, { contextKey: CTX, bindingKey, kind, fieldAttemptId: kind === 'BID' ? `${CTX}|${bindingKey}#1` : null });
 const must = <T,>(value: T | null): T => { if (value === null) throw new Error('expected a value'); return value; };
 
 describe('N10 send attempts: one state machine for every answer', () => {
+  it('a refused field submit is remembered, never sends, and is cleared by the next real attempt', () => {
+    const pass = must(start(emptyAttemptStore, 'PASS'));
+    expect(startAttempt(pass.store, { contextKey: CTX, bindingKey: B1, kind: 'BID', fieldAttemptId: 'f#1' })).toBeNull(); // blocked: nothing is sent
+    const dropped = dropFieldAttempt(pass.store, { contextKey: CTX, bindingKey: B1, fieldAttemptId: 'f#1' });
+    expect(dropped.dropped).toEqual({ contextKey: CTX, bindingKey: B1, fieldAttemptId: 'f#1' });
+    expect(dropped.current).toBe(pass.store.current); // the pass attempt is untouched
+    const released = rejectAttempt(dropped, 'a1', 'x');
+    expect(must(start(released, 'BID')).store.dropped).toBeNull();
+  });
   it('starts an attempt per press; bid and pass share ONE lock per binding; another binding or context is free', () => {
     const a = must(start(emptyAttemptStore, 'BID'));
     expect(a.attempt).toMatchObject({ id: 'a1', kind: 'BID', outcome: 'SENT', fieldAttemptId: `${CTX}|${B1}#1` });
@@ -64,6 +73,6 @@ describe('N10 send attempts: one state machine for every answer', () => {
     expect(store.consumed.length).toBe(64);
     const a = must(start(emptyAttemptStore));
     expect(JSON.stringify(a.store)).not.toBe(frozen + 'x');
-    expect(emptyAttemptStore).toEqual({ seq: 0, current: null, consumed: [] });
+    expect(emptyAttemptStore).toEqual({ seq: 0, current: null, consumed: [], dropped: null });
   });
 });
