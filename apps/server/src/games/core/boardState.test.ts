@@ -283,6 +283,17 @@ describe('N11 board: versions, N8 base progress and reserved steps', () => {
     const newer = pel(['a', 'b', 'c'], 2);
     expect(codeOf(() => move(atMax, intentFor(atMax, 'a1', 't3'), { eligibility: newer }))).toBe('BOARD_COUNTER_LIMIT');
     expect(move(atMax, intentFor(atMax, 'a1', 't3')).sequenceBasisAdvanced).toBe(false);
+    // RESERVE (second review, same pattern as N10-04): the owed basis step must not consume the LAST step the engine needs to end the turn (advanceTurnSequence needs +1 as well)
+    const nearMax = (version: number): World => { const seqN = parseTurnSequenceState({ ...full.seq, version }); return { ...full, seq: seqN }; };
+    const oneBelow = nearMax(999_999_999);
+    expect(codeOf(() => move(oneBelow, intentFor(oneBelow, 'a1', 't3'), { eligibility: newer }))).toBe('BOARD_COUNTER_LIMIT'); // basis step to MAX would leave nothing for the turn end
+    expect(move(oneBelow, intentFor(oneBelow, 'a1', 't3')).state.version).toBe(1); // no basis owed: no sequence step at all
+    const twoBelow = nearMax(999_999_998);
+    const fits = move(twoBelow, intentFor(twoBelow, 'a1', 't3'), { eligibility: newer });
+    expect(fits.sequenceBasisAdvanced).toBe(true);
+    // both owed steps really fit, one after the other: the basis step to MAX-1 and then the turn end to MAX
+    const refreshed = refreshEligibilityBasis(twoBelow.seq, { scope: sc(twoBelow.seq), expectedVersion: twoBelow.seq.version, eligibility: newer }).state;
+    expect(advanceTurnSequence(refreshed, { scope: sc(refreshed), expectedVersion: refreshed.version, expectedTurnNumber: 1, outcome: 'COMPLETE', eligibility: newer }).state.version).toBe(1_000_000_000);
   });
 });
 

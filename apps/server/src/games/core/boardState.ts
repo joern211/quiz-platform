@@ -371,8 +371,9 @@ export function moveFigure(rawBoard: unknown, args: BoardActionArgs): BoardActio
   if (move === undefined) throw new BoardError('BOARD_TARGET_ILLEGAL');
   assertCapacity(board.version);
   const sequenceBasisAdvanced = turnEligibilityAdvancesBasis(sequence, { scope: args.scope, eligibility: args.eligibility });
-  // the consumer must persist that basis step (N8 `refreshEligibilityBasis`: sequence version +1): refuse BEFORE any change if the sequence counter has no room for it
-  if (sequenceBasisAdvanced && sequence.version + 1 > TURN_SEQUENCE_MAX_COUNTER) throw new BoardError('BOARD_COUNTER_LIMIT');
+  // the consumer must persist that basis step (N8 `refreshEligibilityBasis`: sequence version +1): refuse BEFORE any change if the sequence counter has no room for it — and keep ONE
+  // more step free for the engine's turn end (`advanceTurnSequence` needs a version step too); a move that consumed the last step would strand the turn (as N10-04)
+  if (sequenceBasisAdvanced && sequence.version + 2 > TURN_SEQUENCE_MAX_COUNTER) throw new BoardError('BOARD_COUNTER_LIMIT');
   const change = applyDecidedBoardMove(board, {
     expectedVersion: board.version, ownerId, figureId: figure.id, to: move.to, captured: move.captured, steps: roll.steps, policy,
     roll: { diceId: dice.diceId, rollCount: dice.rollCount, turnNumber: sequence.turnNumber },

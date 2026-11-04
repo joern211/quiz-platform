@@ -56,6 +56,12 @@ describe('N11 board intake: fixtures and binding', () => {
 });
 
 describe('N11 board intake: ordering chains, one level at a time', () => {
+  it('a DOUBLE delivery of the same packet is accepted both times and changes nothing (same point, same release)', () => {
+    const packet = view(T1({ state: 7, bv: 1 }), { targets: OFFERED });
+    const { results } = feed([packet, packet, JSON.parse(JSON.stringify(packet))]);
+    expect(results.map(r => r.outcome)).toEqual(['ACCEPTED', 'ACCEPTED', 'ACCEPTED']);
+    expect(results[2].memo).toEqual(results[0].memo);
+  });
   it('new → null → older: an older packet after an empty / withdrawn view never restores the old board', () => {
     const { results } = feed([view(T1({ state: 6, bv: 1 })), null, view(T1({ state: 5, bv: 0 })), undefined, view(T1({ state: 6, bv: 1 }))]);
     expect(results.map(r => r.outcome)).toEqual(['ACCEPTED', 'WITHDRAWN', 'STALE', 'WITHDRAWN', 'ACCEPTED']);
