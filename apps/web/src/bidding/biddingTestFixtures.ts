@@ -37,4 +37,3 @@ export const neutral = (stateVersion: number, over: { recipient?: string | null;
   you: (over.recipient === undefined ? 'p1' : over.recipient) === null ? null : { performer: over.performer ?? true },
 });
 export const expectedFor = (recipientId: string | null, minStateVersion = 0, scope: Partial<typeof SCOPE> = {}): BiddingExpectedContext => ({ ...SCOPE, ...scope, recipientId, minStateVersion });
-

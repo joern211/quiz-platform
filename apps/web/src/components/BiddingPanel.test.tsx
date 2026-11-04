@@ -15,6 +15,8 @@ afterEach(() => { cleanup(); vi.useRealTimers(); });
 const NAMES = { T1: 'Team Eins', T2: 'Team Zwei', T3: 'Team Drei' };
 const S1: Stand = { sv: 5, bv: 3, qv: 2, turn: 3 };
 const text = () => document.body.textContent ?? '';
+/** every callback is told the identity of THIS send (the application echoes it as `attemptId`) */
+const ATTEMPT = expect.objectContaining({ attemptId: expect.any(String) });
 const clone = <T,>(value: T): T => JSON.parse(JSON.stringify(value)) as T;
 const deferred = () => { let resolve!: (v?: unknown) => void, reject!: (e?: unknown) => void; const promise = new Promise((res, rej) => { resolve = res; reject = rej; }); return { promise, resolve, reject }; };
 
@@ -102,7 +104,7 @@ describe('N10 BiddingPanel: what is shown', () => {
     expect(screen.getByRole('alert')).toHaveTextContent(/höchstens eine Nachkommastelle/);
     expect(onBid).not.toHaveBeenCalled();
     await user.clear(field()!); await user.type(field()!, '0.4'); await user.click(bidButton()!); // the point is a decimal sign too
-    expect(onBid).toHaveBeenCalledWith({ ...origin(S1), value: { units: 4, scale: 1 } }); // the canonical object on the wire, never the string
+    expect(onBid).toHaveBeenCalledWith({ ...origin(S1), value: { units: 4, scale: 1 } }, ATTEMPT); // the canonical object on the wire, never the string
   });
   it('the pass explains its consequence to assistive technology (aria-describedby points at the text)', () => {
     mount({ projection: standing(S1), onBid: vi.fn(), onPass: vi.fn() });
@@ -245,7 +247,7 @@ describe('N10 BiddingPanel: sending — one intent per binding', () => {
     await user.type(field()!, '9');
     await user.click(bidButton()!);
     expect(onBid).toHaveBeenCalledTimes(1);
-    expect(onBid).toHaveBeenCalledWith({ ...origin(S1), value: { units: 9, scale: 0 } });
+    expect(onBid).toHaveBeenCalledWith({ ...origin(S1), value: { units: 9, scale: 0 } }, ATTEMPT);
     expect(Object.keys(onBid.mock.calls[0][0]).sort()).toEqual(['biddingVersion', 'scope', 'sequenceVersion', 'teamId', 'turnNumber', 'value']); // no winner, no leader, no highest bid
   });
   it('a pass carries the same origin and nothing else', async () => {
@@ -254,7 +256,7 @@ describe('N10 BiddingPanel: sending — one intent per binding', () => {
     mount({ projection: standing(S1), onBid: vi.fn(), onPass });
     await user.click(passButton()!);
     expect(onPass).toHaveBeenCalledTimes(1);
-    expect(onPass).toHaveBeenCalledWith(origin(S1));
+    expect(onPass).toHaveBeenCalledWith(origin(S1), ATTEMPT);
     expect(Object.keys(onPass.mock.calls[0][0]).sort()).toEqual(['biddingVersion', 'scope', 'sequenceVersion', 'teamId', 'turnNumber']);
   });
   it('the intent is made from the VIEW that is shown, not from the expected context or later props: another view later gives another origin', async () => {
@@ -264,7 +266,7 @@ describe('N10 BiddingPanel: sending — one intent per binding', () => {
     set({ projection: standing({ sv: 8, bv: 5, qv: 4, turn: 5 }) });
     await user.type(field()!, '12');
     await user.click(bidButton()!);
-    expect(onBid).toHaveBeenCalledWith({ ...origin({ sv: 8, bv: 5, qv: 4, turn: 5 }), value: { units: 12, scale: 0 } });
+    expect(onBid).toHaveBeenCalledWith({ ...origin({ sv: 8, bv: 5, qv: 4, turn: 5 }), value: { units: 12, scale: 0 } }, ATTEMPT);
   });
   it('a double click on the bid sends once; a pass right after on the SAME binding and a bid right after a pass send nothing second', async () => {
     const user = userEvent.setup();
@@ -355,7 +357,7 @@ describe('N10 BiddingPanel: sending — one intent per binding', () => {
     set({ projection: standing({ sv: 6, bv: 4, qv: 3, turn: 4 }, { onTurn: 'T1' }) });
     await user.click(passButton()!);
     expect(onPass).toHaveBeenCalledTimes(2);
-    expect(onPass).toHaveBeenLastCalledWith(origin({ sv: 6, bv: 4, qv: 3, turn: 4 }));
+    expect(onPass).toHaveBeenLastCalledWith(origin({ sv: 6, bv: 4, qv: 3, turn: 4 }), ATTEMPT);
   });
   it('a rejected promise or REJECTED feedback of exactly THIS binding unlocks exactly this binding; late settlements of an OLD binding change nothing', async () => {
     const user = userEvent.setup();
@@ -398,7 +400,7 @@ describe('N10 BiddingPanel: sending — one intent per binding', () => {
     expect(screen.getByRole('alert')).toHaveTextContent('Das Gebot wurde abgelehnt.');
     await user.click(screen.getByRole('button', { name: 'Erneut senden' }));
     expect(onBid).toHaveBeenCalledTimes(2);
-    expect(onBid).toHaveBeenLastCalledWith({ ...origin(S1), value: { units: 9, scale: 0 } });
+    expect(onBid).toHaveBeenLastCalledWith({ ...origin(S1), value: { units: 9, scale: 0 } }, ATTEMPT);
     set({ feedback: { bindingKey: key, status: 'ACCEPTED' } });
     expect(field()).toHaveValue('9');
     expect(field()).toHaveAttribute('readonly');
@@ -474,5 +476,168 @@ describe('N10 BiddingPanel: presentation', () => {
     expect(css).not.toMatch(/#[0-9a-fA-F]{3,8}\b|rgba?\(|hsla?\(/);
     expect(css).not.toMatch(/box-shadow|text-shadow|filter\s*:\s*drop-shadow|animation|transition/);
     expect(css).not.toMatch(/(^|[\s;{])width\s*:\s*\d/m);
+  });
+});
+
+// ── N10-01 / N10-02: retry chains — the number of CALLBACKS is what counts, not a CSS class ───────────────────────
+
+describe('N10 BiddingPanel: retry chains after a rejection (attempts)', () => {
+  const key = () => biddingActionBindingKey(origin(S1));
+  const bidIn = (value = '7') => { fireEvent.change(field()!, { target: { value } }); fireEvent.click(screen.getByRole('button', { name: /^(Bieten|Erneut senden)$/ })); };
+  const rejected = (extra: { attemptId?: string; id?: number; message?: string } = {}): BiddingFeedback => ({ bindingKey: key(), status: 'REJECTED', message: 'Abgelehnt', ...extra });
+  const attemptIdOf = (fn: { mock: { calls: unknown[][] } }, index: number): string => (fn.mock.calls[index][1] as { attemptId: string }).attemptId;
+
+  it('PASS then BID after a rejection: one retry each, in either order, and the other control stays locked while a retry is in flight', async () => {
+    const onBid = vi.fn(), onPass = vi.fn();
+    const { set } = mount({ projection: standing(S1), onBid, onPass });
+    fireEvent.click(passButton()!);
+    expect(onPass).toHaveBeenCalledTimes(1);
+    set({ feedback: rejected({ id: 1 }) });
+    bidIn(); // after the PASS was rejected the BID may be sent
+    expect(onBid).toHaveBeenCalledTimes(1);
+    fireEvent.click(passButton()!); // the bid is in flight: the shared lock
+    expect(onPass).toHaveBeenCalledTimes(1);
+    expect(field()).toHaveAttribute('readonly');
+  });
+  it('BID then PASS after a rejection: one retry each, in either order', async () => {
+    const onBid = vi.fn(), onPass = vi.fn();
+    const { set } = mount({ projection: standing(S1), onBid, onPass });
+    bidIn();
+    expect(onBid).toHaveBeenCalledTimes(1);
+    set({ feedback: rejected({ id: 1 }) });
+    expect(field()).not.toHaveAttribute('readonly');
+    fireEvent.click(passButton()!);
+    expect(onPass).toHaveBeenCalledTimes(1);
+    bidIn(); // the pass is in flight: the number input is locked (disabled by the pass lock), nothing is sent
+    fireEvent.click(passButton()!);
+    expect(onBid).toHaveBeenCalledTimes(1);
+    expect(onPass).toHaveBeenCalledTimes(1);
+  });
+  it('after ONE rejection of a BID, a bid and a pass pressed in the SAME task send exactly one retry', () => {
+    const onBid = vi.fn(), onPass = vi.fn();
+    const { set } = mount({ projection: standing(S1), onBid, onPass });
+    bidIn();
+    set({ feedback: rejected({ id: 1 }) });
+    const retry = screen.getByRole('button', { name: 'Erneut senden' });
+    const pass = passButton()!;
+    act(() => { retry.click(); pass.click(); retry.click(); });
+    expect(onBid.mock.calls.length + onPass.mock.calls.length).toBe(2); // the original bid + exactly ONE retry
+    expect(onPass).not.toHaveBeenCalled();
+  });
+  it('a LATE promise rejection of attempt 1 does not release a BID retry that is already in flight; neither bid nor pass can be sent meanwhile', async () => {
+    let reject1!: (error: Error) => void;
+    const first = new Promise<void>((_, fail) => { reject1 = fail; });
+    const onBid = vi.fn().mockReturnValueOnce(first);
+    const onPass = vi.fn();
+    const { set } = mount({ projection: standing(S1), onBid, onPass });
+    bidIn();
+    set({ feedback: rejected({ id: 1 }) });
+    bidIn(); // the retry (attempt 2) is in flight
+    expect(onBid).toHaveBeenCalledTimes(2);
+    await act(async () => { reject1(new Error('late refusal of attempt 1')); await first.catch(() => undefined); });
+    expect(field()).toHaveAttribute('readonly'); // still waiting for attempt 2
+    fireEvent.click(screen.getByRole('button', { name: /^(Bieten|Erneut senden|Wird gesendet)/ }));
+    fireEvent.click(passButton()!);
+    expect(onBid).toHaveBeenCalledTimes(2);
+    expect(onPass).not.toHaveBeenCalled();
+  });
+  it('a LATE report of an OLD attempt (named by its attemptId) and a repeated old report release nothing while the retry is in flight', () => {
+    const onBid = vi.fn();
+    const { set } = mount({ projection: standing(S1), onBid, onPass: vi.fn() });
+    bidIn();
+    const a1 = attemptIdOf(onBid, 0);
+    set({ feedback: rejected({ attemptId: a1, id: 1 }) });
+    bidIn();
+    const a2 = attemptIdOf(onBid, 1);
+    expect(a2).not.toBe(a1);
+    set({ feedback: rejected({ attemptId: a1, id: 2, message: 'spät' }) }); // a NEW report, but for attempt 1
+    expect(field()).toHaveAttribute('readonly');
+    set({ feedback: rejected({ attemptId: a1, id: 1 }) }); // the SAME old report again
+    expect(field()).toHaveAttribute('readonly');
+    set({ feedback: rejected({ attemptId: a2, id: 3, message: 'spät' }) }); // identical text, but it names attempt 2
+    expect(field()).not.toHaveAttribute('readonly');
+  });
+  it('a rejected promise releases the number input for the SAME draft: the retry is really sent (call count), with a new attempt', async () => {
+    let reject!: (error: Error) => void;
+    const response = new Promise<void>((_, fail) => { reject = fail; });
+    const onBid = vi.fn().mockReturnValueOnce(response);
+    mount({ projection: standing(S1), onBid, onPass: vi.fn() });
+    bidIn('7');
+    await act(async () => { reject(new Error('refused')); await response.catch(() => undefined); });
+    expect(screen.getByRole('alert')).toHaveTextContent('Das hat nicht geklappt. Bitte versuche es erneut.');
+    expect(field()).toHaveValue('7'); // the draft is kept
+    fireEvent.click(screen.getByRole('button', { name: 'Erneut senden' }));
+    expect(onBid).toHaveBeenCalledTimes(2);
+    expect(onBid.mock.calls[1][0]).toEqual(onBid.mock.calls[0][0]); // the same complete intent
+    expect(attemptIdOf(onBid, 1)).not.toBe(attemptIdOf(onBid, 0));
+  });
+  it('promise rejection and report for the SAME attempt release it once: the late report does not release the retry', async () => {
+    let reject1!: (error: Error) => void;
+    const first = new Promise<void>((_, fail) => { reject1 = fail; });
+    const onBid = vi.fn().mockReturnValueOnce(first);
+    const { set } = mount({ projection: standing(S1), onBid, onPass: vi.fn() });
+    bidIn();
+    const a1 = attemptIdOf(onBid, 0);
+    await act(async () => { reject1(new Error('x')); await first.catch(() => undefined); });
+    bidIn(); // retry (attempt 2)
+    expect(onBid).toHaveBeenCalledTimes(2);
+    set({ feedback: rejected({ attemptId: a1, id: 1 }) }); // the application ALSO reports attempt 1 now
+    expect(field()).toHaveAttribute('readonly');
+    fireEvent.click(passButton()!);
+    expect(onBid).toHaveBeenCalledTimes(2);
+  });
+  it('two rejections with IDENTICAL text for two attempts each release their own number-input attempt (attemptId echoed)', () => {
+    const onBid = vi.fn();
+    const { set } = mount({ projection: standing(S1), onBid, onPass: vi.fn() });
+    bidIn();
+    set({ feedback: rejected({ attemptId: attemptIdOf(onBid, 0), id: 1 }) });
+    bidIn();
+    expect(onBid).toHaveBeenCalledTimes(2);
+    set({ feedback: rejected({ attemptId: attemptIdOf(onBid, 1), id: 2 }) });
+    expect(field()).not.toHaveAttribute('readonly');
+    bidIn();
+    expect(onBid).toHaveBeenCalledTimes(3); // the ACTUAL third submit, not a CSS class
+  });
+  it('a PASS acknowledgement or an old PASS rejection neither releases nor confirms the number input; the draft survives', async () => {
+    let rejectPass!: (error: Error) => void;
+    const pass1 = new Promise<void>((_, fail) => { rejectPass = fail; });
+    const onPass = vi.fn().mockReturnValueOnce(pass1);
+    const onBid = vi.fn();
+    const { set } = mount({ projection: standing(S1), onBid, onPass });
+    fireEvent.change(field()!, { target: { value: '9' } });
+    fireEvent.click(passButton()!);
+    expect(onPass).toHaveBeenCalledTimes(1);
+    set({ feedback: { bindingKey: key(), status: 'ACCEPTED', id: 1 } }); // the pass was acknowledged
+    expect(screen.queryByText('Abgegeben.')).not.toBeInTheDocument();
+    expect(field()).toHaveValue('9');
+    // the pass is rejected by promise: the binding is free, the number input is simply usable (not "failed", not "confirmed")
+    cleanup();
+    const onPass2 = vi.fn().mockReturnValueOnce(pass1);
+    const m = mount({ projection: standing(S1), onBid, onPass: onPass2 });
+    fireEvent.change(field()!, { target: { value: '9' } });
+    fireEvent.click(passButton()!);
+    await act(async () => { rejectPass(new Error('refused')); await pass1.catch(() => undefined); });
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    expect(field()).not.toHaveAttribute('readonly');
+    expect(field()).toHaveValue('9');
+    fireEvent.click(bidButton()!);
+    expect(onBid).toHaveBeenCalledTimes(1); // the bid goes out on the freed binding
+    m.set({ feedback: rejected({ id: 2 }) });
+    expect(field()).not.toHaveAttribute('readonly');
+  });
+  it('an old PASS rejection that arrives while a BID is in flight cannot release the bid', async () => {
+    let rejectPass!: (error: Error) => void;
+    const pass1 = new Promise<void>((_, fail) => { rejectPass = fail; });
+    const onPass = vi.fn().mockReturnValueOnce(pass1);
+    const onBid = vi.fn();
+    const { set } = mount({ projection: standing(S1), onBid, onPass });
+    fireEvent.click(passButton()!);
+    set({ feedback: rejected({ id: 1 }) }); // the pass was rejected by a report
+    bidIn(); // the bid is in flight
+    await act(async () => { rejectPass(new Error('late')); await pass1.catch(() => undefined); }); // the OLD pass promise rejects now
+    expect(field()).toHaveAttribute('readonly');
+    fireEvent.click(passButton()!);
+    expect(onPass).toHaveBeenCalledTimes(1);
+    expect(onBid).toHaveBeenCalledTimes(1);
   });
 });

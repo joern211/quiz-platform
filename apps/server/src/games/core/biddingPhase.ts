@@ -47,8 +47,9 @@ import { projectNumericPublicInput, validateNumericValue, type NumericValue } fr
 import { TURN_SEQUENCE_MAX_COUNTER } from '@quiz/shared/turnSequence';
 import {
   authorizeTurnAction, closeTurnSequence, currentTurnHolder, overrideTurnSequence, parseTurnSequenceState, refreshEligibilityBasis, withholdCurrentHolder,
-  type PrepareTurnSequenceInput, type TurnActionCaller, type TurnActionGate, type TurnEligibility, type TurnSequenceScope, type TurnSequenceState, type TurnTransition,
+  TurnSequenceError, type PrepareTurnSequenceInput, type TurnActionCaller, type TurnActionGate, type TurnEligibility, type TurnSequenceScope, type TurnSequenceState, type TurnTransition,
 } from './turnSequence.js';
+import type { BiddingRolesFromDeal } from './biddingRoles.js';
 import { type ProjectionAudience } from './visibility.js';
 
 export { BiddingError };
@@ -203,25 +204,56 @@ export function parseBiddingState(raw: unknown): BiddingState {
 
 // ── Preparation ──────────────────────────────────────────────
 
+/** One pinned team: the bidder acts, the performer never bids and never sees the bids. */
+export interface PinnedTeam { teamId: string; bidderId: string; performerId: string }
+/**
+ * WHERE the bidder/performer assignment comes from — two explicitly different inputs (never guessed from the shape):
+ *   - `N5_DEAL`: the checked result of `biddingRolesFromRoleDeal` (it carries the ORIGIN it was derived from: run, round, deal id, revision). The target context of the bidding
+ *     (`runIndex`, `roundId`) and the independently expected deal (`expectedDealId`, `expectedRevision`) are compared with that origin HERE, so a correct result of another
+ *     run, round or deal can never be pinned to this bidding — also not with equal participant ids or an equal revision label (N10-03). Prefer `prepareBiddingPhaseFromRoleDeal`.
+ *   - `RAW`: an assignment whose origin is NOT checked by this module (synthetic tests, a consumer that has its own source). The caller owns the origin; nothing here vouches for it.
+ */
+export type BiddingRolesInput =
+  | { source: 'RAW'; rolesRevision: string; teams: ReadonlyArray<PinnedTeam> }
+  | { source: 'N5_DEAL'; derived: BiddingRolesFromDeal; expectedDealId: string; expectedRevision: string };
 export interface PrepareBiddingInput {
-  runIndex: number; roundId: string; biddingId: string; rolesRevision: string; sequenceId: string; rosterRevision: string;
+  runIndex: number; roundId: string; biddingId: string; sequenceId: string; rosterRevision: string;
   category: string | null; numeric: unknown;
-  /** the pinned teams IN SCHEDULING ORDER (the first team starts); one bidder and one performer per team, nobody twice */
-  teams: ReadonlyArray<{ teamId: string; bidderId: string; performerId: string }>;
+  /** the pinned teams IN SCHEDULING ORDER (the first team starts); one bidder and one performer per team, nobody twice — and where they come from */
+  roles: BiddingRolesInput;
+}
+/** Resolves the explicit roles input to the pinned assignment; the origin of an N5 result is compared with the TARGET context and the independently expected deal. */
+function resolveRoles(input: PrepareBiddingInput, bad: (issues: BiddingIssueCode[]) => BiddingError): { rolesRevision: string; teams: ReadonlyArray<PinnedTeam> } {
+  const roles: unknown = input.roles;
+  if (!isPlain(roles)) throw bad(['SHAPE_INVALID']);
+  if (roles.source === 'RAW') {
+    if (!keysWithin(roles, ['source', 'rolesRevision', 'teams']) || typeof roles.rolesRevision !== 'string' || !Array.isArray(roles.teams)) throw bad(['SHAPE_INVALID']);
+    return { rolesRevision: roles.rolesRevision, teams: roles.teams as ReadonlyArray<PinnedTeam> };
+  }
+  if (roles.source !== 'N5_DEAL' || !keysWithin(roles, ['source', 'derived', 'expectedDealId', 'expectedRevision']) || typeof roles.expectedDealId !== 'string' || typeof roles.expectedRevision !== 'string') throw bad(['SHAPE_INVALID']);
+  const derived: unknown = roles.derived;
+  if (!isPlain(derived) || !keysWithin(derived, ['rolesRevision', 'teams', 'origin']) || typeof derived.rolesRevision !== 'string' || !Array.isArray(derived.teams) || !isPlain(derived.origin)
+    || !keysWithin(derived.origin, ['runIndex', 'roundId', 'dealId', 'revision'])) throw bad(['SHAPE_INVALID']);
+  const origin = derived.origin;
+  // run and round of the TARGET, deal id and revision of the independently EXPECTED deal — every one against the origin the adapter checked
+  if (origin.runIndex !== input.runIndex || origin.roundId !== input.roundId || origin.dealId !== roles.expectedDealId || origin.revision !== roles.expectedRevision || derived.rolesRevision !== origin.revision) throw bad(['CONFIG_CONFLICT']);
+  return { rolesRevision: derived.rolesRevision, teams: derived.teams as ReadonlyArray<PinnedTeam> };
 }
 /**
  * Builds the PREPARED state from an already decided assignment. No randomness, no clock, no sorting: the given team order IS the schedule. Invalid input is
- * rejected (BIDDING_CONFIG_INVALID with code-only issues), nothing is repaired or defaulted.
+ * rejected (BIDDING_CONFIG_INVALID with code-only issues), nothing is repaired or defaulted. The origin of an N5 assignment is compared with the target (see `BiddingRolesInput`);
+ * the origin itself is NOT stored and never projected (labels only were compared, no role, term or fragment is carried over).
  */
 export function prepareBiddingPhase(input: PrepareBiddingInput): BiddingState {
-  args_(isPlain(input) && keysWithin(input as unknown as Record<string, unknown>, ['runIndex', 'roundId', 'biddingId', 'rolesRevision', 'sequenceId', 'rosterRevision', 'category', 'numeric', 'teams']));
+  args_(isPlain(input) && keysWithin(input as unknown as Record<string, unknown>, ['runIndex', 'roundId', 'biddingId', 'sequenceId', 'rosterRevision', 'category', 'numeric', 'roles']));
   const bad = (issues: BiddingIssueCode[]) => new BiddingError('BIDDING_CONFIG_INVALID', issues);
-  if (!Array.isArray(input.teams) || input.teams.length > BIDDING_MAX_TEAMS) throw bad(['LIMIT_EXCEEDED']);
+  const roles = resolveRoles(input, bad);
+  if (!Array.isArray(roles.teams) || roles.teams.length > BIDDING_MAX_TEAMS) throw bad(['LIMIT_EXCEEDED']);
   if (!BiddingNumericConfigSchema.safeParse(input.numeric).success) throw bad(['CONFIG_CONFLICT']);
   const candidate = {
-    kind: 'BIDDING_PHASE', schemaVersion: BIDDING_SCHEMA_VERSION, runIndex: input.runIndex, roundId: input.roundId, biddingId: input.biddingId, rolesRevision: input.rolesRevision,
+    kind: 'BIDDING_PHASE', schemaVersion: BIDDING_SCHEMA_VERSION, runIndex: input.runIndex, roundId: input.roundId, biddingId: input.biddingId, rolesRevision: roles.rolesRevision,
     binding: { sequenceId: input.sequenceId, rosterRevision: input.rosterRevision }, category: input.category, numeric: input.numeric,
-    teams: (input.teams as unknown[]).map(team => (isPlain(team) ? { ...team } : team)), phase: 'PREPARED', version: 0, stepCount: 0, leader: null, passedTeamIds: [], history: [], result: null, endReason: null,
+    teams: (roles.teams as unknown[]).map(team => (isPlain(team) ? { ...team } : team)), phase: 'PREPARED', version: 0, stepCount: 0, leader: null, passedTeamIds: [], history: [], result: null, endReason: null,
   };
   try { return parseBiddingState(candidate); } catch (error) {
     throw bad(error instanceof BiddingError && error.issues.length ? [...error.issues] : ['SHAPE_INVALID']);
@@ -344,6 +376,7 @@ export function openBidding(rawState: unknown, args: { scope: BiddingScope; expe
   assertSequenceFits(state, sequence);
   const holder = currentTurnHolder(sequence);
   if (sequence.phase !== 'ACTIVE' || holder === null || holder.teamId !== state.teams[0].teamId || holder.playerId !== state.teams[0].bidderId) throw new BiddingError('BIDDING_SEQUENCE_MISMATCH');
+  assertSequenceCapacity(sequence, { version: 1, entitlement: 1 }); // a bidding opens only on a sequence that still has room to be CLOSED (the pair brings its closing reserve)
   return commit(state, 'OPEN', { phase: 'OPEN' }, { teamId: null, turnNumber: sequence.turnNumber, units: null });
 }
 
@@ -434,7 +467,7 @@ export function abortBidding(rawState: unknown, args: { scope: BiddingScope; exp
   assertVersion(state, args.expectedVersion);
   if (state.phase === 'CLOSED') throw new BiddingError('BIDDING_ENDED');
   if (state.phase === 'ABORTED') return { state, sequence, changed: false, transition: null, sequenceTransition: null };
-  assertSequenceCapacity(sequence, { version: 1, entitlement: 1 });
+  assertSequenceCapacity(sequence, { version: 1, entitlement: sequence.phase === 'ACTIVE' ? 1 : 0 }); // closing from HELD / NO_ELIGIBLE flips no entitlement
   const closed = closeTurnSequence(sequence, { scope: biddingSequenceScopeOf(state), expectedVersion: args.expectedSequenceVersion });
   const change = commit(state, 'ABORT', { phase: 'ABORTED', endReason: args.reason }, { teamId: null, turnNumber: null, units: null });
   return { state: change.state, sequence: closed.state, changed: true, transition: change.transition, sequenceTransition: closed.transition };
@@ -554,12 +587,29 @@ function loadFor(rawState: unknown, args: Record<string, unknown>, required: rea
   return { state, sequence };
 }
 /**
+ * Runs a write on the N8 sequence that is NOT itself the end (a BASIS step, HELD) only if it leaves room for the CLOSING of the bidding afterwards: its own version step, one
+ * more version step for the close, and — while the sequence is ACTIVE — the entitlement step (ACTIVE → CLOSED, or ACTIVE → HELD now) (N10-04). Nothing wraps or clamps. The write
+ * is pure, so it is evaluated first: a no-op (equal basis, already HELD) passes and consumes nothing; every other error keeps its own code and precedence; a real step without
+ * reserve — or one the sequence counter could not even represent — is BIDDING_COUNTER_LIMIT with the state unchanged.
+ */
+function withClosingReserve<T extends { changed: boolean }>(sequence: TurnSequenceState, run: () => T): T {
+  const room = sequence.version + 2 <= TURN_SEQUENCE_MAX_COUNTER && sequence.entitlementRevision + (sequence.phase === 'ACTIVE' ? 1 : 0) <= TURN_SEQUENCE_MAX_COUNTER;
+  let out: T;
+  try { out = run(); } catch (error) {
+    if (!room && error instanceof TurnSequenceError && error.code === 'TURN_SEQ_STATE_INVALID') throw new BiddingError('BIDDING_COUNTER_LIMIT');
+    throw error;
+  }
+  if (out.changed && !room) throw new BiddingError('BIDDING_COUNTER_LIMIT');
+  return out;
+}
+/**
  * Records a NEWER N6 eligibility basis in the N8 sequence without any bidding change (N8 `refreshEligibilityBasis`: a BASIS step, no turn, no handover, no bid). An equal
  * basis is a true no-op, an older one stale. The bidding state is returned unchanged — the consumer persists the new sequence.
  */
 export function refreshBiddingBasis(rawState: unknown, args: { scope: BiddingScope; expectedVersion: number; expectedSequenceVersion: number; sequence: unknown; eligibility: TurnEligibility }): { state: BiddingState; sequence: TurnSequenceState; sequenceChanged: boolean; sequenceTransition: TurnTransition | null } {
   const { state, sequence } = loadFor(rawState, args as unknown as Record<string, unknown>, ['scope', 'expectedVersion', 'expectedSequenceVersion', 'sequence', 'eligibility']);
-  const refreshed = refreshEligibilityBasis(sequence, { scope: biddingSequenceScopeOf(state), expectedVersion: args.expectedSequenceVersion, eligibility: args.eligibility });
+  // a REAL basis step keeps the closing reserve (one more version step, and the entitlement step of an ACTIVE sequence); an equal basis is a true no-op and consumes nothing
+  const refreshed = withClosingReserve(sequence, () => refreshEligibilityBasis(sequence, { scope: biddingSequenceScopeOf(state), expectedVersion: args.expectedSequenceVersion, eligibility: args.eligibility }));
   return { state, sequence: refreshed.state, sequenceChanged: refreshed.changed, sequenceTransition: refreshed.transition };
 }
 /**
@@ -568,7 +618,7 @@ export function refreshBiddingBasis(rawState: unknown, args: { scope: BiddingSco
  */
 export function withholdBiddingHolder(rawState: unknown, args: { scope: BiddingScope; expectedVersion: number; expectedSequenceVersion: number; expectedTurnNumber: number; sequence: unknown; eligibility: TurnEligibility }): { state: BiddingState; sequence: TurnSequenceState; sequenceChanged: boolean; sequenceTransition: TurnTransition | null } {
   const { state, sequence } = loadFor(rawState, args as unknown as Record<string, unknown>, ['scope', 'expectedVersion', 'expectedSequenceVersion', 'expectedTurnNumber', 'sequence', 'eligibility']);
-  const held = withholdCurrentHolder(sequence, { scope: biddingSequenceScopeOf(state), expectedVersion: args.expectedSequenceVersion, expectedTurnNumber: args.expectedTurnNumber, eligibility: args.eligibility });
+  const held = withClosingReserve(sequence, () => withholdCurrentHolder(sequence, { scope: biddingSequenceScopeOf(state), expectedVersion: args.expectedSequenceVersion, expectedTurnNumber: args.expectedTurnNumber, eligibility: args.eligibility }));
   return { state, sequence: held.state, sequenceChanged: held.changed, sequenceTransition: held.transition };
 }
 

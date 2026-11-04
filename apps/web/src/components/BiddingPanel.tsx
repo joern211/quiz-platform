@@ -28,7 +28,7 @@
 // server compares again). Its attempt context is the binding key, so a new binding starts a clean attempt. Passing leaves THIS bidding for good: the text next to the button says so.
 // ============================================================
 
-import { useId, useRef, useState, type MutableRefObject } from 'react';
+import { useId, useLayoutEffect, useRef, useState, type MutableRefObject } from 'react';
 import { Button } from '@quiz/ui';
 import { formatNumericCanonical, type NumericPublicInput, type NumericValue } from '@quiz/shared/numeric';
 import {
@@ -36,6 +36,7 @@ import {
   type BiddingActionBinding, type BiddingBidIntent, type BiddingExpectedContext, type BiddingPassIntent, type BiddingProjection, type BiddingStandingProjection,
 } from '@quiz/shared/bidding';
 import { intakeBiddingProjection, type BiddingIntakeMemo } from '../bidding/biddingIntake';
+import { applyFeedback, emptyAttemptStore, holdsLock, rejectAttempt, startAttempt, type AttemptStore } from '../bidding/sendAttempts';
 import { NumberField, type NumberFieldFeedback } from './NumberField';
 import styles from './BiddingPanel.module.css';
 
@@ -45,9 +46,13 @@ export interface BiddingFeedback {
   status: 'PENDING' | 'ACCEPTED' | 'REJECTED';
   /** REJECTED: a short, non-secret text */
   message?: string;
-  /** Optional unique id of THIS report (e.g. a counter): two identical rejections for the same binding stay distinguishable. Without it the content is the identity. */
+  /** The attempt this report answers: the `attemptId` the callback was given. Without it the report applies to the CURRENT attempt of its binding; an older attempt's report is ignored when it names it. */
+  attemptId?: string;
+  /** Optional unique id of THIS report (e.g. a counter). Reports are applied at most once; two identical rejections stay distinguishable by `attemptId` or `id` — without either the content is the identity. */
   id?: string | number;
 }
+/** What a callback is told about THIS send: echo it as `attemptId` in the feedback. */
+export interface BiddingSendAttempt { attemptId: string }
 
 export interface BiddingPanelProps {
   /** The context THIS caller expects, from its own authenticated session and snapshot channel — never taken from the projection. */
@@ -58,10 +63,10 @@ export interface BiddingPanelProps {
   label?: string;
   /** Display names by id (teams and players) from the caller's own data; an id without a name is shown as its id. */
   names?: Readonly<Record<string, string>>;
-  /** Optional application callback for a bid. May return a promise; a rejection unlocks the same binding. */
-  onBid?: (intent: BiddingBidIntent) => void | Promise<unknown>;
-  /** Optional application callback for a pass. May return a promise; a rejection unlocks the same binding. */
-  onPass?: (intent: BiddingPassIntent) => void | Promise<unknown>;
+  /** Optional application callback for a bid. May return a promise; its rejection releases THIS attempt (and its numeric input) once. */
+  onBid?: (intent: BiddingBidIntent, attempt: BiddingSendAttempt) => void | Promise<unknown>;
+  /** Optional application callback for a pass. May return a promise; its rejection releases THIS attempt once. */
+  onPass?: (intent: BiddingPassIntent, attempt: BiddingSendAttempt) => void | Promise<unknown>;
   /** Optional feedback of the application; used only for the binding it names. */
   feedback?: BiddingFeedback | null;
 }
@@ -69,7 +74,7 @@ export interface BiddingPanelProps {
 const UNAVAILABLE = 'Das Bieten ist zurzeit nicht verfügbar.';
 const display = (value: NumericValue, unit: NumericPublicInput['unit']): string => `${formatNumericCanonical(value, ',')}${unit ? ` ${unit.label}` : ''}`;
 
-interface SentLock { key: string; kind: 'BID' | 'PASS' }
+const GENERIC_REJECTION = 'Das hat nicht geklappt. Bitte versuche es erneut.';
 const sameMemo = (a: BiddingIntakeMemo, b: BiddingIntakeMemo): boolean => a.key === b.key && a.seenStateVersion === b.seenStateVersion && a.seenBiddingVersion === b.seenBiddingVersion
   && a.seenSequenceVersion === b.seenSequenceVersion && a.seenTurnNumber === b.seenTurnNumber && a.seenRelease === b.seenRelease && JSON.stringify(a.held) === JSON.stringify(b.held);
 
@@ -83,12 +88,12 @@ export function BiddingPanel({ expected, projection, label = 'Bieten', names, on
   const held = step.held;
   if (!sameMemo(memo, step.memo)) setMemo(step.memo);
 
-  const [sent, setSent] = useState<SentLock | null>(null);
-  // The lock is held in a REF as well as in state: two presses inside ONE tick (measured in Chromium: a programmatic bid click and pass click in the same task) both run
-  // with the closure of the SAME render, so state alone would let both through. `consumed` remembers the rejection report that has already released a send.
-  const sentRef = useRef<string | null>(null);
-  const consumedRef = useRef<string | null>(null);
-  const [lastBid, setLastBid] = useState<NumericValue | null>(null);
+  // The attempt store lives in a REF (the truth at the moment of a press — two presses inside ONE task run with the closure of the SAME render) and is mirrored in state for rendering.
+  const attemptsRef = useRef<AttemptStore>(emptyAttemptStore);
+  const [attempts, setAttemptsState] = useState<AttemptStore>(emptyAttemptStore);
+  const commit = (next: AttemptStore) => { if (next !== attemptsRef.current) { attemptsRef.current = next; setAttemptsState(next); } };
+  // An application report is applied once and to its attempt only. A layout effect (synchronous in the commit, no visible frame) keeps the ref current before any later press.
+  useLayoutEffect(() => { if (feedback) commit(applyFeedback(attemptsRef.current, feedback, key)); }, [feedback, key]); // eslint-disable-line react-hooks/exhaustive-deps -- commit only touches the ref and the state mirror
 
   if (held === null) {
     return (
@@ -111,19 +116,18 @@ export function BiddingPanel({ expected, projection, label = 'Bieten', names, on
   }
 
   return <StandingView
-    key={`${key}|view`} held={held} contextKey={key} titleId={titleId} label={label} names={names} onBid={onBid} onPass={onPass} feedback={feedback}
-    sent={sent} setSent={setSent} sentRef={sentRef} consumedRef={consumedRef} lastBid={lastBid} setLastBid={setLastBid}
+    key={`${key}|view`} held={held} contextKey={key} titleId={titleId} label={label} names={names} onBid={onBid} onPass={onPass}
+    attempts={attempts} attemptsRef={attemptsRef} commit={commit}
   />;
 }
 
 interface StandingViewProps {
   held: BiddingStandingProjection; contextKey: string; titleId: string; label: string; names?: Readonly<Record<string, string>>;
-  onBid?: BiddingPanelProps['onBid']; onPass?: BiddingPanelProps['onPass']; feedback?: BiddingFeedback | null;
-  sent: SentLock | null; setSent: (value: SentLock | null | ((current: SentLock | null) => SentLock | null)) => void;
-  sentRef: MutableRefObject<string | null>; consumedRef: MutableRefObject<string | null>; lastBid: NumericValue | null; setLastBid: (value: NumericValue | null) => void;
+  onBid?: BiddingPanelProps['onBid']; onPass?: BiddingPanelProps['onPass'];
+  attempts: AttemptStore; attemptsRef: MutableRefObject<AttemptStore>; commit: (next: AttemptStore) => void;
 }
 
-function StandingView({ held, contextKey, titleId, label, names, onBid, onPass, feedback, sent, setSent, sentRef, consumedRef, lastBid, setLastBid }: StandingViewProps) {
+function StandingView({ held, contextKey, titleId, label, names, onBid, onPass, attempts, attemptsRef, commit }: StandingViewProps) {
   const passHintId = `${useId()}-pass-hint`;
   const nameOf = (id: string): string => names?.[id] ?? id;
   const unit = held.numeric.unit;
@@ -137,30 +141,29 @@ function StandingView({ held, contextKey, titleId, label, names, onBid, onPass, 
   };
   const bindingKey = binding === null ? null : biddingActionBindingKey(binding);
   const lockKey = binding === null ? null : `${contextKey}|${bindingKey}`;
-  // a rejection reported for exactly THIS binding releases exactly this binding — once per report (derived while rendering, no effect)
-  const rejectionSig = feedback?.status === 'REJECTED' && feedback.bindingKey === bindingKey ? JSON.stringify([feedback.bindingKey, feedback.id ?? null, feedback.message ?? null]) : null;
-  const rejected = rejectionSig !== null && consumedRef.current !== rejectionSig;
-  const locked = lockKey !== null && sent !== null && sent.key === lockKey && !rejected;
+  const current = bindingKey !== null && attempts.current !== null && attempts.current.contextKey === contextKey && attempts.current.bindingKey === bindingKey ? attempts.current : null;
+  const locked = bindingKey !== null && holdsLock(attempts, contextKey, bindingKey);
   const canBid = onBid !== undefined && bidder !== null && bidder.canBid;
   const canPass = onPass !== undefined && bidder !== null && bidder.canPass;
 
-  const guard = (kind: SentLock['kind'], run: () => void | Promise<unknown>) => {
-    if (lockKey === null) return;
-    if (sentRef.current === lockKey && !rejected) return; // one send per concrete binding, shared by bid and pass
-    if (rejected) consumedRef.current = rejectionSig; // this report has released ONE send
-    sentRef.current = lockKey;
-    setSent({ key: lockKey, kind });
-    const unlock = () => { if (sentRef.current === lockKey) sentRef.current = null; setSent(current => (current !== null && current.key === lockKey ? null : current)); };
+  /** One press: decided on the CURRENT store (the ref), then the callback. A promise rejection releases THIS attempt only. */
+  const send = (kind: 'BID' | 'PASS', fieldAttemptId: string | null, value: NumericValue | null, run: (attemptId: string) => void | Promise<unknown>) => {
+    if (bindingKey === null) return;
+    const started = startAttempt(attemptsRef.current, { contextKey, bindingKey, kind, fieldAttemptId, value });
+    if (started === null) return; // an attempt of this binding is in flight (or settled as accepted): bid and pass share the lock
+    commit(started.store);
+    const attemptId = started.attempt.id;
+    const release = () => commit(rejectAttempt(attemptsRef.current, attemptId, GENERIC_REJECTION));
     try {
-      const result = run();
-      if (result !== undefined && result !== null && typeof (result as Promise<unknown>).then === 'function') (result as Promise<unknown>).then(undefined, unlock);
-    } catch (error) { unlock(); throw error; }
+      const result = run(attemptId);
+      if (result !== undefined && result !== null && typeof (result as Promise<unknown>).then === 'function') (result as Promise<unknown>).then(undefined, release);
+    } catch (error) { release(); throw error; }
   };
-  const submitBid = (value: NumericValue) => {
+  const submitBid = (value: NumericValue, fieldAttemptId: string) => {
     if (binding === null || onBid === undefined) return;
-    guard('BID', () => { setLastBid(value); return onBid({ ...binding, scope: { ...binding.scope }, value: { units: value.units, scale: value.scale } }); });
+    send('BID', fieldAttemptId, value, attemptId => onBid({ ...binding, scope: { ...binding.scope }, value: { units: value.units, scale: value.scale } }, { attemptId }));
   };
-  const submitPass = () => { if (binding !== null && onPass !== undefined) guard('PASS', () => onPass({ ...binding, scope: { ...binding.scope } })); };
+  const submitPass = () => { if (binding !== null && onPass !== undefined) send('PASS', null, null, attemptId => onPass({ ...binding, scope: { ...binding.scope } }, { attemptId })); };
 
   const standing = held.standing;
   const next = biddingNextMinimum({ scale: held.numeric.scale, bounds: held.numeric.bounds }, standing === null ? null : standing.value);
@@ -181,10 +184,13 @@ function StandingView({ held, contextKey, titleId, label, names, onBid, onPass, 
           : ownTeam?.status === 'PASSED' ? 'Dein Team ist ausgestiegen.'
             : ownTeam?.leading ? 'Du führst. Warte auf die anderen Teams.' : 'Ein anderes Team ist am Zug.';
 
-  const fieldFeedback: NumberFieldFeedback | null = feedback && lockKey !== null && feedback.bindingKey === bindingKey
-    ? feedback.status === 'PENDING' ? { contextKey: lockKey, status: 'PENDING' }
-      : feedback.status === 'ACCEPTED' ? { contextKey: lockKey, status: 'SUBMITTED', ...(lastBid !== null ? { value: lastBid } : {}) }
-        : { contextKey: lockKey, status: 'ERROR', message: feedback.message, retryable: true }
+  // ONE attempt state feeds the numeric field: its attempt id is the NumberField's own, so a second rejection with identical text is a NEW report for it, and a pass or an old
+  // attempt can never release or confirm the number input.
+  const fieldFeedback: NumberFieldFeedback | null = current !== null && lockKey !== null && current.kind === 'BID' && current.fieldAttemptId !== null
+    ? current.outcome === 'PENDING' ? { contextKey: lockKey, attemptId: current.fieldAttemptId, status: 'PENDING' }
+      : current.outcome === 'ACCEPTED' ? { contextKey: lockKey, attemptId: current.fieldAttemptId, status: 'SUBMITTED', ...(current.value !== null ? { value: current.value } : {}) }
+        : current.outcome === 'REJECTED' ? { contextKey: lockKey, attemptId: current.fieldAttemptId, status: 'ERROR', message: current.message ?? GENERIC_REJECTION, retryable: true }
+          : null
     : null;
 
   return (
@@ -208,7 +214,7 @@ function StandingView({ held, contextKey, titleId, label, names, onBid, onPass, 
           {canBid && inputMeta !== null && (
             <NumberField
               label="Dein Gebot" input={inputMeta} contextKey={lockKey} onSubmit={submitBid} feedback={fieldFeedback} submitLabel="Bieten"
-              disabled={locked && sent?.kind === 'PASS'} hint={standing === null ? undefined : 'Es muss höher sein als das Höchstgebot.'}
+              disabled={locked && current?.kind === 'PASS'} hint={standing === null ? undefined : 'Es muss höher sein als das Höchstgebot.'}
             />
           )}
           {canBid && inputMeta === null && <p className={styles.hint}>Höher bieten ist nicht möglich.</p>}

@@ -92,7 +92,7 @@ async function createRoom(): Promise<void> {
   const room = await db.room.create({ data: { code, roomName: 'N10 harness', hostUserId: hostId, gameDefinitionId: definitionId, status: 'RUNNING', runPhase: 'ROUND_ACTIVE', viewerRequiresPin: false } });
   roomId = room.id;
   eligibilityVersion = 1; offPeople = []; paused = false;
-  const prepared = prepareBiddingPhase({ runIndex, roundId, biddingId, rolesRevision, sequenceId, rosterRevision, category: CATEGORY, numeric: { ...BIDDING_NUMERIC_POSITIVE_INTEGER, unit: { label: 'Städte', factor: 1 } }, teams });
+  const prepared = prepareBiddingPhase({ runIndex, roundId, biddingId, sequenceId, rosterRevision, category: CATEGORY, numeric: { ...BIDDING_NUMERIC_POSITIVE_INTEGER, unit: { label: 'Städte', factor: 1 } }, roles: { source: 'RAW', rolesRevision, teams } }); // RAW: the harness's table is its own source of roles
   const first = prepareTurnSequence(biddingTurnSequenceInput(prepared));
   const seq = startTurnSequence(first, { scope: turnSequenceScopeOf(first), expectedVersion: 0, eligibility: elig() }).state;
   const bidding = openBidding(prepared, { scope: biddingScopeOf(prepared), expectedVersion: 0, sequence: seq }).state;

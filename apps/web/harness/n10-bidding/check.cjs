@@ -538,6 +538,46 @@ const NEUTRAL_KEYS = ['contract', 'phase', 'recipientId', 'release', 'scope', 's
     await closeAll();
   });
 
+  // ── S15: retries after a refusal (N10-01 / N10-02): the number of CALLS that really leave the page, and what the server stored ─────────────────────
+  await scenario('S15 refusal then retry: one retry per refusal even for several presses in one task; the number input is editable again; commandId stays; the server stores one bid and one pass', async () => {
+    await host({ type: 'reset', biddingId: 'bidding-retry' });
+    const B1 = track(await newPage(browser, 'B1'));
+    const B2 = track(await newPage(browser, 'B2'));
+    await delivered(B1, 'B1', 'standing', async page => await field(page).count() === 1);
+    const before = await state();
+    // BID refused before it leaves the page → the SAME draft is editable and sendable again
+    await B1.evaluate(() => { window.__harness.failBefore = 1; });
+    await field(B1).fill('6');
+    await bidButton(B1).click();
+    await waitUntil(async () => (await settled(B1)).length === 1, 5000, 'first bid attempt settled');
+    expect((await settled(B1))[0].ok === false, 'the first attempt was refused', await settled(B1));
+    expect(await field(B1).getAttribute('readonly') === null && (await field(B1).inputValue()) === '6', 'the refused bid leaves the input editable with the same draft');
+    await waitUntil(async () => (await B1.getByRole('button', { name: 'Erneut senden' }).count()) === 1, 5000, 'retry button offered');
+    expect((await state()).bidding.stepCount === 0, 'the server never saw the refused attempt', (await state()).bidding);
+    // the retry pressed THREE times in ONE task: one call
+    await B1.evaluate(() => { const b = [...document.querySelectorAll('button')].find(x => /Erneut senden/.test(x.textContent || '')); b.click(); b.click(); b.click(); });
+    await waitUntil(async () => (await state()).bidding.stepCount === 1, 8000, 'retry stored');
+    await sleep(300);
+    const c = await calls(B1);
+    expect(c.length === 2, 'exactly ONE retry call after the refusal (two calls in total)', c.map(x => x.attemptId));
+    expect(c[0].commandId === c[1].commandId && c[0].attemptId !== c[1].attemptId, 'same intent keeps its commandId, the retry is a new attempt', c);
+    const afterBid = await state();
+    expect(afterBid.bidding.stepCount === 1 && afterBid.bidding.leader.units === 6 && afterBid.events === before.events + 1, 'the server stored ONE bid', afterBid.bidding);
+    // PASS refused before it leaves the page → one retry for several presses in one task
+    await delivered(B2, 'B2', 'standing', async page => await passButton(page).count() === 1);
+    await B2.evaluate(() => { window.__harness.failBefore = 1; });
+    await passButton(B2).click();
+    await waitUntil(async () => (await settled(B2)).length === 1, 5000, 'first pass attempt settled');
+    await waitUntil(async () => (await passButton(B2).getAttribute('aria-disabled')) === null, 5000, 'pass released after the refusal');
+    await B2.evaluate(() => { const b = [...document.querySelectorAll('button')].find(x => /^Passen$/.test(x.textContent.trim())); b.click(); b.click(); });
+    await waitUntil(async () => (await state()).bidding.passed.length === 1, 8000, 'pass stored');
+    await sleep(300);
+    expect((await calls(B2)).length === 2, 'exactly ONE pass retry call', (await calls(B2)).map(x => x.attemptId));
+    const end = await state();
+    expect(end.bidding.passed.length === 1 && end.bidding.passed[0] === 'T2' && end.bidding.stepCount === 2, 'the server stored ONE pass', end.bidding);
+    await closeAll();
+  });
+
   await browser.close();
   killAll();
   console.log(notes.join('\n'));

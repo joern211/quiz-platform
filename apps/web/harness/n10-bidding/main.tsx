@@ -9,7 +9,7 @@ import { ThemeProvider } from '@quiz/ui';
 import '@quiz/ui/styles/tokens.css';
 import '../../src/index.css';
 import { biddingActionBindingKey, type BiddingBidIntent, type BiddingExpectedContext, type BiddingPassIntent, type BiddingProjection, type BiddingScope } from '@quiz/shared/bidding';
-import { BiddingPanel, type BiddingFeedback } from '../../src/components/BiddingPanel';
+import { BiddingPanel, type BiddingFeedback, type BiddingSendAttempt } from '../../src/components/BiddingPanel';
 
 const params = new URLSearchParams(window.location.search);
 const recipient = params.get('recipient') ?? 'VIEWER';
@@ -18,13 +18,13 @@ const NAMES: Record<string, string> = params.get('long') === '1'
   ? { T1: `Team 1 ${LONG}`, T2: `Team 2 ${LONG}`, T3: `Team 3 ${LONG}` }
   : { T1: 'Rote Rakete', T2: 'Blaue Bande', T3: 'Grüne Gams' };
 
-type Sent = { kind: 'BID' | 'PASS'; intent: Record<string, unknown>; commandId: string };
+type Sent = { kind: 'BID' | 'PASS'; intent: Record<string, unknown>; commandId: string; attemptId?: string };
 interface Settled { commandId: string; ok: boolean; code?: string }
 interface Received { release: string; stateVersion: number; keys: string[]; json: string }
-declare global { interface Window { __harness: { calls: Sent[]; settled: Settled[]; received: Received | null; polls: number; ackDelayMs: number; failNext: number;
+declare global { interface Window { __harness: { calls: Sent[]; settled: Settled[]; received: Received | null; polls: number; ackDelayMs: number; failNext: number; failBefore: number;
   holdSends: boolean; pending: Array<() => void>; releaseSends: () => void; context: BiddingScope | null; recipientId: string | null;
   deliver: (raw: unknown) => void; freeze: (on: boolean) => void; setMin: (n: number) => void; errors: string[] } } }
-window.__harness = { calls: [], settled: [], holdSends: false, context: null, recipientId: null, pending: [], releaseSends: () => undefined, received: null, polls: 0, ackDelayMs: 0, failNext: 0, deliver: () => undefined, freeze: () => undefined, setMin: () => undefined, errors: [] };
+window.__harness = { calls: [], settled: [], holdSends: false, context: null, recipientId: null, pending: [], releaseSends: () => undefined, received: null, polls: 0, ackDelayMs: 0, failNext: 0, failBefore: 0, deliver: () => undefined, freeze: () => undefined, setMin: () => undefined, errors: [] };
 window.__harness.releaseSends = () => { window.__harness.holdSends = false; for (const resume of window.__harness.pending.splice(0)) resume(); };
 
 let reports = 0;
@@ -76,16 +76,18 @@ function App() {
 
   if (context === null) return null;
   const expected: BiddingExpectedContext = { ...context.scope, recipientId: context.recipientId, minStateVersion: min };
-  const post = async (kind: 'BID' | 'PASS', intent: Record<string, unknown>) => {
+  const post = async (kind: 'BID' | 'PASS', intent: Record<string, unknown>, attempt: BiddingSendAttempt) => {
     const key = `${kind}|${JSON.stringify(intent)}`;
-    const sent: Sent = { kind, intent, commandId: idFor(key) };
+    const sent: Sent = { kind, intent, commandId: idFor(key), attemptId: attempt.attemptId };
     window.__harness.calls.push(sent);
     const bindingKey = biddingActionBindingKey(intent as unknown as BiddingPassIntent);
-    setFeedback({ bindingKey, status: 'PENDING' });
+    setFeedback({ bindingKey, status: 'PENDING', attemptId: attempt.attemptId, id: ++reports });
     const delay = window.__harness.ackDelayMs;
     const fail = window.__harness.failNext > 0;
     if (fail) window.__harness.failNext--;
     try {
+      // a send that fails BEFORE it leaves the browser (the server never sees it): the panel must release exactly this attempt
+      if (window.__harness.failBefore > 0) { window.__harness.failBefore--; throw Object.assign(new Error('OFFLINE'), { code: 'OFFLINE' }); }
       // a DELAYED send: the intent was built (with its origin) when the user clicked; the request leaves only when the check releases it — after the context may have changed
       if (window.__harness.holdSends) await new Promise<void>(resume => { window.__harness.pending.push(resume); });
       const response = await fetch('/api/intent', { method: 'POST', body: JSON.stringify({ kind, recipient, commandId: sent.commandId, intent }) });
@@ -94,10 +96,10 @@ function App() {
       if (fail) throw new Error('NETWORK');
       if (result.ok !== true) throw Object.assign(new Error(result.code ?? 'REFUSED'), { code: result.code });
       window.__harness.settled.push({ commandId: sent.commandId, ok: true });
-      setFeedback({ bindingKey, status: 'ACCEPTED' });
+      setFeedback({ bindingKey, status: 'ACCEPTED', attemptId: attempt.attemptId, id: ++reports });
     } catch (error) {
       window.__harness.settled.push({ commandId: sent.commandId, ok: false, code: (error as { code?: string }).code ?? String((error as Error).message) });
-      setFeedback({ bindingKey, status: 'REJECTED', message: 'Das hat nicht geklappt. Bitte warte kurz und versuche es erneut.', id: ++reports });
+      setFeedback({ bindingKey, status: 'REJECTED', message: 'Das hat nicht geklappt. Bitte warte kurz und versuche es erneut.', attemptId: attempt.attemptId, id: ++reports });
       throw error;
     }
   };
@@ -107,7 +109,7 @@ function App() {
       <main style={{ padding: 16, display: 'grid', gap: 16, maxWidth: 640 }} data-recipient={recipient}>
         <BiddingPanel
           expected={expected} projection={payload} names={NAMES} label={`Bieten für ${recipient}`} feedback={feedback}
-          onBid={(intent: BiddingBidIntent) => post('BID', { ...intent })} onPass={(intent: BiddingPassIntent) => post('PASS', { ...intent })}
+          onBid={(intent: BiddingBidIntent, attempt: BiddingSendAttempt) => post('BID', { ...intent }, attempt)} onPass={(intent: BiddingPassIntent, attempt: BiddingSendAttempt) => post('PASS', { ...intent }, attempt)}
         />
       </main>
     </ThemeProvider>

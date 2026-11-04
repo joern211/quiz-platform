@@ -77,8 +77,9 @@ interface WorldOver { runIndex?: number; roundId?: string; biddingId?: string; s
 function buildWorld(over: WorldOver = {}, firstBid = false): { seq: TurnSequenceState; bid: BiddingState } {
   const runIndex = over.runIndex ?? 1;
   const prepared = prepareBiddingPhase({
-    runIndex, roundId: over.roundId ?? 'round-1', biddingId: over.biddingId ?? 'bidding-1', rolesRevision: over.rolesRevision ?? 'roles-1', sequenceId: over.sequenceId ?? 'seq-n10',
-    rosterRevision: over.rosterRevision ?? 'roster-1', category: 'Hauptstädte', numeric: BIDDING_NUMERIC_POSITIVE_INTEGER, teams,
+    runIndex, roundId: over.roundId ?? 'round-1', biddingId: over.biddingId ?? 'bidding-1', sequenceId: over.sequenceId ?? 'seq-n10',
+    rosterRevision: over.rosterRevision ?? 'roster-1', category: 'Hauptstädte', numeric: BIDDING_NUMERIC_POSITIVE_INTEGER,
+    roles: { source: 'RAW', rolesRevision: over.rolesRevision ?? 'roles-1', teams }, // synthetic stand-in: the origin of the assignment is the test's own (N5 → N10 is proven in biddingPhase.test.ts H)
   });
   const first = prepareTurnSequence(biddingTurnSequenceInput(prepared));
   const seq = startTurnSequence(first, { scope: turnSequenceScopeOf(first), expectedVersion: 0, eligibility: eligibility(1, runIndex) }).state;

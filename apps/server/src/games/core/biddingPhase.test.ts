@@ -15,7 +15,7 @@ import {
   parseBiddingState, passBidding, placeBid, prepareBiddingPhase, projectBidding, readBiddingBidIntent, readBiddingPassIntent, refreshBiddingBasis, withholdBiddingHolder,
   type BiddingActionResult, type BiddingState,
 } from './biddingPhase.js';
-import { biddingRolesFromRoleDeal } from './biddingRoles.js';
+import { biddingRolesFromRoleDeal, prepareBiddingPhaseFromRoleDeal } from './biddingRoles.js';
 import { createSecretRoleDeal } from './secretRoleDeal.js';
 import { currentTurnHolder, parseTurnSequenceState, prepareTurnSequence, startTurnSequence, turnSequenceScopeOf, type TurnEligibility, type TurnSequenceState } from './turnSequence.js';
 import type { ProjectionAudience } from './visibility.js';
@@ -42,8 +42,9 @@ const elig = (w: { n: number; seq?: TurnSequenceState }, version = 1, off: { tea
 });
 function prepared(over: WorldOver = {}): BiddingState {
   return prepareBiddingPhase({
-    runIndex: over.runIndex ?? 1, roundId: over.roundId ?? 'round-1', biddingId: over.biddingId ?? 'bidding-1', rolesRevision: over.rolesRevision ?? 'roles-1', sequenceId: over.sequenceId ?? 'seq-1',
-    rosterRevision: over.rosterRevision ?? 'roster-1', category: over.category === undefined ? CATEGORY : over.category, numeric: over.numeric ?? NUMERIC, teams: teamsOf(over.n ?? 3),
+    runIndex: over.runIndex ?? 1, roundId: over.roundId ?? 'round-1', biddingId: over.biddingId ?? 'bidding-1', sequenceId: over.sequenceId ?? 'seq-1',
+    rosterRevision: over.rosterRevision ?? 'roster-1', category: over.category === undefined ? CATEGORY : over.category, numeric: over.numeric ?? NUMERIC,
+    roles: { source: 'RAW', rolesRevision: over.rolesRevision ?? 'roles-1', teams: teamsOf(over.n ?? 3) }, // RAW = the origin of the assignment is the test's own
   });
 }
 /** A started N8 team sequence that fits the bidding, a PREPARED bidding and the OPEN bidding against it. Every world has the SAME counters. */
@@ -127,12 +128,12 @@ describe('A. Preparation: validated, pinned, no invented bid', () => {
   it('stores the effective configuration unchanged and keeps no reference to its input', () => {
     const numeric = clone(NUMERIC) as Draft;
     numeric.unit = { label: 'Städte', factor: 1 };
-    const input = { runIndex: 1, roundId: 'round-1', biddingId: 'b-1', rolesRevision: 'r-1', sequenceId: 's-1', rosterRevision: 'ro-1', category: CATEGORY, numeric, teams: teamsOf(2) };
+    const input = { runIndex: 1, roundId: 'round-1', biddingId: 'b-1', sequenceId: 's-1', rosterRevision: 'ro-1', category: CATEGORY, numeric, roles: { source: 'RAW' as const, rolesRevision: 'r-1', teams: teamsOf(2) } };
     const snapshot = clone(input);
     const state = prepareBiddingPhase(input);
     expect(state.numeric).toEqual(numeric);
     expect(input).toEqual(snapshot);
-    input.teams[0].bidderId = 'changed';
+    input.roles.teams[0].bidderId = 'changed';
     numeric.max.units = 5;
     expect(state.teams[0].bidderId).toBe('b1');
     expect(state.numeric.max.units).toBe(999);
@@ -155,13 +156,14 @@ describe('A. Preparation: validated, pinned, no invented bid', () => {
     ['an empty category (null is the one "no category")', () => ({ category: '' })],
     ['an invalid label (spaces)', () => ({ biddingId: 'has space' })],
   ])('rejects %s with a code-only error and creates nothing', (_name, patch) => {
-    const input = { runIndex: 1, roundId: 'round-1', biddingId: 'b-1', rolesRevision: 'r-1', sequenceId: 's-1', rosterRevision: 'ro-1', category: CATEGORY, numeric: NUMERIC, teams: teamsOf(3), ...patch() };
+    const { teams, ...rest } = { teams: teamsOf(3) as unknown, ...patch() } as Record<string, unknown>;
+    const input = { runIndex: 1, roundId: 'round-1', biddingId: 'b-1', sequenceId: 's-1', rosterRevision: 'ro-1', category: CATEGORY, numeric: NUMERIC, ...rest, roles: { source: 'RAW', rolesRevision: 'r-1', teams } };
     expect(codeOf(() => prepareBiddingPhase(input as Draft))).toBe('BIDDING_CONFIG_INVALID');
     for (const issue of issuesOf(() => prepareBiddingPhase(input as Draft))) expect(BIDDING_ISSUE_CODES as readonly string[]).toContain(issue);
   });
   it('rejects unknown input keys and a missing key as argument errors', () => {
     expect(codeOf(() => prepareBiddingPhase({ ...({ runIndex: 1 } as Draft) }))).toBe('BIDDING_ARGS_INVALID');
-    expect(codeOf(() => prepareBiddingPhase({ runIndex: 1, roundId: 'r', biddingId: 'b', rolesRevision: 'r', sequenceId: 's', rosterRevision: 'ro', category: null, numeric: NUMERIC, teams: teamsOf(2), winner: 'T1' } as Draft))).toBe('BIDDING_ARGS_INVALID');
+    expect(codeOf(() => prepareBiddingPhase({ runIndex: 1, roundId: 'r', biddingId: 'b', sequenceId: 's', rosterRevision: 'ro', category: null, numeric: NUMERIC, roles: { source: 'RAW', rolesRevision: 'r', teams: teamsOf(2) }, winner: 'T1' } as Draft))).toBe('BIDDING_ARGS_INVALID');
   });
   it('the one explicit positive profile and an explicit one-decimal profile with a unit are valid; suggested task limits are not limits unless configured', () => {
     expect(codeOf(() => prepared({ numeric: { ...NUMERIC, scale: 1, min: { units: 5, scale: 1 }, max: { units: 500, scale: 1 }, unit: { label: 'kg', factor: 1 } } }))).toBe('NO_THROW');
@@ -1061,7 +1063,7 @@ describe('H. Roles from an N5 deal: origin carried to the bidding, no re-deal', 
     teams: [{ teamId: 'TA', memberIds: ['u1', 'u2'] }, { teamId: 'TB', memberIds: ['u4', 'u3', 'u5'] }], ...over,
   });
   it('derives ONE bidder and ONE performer per team in the given team order and takes the deal revision as the roles revision', () => {
-    expect(biddingRolesFromRoleDeal(args())).toEqual({ rolesRevision: 'roles-1', teams: [{ teamId: 'TA', bidderId: 'u1', performerId: 'u2' }, { teamId: 'TB', bidderId: 'u4', performerId: 'u3' }] });
+    expect(biddingRolesFromRoleDeal(args())).toEqual({ rolesRevision: 'roles-1', teams: [{ teamId: 'TA', bidderId: 'u1', performerId: 'u2' }, { teamId: 'TB', bidderId: 'u4', performerId: 'u3' }], origin: { runIndex: 1, roundId: 'round-1', dealId: 'deal-1', revision: 'roles-1' } });
   });
   it('the expected run, round, deal id and revision are compared with the deal that is LOADED (a correct deal of another game/round is no deal for this one)', () => {
     for (const [key, value] of [['runIndex', 2], ['roundId', 'round-2'], ['dealId', 'deal-2'], ['revision', 'roles-2']] as const) {
@@ -1083,15 +1085,15 @@ describe('H. Roles from an N5 deal: origin carried to the bidding, no re-deal', 
     const rotated = deal({ dealId: 'deal-2', revision: 'roles-2', roundId: 'round-2', assignments: [{ participantId: 'u1', roleId: 'performer' }, { participantId: 'u2', roleId: 'bidder' }, { participantId: 'u3', roleId: 'bidder' }, { participantId: 'u4', roleId: 'performer' }, { participantId: 'u5', roleId: 'other' }] });
     const roles2 = biddingRolesFromRoleDeal(args({ deal: rotated, scope: { runIndex: 1, roundId: 'round-2', dealId: 'deal-2', revision: 'roles-2' } }));
     expect(roles2.teams).toEqual([{ teamId: 'TA', bidderId: 'u2', performerId: 'u1' }, { teamId: 'TB', bidderId: 'u3', performerId: 'u4' }]);
-    const make = (roles: ReturnType<typeof biddingRolesFromRoleDeal>, roundId: string, biddingId: string) => {
-      const p = prepareBiddingPhase({ runIndex: 1, roundId, biddingId, rolesRevision: roles.rolesRevision, sequenceId: 'seq-1', rosterRevision: 'roster-1', category: CATEGORY, numeric: NUMERIC, teams: roles.teams });
+    const make = (roles: ReturnType<typeof biddingRolesFromRoleDeal>, roundId: string, biddingId: string, expected: { dealId: string; revision: string }) => {
+      const p = prepareBiddingPhase({ runIndex: 1, roundId, biddingId, sequenceId: 'seq-1', rosterRevision: 'roster-1', category: CATEGORY, numeric: NUMERIC, roles: { source: 'N5_DEAL', derived: roles, expectedDealId: expected.dealId, expectedRevision: expected.revision } });
       const first = prepareTurnSequence(biddingTurnSequenceInput(p));
       const level = (ids: string[]) => lvl(ids, 1, 'x-track', ['TA', 'TB', 'u1', 'u2', 'u3', 'u4', 'u5']);
       const seq = startTurnSequence(first, { scope: turnSequenceScopeOf(first), expectedVersion: 0, eligibility: { actors: level(['TA', 'TB']), members: level(['u1', 'u2', 'u3', 'u4', 'u5']) } }).state;
       return { bid: openBidding(p, { scope: biddingScopeOf(p), expectedVersion: 0, sequence: seq }).state, seq };
     };
-    const first = make(biddingRolesFromRoleDeal(args()), 'round-1', 'bidding-1');
-    const second = make(roles2, 'round-2', 'bidding-2');
+    const first = make(biddingRolesFromRoleDeal(args()), 'round-1', 'bidding-1', { dealId: 'deal-1', revision: 'roles-1' });
+    const second = make(roles2, 'round-2', 'bidding-2', { dealId: 'deal-2', revision: 'roles-2' });
     expect(holderOf({ ...first, n: 2 } as World)).toEqual({ teamId: 'TA', playerId: 'u1' });
     expect(holderOf({ ...second, n: 2 } as World)).toEqual({ teamId: 'TA', playerId: 'u2' });
     expect(first.bid.version).toBe(second.bid.version);
@@ -1103,5 +1105,194 @@ describe('H. Roles from an N5 deal: origin carried to the bidding, no re-deal', 
     const run = (who: string) => () => placeBid(second.bid, { ...biddingActionArgsFromIntent(oldIntent), sequence: second.seq, caller: { role: 'PLAYER', participantId: who, teamId: 'TA' }, gate: OPEN_GATE, eligibility, nowMs: 1, value: oldIntent.value });
     expect(codeOf(run('u1'))).toBe('BIDDING_SCOPE_STALE');
     expect(codeOf(run('u2'))).toBe('BIDDING_SCOPE_STALE');
+  });
+});
+
+// ── I. N5 → N10: the validated origin survives to the preparation of the bidding (N10-03) ───────────────────
+
+describe('I. N5 → N10 boundary: a derived assignment is bound to ITS run, round and deal', () => {
+  const SECRET = 'GEHEIM-TEXT-DES-DEALS';
+  const PEOPLE = ['u1', 'u2', 'u3', 'u4', 'u5'];
+  // two deals of the SAME run with the SAME participants and the SAME revision LABEL — only the round / deal id / roles differ
+  const deal = (over: { roundId: string; dealId: string; swap: boolean; runIndex?: number; revision?: string }) => createSecretRoleDeal({
+    runIndex: over.runIndex ?? 1, roundId: over.roundId, dealId: over.dealId, revision: over.revision ?? 'rev-1', participantIds: PEOPLE, roleIds: ['bidder', 'performer', 'beobachter'],
+    assignments: [
+      { participantId: 'u1', roleId: over.swap ? 'performer' : 'bidder' }, { participantId: 'u2', roleId: over.swap ? 'bidder' : 'performer' },
+      { participantId: 'u3', roleId: over.swap ? 'performer' : 'bidder' }, { participantId: 'u4', roleId: over.swap ? 'bidder' : 'performer' }, { participantId: 'u5', roleId: 'beobachter' },
+    ],
+    fragments: [{ fragmentId: 'secret', title: 'Geheim', text: SECRET, recipientIds: ['u5'] }],
+  });
+  const R1 = { runIndex: 1, roundId: 'round-1', dealId: 'deal-r1', revision: 'rev-1' };
+  const R2 = { runIndex: 1, roundId: 'round-2', dealId: 'deal-r2', revision: 'rev-1' }; // the SAME revision label
+  const dealR1 = () => deal({ roundId: 'round-1', dealId: 'deal-r1', swap: false });
+  const dealR2 = () => deal({ roundId: 'round-2', dealId: 'deal-r2', swap: true });
+  const members = [{ teamId: 'TA', memberIds: ['u1', 'u2', 'u5'] }, { teamId: 'TB', memberIds: ['u3', 'u4'] }];
+  const rolesArgs = (d: unknown, scope: typeof R1) => ({ deal: d, scope, bidderRoleId: 'bidder', performerRoleId: 'performer', teams: members });
+  const derive = (d: unknown, scope: typeof R1) => biddingRolesFromRoleDeal(rolesArgs(d, scope));
+  const prep = (over: Record<string, unknown>) => ({ runIndex: 1, roundId: 'round-2', biddingId: 'b-r2', sequenceId: 'seq-r2', rosterRevision: 'roster-1', category: CATEGORY, numeric: NUMERIC, ...over }) as unknown as Parameters<typeof prepareBiddingPhase>[0];
+
+  it('the adapter result carries its ORIGIN (labels only: run, round, deal id, revision) — no role name, term or fragment', () => {
+    const derived = derive(dealR1(), R1);
+    expect(derived.origin).toEqual(R1);
+    expect(JSON.stringify(derived).includes(SECRET) || JSON.stringify(derived).includes('beobachter')).toBe(false);
+  });
+  it('POSITIVE control: the derived result of round 2 is accepted for round 2 (two-step and combined path) and pins the rotated assignment', () => {
+    const derived = derive(dealR2(), R2);
+    const twoStep = prepareBiddingPhase(prep({ roles: { source: 'N5_DEAL', derived, expectedDealId: 'deal-r2', expectedRevision: 'rev-1' } }));
+    const combined = prepareBiddingPhaseFromRoleDeal({ ...rolesArgs(dealR2(), R2), biddingId: 'b-r2', sequenceId: 'seq-r2', rosterRevision: 'roster-1', category: CATEGORY, numeric: NUMERIC });
+    expect(twoStep.teams[0]).toEqual({ teamId: 'TA', bidderId: 'u2', performerId: 'u1' }); // u1 was the bidder in round 1, he is the PERFORMER now
+    expect(combined).toEqual(twoStep);
+    expect(twoStep).toMatchObject({ runIndex: 1, roundId: 'round-2', rolesRevision: 'rev-1' });
+    expect(JSON.stringify(twoStep).includes('deal-r') || JSON.stringify(twoStep).includes(SECRET)).toBe(false); // the origin is compared, never stored or projected
+  });
+  it.each([
+    ['another RUN', { runIndex: 2 }], ['another ROUND', { roundId: 'round-1' }],
+  ])('a derived round-1 result cannot be pinned to %s even with the same participants and the same revision label', (_name, target) => {
+    const derived = derive(dealR1(), R1);
+    expect(codeOf(() => prepareBiddingPhase(prep({ ...target, roundId: 'round-1', ...target, roles: { source: 'N5_DEAL', derived, expectedDealId: 'deal-r1', expectedRevision: 'rev-1' } })))).toBe(
+      (target as { runIndex?: number }).runIndex === 2 ? 'BIDDING_CONFIG_INVALID' : 'NO_THROW'); // run 2 refused; round 1 is the deal's own round (control)
+    // the real case of the finding: round-1 roles for a round-2 bidding
+    expect(codeOf(() => prepareBiddingPhase(prep({ roles: { source: 'N5_DEAL', derived, expectedDealId: 'deal-r1', expectedRevision: 'rev-1' } })))).toBe('BIDDING_CONFIG_INVALID');
+    expect(issuesOf(() => prepareBiddingPhase(prep({ roles: { source: 'N5_DEAL', derived, expectedDealId: 'deal-r1', expectedRevision: 'rev-1' } })))).toContain('CONFIG_CONFLICT');
+  });
+  it('another deal id with the SAME revision label and the SAME round is refused: the expected deal is independent of the result', () => {
+    const other = deal({ roundId: 'round-2', dealId: 'deal-r2-other', swap: false });
+    const derived = derive(other, { ...R2, dealId: 'deal-r2-other' }); // a valid result of ANOTHER deal of round 2
+    expect(codeOf(() => prepareBiddingPhase(prep({ roles: { source: 'N5_DEAL', derived, expectedDealId: 'deal-r2', expectedRevision: 'rev-1' } })))).toBe('BIDDING_CONFIG_INVALID');
+    expect(codeOf(() => prepareBiddingPhase(prep({ roles: { source: 'N5_DEAL', derived, expectedDealId: 'deal-r2-other', expectedRevision: 'rev-1' } })))).toBe('NO_THROW'); // control: its own deal
+    expect(codeOf(() => prepareBiddingPhase(prep({ roles: { source: 'N5_DEAL', derived, expectedDealId: 'deal-r2-other', expectedRevision: 'rev-9' } })))).toBe('BIDDING_CONFIG_INVALID'); // another revision
+  });
+  it('the combined path compares ONE expected scope with the loaded deal AND the target: a deal of another round, run, id or revision is refused', () => {
+    const base = { biddingId: 'b-r2', sequenceId: 'seq-r2', rosterRevision: 'roster-1', category: CATEGORY, numeric: NUMERIC };
+    expect(codeOf(() => prepareBiddingPhaseFromRoleDeal({ ...rolesArgs(dealR1(), R2), ...base }))).toBe('BIDDING_CONFIG_INVALID'); // round-1 deal under the round-2 scope
+    expect(codeOf(() => prepareBiddingPhaseFromRoleDeal({ ...rolesArgs(dealR2(), { ...R2, runIndex: 2 }), ...base }))).toBe('BIDDING_CONFIG_INVALID');
+    expect(codeOf(() => prepareBiddingPhaseFromRoleDeal({ ...rolesArgs(dealR2(), { ...R2, revision: 'rev-2' }), ...base }))).toBe('BIDDING_CONFIG_INVALID');
+    expect(codeOf(() => prepareBiddingPhaseFromRoleDeal({ ...rolesArgs(dealR2(), R2), ...base }))).toBe('NO_THROW');
+  });
+  it('RAW roles and checked N5 results are DIFFERENT explicit inputs; an unlabelled or malformed roles input is refused', () => {
+    const derived = derive(dealR2(), R2);
+    const raw = { source: 'RAW', rolesRevision: 'rev-1', teams: derived.teams };
+    expect(codeOf(() => prepareBiddingPhase(prep({ roles: raw })))).toBe('NO_THROW'); // synthetic path: the caller owns the origin
+    expect(codeOf(() => prepareBiddingPhase(prep({ roles: derived } as Draft)))).toBe('BIDDING_CONFIG_INVALID'); // the shape alone does not pick a source
+    expect(codeOf(() => prepareBiddingPhase(prep({ roles: { source: 'N5_DEAL', derived: { rolesRevision: derived.rolesRevision, teams: derived.teams }, expectedDealId: 'deal-r2', expectedRevision: 'rev-1' } })))).toBe('BIDDING_CONFIG_INVALID'); // no origin
+    expect(codeOf(() => prepareBiddingPhase(prep({ roles: { source: 'N5_DEAL', derived, expectedDealId: 'deal-r2', expectedRevision: 'rev-1', extra: 1 } })))).toBe('BIDDING_CONFIG_INVALID');
+    expect(codeOf(() => prepareBiddingPhase(prep({ roles: { source: 'RAW', rolesRevision: 'rev-1', teams: derived.teams, origin: R2 } })))).toBe('BIDDING_CONFIG_INVALID');
+    expect(codeOf(() => prepareBiddingPhase({ ...prep({}), rolesRevision: 'rev-1', teams: derived.teams } as Draft))).toBe('BIDDING_ARGS_INVALID'); // the old flat shape is gone
+  });
+  it('the COMPLETE path N5 → N10: round 1 and round 2 with the same participants; the performer of the NEW round gets the neutral packet, the old bidder cannot bid, no secret leaves', () => {
+    const e = (ids: string[]) => ({ runIndex: 1, trackId: 'x-track', rosterRevision: 'track-roster-1', version: 1, knownIds: ['TA', 'TB', ...PEOPLE], activeIds: ids });
+    const eligibility = { actors: e(['TA', 'TB']), members: e(PEOPLE) };
+    const world = (d: unknown, scope: typeof R1, biddingId: string) => {
+      const bidding = prepareBiddingPhaseFromRoleDeal({ ...rolesArgs(d, scope), biddingId, sequenceId: `seq-${scope.roundId}`, rosterRevision: 'roster-1', category: CATEGORY, numeric: NUMERIC });
+      const first = prepareTurnSequence(biddingTurnSequenceInput(bidding));
+      const seq = startTurnSequence(first, { scope: turnSequenceScopeOf(first), expectedVersion: 0, eligibility }).state;
+      return { bid: openBidding(bidding, { scope: biddingScopeOf(bidding), expectedVersion: 0, sequence: seq }).state, seq };
+    };
+    const w1 = world(dealR1(), R1, 'b-r1'), w2 = world(dealR2(), R2, 'b-r2');
+    expect(holderOfSeq(w1.seq)).toEqual({ teamId: 'TA', playerId: 'u1' });
+    expect(holderOfSeq(w2.seq)).toEqual({ teamId: 'TA', playerId: 'u2' }); // u2 bids in round 2
+    const call = (w: typeof w1, who: string, units: number) => () => placeBid(w.bid, {
+      ...biddingActionArgsFromIntent(readBiddingBidIntent({ scope: biddingScopeOf(w.bid), teamId: 'TA', turnNumber: w.seq.turnNumber, sequenceVersion: w.seq.version, biddingVersion: w.bid.version, value: num(units) })),
+      sequence: w.seq, caller: { role: 'PLAYER', participantId: who, teamId: 'TA' }, gate: OPEN_GATE, eligibility, nowMs: 1, value: num(units),
+    });
+    expect(codeOf(call(w2, 'u1', 5))).toBe('TURN_SEQ_NOT_CURRENT_ACTOR'); // the OLD bidder, now performer
+    expect(codeOf(call(w2, 'u2', 5))).toBe('NO_THROW');
+    expect(codeOf(call(w1, 'u1', 5))).toBe('NO_THROW');
+    const proj = (audience: ProjectionAudience, release: 'NEUTRAL' | 'STANDING') => projectBidding(audience, w2.bid, { scope: biddingScopeOf(w2.bid), sequence: w2.seq, release, stateVersion: 3 });
+    const performer = proj({ role: 'PLAYER', participantId: 'u1', teamId: 'TA' }, 'NEUTRAL');
+    expect(performer).toMatchObject({ release: 'NEUTRAL', recipientId: 'u1', you: { performer: true } });
+    expect(codeOf(() => proj({ role: 'PLAYER', participantId: 'u1', teamId: 'TA' }, 'STANDING'))).toBe('BIDDING_RELEASE_FORBIDDEN');
+    expect(proj({ role: 'PLAYER', participantId: 'u2', teamId: 'TA' }, 'STANDING')).toMatchObject({ you: { teamId: 'TA', holdsTurn: true, canBid: true } });
+    expect(proj({ role: 'PLAYER', participantId: 'u5', teamId: 'TA' }, 'NEUTRAL')).toMatchObject({ you: { performer: false } }); // the observer of the deal is no pinned person
+    expect(codeOf(() => proj({ role: 'PLAYER', participantId: 'u5', teamId: 'TA' }, 'STANDING'))).toBe('BIDDING_RELEASE_FORBIDDEN');
+    for (const audience of [{ role: 'PLAYER', participantId: 'u1' }, { role: 'PLAYER', participantId: 'u2' }, { role: 'PLAYER', participantId: 'u5' }, VIEWER, DISPLAY, HOST] as ProjectionAudience[]) {
+      const json = JSON.stringify(proj(audience, audience.role === 'PLAYER' && audience.participantId !== 'u2' ? 'NEUTRAL' : 'STANDING'));
+      for (const needle of [SECRET, 'beobachter', 'deal-r1', 'deal-r2', 'Geheim']) expect(json.includes(needle) ? needle : null, `${audience.role}/${audience.participantId}`).toBeNull();
+    }
+  });
+});
+const holderOfSeq = (seq: TurnSequenceState) => currentTurnHolder(seq) as { teamId: string; playerId: string };
+
+// ── J. Closing reserve for every write on the N8 sequence (N10-04) ──────────────────────────────────────
+
+describe('J. The closing reserve survives BASIS, HELD and opening', () => {
+  const MAX = 1_000_000_000;
+  const patchSeq = (w: World, patch: Record<string, number>): World => ({ ...w, seq: parseTurnSequenceState({ ...clone(w.seq), ...patch }) });
+  const baseArgs = (w: World) => ({ scope: biddingScopeOf(w.bid), expectedVersion: w.bid.version, expectedSequenceVersion: w.seq.version, sequence: w.seq });
+  const refresh = (w: World, version: number) => () => refreshBiddingBasis(w.bid, { ...baseArgs(w), eligibility: elig(w, version) });
+  const withhold = (w: World, version = 2) => () => withholdBiddingHolder(w.bid, { ...baseArgs(w), expectedTurnNumber: w.seq.turnNumber, eligibility: elig(w, version, { people: [holderOf(w).playerId] }) });
+  const abort = (w: World) => () => abortBidding(w.bid, { ...baseArgs(w), reason: 'HOST_ABORTED', gate: { abortAuthorized: true } });
+
+  it('OPENING: a pair opens only with room to close (one version step, one entitlement step); a pair that cannot be closed is refused, nothing is opened', () => {
+    const p = prepared();
+    const started = startTurnSequence(prepareTurnSequence(biddingTurnSequenceInput(p)), { scope: { runIndex: 1, sequenceId: 'seq-1', rosterRevision: 'roster-1', unit: 'TEAM' }, expectedVersion: 0, eligibility: elig({ n: 3 }) }).state;
+    const open = (patch: Record<string, number>) => () => openBidding(p, { scope: biddingScopeOf(p), expectedVersion: 0, sequence: parseTurnSequenceState({ ...clone(started), ...patch }) });
+    expect(codeOf(open({ version: MAX }))).toBe('BIDDING_COUNTER_LIMIT');
+    expect(codeOf(open({ version: MAX - 1 }))).toBe('NO_THROW');
+    expect(codeOf(open({ entitlementRevision: MAX }))).toBe('BIDDING_COUNTER_LIMIT');
+    expect(codeOf(open({ entitlementRevision: MAX - 1 }))).toBe('NO_THROW');
+    expect(p.phase).toBe('PREPARED');
+  });
+  it('BASIS keeps the closing reserve: below the limit ok and the abort still works; at the limit refused with the state unchanged; the abort remains possible; an equal basis consumes NOTHING', () => {
+    const w = openWorld({ n: 3 });
+    const below = patchSeq(w, { version: MAX - 2 });
+    const stepped = refresh(below, 2)();
+    expect(stepped.sequenceChanged).toBe(true);
+    expect(stepped.sequence.version).toBe(MAX - 1); // exactly one step left: the close
+    expect(abortBidding(stepped.state, { ...baseArgs({ ...below, seq: stepped.sequence }), expectedSequenceVersion: stepped.sequence.version, reason: 'HOST_ABORTED', gate: { abortAuthorized: true } }).sequence.phase).toBe('CLOSED');
+    const at = patchSeq(w, { version: MAX - 1 });
+    const frozen = [clone(at.bid), clone(at.seq)];
+    expect(codeOf(refresh(at, 2))).toBe('BIDDING_COUNTER_LIMIT'); // the review's case: BASIS would take the LAST step
+    expect([at.bid, at.seq]).toEqual(frozen);
+    expect(abort(at)().sequence.phase).toBe('CLOSED'); // the abort is still possible
+    const noop = refresh(at, 1)(); // equal basis = true no-op
+    expect(noop.sequenceChanged).toBe(false);
+    expect(noop.sequence).toEqual(at.seq);
+    const full = patchSeq(w, { version: MAX });
+    expect(codeOf(refresh(full, 2))).toBe('BIDDING_COUNTER_LIMIT'); // not the N8 state error
+    expect(refresh(full, 1)().sequenceChanged).toBe(false);
+    expect(codeOf(refresh(at, 0))).toBe('TURN_SEQ_ELIGIBILITY_STALE'); // the other errors keep their precedence
+  });
+  it('BASIS in an ACTIVE sequence also keeps the ENTITLEMENT step of the close; a stale expected version keeps its own code at the limit', () => {
+    const w = openWorld({ n: 3 });
+    expect(codeOf(refresh(patchSeq(w, { entitlementRevision: MAX }), 2))).toBe('BIDDING_COUNTER_LIMIT');
+    expect(codeOf(refresh(patchSeq(w, { entitlementRevision: MAX - 1 }), 2))).toBe('NO_THROW');
+    const at = patchSeq(w, { version: MAX - 1 });
+    expect(codeOf(() => refreshBiddingBasis(at.bid, { ...baseArgs(at), expectedSequenceVersion: at.seq.version - 1, eligibility: elig(at, 2) }))).toBe('TURN_SEQ_VERSION_STALE');
+  });
+  it('HELD keeps the closing reserve too: its step and the entitlement flip are checked BEFORE it, the abort from HELD stays possible, a no-op consumes nothing', () => {
+    const w = openWorld({ n: 3 });
+    const below = patchSeq(w, { version: MAX - 2 });
+    const held = withhold(below)();
+    expect(held.sequence.phase).toBe('HELD');
+    expect(held.sequence.version).toBe(MAX - 1);
+    expect(abortBidding(held.state, { ...baseArgs({ ...below, seq: held.sequence }), expectedSequenceVersion: held.sequence.version, reason: 'TECHNICAL_ABORT', gate: { abortAuthorized: true } }).sequence.phase).toBe('CLOSED');
+    const at = patchSeq(w, { version: MAX - 1 });
+    const frozen = [clone(at.bid), clone(at.seq)];
+    expect(codeOf(withhold(at))).toBe('BIDDING_COUNTER_LIMIT');
+    expect([at.bid, at.seq]).toEqual(frozen);
+    expect(abort(at)().sequence.phase).toBe('CLOSED');
+    expect(codeOf(withhold(patchSeq(w, { entitlementRevision: MAX })))).toBe('BIDDING_COUNTER_LIMIT'); // the ACTIVE → HELD flip needs an entitlement step
+    const lastEntitlement = patchSeq(w, { entitlementRevision: MAX - 1 });
+    const flipped = withhold(lastEntitlement)();
+    expect(flipped.sequence.entitlementRevision).toBe(MAX);
+    expect(abortBidding(flipped.state, { ...baseArgs({ ...lastEntitlement, seq: flipped.sequence }), expectedSequenceVersion: flipped.sequence.version, reason: 'HOST_ABORTED', gate: { abortAuthorized: true } }).sequence.phase).toBe('CLOSED'); // closing from HELD needs none
+    // already HELD at the limit: the equal-basis repeat is a no-op, a newer basis would take the last step
+    const heldAt = { ...at, seq: parseTurnSequenceState({ ...clone(held.sequence), version: MAX - 1 }) } as World;
+    expect(withhold(heldAt)().sequenceChanged).toBe(false);
+    expect(codeOf(refresh(heldAt, 3))).toBe('BIDDING_COUNTER_LIMIT');
+    // the holder is still eligible → the N8 code, not a capacity code
+    expect(codeOf(() => withholdBiddingHolder(at.bid, { ...baseArgs(at), expectedTurnNumber: at.seq.turnNumber, eligibility: elig(at, 2) }))).toBe('TURN_SEQ_HOLDER_STILL_ELIGIBLE');
+  });
+  it('after BASIS at the last reserve position a bid / pass that needs a handover is refused, the closing pass of a two-team bidding and the abort still work', () => {
+    const two = bid(openWorld({ n: 2 }), 3);
+    const tight = patchSeq(two, { version: MAX - 2 });
+    const stepped = refresh(tight, 2)(); // one step left
+    const after: World = { ...tight, bid: stepped.state, seq: stepped.sequence };
+    expect(codeOf(() => pass(after, { eligibility: elig(after, 2) }))).toBe('NO_THROW'); // the closing pass needs one version step and one entitlement step
+    expect(abort(after)().sequence.phase).toBe('CLOSED');
+    const three = bid(openWorld({ n: 3 }), 3);
+    const t3 = patchSeq(three, { version: MAX - 1 });
+    expect(codeOf(() => bid(t3, 9))).toBe('BIDDING_COUNTER_LIMIT'); // a handover needs two
   });
 });
