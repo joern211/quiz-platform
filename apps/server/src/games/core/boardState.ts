@@ -20,7 +20,7 @@
 import { z } from 'zod';
 import {
   BOARD_CAPTURE_MODES, BOARD_ERROR_CODES, BOARD_CONTRACT, BOARD_MAX_COUNTER, BOARD_MAX_FIGURES, BOARD_MAX_FIELDS, BOARD_MAX_OWNERS, BOARD_MAX_ROUTE, BOARD_MAX_STEPS, BOARD_RELEASES, BOARD_SCHEMA_VERSION,
-  BoardActionBindingSchema, BoardActorIdSchema, BoardCounterSchema, BoardFigureSchema, BoardGeometrySchema, BoardLastMoveSchema, BoardMoveIntentSchema, BoardProjectionSchema, BoardRefSchema, BoardRunIndexSchema,
+  BoardActorIdSchema, BoardCounterSchema, BoardFigureSchema, BoardGeometrySchema, BoardLastMoveSchema, BoardMoveIntentSchema, BoardProjectionSchema, BoardRefSchema, BoardRunIndexSchema,
   BoardScopeSchema, BoardStateVersionSchema, BoardUnitSchema, BoardError, boardCapturableFields, boardGeometryIssues,
   type BoardCaptureMode, type BoardGeometry, type BoardIssueCode, type BoardMoveIntent, type BoardProjection, type BoardScope, type BoardTarget,
 } from '@quiz/shared/board';
