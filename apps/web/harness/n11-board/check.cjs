@@ -181,6 +181,15 @@ const lastLog = s => s.log[s.log.length - 1];
     await targetBtn(P1, 't3').dblclick();
     await sleep(300);
     expect((await calls(P1)).length === 1, 'S3: a double click sent ONE intent', await calls(P1));
+    await host({ type: 'reset', face: 3 }); await delivered(P1, 'S3b P1'); await P1.evaluate(() => { window.__harness.calls.length = 0; });
+    await figureBtn(P1, 'a1').click();
+    await P1.evaluate(() => { const b = [...document.querySelectorAll('button')].find(x => /^Nach Feld t3/.test(x.textContent || '')); b.click(); b.click(); }); // TWO presses inside ONE task (one render closure)
+    await sleep(300);
+    expect((await calls(P1)).length === 1, 'S3b: two presses inside ONE task sent ONE intent (the lock is decided on the ref, not the render closure)', await calls(P1));
+    await P1.evaluate(() => window.__harness.releaseSends());
+    await waitUntil(async () => (await state()).board.version === 1, 8000, 'S3b: applied once');
+    await host({ type: 'reset', face: 3 }); await delivered(P1, 'S3 reset'); await P1.evaluate(() => { window.__harness.holdSends = true; window.__harness.calls.length = 0; });
+    await figureBtn(P1, 'a1').click(); await targetBtn(P1, 't3').click(); await sleep(150);
     expect((await rendered(P1)).a1 === 'sa' && !(await bodyText(P1)).includes('verbraucht') && JSON.stringify((await state()).positions) === JSON.stringify(s0.positions), 'S3: while the request is pending NOTHING moved — not on screen, not in the database');
     expect((await targetBtn(P1, 't3').getAttribute('aria-disabled')) === 'true' && (await P1.getByText('Der Zug wird gesendet').count()) === 1, 'S3: the lock is shown (aria-disabled) with words');
     await figureBtn(P1, 'a2').click({ force: true }); // another figure while the request is pending (aria-disabled: Playwright would wait for 'enabled', a real user can press it)
@@ -328,6 +337,14 @@ const lastLog = s => s.log[s.log.length - 1];
     await pick(P1, 'a1', 't3');
     await waitUntil(async () => (await state()).board.version === 1, 8000, 'S9: stored');
     await delivered(P2, 'S9 P2 newer');
+    await P2.evaluate(() => window.__harness.freeze(true));
+    await P2.evaluate(raw => window.__harness.deliver(raw), p1Old); // a FOREIGN packet withdraws the view …
+    await sleep(200);
+    await P2.evaluate(raw => window.__harness.deliver(raw), p2Old); // … and an OLDER packet of the right recipient follows: the version floor must have survived the withdrawal
+    await sleep(250);
+    expect((await P2.getByRole('region').innerText()).includes('nicht verfügbar') && !(await bodyText(P2)).includes('Wurf: 3 Schritte.'), 'S9: foreign view, then an older own packet: nothing is shown (the floor survived the withdrawal)');
+    await P2.evaluate(() => window.__harness.freeze(false));
+    await delivered(P2, 'S9 P2 recovered');
     await P2.evaluate(() => window.__harness.freeze(true));
     await P2.evaluate(raw => window.__harness.deliver(raw), p2Old);
     await sleep(250);
