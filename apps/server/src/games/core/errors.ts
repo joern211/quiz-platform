@@ -7,6 +7,7 @@ import { PARTICIPATION_ERROR_CODES } from '@quiz/shared/participation';
 import { AUDIO_PLAYBACK_ERROR_CODES } from '@quiz/shared/audioPlayback';
 import { TURN_SEQUENCE_ERROR_CODES } from '@quiz/shared/turnSequence';
 import { DICE_ERROR_CODES } from '@quiz/shared/dice';
+import { BIDDING_ERROR_CODES } from '@quiz/shared/bidding';
 import { GameStateConflictError } from './state.js';
 
 // Wire codes kept stable for existing clients; internal messages are never returned.
@@ -47,6 +48,8 @@ const PUBLIC_CODES = new Set([
   ...TURN_SEQUENCE_ERROR_CODES,
   // N9: dice codes carry no value, position list, order, roster, actor id or reason (issues are code-only); no engine emits them yet.
   ...DICE_ERROR_CODES,
+  // N10: bidding codes carry no bid, bound, roster, team or participant id, role or reason (issues are code-only); no engine emits them yet.
+  ...BIDDING_ERROR_CODES,
 ]);
 
 export function gameErrorCode(error: unknown, gameSlug?: string): string {

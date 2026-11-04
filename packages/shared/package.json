@@ -16,6 +16,7 @@
     "./audioPlayback": "./src/audioPlayback.ts",
     "./turnSequence": "./src/turnSequence.ts",
     "./dice": "./src/dice.ts",
+    "./bidding": "./src/bidding.ts",
     "./schemas": "./src/schemas/index.ts",
     "./types": "./src/types/index.ts"
   },
