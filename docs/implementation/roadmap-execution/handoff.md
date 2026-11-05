@@ -1,5 +1,18 @@
 # Fortsetzung des Master-Plans — 24.10.2026
 
+## Aktueller Anschluss — 30.10.2026
+
+PR15–19 sind über PR20 in main `7501344` integriert; die main-CI/E2E ist grün.
+Die folgenden älteren Abschnitte bleiben als historische Zwischenstände erhalten.
+Der Nutzer hat die nächste Phase geändert: vor neuen Spiel-Engines folgt ein
+begrenzter Grundlagenblock für gemeinsame Spielmechaniken. Maßgeblich für dessen
+Umfang, Nachweise und nächste Aufgabe sind jetzt der
+[Mechanikplan](../mechanics-foundation/plan.md), die
+[Bestandsaufnahme](../mechanics-foundation/inventory.md) und das
+[neue Handoff](../mechanics-foundation/handoff.md).
+G1–G5 sind geplant, nicht bereits umgesetzt. Die historischen Planplatznummern
+dieser Datei sind keine verbindlichen zukünftigen GitHub-PR-Nummern.
+
 Auftrag: fünf Pakete nacheinander umsetzen, regelmäßig auf GitHub sichern,
 globale Regression beachten. Kein selbstständiger Merge. Nachfolgende Pakete
 auf dem jeweils geprüften Vorgänger aufbauen; PRs bei Bedarf stapeln.
