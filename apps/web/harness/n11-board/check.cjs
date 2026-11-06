@@ -463,6 +463,36 @@ const lastLog = s => s.log[s.log.length - 1];
     expect(next.ok === true, 'S13: the game continues from the stored state after the restart', next);
   });
 
+  // ── S16: a DAMAGED snapshot (N11-01): a last move that contradicts N8 / N9 is refused before anything is shown or moved ─────────────────────────────────
+  await scenario('S16 damaged snapshot', async () => {
+    await host({ type: 'reset', face: 1 });
+    await delivered(P1, 'S16 P1');
+    await pick(P1, 'a1', 't1');
+    await waitUntil(async () => (await state()).board.version === 1, 8000, 'S16: the regular move is stored');
+    await delivered(P1, 'S16 P1 after the move');
+    const kinds = [['a roll the stored process has not made yet', { rollCount: 2 }], ['a move from a turn the sequence has not reached', { turnNumber: 2 }], ['steps that contradict the route', { steps: 3 }], ['another process in this turn', { diceId: 'dice-other' }]];
+    for (const [name, patch] of kinds) {
+      await host({ type: 'reset', face: 1 });
+      await delivered(P1, `S16 ${name} fresh`);
+      await pick(P1, 'a1', 't1');
+      await waitUntil(async () => (await state()).board.version === 1, 8000, `S16 ${name}: regular move stored`);
+      await delivered(P1, `S16 ${name} after the move`);
+      await host({ type: 'damage', lastMove: patch });
+      const s0 = await state();
+      const refused = await sendIntent('P1', FRESH(), { ...origin(s0), figureId: 'a1', to: 't2' });
+      expect(refused.ok === false && refused.code === 'BOARD_STATE_INVALID', `S16 ${name}: the move is refused as a damaged state`, refused);
+      const s1 = await state();
+      expect(s1.revision === s0.revision && s1.events === s0.events && s1.positions.a1 === 't1', `S16 ${name}: position, revision and events are unchanged`, { before: s0.positions, after: s1.positions });
+      const projection = await projectionOf('VIEWER');
+      expect(projection.error === 'BOARD_STATE_INVALID' && projection.figures === undefined, `S16 ${name}: the projection endpoint refuses (code only, no board data)`, projection);
+      await waitUntil(async () => (await P1.getByRole('region').innerText()).includes('nicht verfügbar'), 8000, `S16 ${name}: the view shows nothing instead of a board`);
+      expect((await P1.getByRole('group').count()) === 0 && (await figureBtn(P1, 'a2').count()) === 0, `S16 ${name}: no control is offered`);
+    }
+    await host({ type: 'reset', face: 3 });
+    await delivered(P1, 'S16 restored');
+    expect((await P1.getByRole('group').count()) === 1, 'S16: after a regular new world the controls are back (positive control)');
+  });
+
   // ── S14: layout, themes, touch targets ─────────────────────────────────────────────────────────────────────────────────────────────────
   await scenario('S14 layout and themes', async () => {
     await host({ type: 'reset', face: 3 });

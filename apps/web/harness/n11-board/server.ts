@@ -102,7 +102,7 @@ async function view(): Promise<Record<string, unknown>> {
   const stored = await load();
   const seq = parseTurnSequenceState(stored.state.turnSequence);
   const dice = parseDiceTurnState(stored.state.dice);
-  const board = parseBoardState(stored.state.board);
+  const board = stored.state.board as ReturnType<typeof parseBoardState>; // raw row: /api/state must stay readable after a deliberately damaged snapshot
   return {
     revision: stored.revision, turnNumber: seq.turnNumber, sequenceVersion: seq.version, sequenceId: seq.sequenceId, scope: turnSequenceScopeOf(seq), holder: currentTurnHolder(seq)?.playerId ?? null,
     basisVersion: seq.eligibility?.actors.version ?? null, dice, board, positions: Object.fromEntries(board.figures.map(f => [f.id, f.at])),
@@ -182,6 +182,13 @@ async function host(body: Record<string, unknown>): Promise<Record<string, unkno
       const next = refreshEligibilityBasis(seq, { scope, expectedVersion: seq.version, eligibility: elig() }).state;
       await persist(loaded, { ...loaded.state, turnSequence: next }, 'TURN_BASIS');
       return { ok: true, ...(await view()) };
+    }
+    case 'damage': { // a DAMAGED SNAPSHOT, written straight into the row (harness only; no domain call, no revision step): only the board's last move is changed
+      const board = parseBoardState(loaded.state.board);
+      const patch = body.lastMove as Record<string, unknown>;
+      const damaged = { ...board, lastMove: { ...(board.lastMove as object), ...patch } };
+      await db.roomGameState.update({ where: { roomId }, data: { stateJson: JSON.stringify({ ...loaded.state, board: damaged }) } });
+      return { ok: true };
     }
     case 'policy': policy = { capture: body.capture === 'FORBIDDEN' ? 'FORBIDDEN' : 'ALLOWED' }; await persist(loaded, { ...loaded.state }, 'POLICY_CHANGED'); return { ok: true, ...(await view()) };
     case 'pause': paused = body.on === true; return { ok: true, ...(await view()) };

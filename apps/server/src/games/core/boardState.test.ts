@@ -5,9 +5,9 @@
 
 import { describe, expect, it } from 'vitest';
 import { BOARD_ERROR_CODES, BoardError, boardActionBindingKey, boardCapturableFields, boardGeometryIssues, parseBoardProjection, type BoardGeometry, type BoardMoveIntent } from '@quiz/shared/board';
-import { DICE_CONFIG_SINGLE_D6 } from '@quiz/shared/dice';
+import { DICE_CONFIG_SINGLE_D6, type DiceConfig } from '@quiz/shared/dice';
 import {
-  applyDecidedBoardMove, boardActionArgsFromIntent, legalBoardMoves, moveFigure, parseBoardState, prepareBoard, projectBoard, readBoardMoveIntent, type BoardPolicy, type BoardState,
+  applyDecidedBoardMove, assertBoardConsistent, boardActionArgsFromIntent, legalBoardMoves, moveFigure, parseBoardState, prepareBoard, projectBoard, readBoardMoveIntent, type BoardPolicy, type BoardState,
 } from './boardState.js';
 import { closeDiceTurn, diceTurnScopeOf, openDiceTurn, rollDice, type DiceTurnState } from './diceTurn.js';
 import {
@@ -269,13 +269,15 @@ describe('N11 board: versions, N8 base progress and reserved steps', () => {
     const w = world(3);
     const moved = move(w, intentFor(w, 'a1', 't3')).state; // version 1, spent roll = dice-1 / 1
     const maxed = parseBoardState({ ...moved, version: 1_000_000_000 });
-    const dice2 = rollWith(openDice(w.seq, 'dice-2'), w.seq, 1);
-    const w2: World = { seq: w.seq, dice: dice2, board: maxed };
-    expect(codeOf(() => move(w2, intentFor(w2, 'a2', 't1')))).toBe('BOARD_COUNTER_LIMIT');
+    // a LATER turn with its own process and an unspent roll (one process per turn — a second process in turn 1 would itself be a damaged history)
+    const seq2 = advanceTurnSequence(w.seq, { scope: sc(w.seq), expectedVersion: w.seq.version, expectedTurnNumber: 1, outcome: 'COMPLETE', eligibility: everyone(w.seq) }).state;
+    const dice2 = rollWith(openDice(seq2, 'dice-2'), seq2, 1);
+    const w2: World = { seq: seq2, dice: dice2, board: maxed };
+    expect(codeOf(() => move(w2, intentFor(w2, 'b1', 't3'), { caller: { role: 'PLAYER', participantId: 'b', teamId: null } }))).toBe('BOARD_COUNTER_LIMIT');
     expect(w2.board.version).toBe(1_000_000_000);
     // one step below the limit still works (the boundary is exact)
     const below: World = { ...w2, board: parseBoardState({ ...moved, version: 999_999_999 }) };
-    expect(move(below, intentFor(below, 'a2', 't1')).state.version).toBe(1_000_000_000);
+    expect(move(below, intentFor(below, 'b1', 't3'), { caller: { role: 'PLAYER', participantId: 'b', teamId: null } }).state.version).toBe(1_000_000_000);
     // the N8 counter: with a NEWER N6 stand the basis step is owed and needs room; without it the move needs none
     const full = world(3);
     const seqMax = parseTurnSequenceState({ ...full.seq, version: 1_000_000_000 });
@@ -480,5 +482,171 @@ describe('N11 board: projections', () => {
       { boardId: 'x' }, { turnNumber: 2 }, { sequenceVersion: 9 }, { boardVersion: 9 }, { diceId: 'x' }, { diceVersion: 9 }, { rollCount: 9 },
     ];
     for (const v of variants) expect(boardActionBindingKey({ ...i, ...v }), JSON.stringify(v)).not.toBe(key);
+  });
+});
+
+// ── N11-01 (independent review PR #41): a contradictory last move must not survive recovery ─────────────────────────────────────────────────────────────
+describe('N11-01 recovery: the last move must be explainable by the state, and board, N8 and N9 must fit together', () => {
+  const capturing = () => { const w = world(3, { b1: 't3' }); return { w, moved: move(w, intentFor(w, 'a1', 't3')).state }; };
+  const plain = () => { const w = world(3); return { w, moved: move(w, intentFor(w, 'a1', 't3')).state }; };
+  const lastMoveOf = (state: BoardState, over: Draft) => ({ ...clone(state), lastMove: { ...state.lastMove!, ...over } });
+
+  it('loading refuses a last move whose steps contradict the route distance (also every other wrong number)', () => {
+    const { moved } = plain(); // a1: sa → t3 is 3 route steps
+    for (const steps of [1, 2, 4, 5, 200]) expect(issuesOf(() => parseBoardState(lastMoveOf(moved, { steps }))), String(steps)).toContain('LASTMOVE_CONFLICT');
+    expect(codeOf(() => parseBoardState(lastMoveOf(moved, { steps: 3 })))).toBe('NO_ERROR'); // positive control: the true distance
+  });
+  it('loading refuses a last move that does not run forward on the mover\'s route, or does not start on it', () => {
+    const { moved } = plain();
+    for (const over of [{ from: 't3' }, { from: 'ha' }, { from: 't6', steps: 1 }, { from: 'nowhere' }, { from: 't2' }]) { // equal to the target, behind it, on the other owner's route only, unknown, right place but the old step count
+      expect(codeOf(() => parseBoardState(lastMoveOf(moved, over))), JSON.stringify(over)).toBe('BOARD_STATE_INVALID');
+    }
+    expect(codeOf(() => parseBoardState(lastMoveOf(moved, { from: 't2', steps: 1 })))).toBe('NO_ERROR'); // t2 → t3 is a consistent claim for the same final position
+  });
+  const captureCorruptions: Array<[string, (s: Draft) => void]> = [
+    ['a capture claimed on a field whose capacity is not the number of captured figures', s => { s.lastMove.captured = ['b1', 'b2']; }],
+    ['a capture claimed on a HOME field (ha: exclusive to a, never capturable, not on the victim\'s route; the step count itself is consistent)', s => { s.lastMove.from = 't3'; s.lastMove.to = 'ha'; s.lastMove.steps = 2; s.lastMove.captured = ['b1', 'b2']; s.figures.find((f: Draft) => f.id === 'a1').at = 'ha'; }],
+    ['the captured figure belongs to the mover\'s own owner', s => { s.lastMove.captured = ['a2']; }],
+    ['the captured figure does not stand on its start (it stands on another field of its own route)', s => { s.figures.find((f: Draft) => f.id === 'b1').at = 't4'; }],
+    ['the same figure captured twice', s => { s.lastMove.captured = ['b1', 'b1']; }],
+    ['an unknown figure captured', s => { s.lastMove.captured = ['zz']; }],
+  ];
+  it.each(captureCorruptions)('loading refuses: %s', (_name, mutate) => {
+    const { moved } = capturing();
+    const damaged = clone(moved) as Draft;
+    mutate(damaged);
+    expect(codeOf(() => parseBoardState(damaged))).toBe('BOARD_STATE_INVALID');
+  });
+  it('a claimed capture on a field that only ONE owner has on its route is refused (victim could never have stood there)', () => {
+    // t1 lies on a\'s route only: a b-figure can never have been captured there
+    const w = world(1);
+    const moved = move(w, intentFor(w, 'a1', 't1')).state;
+    const damaged = { ...clone(moved), lastMove: { ...moved.lastMove!, captured: ['b1'] } } as Draft;
+    damaged.figures.find((f: Draft) => f.id === 'b1').at = 'sb';
+    expect(issuesOf(() => parseBoardState(damaged))).toContain('LASTMOVE_CONFLICT');
+  });
+
+  it('a spent-roll marker for a roll the SAME process has not made yet is refused at the move, never treated as an unused roll', () => {
+    const { w, moved } = plain();
+    const damaged = lastMoveOf(moved, { diceId: w.dice.diceId, rollCount: w.dice.rollCount + 1 });
+    const parsed = parseBoardState(damaged); // locally consistent — the contradiction only exists together with the dice
+    const world2: World = { ...w, board: parsed };
+    expect(codeOf(() => move(world2, { ...intentFor(world2, 'a1', 't4') }))).toBe('BOARD_STATE_INVALID');
+    expect(codeOf(() => assertBoardConsistent(parsed, w.seq, w.dice))).toBe('BOARD_STATE_INVALID');
+    expect(issuesOf(() => assertBoardConsistent(parsed, w.seq, w.dice))).toEqual(['LASTMOVE_CONFLICT']);
+    for (const release of ['FIGURES', 'NONE'] as const) {
+      expect(codeOf(() => projectBoard({ role: 'PLAYER', participantId: 'a', teamId: null }, parsed, { scope: sc(w.seq), sequence: w.seq, dice: w.dice, policy: ALLOW, release, stateVersion: 3 })), release).toBe('BOARD_STATE_INVALID');
+    }
+  });
+  it('a marker that names this dice process but another turn than the process belongs to is refused', () => {
+    const { w, moved } = plain();
+    const parsed = parseBoardState(lastMoveOf(moved, { turnNumber: 1 })); // positive control first: the real turn
+    expect(codeOf(() => assertBoardConsistent(parsed, w.seq, w.dice))).toBe('NO_ERROR');
+    const seq3 = (() => { let q = w.seq; for (let i = 0; i < 2; i++) q = advanceTurnSequence(q, { scope: sc(q), expectedVersion: q.version, expectedTurnNumber: q.turnNumber, outcome: 'COMPLETE', eligibility: everyone(q) }).state; return q; })();
+    const claimed = parseBoardState(lastMoveOf(moved, { turnNumber: 2 })); // turn 2 is reached by the sequence, but the process dice-1 belongs to turn 1
+    expect(codeOf(() => assertBoardConsistent(claimed, seq3, w.dice))).toBe('BOARD_STATE_INVALID');
+  });
+  it('a marker of THIS turn that names ANOTHER dice process is refused (one process per turn): the current roll must not look unspent', () => {
+    const { w, moved } = plain();
+    const swapped = parseBoardState(lastMoveOf(moved, { diceId: 'dice-other' })); // locally consistent; the roll the move really used is now "forgotten"
+    const damaged: World = { ...w, board: swapped };
+    expect(codeOf(() => assertBoardConsistent(swapped, w.seq, w.dice))).toBe('BOARD_STATE_INVALID');
+    expect(codeOf(() => move(damaged, intentFor(damaged, 'a1', 't4')))).toBe('BOARD_STATE_INVALID');
+    expect(codeOf(() => projectBoard({ role: 'VIEWER' }, swapped, { scope: sc(w.seq), sequence: w.seq, dice: w.dice, policy: ALLOW, release: 'NONE', stateVersion: 3 }))).toBe('BOARD_STATE_INVALID');
+    // positive control: the same marker is fine when the supplied process belongs to ANOTHER turn (an older history)
+    const seq2 = advanceTurnSequence(w.seq, { scope: sc(w.seq), expectedVersion: w.seq.version, expectedTurnNumber: 1, outcome: 'COMPLETE', eligibility: everyone(w.seq) }).state;
+    expect(codeOf(() => assertBoardConsistent(swapped, seq2, rollWith(openDice(seq2, 'dice-2'), seq2, 2)))).toBe('NO_ERROR');
+  });
+  it('a recovered board claiming a move from a turn the bound N8 sequence has not reached is refused by projection (every release) and by the move', () => {
+    const { w, moved } = plain();
+    const future = parseBoardState(lastMoveOf(moved, { turnNumber: w.seq.turnNumber + 1 }));
+    const audiences = [{ role: 'VIEWER' }, { role: 'DISPLAY' }, { role: 'HOST' }, { role: 'PLAYER', participantId: 'a', teamId: null }, { role: 'PLAYER', participantId: 'b', teamId: null }];
+    for (const audience of audiences) for (const release of ['FIGURES', 'NONE'] as const) {
+      expect(codeOf(() => projectBoard(audience as Draft, future, { scope: sc(w.seq), sequence: w.seq, dice: null, policy: ALLOW, release, stateVersion: 3 })), `${audience.role}/${release}`).toBe('BOARD_STATE_INVALID');
+    }
+    const next = world(1);
+    expect(codeOf(() => move({ ...next, board: future }, intentFor({ ...next, board: future }, 'a2', 't1')))).toBe('BOARD_STATE_INVALID');
+  });
+  it('the refusal changes nothing: the input is not mutated and no state, roll or sequence is returned', () => {
+    const { w, moved } = plain();
+    const damaged = deepFreeze(parseBoardState(lastMoveOf(moved, { rollCount: w.dice.rollCount + 1, diceId: w.dice.diceId })));
+    const frozen = deepFreeze({ ...w, board: damaged });
+    const before = JSON.stringify(frozen);
+    expect(codeOf(() => move(frozen, intentFor(frozen, 'a2', 't1')))).toBe('BOARD_STATE_INVALID');
+    expect(JSON.stringify(frozen)).toBe(before);
+  });
+  it('the check runs AFTER the N8 authorisation: a caller who may not act learns the N8 reason, not the damage', () => {
+    const { w, moved } = plain();
+    const damaged = parseBoardState(lastMoveOf(moved, { turnNumber: w.seq.turnNumber + 1 }));
+    expect(codeOf(() => move({ ...w, board: damaged }, intentFor({ ...w, board: damaged }, 'a2', 't1'), { caller: { role: 'PLAYER', participantId: 'b', teamId: null } }))).toBe('TURN_SEQ_NOT_CURRENT_ACTOR');
+    expect(codeOf(() => move({ ...w, board: damaged }, intentFor({ ...w, board: damaged }, 'a2', 't1'), { gate: { ...OPEN_GATE, paused: true } }))).toBe('TURN_SEQ_ACTION_BLOCKED');
+  });
+
+  describe('positive controls: regular histories stay valid', () => {
+    const TWO_ROLLS: DiceConfig = { diceCount: 1, sides: 6, maxRolls: 2, holdAllowed: false };
+    it('a NEWER roll of the same process (same turn) after an older, spent one is usable; the old roll stays spent', () => {
+      const seq = playerSequence();
+      const opened = openDiceTurn({ scope: sc(seq), diceId: 'dice-1', config: TWO_ROLLS, sequence: seq, expectedTurnNumber: 1 });
+      const first = rollWith(opened, seq, 1);
+      const board0 = prepareBoard({ scope: sc(seq), boardId: 'board-1', geometry: GEOMETRY, figures: FIGURES, sequence: seq });
+      const w1: World = { seq, dice: first, board: board0 };
+      const afterFirst = move(w1, intentFor(w1, 'a1', 't1')).state;
+      expect(afterFirst.lastMove).toMatchObject({ rollCount: 1, diceId: 'dice-1' });
+      const second = rollWith(first, seq, 2);
+      expect(second.rollCount).toBe(2);
+      const w2: World = { seq, dice: second, board: afterFirst };
+      expect(codeOf(() => assertBoardConsistent(afterFirst, seq, second))).toBe('NO_ERROR');
+      const view = projectBoard({ role: 'PLAYER', participantId: 'a', teamId: null }, afterFirst, { scope: sc(seq), sequence: seq, dice: second, policy: ALLOW, release: 'FIGURES', stateVersion: 6 });
+      if (view.release !== 'FIGURES') throw new Error('expected FIGURES');
+      expect(view.roll).toMatchObject({ rollCount: 2, steps: 2, spent: false });
+      expect(view.targets.length).toBeGreaterThan(0);
+      const afterSecond = move(w2, intentFor(w2, 'a2', 't2'));
+      expect(afterSecond.state.lastMove).toMatchObject({ rollCount: 2, diceId: 'dice-1', figureId: 'a2' });
+      expect(afterSecond.state.version).toBe(2);
+      // the older roll can neither be replayed against the newer marker nor spent again
+      expect(codeOf(() => applyDecidedBoardMove(afterSecond.state, { expectedVersion: 2, ownerId: 'a', figureId: 'a1', to: 't3', captured: [], steps: 2, policy: ALLOW, roll: { diceId: 'dice-1', rollCount: 1, turnNumber: 1 } }))).toBe('BOARD_ROLL_SPENT');
+    });
+    it('a LATER turn with a NEW process is valid with the marker of the earlier turn (the same person and another person)', () => {
+      const { w, moved } = plain();
+      let seq = w.seq;
+      let dice = w.dice;
+      for (let i = 0; i < 3; i++) {
+        seq = advanceTurnSequence(seq, { scope: sc(seq), expectedVersion: seq.version, expectedTurnNumber: seq.turnNumber, outcome: 'COMPLETE', eligibility: everyone(seq) }).state;
+        dice = closeDiceTurn(dice, { scope: diceTurnScopeOf(dice), diceId: dice.diceId, expectedTurnNumber: dice.binding.turnNumber, expectedVersion: dice.version }).state;
+        dice = openDice(seq, `dice-t${seq.turnNumber}`);
+        expect(codeOf(() => assertBoardConsistent(moved, seq, dice)), `turn ${seq.turnNumber} (no roll yet)`).toBe('NO_ERROR');
+      }
+      dice = rollWith(dice, seq, 1);
+      expect(move({ seq, dice, board: moved }, intentFor({ seq, dice, board: moved }, 'a2', 't1')).state.version).toBe(2);
+    });
+    it('regular moves, captures and home moves survive a JSON round trip; the damaged-state checks do not reject any of them', () => {
+      const normal = world(3);
+      const normalMoved = move(normal, intentFor(normal, 'a1', 't3')).state;
+      const capture = world(3, { b1: 't3' });
+      const captured = move(capture, intentFor(capture, 'a1', 't3')).state;
+      const full = world(3, { b1: 't3', b2: 't3' }, { ...GEOMETRY, fields: GEOMETRY.fields.map(f => (f.id === 't3' ? { ...f, capacity: 2 } : f)) });
+      const double = move(full, intentFor(full, 'a1', 't3')).state;
+      const home = world(1, { a1: 't4' });
+      const homed = move(home, intentFor(home, 'a1', 'ha')).state;
+      const direct = world(5);
+      const homedDirect = move(direct, intentFor(direct, 'a1', 'ha')).state;
+      for (const state of [normalMoved, captured, double, homed, homedDirect]) {
+        expect(parseBoardState(JSON.parse(JSON.stringify(state)))).toEqual(state);
+      }
+      expect(double.lastMove!.captured).toEqual(['b1', 'b2']);
+      expect(homedDirect.lastMove).toMatchObject({ from: 'sa', to: 'ha', steps: 5 });
+      // and the client projection of each of them validates
+      for (const [state, w] of [[captured, capture], [homedDirect, direct]] as const) {
+        const view = projectBoard({ role: 'VIEWER' }, state, { scope: sc(w.seq), sequence: w.seq, dice: w.dice, policy: ALLOW, release: 'FIGURES', stateVersion: 8 });
+        expect(parseBoardProjection(JSON.parse(JSON.stringify(view))).ok).toBe(true);
+      }
+    });
+    it('the client projection schema refuses a contradictory last move too (steps, capture on a protected field)', () => {
+      const { w, moved } = capturing();
+      const good = JSON.parse(JSON.stringify(projectBoard({ role: 'VIEWER' }, moved, { scope: sc(w.seq), sequence: w.seq, dice: w.dice, policy: ALLOW, release: 'FIGURES', stateVersion: 8 })));
+      expect(parseBoardProjection(good).ok).toBe(true);
+      expect(parseBoardProjection({ ...good, lastMove: { ...good.lastMove, steps: 1 } }).ok).toBe(false);
+      expect(parseBoardProjection({ ...good, lastMove: { ...good.lastMove, captured: ['b1', 'b2'] } }).ok).toBe(false);
+    });
   });
 });

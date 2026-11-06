@@ -79,14 +79,14 @@ afterAll(async () => {
 
 interface StandInState { phase: string; standIn: boolean; turnSequence: unknown; dice: unknown; board: unknown }
 interface Stored { revision: number; phase: string; state: StandInState }
-interface WorldOver { runIndex?: number; sequenceId?: string; rosterRevision?: string; diceId?: string; boardId?: string; face?: number }
+interface WorldOver { runIndex?: number; sequenceId?: string; rosterRevision?: string; diceId?: string; boardId?: string; face?: number; maxRolls?: number }
 
 /** A started player sequence (a, b, c; turn 1 = a), a dice process of that turn ROLLED with `face`, and a fresh board. Every world has the SAME counters. */
 function buildWorld(over: WorldOver = {}): { seq: TurnSequenceState; dice: DiceTurnState; board: BoardState } {
   const runIndex = over.runIndex ?? 1;
   const prepared = prepareTurnSequence({ runIndex, sequenceId: over.sequenceId ?? 'seq-n11', rosterRevision: over.rosterRevision ?? 'roster-1', unit: 'PLAYER', mode: 'FIXED', order: PLAYERS });
   const seq = startTurnSequence(prepared, { scope: turnSequenceScopeOf(prepared), expectedVersion: 0, eligibility: eligibility(1, runIndex) }).state;
-  const opened = openDiceTurn({ scope: turnSequenceScopeOf(seq), diceId: over.diceId ?? 'dice-t1', config: DICE_CONFIG_SINGLE_D6, sequence: seq, expectedTurnNumber: 1 });
+  const opened = openDiceTurn({ scope: turnSequenceScopeOf(seq), diceId: over.diceId ?? 'dice-t1', config: over.maxRolls === undefined ? DICE_CONFIG_SINGLE_D6 : { ...DICE_CONFIG_SINGLE_D6, maxRolls: over.maxRolls }, sequence: seq, expectedTurnNumber: 1 });
   const dice = rollDice(opened, {
     scope: turnSequenceScopeOf(seq), diceId: opened.diceId, sequence: seq, expectedTurnNumber: 1, expectedSequenceVersion: seq.version, expectedVersion: 0, expectedRollCount: 0,
     caller: { role: 'PLAYER', participantId: 'a', teamId: null }, gate: OPEN, eligibility: eligibility(1, runIndex), source: () => over.face ?? 3,
@@ -436,6 +436,77 @@ describe('N11 integration: figure moves on the real CAS / receipt / state-event 
     expect(gameErrorCode(new Error('SOMETHING_ELSE'))).toBe('INTERNAL_ERROR');
     expect(await load(roomId)).toEqual(loaded);
     expect(await db.gameDomainEvent.count({ where: { roomId } })).toBe(0);
+  });
+
+  // ── N11-01 (independent review PR #41): a contradictory persisted last move must not survive recovery ────────────────────────────────────────────────
+  /** Writes a damaged board into the stored row (a damaged snapshot) and returns what was read back. */
+  async function damage(roomId: string, patch: (board: BoardState) => unknown): Promise<Stored> {
+    const committed = await load(roomId);
+    await db.roomGameState.update({ where: { roomId }, data: { stateJson: JSON.stringify({ ...committed.state, board: patch(boardOf(committed)) }) } });
+    return load(roomId);
+  }
+  const snapshot = async (roomId: string) => ({ stored: await load(roomId), events: await db.gameDomainEvent.count({ where: { roomId } }), receipts: await db.commandReceipt.findMany({ where: { roomId }, select: { commandId: true, status: true } }) });
+
+  it.each([
+    ['a consumed-roll marker for a roll the stored process has not made yet', (b: BoardState) => ({ ...b, lastMove: { ...b.lastMove!, rollCount: 2 } })],
+    ['a last move from a turn the stored sequence has not reached', (b: BoardState) => ({ ...b, lastMove: { ...b.lastMove!, turnNumber: 2 } })],
+    ['a last move whose steps contradict the route distance', (b: BoardState) => ({ ...b, lastMove: { ...b.lastMove!, steps: 2 } })],
+  ])('SQLite: %s is refused after reloading — no second move, no revision step, no event, no receipt success; projection and recovery refuse it too', async (_name, corrupt) => {
+    const { roomId } = await fixture({ face: 1 });
+    const initial = await load(roomId);
+    await handle(initial, roomId, 'a', intentOf(initial, 'a1', 't1'));
+    const committed = await load(roomId);
+    expect(committed.revision).toBe(5);
+    await damage(roomId, corrupt); // ONLY the board's last move is changed; N8 and N9 stay as committed
+    const before = await snapshot(roomId);
+    const commandId = `cmd-${randomUUID()}`;
+    const intent = intentOf(committed, 'a1', 't2'); // what the client was shown BEFORE the damage (a locally damaged board cannot even be parsed to build it)
+    let failure: unknown = null;
+    try { await sendReceipted(roomId, commandId, intent, async () => handle(await load(roomId), roomId, 'a', intent)); } catch (error) { failure = error; }
+    expect((failure as Error | null)?.message).toBe('BOARD_STATE_INVALID');
+    expect(gameErrorCode(failure)).toBe('BOARD_STATE_INVALID'); // the existing recovery / wire-code path, not INTERNAL_ERROR
+    const after = await snapshot(roomId);
+    expect(after.stored).toEqual(before.stored); // revision, positions (a1 still on t1), the stored roll, the sequence: bit for bit
+    expect((after.stored.state.board as { figures: Array<{ id: string; at: string }> }).figures.find(f => f.id === 'a1')?.at).toBe('t1'); // raw rows: a locally damaged board is not parseable by design
+    expect(diceOf(after.stored).rollCount).toBe(1);
+    expect(after.events).toBe(before.events);
+    expect(after.receipts.filter(r => r.status === 'COMPLETED')).toHaveLength(before.receipts.filter(r => r.status === 'COMPLETED').length); // the refused command never became a success
+    expect((await db.commandReceipt.findUnique({ where: { roomId_commandId: { roomId, commandId } } }))?.status).not.toBe('COMPLETED');
+    // the recovery / projection path refuses the same combination before anything is shown or sent
+    for (const release of ['FIGURES', 'NONE'] as const) {
+      expect(() => projectBoard(caller('a'), boardOf(after.stored), { scope: turnSequenceScopeOf(seqOf(after.stored)), sequence: seqOf(after.stored), dice: diceOf(after.stored), policy: ALLOW, release, stateVersion: after.stored.revision })).toThrow('BOARD_STATE_INVALID');
+    }
+  });
+
+  it('SQLite positive control: an UNDAMAGED history proceeds — a newer roll of the same process after an older spent one is usable, and the confirmed command stays a receipt replay', async () => {
+    const { roomId } = await fixture({ face: 1, maxRolls: 2 });
+    const stored0 = await load(roomId);
+    const commandId = `cmd-${randomUUID()}`;
+    const first = intentOf(stored0, 'a1', 't1');
+    let effects = 0;
+    const send = () => sendReceipted(roomId, commandId, first, async () => handle(await load(roomId), roomId, 'a', first), () => { effects++; });
+    expect((await send()).success).toBe(true);
+    const afterFirst = await load(roomId);
+    expect(boardOf(afterFirst).lastMove).toMatchObject({ diceId: 'dice-t1', rollCount: 1 });
+    // the holder rolls AGAIN inside the same process (the engine decides that this is allowed): a NEW, unspent roll
+    const dice = diceOf(afterFirst);
+    const seq = seqOf(afterFirst);
+    const rolled = rollDice(dice, { scope: turnSequenceScopeOf(seq), diceId: dice.diceId, sequence: seq, expectedTurnNumber: 1, expectedSequenceVersion: seq.version, expectedVersion: dice.version, expectedRollCount: dice.rollCount, caller: caller('a'), gate: OPEN, eligibility: eligibility(), source: () => 2 }).state;
+    await persist(roomId, afterFirst, { ...afterFirst.state, dice: rolled }, 'DICE_ROLLED');
+    const afterRoll = await load(roomId);
+    expect(diceOf(afterRoll)).toMatchObject({ rollCount: 2, diceId: 'dice-t1' });
+    expect((await handle(afterRoll, roomId, 'a', intentOf(afterRoll, 'a2', 't2'))).positions).toMatchObject({ a1: 't1', a2: 't2' });
+    const done = await load(roomId);
+    expect(boardOf(done).lastMove).toMatchObject({ rollCount: 2, figureId: 'a2' });
+    // the OLD confirmed command is still a replay of its stored answer — no second move, no new event
+    const events = await db.gameDomainEvent.count({ where: { roomId } });
+    expect(await send()).toMatchObject({ success: true, replayed: true });
+    expect(effects).toBe(1);
+    expect(await load(roomId)).toEqual(done);
+    expect(await db.gameDomainEvent.count({ where: { roomId } })).toBe(events);
+    // the stored history round-trips through JSON and projects for the holder with the roll spent
+    expect(parseBoardState(JSON.parse(JSON.stringify(boardOf(done))))).toEqual(boardOf(done));
+    expect(projectBoard(caller('a'), boardOf(done), { scope: turnSequenceScopeOf(seqOf(done)), sequence: seqOf(done), dice: diceOf(done), policy: ALLOW, release: 'FIGURES', stateVersion: done.revision })).toMatchObject({ roll: { rollCount: 2, spent: true }, targets: [] });
   });
 
   it('recovery in a SECOND process: the stored board is read back exactly (no move, no capture, no roll), projects for a viewer and the holder, and the next authorised move continues from it', async () => {

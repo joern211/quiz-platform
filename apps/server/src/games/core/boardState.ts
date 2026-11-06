@@ -21,7 +21,7 @@ import { z } from 'zod';
 import {
   BOARD_CAPTURE_MODES, BOARD_ERROR_CODES, BOARD_CONTRACT, BOARD_MAX_COUNTER, BOARD_MAX_FIGURES, BOARD_MAX_FIELDS, BOARD_MAX_OWNERS, BOARD_MAX_ROUTE, BOARD_MAX_STEPS, BOARD_RELEASES, BOARD_SCHEMA_VERSION,
   BoardActorIdSchema, BoardCounterSchema, BoardFigureSchema, BoardGeometrySchema, BoardLastMoveSchema, BoardMoveIntentSchema, BoardProjectionSchema, BoardRefSchema, BoardRunIndexSchema,
-  BoardScopeSchema, BoardStateVersionSchema, BoardUnitSchema, BoardError, boardCapturableFields, boardGeometryIssues,
+  BoardScopeSchema, BoardStateVersionSchema, BoardUnitSchema, BoardError, boardCapturableFields, boardGeometryIssues, boardLastMoveIssues,
   type BoardCaptureMode, type BoardGeometry, type BoardIssueCode, type BoardMoveIntent, type BoardProjection, type BoardScope, type BoardTarget,
 } from '@quiz/shared/board';
 import { parseDiceTurnState, type DiceTurnState } from './diceTurn.js';
@@ -99,18 +99,7 @@ function stateIssues(state: BoardState): BoardIssueCode[] {
     add('START_CAPACITY', (perOwner.get(ownerId) ?? 0) > (capacity.get(route[0]) ?? 0));
   }
   add('COUNTER_CONFLICT', (lastMove === null) !== (state.version === 0));
-  if (lastMove !== null) {
-    const mover = figures.find(figure => figure.id === lastMove.figureId);
-    const route = mover === undefined ? undefined : routeOf(state, mover.ownerId);
-    // the last move is the newest change: its figure still stands on the target, the captured ones stand on their start
-    add('LASTMOVE_CONFLICT', mover === undefined || route === undefined || mover.at !== lastMove.to || route.indexOf(lastMove.from) < 0 || route.indexOf(lastMove.to) <= route.indexOf(lastMove.from));
-    for (const id of lastMove.captured) {
-      const victim = figures.find(figure => figure.id === id);
-      const victimRoute = victim === undefined ? undefined : routeOf(state, victim.ownerId);
-      add('LASTMOVE_CONFLICT', victim === undefined || victimRoute === undefined || victim.at !== victimRoute[0] || (mover !== undefined && victim.ownerId === mover.ownerId));
-    }
-    add('LASTMOVE_CONFLICT', new Set(lastMove.captured).size !== lastMove.captured.length);
-  }
+  if (lastMove !== null) for (const code of boardLastMoveIssues(geometry, figures, lastMove)) issues.add(code); // the newest change must be explainable by the state itself
   return [...issues];
 }
 
@@ -151,6 +140,24 @@ function assertMatchesSequence(state: BoardState, sequence: TurnSequenceState): 
   if (!sameScope(boardScopeOf(state), { runIndex: sequence.runIndex, sequenceId: sequence.sequenceId, rosterRevision: sequence.rosterRevision, unit: sequence.unit })) throw new BoardError('BOARD_SCOPE_STALE');
   // the owners ARE actors of this sequence (players in player mode, teams in team mode)
   if (state.geometry.routes.some(route => !sequence.order.includes(route.ownerId))) throw new BoardError('BOARD_SCOPE_STALE');
+}
+/**
+ * Consistency of the THREE states that are only known together (board, N8 sequence, N9 dice): a last move that cannot belong to this history is a damaged state, whatever each part looks
+ * like on its own (N11-01). Rejected as BOARD_STATE_INVALID (code-only), read-only, before any projection or mutation — nothing is repaired, moved or "treated as unused":
+ *   - the last move comes from a turn that the bound N8 sequence has not reached (a move from the future);
+ *   - the spent-roll marker names THIS dice process, but another turn than the one the process belongs to, or a roll number that the process has not made yet;
+ *   - the marker is from the turn of the supplied dice process but names ANOTHER process (one process per turn).
+ * Limit (documented): a marker that was replaced by a plausible marker of an EARLIER turn cannot be told from a real history by the state alone; that needs the event history.
+ * A newer roll of the SAME process after an older spent one, and a later turn with a NEW process, stay valid. A dice state of another scope is judged by the scope checks, not here.
+ */
+export function assertBoardConsistent(board: BoardState, sequence: TurnSequenceState, dice: DiceTurnState | null): void {
+  const last = board.lastMove;
+  if (last === null) return;
+  const bad = () => new BoardError('BOARD_STATE_INVALID', ['LASTMOVE_CONFLICT']);
+  if (last.turnNumber > sequence.turnNumber) throw bad();
+  if (dice === null || !sameScope(boardScopeOf(board), { runIndex: dice.runIndex, sequenceId: dice.binding.sequenceId, rosterRevision: dice.binding.rosterRevision, unit: dice.binding.unit })) return;
+  if (last.diceId === dice.diceId && (last.turnNumber !== dice.binding.turnNumber || last.rollCount > dice.rollCount)) throw bad();
+  if (last.diceId !== dice.diceId && last.turnNumber === dice.binding.turnNumber) throw bad(); // N9 runs ONE process per turn: a marker of THIS turn that names another process is not a history, it is damage (the current roll would look unspent)
 }
 function assertVersion(state: BoardState, expected: unknown): void {
   // a malformed expectedVersion can never equal the stored counter: rejected with the same code (fail closed)
@@ -266,7 +273,7 @@ export function applyDecidedBoardMove(rawState: unknown, args: {
   args_(BoardActorIdSchema.safeParse(args.ownerId).success && BoardRefSchema.safeParse(args.figureId).success && BoardRefSchema.safeParse(args.to).success
     && typeof args.steps === 'number' && Number.isSafeInteger(args.steps) && args.steps >= 1 && args.steps <= BOARD_MAX_STEPS && Array.isArray(args.captured));
   const policy = readPolicy(args.policy);
-  if (state.lastMove !== null && state.lastMove.diceId === roll.diceId && state.lastMove.rollCount === roll.rollCount) throw new BoardError('BOARD_ROLL_SPENT');
+  if (state.lastMove !== null && (roll.turnNumber < state.lastMove.turnNumber || (state.lastMove.diceId === roll.diceId && roll.rollCount <= state.lastMove.rollCount))) throw new BoardError('BOARD_ROLL_SPENT'); // the roll named is the spent one or an OLDER one
   const figure = state.figures.find(candidate => candidate.id === args.figureId);
   if (figure === undefined) throw new BoardError('BOARD_FIGURE_UNKNOWN');
   if (figure.ownerId !== args.ownerId) throw new BoardError('BOARD_FIGURE_NOT_OWNED');
@@ -355,6 +362,7 @@ export function moveFigure(rawBoard: unknown, args: BoardActionArgs): BoardActio
   const dice = parseDiceTurnState(args.dice);
   args_(BoardRefSchema.safeParse(args.diceId).success);
   if (!sameScope(boardScopeOf(board), { runIndex: dice.runIndex, sequenceId: dice.binding.sequenceId, rosterRevision: dice.binding.rosterRevision, unit: dice.binding.unit }) || dice.diceId !== args.diceId) throw new BoardError('BOARD_SCOPE_STALE');
+  assertBoardConsistent(board, sequence, dice); // a damaged combination of board, sequence and dice is refused before anything else is judged about the move
   const holder = currentTurnHolder(sequence) as NonNullable<ReturnType<typeof currentTurnHolder>>; // authorizeTurnAction guarantees an ACTIVE turn with a holder
   if (dice.binding.turnNumber !== sequence.turnNumber || dice.binding.playerId !== holder.playerId || dice.binding.teamId !== holder.teamId) throw new BoardError('BOARD_TURN_STALE');
   if (dice.phase === 'CLOSED') throw new BoardError('BOARD_NO_ROLL');
@@ -405,6 +413,7 @@ export function projectBoard(audience: ProjectionAudience, rawBoard: unknown, ar
   args_(BoardStateVersionSchema.safeParse(args.stateVersion).success);
   const policy = readPolicy(args.policy);
   const dice = args.dice === null ? null : parseDiceTurnState(args.dice);
+  assertBoardConsistent(board, sequence, dice); // recovery / projection: the same check as for a mutation, at every release level
   const bad = () => new BoardError('BOARD_AUDIENCE_INVALID');
   if (!isPlain(audience) || typeof audience.role !== 'string' || !INFORMATION_ROLES.includes(audience.role)) throw bad();
   for (const id of [audience.participantId, audience.teamId] as unknown[]) {

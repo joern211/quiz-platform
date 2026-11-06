@@ -166,6 +166,31 @@ export const BoardLastMoveSchema = z.object({
 }).strict();
 export type BoardLastMove = z.infer<typeof BoardLastMoveSchema>;
 
+/**
+ * Everything about the LAST move that the board alone can decide (code-only issues, [] = consistent; precondition: the geometry is valid). The last move is the newest change, so:
+ * its figure stands on the target; `to` lies strictly FORWARD of `from` on the mover's route and `steps` equals exactly that route distance; a capture happens only on a FULL field (captured figures = the field's capacity), every captured figure belongs to ANOTHER owner, could have
+ * stood on that field (it lies on the victim's own route — which is also why a start or home field, exclusive to ONE owner by the geometry rules, can never be a capture field; no separate
+ * check for it can be told apart from this one) and now stands on its owner's start. Shared by the server (loading) and the client (projection).
+ */
+export function boardLastMoveIssues(geometry: BoardGeometry, figures: readonly BoardFigure[], lastMove: BoardLastMove): BoardIssueCode[] {
+  const conflict: BoardIssueCode[] = ['LASTMOVE_CONFLICT'];
+  const routeOf = (ownerId: string): readonly string[] | undefined => geometry.routes.find(route => route.ownerId === ownerId)?.route;
+  const mover = figures.find(figure => figure.id === lastMove.figureId);
+  const route = mover === undefined ? undefined : routeOf(mover.ownerId);
+  if (mover === undefined || route === undefined || mover.at !== lastMove.to) return conflict;
+  const from = route.indexOf(lastMove.from), to = route.indexOf(lastMove.to);
+  if (from < 0 || to <= from || lastMove.steps !== to - from) return conflict;
+  if (new Set(lastMove.captured).size !== lastMove.captured.length) return conflict;
+  if (lastMove.captured.length === 0) return [];
+  if (geometry.fields.find(field => field.id === lastMove.to)?.capacity !== lastMove.captured.length) return conflict;
+  for (const id of lastMove.captured) {
+    const victim = figures.find(figure => figure.id === id);
+    const victimRoute = victim === undefined ? undefined : routeOf(victim.ownerId);
+    if (victim === undefined || victimRoute === undefined || victim.ownerId === mover.ownerId || victim.at !== victimRoute[0] || !victimRoute.includes(lastMove.to)) return conflict;
+  }
+  return [];
+}
+
 // ── Client intent (figure + wished target + the COMPLETE origin; no step count, no capture, no reset) ───────────
 
 /**
@@ -260,7 +285,7 @@ export const BoardProjectionSchema = z.discriminatedUnion('release', [
     load.set(figure.at, (load.get(figure.at) ?? 0) + 1);
   }
   for (const [id, count] of load) if (count > (capacity.get(id) ?? 0)) bad('CAPACITY_EXCEEDED');
-  if (lastMove !== null && (!fieldIds.has(lastMove.from) || !fieldIds.has(lastMove.to) || !figures.some(figure => figure.id === lastMove.figureId))) bad('LASTMOVE_INVALID');
+  if (lastMove !== null && (!fieldIds.has(lastMove.from) || !fieldIds.has(lastMove.to) || boardLastMoveIssues(geometry, figures, lastMove).length > 0)) bad('LASTMOVE_INVALID');
   if (holder !== null && (holder.teamId !== null) !== (scope.unit === 'TEAM')) bad('HOLDER_UNIT_CONFLICT');
   if (roll !== null && holder === null) bad('ROLL_WITHOUT_HOLDER');
   if (you !== null) {
