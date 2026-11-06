@@ -16,6 +16,7 @@ Stand: 04.11.2026.
 5. Bewegung + Rücksetzung = ein Zustandsübergang; geschlagene Figuren gehen immer zum Start ihres Eigentümers (Ladeinvariante `START_CAPACITY`).
 6. Geometrie und `capture` sind ausdrückliche Daten ohne Plattformdefault.
 7. Beschädigte Zustände werden als Ganzes abgewiesen (`BOARD_STATE_INVALID`), nie repariert, nie neu bewegt.
+8. Brett, N8-Folge und N9-Wurf müssen **zusammen** zu einer möglichen Historie passen (`assertBoardConsistent`, in `moveFigure` und `projectBoard`; ein Verbrauchsmarker aus der Zukunft, für einen noch nicht gemachten Wurf oder für einen fremden Vorgang im selben Zug ist Beschädigung, nie „Wurf unverbraucht“). **Grenze:** ein durch einen *plausiblen* Marker eines früheren Zuges ersetzter Marker ist aus dem Zustand allein nicht erkennbar — das braucht die Ereignishistorie (Adapter).
 
 ## Verbindliche Pflichten des Runtime-Adapters
 1. **Ein Commit:** Brettzustand (enthält den Wurfverbrauch) + bei `sequenceBasisAdvanced` N8 `refreshEligibilityBasis` + State-Event + globales CAS (`saveGameStateIfRevision`) + Receipt. Beim Zugwechsel: N8-Übergang + `closeDiceTurn` + `openDiceTurn` (neue `diceId`) + Event + CAS + Receipt. Vergisst der Verbraucher das Schließen, verweigert `moveFigure` den alten Vorgang trotzdem (`BOARD_TURN_STALE`) — das ersetzt die Atomarität nicht.
@@ -25,7 +26,7 @@ Stand: 04.11.2026.
 5. **Zähler:** bei `BOARD_COUNTER_LIMIT` ist das Brett/die Folge erschöpft (praktisch unerreichbar); nicht klemmen, nicht wrappen.
 6. **Zugende/Zusatzwurf:** der Zug endet nicht von selbst (weder nach dem Zug noch bei „kein legales Ziel“). Ob nach einem Zug ein weiterer Wurf erlaubt ist (N9-Profil mit `maxRolls > 1`), entscheidet die Engine; der Brettzustand behandelt jeden neuen Wurf als unverbraucht.
 7. **Projektion:** `release` je Zielgruppe bewusst wählen (`NONE`/`FIGURES`, ohne Default); Audience und `recipientId` nur aus der Session; `stateVersion` = Version des Gesamt-Snapshots. Die UI bekommt `expected` (Scope, `boardId`, `recipientId`, unabhängiges `minStateVersion` aus dem eigenen Snapshotkanal).
-8. **Recovery:** Laden validiert streng; ein beschädigtes Brett läuft über den vorhandenen Fehlerpfad (`gameErrorCode` → `BOARD_STATE_INVALID`); kein erneutes Würfeln/Bewegen/Schlagen beim Laden.
+8. **Recovery:** Laden validiert streng (Brett allein: `parseBoardState`; zusammen mit der geladenen N8-Folge und dem N9-Vorgang: `assertBoardConsistent` — vor Rejoin/Projektion aufrufen, `projectBoard`/`moveFigure` tun es selbst); ein beschädigtes Brett läuft über den vorhandenen Fehlerpfad (`gameErrorCode` → `BOARD_STATE_INVALID`); kein erneutes Würfeln/Bewegen/Schlagen beim Laden.
 9. **Logging:** Fehler nur als Code (`BOARD_*`, `TURN_SEQ_*`, `DICE_*`); keine Figuren-, Feld- oder Schrittwerte in Logs.
 
 ## Offene Spielregeln (brauchen Freigabe, nicht von N11 entschieden)

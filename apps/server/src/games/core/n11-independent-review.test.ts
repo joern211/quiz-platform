@@ -1,3 +1,4 @@
+// INDEPENDENT REVIEW PROBES (PR #41, 06.11.2026), adopted unchanged as regression tests for N11-01.
 import { describe, expect, it } from 'vitest';
 import { prepareTurnSequence, startTurnSequence } from './turnSequence.js';
 import { prepareBoard, moveFigure, parseBoardState, projectBoard } from './boardState.js';

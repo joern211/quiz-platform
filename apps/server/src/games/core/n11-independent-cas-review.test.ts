@@ -1,3 +1,5 @@
+// INDEPENDENT REVIEW PROBE (PR #41, 06.11.2026), adopted as a regression test. Test body and expectations are the reviewer's, unchanged; only unused imports/helpers copied from
+// boardState.cas.integration.test.ts and the console.log were removed so that `pnpm lint` stays at 0 errors. The header below is the original text of the copied stand-in.
 // ============================================================
 // N11 — bounded integration proof for figure moves on the EXISTING persistence stack
 //
@@ -14,35 +16,24 @@
 // The roll is spent by the board state itself, so board change, roll consumption and the N8 basis step are ONE JSON blob in ONE CAS commit with ONE state event.
 // ============================================================
 
-import { execFile } from 'node:child_process';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { dirname, join, resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
-import { promisify } from 'node:util';
-import { randomUUID } from 'node:crypto';
+import { join } from 'node:path';
 import { PrismaClient } from '@prisma/client';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { applyStateEvent, type EngineStateSnapshot } from '@quiz/game-sdk';
 import { createTestDatabase } from '../../test-helpers.js';
 import { singleConnectionSqliteUrl } from '../../persistence/sqliteUrl.js';
-import { runReceipted } from './commands.js';
 import { materializeGameEvent } from './events.js';
-import { gameErrorCode } from './errors.js';
-import { GameStateConflictError, saveGameStateIfRevision } from './state.js';
-import { boardActionArgsFromIntent, moveFigure, parseBoardState, prepareBoard, projectBoard, readBoardMoveIntent, type BoardPolicy, type BoardState } from './boardState.js';
-import { closeDiceTurn, diceTurnScopeOf, openDiceTurn, parseDiceTurnState, rollDice, type DiceTurnState } from './diceTurn.js';
+import { saveGameStateIfRevision } from './state.js';
+import { boardActionArgsFromIntent, moveFigure, parseBoardState, prepareBoard, readBoardMoveIntent, type BoardPolicy, type BoardState } from './boardState.js';
+import { openDiceTurn, parseDiceTurnState, rollDice, type DiceTurnState } from './diceTurn.js';
 import {
-  advanceTurnSequence, currentTurnHolder, parseTurnSequenceState, prepareTurnSequence, refreshEligibilityBasis, startTurnSequence, turnSequenceScopeOf, type TurnEligibility, type TurnSequenceState,
+  parseTurnSequenceState, prepareTurnSequence, refreshEligibilityBasis, startTurnSequence, turnSequenceScopeOf, type TurnEligibility, type TurnSequenceState,
 } from './turnSequence.js';
 import { DICE_CONFIG_SINGLE_D6 } from '@quiz/shared/dice';
 import { type BoardGeometry, type BoardMoveIntent } from '@quiz/shared/board';
 
-const run = promisify(execFile);
-const serverRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
 const SLUG = 'n11-stand-in';
-/** A STAND-IN action name: `CRITICAL_COMMAND_ACTIONS` is a closed whitelist and N11 introduces no new command kind. The real consumer adds its own board action there. */
-const STAND_IN_ACTION = 'ROUND_ADVANCE' as const;
 const PLAYERS = ['a', 'b', 'c'];
 const ALLOW: BoardPolicy = { capture: 'ALLOWED' };
 let db: PrismaClient, dir: string, url: string, previousGlobal: PrismaClient | undefined, sequence = 0, hostId: string, definitionId: string;
@@ -143,28 +134,6 @@ async function handle(loaded: Stored, roomId: string, who: string, intent: unkno
   await persist(roomId, loaded, { ...loaded.state, turnSequence: nextSeq, board: result.state }, 'BOARD_MOVED', over.crashBeforeCas === true);
   return { version: result.state.version, positions: positions(result.state), captured: result.transition.captured };
 }
-/** The consumer's turn change: ONE commit with the N8 transition, the close of the old dice process, the opening of the new one; the board is untouched. */
-async function endTurn(loaded: Stored, roomId: string, face: number) {
-  const seq = seqOf(loaded), dice = diceOf(loaded);
-  const next = advanceTurnSequence(seq, { scope: turnSequenceScopeOf(seq), expectedVersion: seq.version, expectedTurnNumber: seq.turnNumber, outcome: 'COMPLETE', eligibility: eligibility() }).state;
-  closeDiceTurn(dice, { scope: diceTurnScopeOf(dice), diceId: dice.diceId, expectedTurnNumber: dice.binding.turnNumber, expectedVersion: dice.version });
-  const holder = currentTurnHolder(next)!;
-  const opened = openDiceTurn({ scope: turnSequenceScopeOf(next), diceId: `dice-t${next.turnNumber}`, config: DICE_CONFIG_SINGLE_D6, sequence: next, expectedTurnNumber: next.turnNumber });
-  const rolled = rollDice(opened, {
-    scope: turnSequenceScopeOf(next), diceId: opened.diceId, sequence: next, expectedTurnNumber: next.turnNumber, expectedSequenceVersion: next.version, expectedVersion: 0, expectedRollCount: 0,
-    caller: caller(holder.playerId), gate: OPEN, eligibility: eligibility(), source: () => face,
-  }).state;
-  await persist(roomId, loaded, { ...loaded.state, turnSequence: next, dice: rolled }, 'TURN_CHANGED');
-}
-
-type Settled = PromiseSettledResult<unknown>;
-const outcome = (result: Settled): string => (result.status === 'fulfilled' ? 'OK' : String((result.reason as Error).message ?? result.reason));
-const ok = (results: Settled[]) => results.filter(r => r.status === 'fulfilled').length;
-const sendReceipted = (roomId: string, commandId: string, intent: unknown, run: () => Promise<unknown>, onEffect?: () => void) => runReceipted(db, {
-  roomId, commandId, actor: { actorId: 'a', actorRole: 'PLAYER' }, action: STAND_IN_ACTION, payload: { kind: 'BOARD_MOVE', intent },
-  mutate: async () => { onEffect?.(); return run() as Promise<{ version: number }>; }, toResponse: data => ({ success: true, ...(data as object) }),
-});
-
 describe('independent N11 persisted corruption probe', () => {
   it('a corrupted consumed-roll marker must stop the next move after reloading SQLite', async () => {
     const { roomId } = await fixture({ face: 1 });
@@ -177,7 +146,7 @@ describe('independent N11 persisted corruption probe', () => {
     let failure: unknown = null;
     try { await handle(recovered, roomId, 'a', intentOf(recovered, 'a1', 't2')); } catch (error) { failure = error; }
     const after = await load(roomId);
-    console.log(JSON.stringify({ revisionBefore: committed.revision, revisionAfter: after.revision, positionAfter: positions(boardOf(after)).a1, persistedRollCount: diceOf(after).rollCount }));
+    // (the reviewer's probe printed {revisionBefore, revisionAfter, positionAfter, persistedRollCount} here; the assertions below carry the same facts)
     expect(failure).toBeInstanceOf(Error);
     expect(after.revision).toBe(committed.revision);
     expect(positions(boardOf(after)).a1).toBe('t1');
