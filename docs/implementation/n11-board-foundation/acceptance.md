@@ -1,20 +1,20 @@
 # N11 — Abnahme (Anforderungen → Nachweis)
 
 Stand: 04.11.2026. Basis `main` @ `93305a864d855307e64c9dcab8d9675e1b4509a2` (N10 gemergt; main-CI 41819243936 `completed/success`). **N11-Grundlagenpaket umgesetzt / reviewbereit** — nicht „Raus damit! fertig“. **0 neue echte Engine-Verbraucher.** Core-DoD (Master §13.2) bleibt offen.
-Finaler Head, PR-Nummer und die CI am **finalen** Head stehen in der PR-Beschreibung und im Abschlussbericht (ein Commit kann seinen eigenen Hash nicht enthalten). Die lokalen Läufe liefen am Codezustand `a69b8ac`/`fde945c` (danach nur Harness-Skript und Dokumente); alle lokal in der Cloud-Sitzung, **nicht** in GitHub-CI.
+Finaler Head, PR-Nummer und die CI am **finalen** Head stehen in der PR-Beschreibung und im Abschlussbericht (ein Commit kann seinen eigenen Hash nicht enthalten). Die lokalen Läufe unten liefen am Codezustand nach der Nachbesserung N11-01 (06.11.2026; letzter Code-/Testcommit, danach nur Dokumente); alle lokal in der Cloud-Sitzung, **nicht** in GitHub-CI. Stand davor (Erstabnahme, PR-Head `b832241`): Server 1679 / Web 794 / E2E 45 / Harness 15, GitHub-CI und E2E grün.
 
 ## Prüfläufe (lokal, Linux, Node 22.23.4, nacheinander)
 | Prüfung | Befehl | Ergebnis |
 |---|---|---|
 | Alles | `pnpm check` (Typecheck, Lint, Test, Build) | Exit 0 |
 | Typecheck | in `pnpm check` | grün, einschließlich Harness `harness/n11-board` (Server- und Web-Projekt) |
-| Lint | in `pnpm check` | 0 Fehler, 109 Warnungen (**identisch zum Ausgangswert**, keine in N11-Dateien); `git diff --check` leer |
-| Server | in `pnpm check` | **100 Dateien, 1679 Tests**, 3 übersprungen (vorbestehend) (Ausgangswert N10: 98 / 1608; +71 Tests: `boardState.test.ts` 51, `boardState.cas.integration.test.ts` 20) |
-| Web | in `pnpm check` | **62 Dateien, 794 Tests** (Ausgangswert N10: 60 / 759; +35: `BoardView.test.tsx` 19, `boardIntake.test.ts` 16) |
+| Lint | in `pnpm check` | 0 Fehler, 109 Warnungen (**identisch zum Ausgangswert**, keine in N11-Dateien); `git diff --check` leer. (Ein Zwischenlauf hatte 12 Fehler in der übernommenen Prüfdatei — ungenutzte Importe/Helfer, behoben, Testkörper unverändert.) |
+| Server | in `pnpm check` | **102 Dateien, 1707 Tests** (Ausgangswert N10: 98 / 1608; +99: `boardState.test.ts` 69, `boardState.cas.integration.test.ts` 25, Prüferdateien `n11-independent-review.test.ts` 4 und `n11-independent-cas-review.test.ts` 1) |
+| Web | in `pnpm check` | **62 Dateien, 794 Tests** (Ausgangswert N10: 60 / 759; +35: `BoardView.test.tsx` 19, `boardIntake.test.ts` 16; unverändert zur Erstabnahme, das geschärfte Projektionsschema ließ alle Fixtures gültig) |
 | Build | in `pnpm check` | grün (bekannte Chunk-Größen-Warnung); der gebaute Server lädt den Brettvertrag im Plain-Node-Strip-Modus (`gameErrorCode`-Whitelist; `rate-limiter.integration.test.ts` startet `dist/app.js`) |
 | E2E | `CI=true pnpm test:e2e -- --project=chromium` (frische SQLite: `migrate deploy` + `db:seed`) | **45 bestanden**, 0 Retries, 0 Skips (wie Ausgangswert). Die E2E-Suite enthält bewusst keine N11-Route. |
-| N11-Harness | `node apps/web/harness/n11-board/check.cjs` | **15 Szenarien**, am Endstand 4 Läufe hintereinander grün (je ~17–18 s), danach keine Kindprozesse. Chromium (Playwright), getrennte Kontexte (Halter, anderer Spieler, Viewer), echte Domäne mit echter SQLite |
-| Mutationsprüfung | `review.md` B | 23 Mutanten, alle gefangen; Browsertreffer für 10 davon; Arbeitsbaum danach sauber |
+| N11-Harness | `node apps/web/harness/n11-board/check.cjs` | **16 Szenarien** (neu S16 beschädigter Snapshot), am Endstand 2 Läufe hintereinander grün (je ~18 s), danach keine Kindprozesse. Chromium (Playwright), getrennte Kontexte (Halter, anderer Spieler, Viewer), echte Domäne mit echter SQLite |
+| Mutationsprüfung | `review.md` B und F | 23 + 12 Mutanten (Erstabnahme + N11-01), alle gefangen; Browsertreffer für 11 davon; Arbeitsbaum danach sauber |
 Warnungen/Fehler im Lauf: nur vorbestehende Logzeilen (Audio-Prozessor nicht verfügbar im Test, `[WebServer]`-Stacktraces der E2E-Prozesse beim Beenden); keine neuen.
 
 ## Ehrliche Grenzen der Nachweise
@@ -39,3 +39,14 @@ Warnungen/Fehler im Lauf: nur vorbestehende Logzeilen (Audio-Prozessor nicht ver
 | §4 Versions-/Zustandsgrenzen | Domäne „versions“ (BASIS ohne Bewegung, erschöpfte Zähler, fehlende Reserve), Beschädigungstabelle |
 | §4 Zweite Prüfung + Gegenversuche | `review.md` |
 | §5 Doku, Matrix, Übergabe | dieses Verzeichnis, `../g5-consumer-acceptance/matrix.md` Zeile N11 (H, 0 Verbraucher) |
+
+## Nachbesserung N11-01 (Prüfbericht 06.11.2026): Anforderungen → Nachweis
+| Auftrag | Nachweis |
+|---|---|
+| Head geprüft, Gegenproben zuerst reproduziert | Head unverändert `b832241`; 5 Prüfer-Tests am alten Stand rot, SQLite-Ausgabe `revisionAfter: 6` (`review.md` F) |
+| Ladeinvarianten aus Geometrie und `lastMove` (Schrittzahl = Routenabstand, Möglichkeit des Schlags) | `boardLastMoveIssues` (Shared); `boardState.test.ts` „N11-01“ (Schrittzahl, Richtung, 7 Schlagverletzungen); Mutationen N1, N2, N4, N5, N12 |
+| Konsistenz Brett/N8/N9 bei Mutation **und** Projektion; Zug aus der Zukunft, Marker für noch nicht existierenden Wurf desselben Vorgangs | `assertBoardConsistent`; Domäne (5 Zielgruppen × 2 Freigaben, Zug), SQLite (3 Beschädigungen), Browser S16 (4); Mutationen N6–N10, N13 |
+| Fehlercode/Recovery-Pfad, beim Laden nichts verändern | `BOARD_STATE_INVALID` über `gameErrorCode`; Eingabe eingefroren und unverändert; SQLite: Stand, Revision, Events, Receipts vorher = nachher |
+| Positivkontrollen (neuerer Wurf desselben Vorgangs, späterer Zug mit neuem Vorgang, Receipt-Replay, Roundtrip) | Domäne „positive controls“, SQLite „positive control“ (zweiter Wurf desselben Vorgangs persistiert, alter Command bleibt Replay, keine neuen Events), Browser S16 (danach reguläre Welt) |
+| Gegenproben übernommen, Testaufbau-Änderungen erklärt | `n11-independent-*.test.ts` (Körper unverändert; nur ungenutzte Importe/Helfer und ein `console.log` entfernt, siehe Kopfkommentar); Fixture-Korrektur im eigenen Zählertest (zweiter Vorgang im selben Zug war gegen N9), `review.md` F |
+| SQLite-Reproduktion grün | Prüfer-Test `n11-independent-cas-review.test.ts`: `revisionBefore 5 = revisionAfter 5`, `a1` bleibt auf `t1` |

@@ -25,7 +25,7 @@ Weitere Pfade, die ich bewusst durchging und **ohne** Befund schloss: Rollenmehr
 | M-i | `pnpm test` am frischen Checkout: `rate-limiter.integration.test.ts` braucht `dist/app.js` (Build vor Test, wie in CI); nach `pnpm build` grün. Kein N11-Fehler. | `ERR_MODULE_NOT_FOUND` |
 
 ## B. Mutationsprüfung (reversibel; Arbeitsbaum danach sauber, `git status` leer bis auf die gewollten Commits)
-Server = `boardState.test.ts` + `boardState.cas.integration.test.ts` (71 Tests), Web = `src/board` + `BoardView.test.tsx` (35), H = Browserharness (15 Szenarien). Angegeben sind die **fehlschlagenden** Tests/Meldungen.
+Server = `boardState.test.ts` + `boardState.cas.integration.test.ts` (Erstabnahme: 71 Tests), Web = `src/board` + `BoardView.test.tsx` (35), H = Browserharness (15 Szenarien). Angegeben sind die **fehlschlagenden** Tests/Meldungen.
 
 | Mutation | Server | Web | H |
 |---|---|---|---|
